@@ -1,0 +1,250 @@
+# Scenario suite 03 — Public CFP submission flow (SCOPE P0 #2 + committed P1 reaches)
+#
+# Shared concrete fixtures (referenced by ID below and by 04-speaker-portal.yaml):
+# - Seeded demo event "AI.Engineer Sandbox Event" (Oct 12-14, 2026).
+# - FORM_URL = public URL of the seeded "Session Submission Form" (admin Forms list -> Copy Link).
+#   Seeded config: OPEN; Close Date 2026-09-15 @ 11:59 PM PDT; submission limit 3 per user;
+#   Speaker role Min 1 / Max 4; fields Title (text, max 255, required), Description (rich text,
+#   max 5000, required), Format / Tags / Track (dropdowns, required), Level / Language (dropdowns,
+#   optional) — options fed by the event Library (Format includes "Featured Keynote"; Tags include
+#   "Tag A"; Tracks include "Topic A"; Levels include "Introductory"; Languages include "English").
+# - PANEL_FORM_URL = created in CFP-S5 step 1 (Speaker Min 2 / Max 4).
+# - Marcus Chen <marcus.chen@example.com> is a SEEDED submitter account; its seeded password is
+#   referred to as MARCUS_PW. Identities minted by this suite: Priya Raman <priya@example.com>
+#   (CFP-S1), Dana Okafor + Leo Martins (CFP-S5), Ravi Patel (CFP-S6).
+# - Email assertions run against the email outbox (DB) and the programmatically readable test
+#   inbox (VERIFICATION-CAPABILITIES #4).
+
+module: public-cfp
+# `touches` filled by the WALKER 2026-08-09 — see docs/scenarios/walks/03-public-cfp.walk.md
+touches:
+  tables: [events, forms, formFields, fields, formats, tags, tracks, levels, users,
+           authSessions, contacts, submissions, submissionAnswers, submissionTracks,
+           submissionTags, participants, emailTemplates, emailOutbox]
+  ports: [email, turnstile, clock]
+  routes: [submit.$eventSlug.$formId.tsx, "submit.$eventSlug.$formId.step.* (route-map grant)",
+           login.tsx, logout.tsx, admin.forms.tsx, admin.forms.$formId.tsx,
+           admin.settings.library.tsx, "portals.$eventSlug.$portalId.* (redirect/email target)"]
+scenarios:
+  - id: CFP-S1
+    name: First-time speaker submits end-to-end — logged-out load, new account, submit, success message, auto-redirect, confirmation email
+    persona: anonymous
+    steps: |
+      1. As admin (separate session), edit the Session Submission Form's success-page message to
+         the sentinel text "Merci! Our program team reads every proposal - expect a decision by
+         October 1." and Save. (Proves the success page renders ADMIN-CONFIGURED copy, not a
+         hardcoded string.)
+      2. In a fresh incognito window (logged out), open FORM_URL. Before any login, confirm: the
+         event name "AI.Engineer Sandbox Event" is visible; the banner reads "Form submissions
+         will be accepted until September 15, 2026 at 11:59 PM PDT"; the submission-limit line
+         "Submission Limit: 3 submissions per user" is visible; the stepper rail shows
+         Welcome -> Account -> Submission -> Participant -> Review.
+      3. Read the Welcome step's organizer-authored rich text, then click Get Started -> Account step.
+      4. Enter priya@example.com (new email) -> the signup branch appears: First Name "Priya",
+         Last Name "Raman", password "Priya!Speaks2026", accept terms -> Create account. The page
+         now shows "You are logged in as Priya Raman (priya@example.com)".
+      5. Submission step: Title "Evals in Production: Lessons from 40 Deployments" (the counter
+         reads 48/255 once typed); Description rich text of two sentences with the phrase
+         "offline evals lie" in bold; Format "Featured Keynote"; Tags "Tag A"; Track "Topic A";
+         Level "Introductory"; Language "English" -> Next step.
+      6. Participant step: Priya's First/Last/Email arrive pre-filled from the account step; the
+         role banner reads "1-4 Speakers allowed - 1 added" (no block — min is 1); Mobile Phone
+         +1 415 555 0142; Biography "Infra engineer, 10 years shipping ML systems."
+         -> Continue to review.
+      7. Review step shows every entered value verbatim (title, bolded description phrase, all
+         five dropdown choices, the participant row). Click Submit. Record the URL of one wizard
+         step for CFP-S7's deep-link probe.
+      8. Success page: green check + EXACTLY the sentinel message from step 1; a "Continue to
+         portal" button and a "submit another session" link are present. Touch nothing.
+      9. Without any click, the page auto-redirects to Priya's speaker portal between 8 and 12
+         seconds after the success page rendered. Record the portal URL (PORTAL_URL for suite 04).
+      10. Query the email outbox: one confirmation email to priya@example.com (status sent)
+          whose body contains a speaker-portal link. Open that link in a NEW incognito window ->
+          it lands on the portal login/password gate (not an error, and not a self-authenticating
+          session).
+    success_signals:
+      - "Screenshot at step 2: event name + close-date banner + submission-limit line all visible with zero authentication."
+      - "DB: exactly one submissions row for the form (title 'Evals in Production: Lessons from 40 Deployments', status Pending) linked to a newly created contact for priya@example.com."
+      - "Success page body contains the step-1 sentinel string exactly (screenshot + DOM grep) — admin-configured copy provably flows through."
+      - "Email outbox row: to=priya@example.com, status sent, body contains the portal URL; a GET of that URL returns the portal login gate."
+      - "EXPERIENCE: first paint of FORM_URL in under 1 second with no skeleton-screen theater (the Sessionboard contrast); every stepper transition in steps 3-7 happens without a full-page reload."
+      - "EXPERIENCE: the auto-redirect fires hands-free ~10 seconds after success — a user who does nothing still ends up in their portal."
+      - "EXPERIENCE: the whole flow is usable on a 390px-wide mobile viewport (banner, stepper, inputs, and buttons all reachable)."
+
+  - id: CFP-S2
+    name: Returning speaker logs in — wrong password rejected cleanly, correct password proceeds
+    persona: speaker
+    steps: |
+      1. In a fresh incognito window, open FORM_URL -> Get Started -> Account step.
+      2. Enter the seeded submitter email marcus.chen@example.com -> the step branches to
+         "Log in with your existing account" with a password prompt and a visible
+         "Forgot your password?" link.
+      3. Enter the wrong password "definitely-wrong-1A!" -> Log In.
+      4. Confirm rejection: a clear inline error at the password field; the typed email is
+         preserved (no field wipe); the user remains on the Account step with no session issued.
+      5. Retry the same wrong password twice more — behavior stays consistent (no crash, no raw
+         error text, no silent lockout without a message).
+      6. Enter the correct seeded password (MARCUS_PW) -> Log In -> the wizard advances to the
+         Submission step and shows "You are logged in as Marcus Chen (marcus.chen@example.com).
+         Not you? Click here to log out."
+      7. Click "Click here to log out" -> returns to the logged-out state; reopening FORM_URL
+         does not resurrect Marcus's session.
+    success_signals:
+      - "Screenshot at step 4: inline password error with the email field still populated."
+      - "After step 4, no authenticated session exists: a direct GET of the portal home URL still returns the login gate."
+      - "DB: the failed attempts created no contact rows and mutated nothing."
+      - "The 'Forgot your password?' link is present on the existing-account branch (its end-to-end behavior is SP-S8 in 04-speaker-portal.yaml)."
+      - "EXPERIENCE: the error renders inline without a full-page reload; the login inputs carry autocomplete=\"username\" / autocomplete=\"current-password\" so password managers can fill them."
+
+  - id: CFP-S3
+    name: Submission step — required-field validation persists nothing, char counter caps at 255, dropdowns are config-driven
+    persona: speaker
+    steps: |
+      1. As Marcus (logged in via CFP-S2), on the Submission step: type a two-paragraph rich-text
+         Description but leave Title EMPTY. Click Next step.
+      2. Confirm: progression is blocked; an inline error renders at the Title field; both
+         Description paragraphs are still present, untouched.
+      3. Query the DB: the failed attempt created NO submissions row — not even a draft.
+      4. Paste a 300-character string into Title -> the input caps at 255 characters (or rejects
+         with an inline message); the counter reads "255/255".
+      5. Replace Title with "Warm-up: Guardrails Notes" — the counter live-updates as typed.
+      6. Open every dropdown and record its options: Format, Tags, Track, Level, Language must
+         match the admin-configured option lists one-for-one (including "Featured Keynote",
+         "Tag A", "Topic A", "Introductory", "English") — no phantom or hardcoded options.
+      7. As admin (separate session): add a new Format option "Lightning Talk" in the event
+         Library; Save.
+      8. As Marcus, reload the Submission step -> the Format dropdown now offers "Lightning Talk".
+         Select it, then abandon the wizard without saving (Marcus's real submission happens in
+         SP-S3 of 04-speaker-portal.yaml).
+    success_signals:
+      - "DB after step 3: zero new submission rows from the failed validation."
+      - "Screenshot at step 2: inline Title error with the Description content demonstrably preserved (no data loss on validation failure)."
+      - "Step 6 evidence: the recorded dropdown options equal the admin-configured lists exactly."
+      - "Step 8: 'Lightning Talk' appears on the public form after the Library edit — dropdowns are provably config-driven, not baked in."
+      - "EXPERIENCE: validation is inline and instant (no page reload, no lost work) and the Title counter updates on every keystroke."
+
+  - id: CFP-S4
+    name: Save as draft mid-flow, leave entirely, resume with every value pre-filled
+    persona: speaker
+    steps: |
+      1. As Priya (account from CFP-S1), open FORM_URL, log in, and start a new submission.
+      2. Submission step: Title "Async Agents on the Edge"; Description rich text containing the
+         word "durable" in bold; Format "Featured Keynote". Click Save as draft (before ever
+         reaching the Participant step).
+      3. Confirm the draft acknowledgment: a banner/notice indicating a draft is being edited,
+         with a last-saved timestamp.
+      4. Close the browser window entirely (abandon the session mid-flow).
+      5. In a new window, open FORM_URL and log in as priya@example.com again -> the form
+         recognizes the saved draft and offers to resume it (a resume prompt or a submissions hub
+         listing "Async Agents on the Edge" with a Draft status and a Resume action).
+      6. Resume the draft -> Title, Description (bold "durable" intact), and Format
+         "Featured Keynote" are pre-filled exactly as saved.
+      7. In a separate tab, open Priya's speaker portal -> the draft is visible there with a
+         Draft status pill and a path to resume it.
+      8. Leave the draft saved and UNSUBMITTED (SP-S1 in 04-speaker-portal.yaml asserts its
+         portal pill; CFP-S7 asserts it cannot be completed after close).
+    success_signals:
+      - "DB: exactly one submissions row in draft status for priya@example.com after step 2 — and STILL exactly one after resume (no duplicate row minted by resuming)."
+      - "Screenshot at step 6: pre-filled fields with the rich-text bold surviving the save/resume round-trip."
+      - "Screenshot at step 7: the portal surfaces the draft with a resume path."
+      - "EXPERIENCE: resuming requires zero hunting — logging back in surfaces the draft immediately, and nothing typed before Save as draft is lost."
+
+  - id: CFP-S5
+    name: Participant step — role count "2-4 Speakers" blocks progression, live email validation, max cap, Add Secondary Contact
+    persona: speaker
+    steps: |
+      1. As admin: duplicate the Session Submission Form, name it "Panel Submission Form", set the
+         Speaker role to Min 2 / Max 4, keep it open, Copy Link -> record PANEL_FORM_URL.
+      2. As Priya, open PANEL_FORM_URL, log in, and fill the Submission step: Title "Agents in
+         Production: A Practitioners Panel"; a two-sentence Description; Format "Featured
+         Keynote"; Tags "Tag A"; Track "Topic A" -> Next step.
+      3. Participant step: the role banner reads "2-4 Speakers allowed - 1 added" (Priya
+         pre-filled). Click Continue to review -> progression BLOCKED with a clear message that at
+         least 2 speakers are required.
+      4. Add a speaker: First "Dana", Last "Okafor", Email "dana@" -> leaving the field shows the
+         live inline error "Enter a valid email address." before any submit.
+      5. Correct the email to dana.okafor@example.com; Mobile Phone +1 646 555 0177; short bio.
+         The banner now reads "2-4 Speakers allowed - 2 added".
+      6. Max-cap probe: add two more valid speakers (Pat Quinn <pat.quinn@example.com>, Sam Reyes
+         <sam.reyes@example.com>) -> banner reads "- 4 added"; attempting to add a 5th speaker is
+         refused (control disabled or inline Max-4 message).
+      7. Remove Pat and Sam -> banner returns to "- 2 added" instantly.
+      8. Click "+ Add Secondary Contact" (helper copy explains secondary contacts assist with
+         tasks and communication); enter Leo Martins <leo.martins@example.com>.
+      9. Continue to review -> now allowed. Review lists 2 speakers + 1 secondary contact.
+         Submit -> success page.
+    success_signals:
+      - "Screenshot at step 3: blocked progression + the role-count requirement message while only 1 speaker is added."
+      - "DB: the submission has exactly 3 participant rows — Priya (speaker), Dana (speaker), Leo (secondary role) — with Dana and Leo contacts created/linked by email."
+      - "Screenshot at step 4: live per-field email validation fired on blur, not as a post-submit surprise."
+      - "Step 6 evidence: the 5th-speaker attempt is refused at Max 4."
+      - "EXPERIENCE: the '2-4 Speakers allowed - N added' counter updates instantly as speakers are added and removed, with no page reload."
+
+  - id: CFP-S6
+    name: Submission limit enforced — drafts count toward the limit, over-limit attempts blocked client- and server-side
+    persona: speaker
+    steps: |
+      1. In a fresh incognito window, open FORM_URL (limit: 3 per user) and create the account
+         Ravi Patel <ravi.patel@example.com>, password "Ravi!Limit33".
+      2. Submit submission #1 "Retrieval Beyond RAG" (minimal valid: title, description, required
+         dropdowns, self as sole speaker) -> success page.
+      3. On the success page, click the "submit another session" link -> the wizard restarts clean
+         (no stale values from submission #1).
+      4. Fill submission #2 Title "Guardrails that Scale" + Description, then Save as draft —
+         do NOT submit.
+      5. Start again and fully submit submission #3 "Fine-tuning on a Budget" -> success page.
+      6. Attempt to start a 4th submission (revisit FORM_URL logged in as Ravi) -> BLOCKED: a
+         clear, human-readable message that the submission limit (3) is reached — 2 submitted +
+         1 draft all count — with no path into the Submission step.
+      7. Server-side probe: replay/forge the submission POST directly for a 4th submission titled
+         "Sneaky Fourth Talk" -> rejected (4xx / validation error), nothing persisted.
+    success_signals:
+      - "DB: exactly 3 submissions rows for ravi.patel@example.com — 2 submitted + 1 draft; no row titled 'Sneaky Fourth Talk'."
+      - "Screenshot at step 6: the limit message names the limit and reads as product copy, not a dead button or blank screen."
+      - "The step-6 block with only 2 submitted proves DRAFTS COUNT toward the submission limit."
+      - "Step 7: enforcement is server-side, not just a hidden button."
+      - "EXPERIENCE: 'submit another' restarts the wizard instantly without leftover values; the limit message tells the user what they can still do (e.g. manage existing submissions in the portal) instead of dead-ending."
+
+  - id: CFP-S7
+    name: Closed form — after the close date nobody submits, resumes, or forges their way in
+    persona: anonymous
+    steps: |
+      1. As admin: set the Session Submission Form's Close Date to 2026-08-01 @ 11:59 PM PDT (in
+         the past); Save. Confirm the admin Forms list now shows the form as Closed.
+      2. In a fresh incognito window (logged out), open FORM_URL -> the form renders its closed
+         state: "Form submissions are no longer being accepted." (or equivalent), with no
+         Get Started path into the wizard.
+      3. Deep-link probe: request the wizard step URL recorded in CFP-S1 step 7 directly -> still
+         the closed state; no form fields render.
+      4. As Ravi (logged in, holding the draft "Guardrails that Scale" from CFP-S6): open the
+         form -> the draft cannot be resumed into a submission; the closed state governs (the
+         edit window ends at the close date).
+      5. Server-side probe: forge the submit POST with valid-looking fields -> rejected; nothing
+         persisted.
+      6. Cleanup: as admin, restore the Close Date to 2026-09-15 @ 11:59 PM PDT; reload FORM_URL
+         -> the form is open again and the banner shows the future close date.
+    success_signals:
+      - "DB unchanged across steps 2-5: no submission rows created or updated while closed."
+      - "Screenshots: closed banner logged-out (step 2), closed state on the deep link (step 3), Closed badge in the admin Forms list (step 1)."
+      - "Step 6: reopening works — the close date is data-driven in both directions, not a one-way latch."
+      - "EXPERIENCE: the closed form is a polite, branded full page (event name + closed message), not a 404/500 or a half-rendered wizard."
+
+  - id: CFP-S8
+    name: Bot protection — Turnstile present on the public form, non-human submissions rejected
+    persona: anonymous
+    steps: |
+      1. With Turnstile configured using Cloudflare's always-pass test sitekey
+         (1x00000000000000000000AA), open FORM_URL logged out and proceed to the Account step:
+         the Turnstile widget is present in the DOM (cf-turnstile element/iframe).
+      2. Create a throwaway account human.check@example.com, password "Human!Check12" -> signup
+         succeeds with ZERO interactive challenge (invisible/managed pass path).
+      3. Reconfigure with the always-blocks test sitekey (2x00000000000000000000AB); reload and
+         attempt the same signup as bot.check@example.com -> the server rejects with a clear,
+         human-readable error; no account or session is created.
+      4. Forged-request probe: POST the account-creation (or submission) endpoint directly with
+         no Turnstile token at all -> rejected (4xx); nothing persisted.
+    success_signals:
+      - "DOM/screenshot at step 1: the Turnstile widget renders on the public form."
+      - "DB: a contact exists for human.check@example.com; NONE exists for bot.check@example.com; the forged POST created nothing."
+      - "Step 3's failure message is user-facing product copy — no stack traces or raw provider errors."
+      - "EXPERIENCE: a legitimate user never sees a puzzle — protection is invisible on the pass path and the form stays fully keyboard-navigable."

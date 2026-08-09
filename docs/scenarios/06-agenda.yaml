@@ -1,0 +1,142 @@
+# Scenarios — Agenda builder: day×room grid, drag-and-drop, conflicts, settings.
+# Ground truth: SCOPE.md P0 #6 (floor = day/room + drag-drop + conflict detection),
+# docs/flows/06-agenda-embeds.md (agenda parts only — embeds are P2, not covered here),
+# docs/flows/verification/D (conflict classes = speaker double-book + same-room/time ONLY,
+# red-clock marker, reciprocal Conflicts rows, format→default-duration in Agenda Settings),
+# docs/reference/discord/CLARIFICATIONS.md (#8: day/room + drag + conflicts is enough; NO track collisions).
+#
+# SEED BASELINE (same seed as 05-review-accept.yaml; fresh reset, scenarios run in order AG-S1 → AG-S6):
+#   Event "AI.Engineer Sandbox Event", Oct 12–14 2026. Rooms: Main Hall · Workshop Room B · Room 305.
+#   Formats with Agenda-Settings default durations: Featured Keynote 45min · Talk 30min · Panel 60min · Workshop 90min.
+#   Agenda Settings baseline: Day Start 8:00 AM, Day End 6:00 PM; schedulable statuses = [Accepted].
+#   58 Accepted sessions total: 47 seeded as scheduled across the 3 days × 3 rooms, 11 unscheduled.
+#   The seed leaves Main Hall and Room 305 FREE on Oct 12 between 9:00 AM and 2:00 PM (drag targets).
+#   Named unscheduled fixtures (all Accepted Sessions):
+#     "Closing Keynote: The Post-SaaS Stack"        Featured Keynote, speaker Noor Haddad
+#     "Live Demo: Agent Swarms in Production"       Talk, speaker Marco Silva, track [Developer Experience]
+#     "Office Hours: D1 Performance Clinic"         Talk, speaker Marco Silva (same person — double-book fixture)
+#     "Panel: Is the CFP Dead?"                     Panel, track [Developer Experience], no shared speakers with the above
+#     "Workshop: Own Your Email Deliverability"     Workshop, track [Developer Experience], no shared speakers with the above
+#   Queue fixture for AG-S5: "GPU Pricing Deep Dive" — submission in Accept Queue status.
+#   Literal counts below are the fresh-seed baseline; when suites run back-to-back (e.g. after
+#   05-review-accept.yaml), the paired DB-count signal is authoritative over the literal number.
+
+module: agenda
+# `touches` filled by the WALKER 2026-08-09 — see docs/scenarios/walks/06-agenda.walk.md
+touches:
+  tables:
+    [
+      events, # agendaDayStartMin / agendaDayEndMin / schedulableStatuses / timezone
+      submissions, # startsAt / endsAt / roomId — an accepted submission IS the session
+      formats, # defaultDurationMins → end-time auto-fill
+      rooms,
+      tracks, # block colors + card pills
+      submissionTracks,
+      participants, # speaker double-book conflict join
+      contacts, # conflict row names the person
+    ]
+  ports: [] # no external seams; conflicts are compute-on-read (no conflicts table by design)
+  routes:
+    [
+      admin.agenda.tsx, # grid + panel + Conflicts tab + Agenda Settings (settings ownership: walk gap H8)
+      admin.submissions.$id.tsx, # Conflicts row "Open" → session editor
+    ]
+scenarios:
+  - id: AG-S1
+    name: Unscheduled panel tells the truth at scale — accepted-only, and the alert count is real
+    persona: admin
+    steps: |
+      1. Reset to the seed baseline. Log in as admin → Agenda → the day×room (Rooms) grid for Oct 12.
+      2. Read the right-hand panel: Scheduled (47) / Unscheduled (11).
+      3. Spot-check 3 Unscheduled cards (including "Closing Keynote: The Post-SaaS Stack"): every one is an Accepted session; DB cross-check — count of accepted sessions with no start time = 11.
+      4. Negative probe: search the panel for "SOC 2 for Startups: A War Story" (Pending) and "GPU Pricing Deep Dive" (Accept Queue) → neither appears; non-accepted statuses are not schedulable at baseline.
+      5. Read the dashboard-style alert: "11 accepted sessions still need a time slot" — verify it equals the same DB count.
+      6. Dependency check (only if the 05 suite ran first): "Observability for Workers: Tracing Across Service Bindings" — the session provisioned in RV-S4 — is present in Unscheduled, and the alert incremented accordingly.
+      7. Scale check: switch to Oct 13 (the seed's densest day, ~16 sessions across 3 rooms) and scroll the full grid holding 47 scheduled sessions.
+    success_signals:
+      - "Unscheduled panel = exactly the accepted-with-no-time set: count matches SQL, both non-accepted fixtures absent (screenshots of both empty searches)."
+      - "Alert number equals the live DB count — not a hardcoded or stale figure — and moves when AG-S2 schedules a session."
+      - "Sessions accepted via the review module (RV-S4/RV-S5) surface here with no manual import step."
+      - "EXPERIENCE: the grid with ~50 scheduled sessions renders usably — blocks legible, no overlap-rendering glitches, panel search filters instantly, no skeleton-screen theater."
+
+  - id: AG-S2
+    name: Drag to schedule — end time auto-fills from format default (Featured Keynote = 45 min), then move it
+    persona: admin
+    steps: |
+      1. In Agenda Settings, confirm the format mapping "Featured Keynote → 45 min" (set it if absent) and save.
+      2. On the Oct 12 day×room grid, drag "Closing Keynote: The Post-SaaS Stack" from Unscheduled onto Main Hall at 9:30 AM.
+      3. The block lands rendering 9:30–10:15 — the 45-min end time auto-filled from the format default; no modal interrupted the drop.
+      4. DB check: the session's start is 2026-10-12 09:30 (event TZ) and end 10:15. Panel now Scheduled (48) / Unscheduled (10); the alert reads "10 accepted sessions still need a time slot".
+      5. Move it: drag the same block to Workshop Room B on Oct 13 at 2:00 PM → it renders 2:00–2:45 (duration preserved) and the Main Hall 9:30 cell is empty again.
+      6. Reload the page → the Oct 13 / Workshop Room B / 2:00–2:45 placement persisted.
+    success_signals:
+      - "Screenshot of the landed block showing 9:30–10:15 — 45 minutes derived from the FORMAT, not a hardcoded slot length."
+      - "DB start/end match the grid after both the initial drop and the room/time move; placement survives reload."
+      - "Panel counts and the needs-a-slot alert both decrement by exactly 1."
+      - "EXPERIENCE: both operations are direct manipulation — click-drag-drop with the block visibly landing, no full-page reload, no intermediate modal or form."
+
+  - id: AG-S3
+    name: Same room + overlapping time — red-clock markers, reciprocal Conflicts rows, resolve clears both
+    persona: admin
+    steps: |
+      1. Drag "Live Demo: Agent Swarms in Production" (Talk → 30 min) onto Main Hall, Oct 12 at 10:00 AM → lands 10:00–10:30.
+      2. Drag "Panel: Is the CFP Dead?" (Panel → 60 min) onto Main Hall, Oct 12 at 10:15 AM → lands 10:15–11:15, overlapping 10:15–10:30 in the SAME room.
+      3. Verify both blocks now carry the red-clock conflict marker on the grid (refresh the page if detection is refresh-based — no other action).
+      4. Open the Conflicts tab: exactly 2 rows — a reciprocal pair, each naming the OTHER session and the shared room/timeslot (Main Hall, overlapping 10:15–10:30).
+      5. Click Open on one row → it launches the session editor for that session.
+      6. Resolve: move "Panel: Is the CFP Dead?" to 11:30 AM (same room, now 11:30–12:30, no overlap).
+      7. Re-check: the red-clock marker is gone from BOTH blocks and BOTH rows have left the Conflicts tab.
+    success_signals:
+      - "Both conflicting blocks show the red-clock marker (grid screenshot)."
+      - "Conflicts tab lists the clash as a reciprocal pair — 2 rows, each readable from the other session's side — with a working Open→editor link."
+      - "Moving ONE session clears the markers on both blocks and empties both tab rows — no orphaned/stale conflict remains."
+      - "EXPERIENCE: detection needs nothing beyond at most a page refresh — no manual 'recompute' button; the conflict text is human-readable (names the room and the other session), not an error code."
+
+  - id: AG-S4
+    name: Speaker double-booked across DIFFERENT rooms is a conflict — same track/time is NOT
+    persona: admin
+    steps: |
+      1. Precondition from AG-S3: "Live Demo: Agent Swarms in Production" (speaker Marco Silva) sits in Main Hall, Oct 12 10:00–10:30.
+      2. Drag "Office Hours: D1 Performance Clinic" (also speaker Marco Silva, Talk → 30 min) onto Room 305, Oct 12 at 10:15 AM → lands 10:15–10:45: different room, overlapping time, shared speaker.
+      3. Verify both sessions get the red-clock marker, and the Conflicts tab shows the reciprocal pair whose text names the person — e.g. "Marco Silva is also scheduled in 'Live Demo: Agent Swarms in Production' during this time."
+      4. Negative probe (no track collisions): drag "Workshop: Own Your Email Deliverability" (track Developer Experience, no shared speakers) onto Room 305 at 11:30 AM → 11:30–1:00 PM. It overlaps "Panel: Is the CFP Dead?" (also track Developer Experience, Main Hall 11:30–12:30) in TIME and TRACK but not room or speaker → NO conflict marker appears on any of these blocks and NO new Conflicts row is created.
+      5. Resolve the speaker clash: move "Office Hours: D1 Performance Clinic" to Oct 12 at 1:00 PM → both markers clear, both rows leave the tab.
+      6. Confirm the Conflicts tab is now empty (AG-S3's clash was already resolved).
+    success_signals:
+      - "Speaker double-booking is detected ACROSS rooms — reciprocal Conflicts rows naming Marco Silva and the other session (screenshot)."
+      - "Two same-track, same-time sessions in different rooms with different speakers produce zero conflicts — the detector does exactly speaker + same-room/time, nothing more (Conflicts tab screenshot showing no row for them)."
+      - "Resolution by moving one session clears markers and rows on both sides; Conflicts tab reaches a verifiably empty state."
+      - "EXPERIENCE: the whole create-inspect-resolve loop is drag-drop plus one tab — no form editing required to cause or fix a conflict."
+
+  - id: AG-S5
+    name: Agenda settings drive the grid — day window changes, and schedulable statuses gate the panel
+    persona: admin
+    steps: |
+      1. In Agenda Settings, read the baseline: Day Start 8:00 AM / Day End 6:00 PM. On the day×room grid, verify the time gutter starts at 8 AM and ends at 6 PM.
+      2. Change Day Start to 7:00 AM and Day End to 10:00 PM → Save → return to the grid: the gutter now spans 7 AM–10 PM (screenshot before/after).
+      3. Verify schedulable statuses baseline = [Accepted]: "GPU Pricing Deep Dive" (Accept Queue) is absent from the Unscheduled panel.
+      4. Add "Accept Queue" to the schedulable statuses → Save → "GPU Pricing Deep Dive" now appears in the Unscheduled panel.
+      5. Remove "Accept Queue" again → Save → it disappears from the panel.
+      6. Confirm Pending was never offered/schedulable during steps 3–5 ("SOC 2 for Startups: A War Story" absent throughout).
+      7. Restore the baseline Day Start/End (8:00 AM / 6:00 PM).
+    success_signals:
+      - "Grid time window follows the settings: 8AM–6PM before, 7AM–10PM after (paired screenshots)."
+      - "Schedulable-status setting gates the Unscheduled panel live: the Accept Queue fixture appears exactly while its status is selected, and Pending sessions never do."
+      - "Settings persist across reload and apply to the grid with no restart, reseed, or cache-clear."
+      - "EXPERIENCE: settings → grid feedback loop is immediate — save, navigate back, see the change; an event producer can retune the day window without help."
+
+  - id: AG-S6
+    name: Unscheduling returns the session to the panel and the alert count follows
+    persona: admin
+    steps: |
+      1. Note the current alert count N and panel counts (Scheduled/Unscheduled).
+      2. Drag "Live Demo: Agent Swarms in Production" (Main Hall, Oct 12 10:00–10:30) from the grid back to the Unscheduled panel (or use its remove-from-schedule affordance).
+      3. Verify: the card reappears under Unscheduled, the Main Hall 10:00 cell is empty, and the DB row's start/end are cleared.
+      4. The alert now reads N+1 "accepted sessions still need a time slot"; panel counts moved by exactly one in each direction.
+      5. Reload → the session is still unscheduled.
+      6. Re-drag it onto Main Hall at 10:00 AM → it lands 10:00–10:30 again (Talk default duration reapplied), restoring a clean end state.
+    success_signals:
+      - "Round-trip integrity: schedule → unschedule → schedule leaves DB times cleared then re-derived from the format default, with no residue (no ghost block, no stale room value)."
+      - "Alert and panel counts track the change in both directions and match the DB count at each step."
+      - "Unscheduled state survives reload — it is persisted, not a UI-only removal."
+      - "EXPERIENCE: unscheduling is the same direct-manipulation gesture as scheduling — drag back (or one-click remove), no confirm-modal maze, counts update without a full reload."

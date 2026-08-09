@@ -1,254 +1,260 @@
 [
-	{
-		"name": "Logo & background upload",
-		"faithful": "Event Details drop zones for Logo (300x300) and Background (1500x500), plus event-wide form Appearance (colors, typography) and per-portal appearance branding panels.",
-		"planned": "Event Settings gets logo + background image upload (P1); feeds the CFP form and emails.",
-		"gap": "Builds event logo/background only; drops the form-wide color/typography and per-portal appearance branding panels."
-	},
-	{
-		"name": "Email themes",
-		"faithful": "Settings > Email Themes: drag-drop visual wrapper editor (header/footer/colors/layout), locked Standard default plus Plain/Event-Logo starters, {{{content}}} tag; applies to manual sends only.",
-		"planned": "Bottom-of-P2 stretch: at most a custom HTML/CSS option inside email templates; no visual theme editor.",
-		"gap": "No drag-drop theme wrapper editor; only raw custom HTML/CSS if reached, and it's lowest-priority bonus."
-	},
-	{
-		"name": "Multi-step builder wizard",
-		"faithful": "Seven-step wizard: Submission Setup, Welcome, Session/Abstract Info, Participant Info, Payments & Fees, Form Settings, Notifications; completed-step checkmarks; header Save / Copy Link / View Form.",
-		"planned": "Six working steps with Save/Copy Link/View Form; Payments & Fees step omitted entirely (marked NOT NEEDED).",
-		"gap": "Drops the Payments & Fees step entirely (six steps versus the original's seven)."
-	},
-	{
-		"name": "Participant roles + min/max",
-		"faithful": "Three core roles (Speaker/Chairperson/Moderator) with per-role min/max, total min/max across roles, custom role labels, and first-match-wins conditional participant-limit overrides.",
-		"planned": "Speaker role with min/max (default min 1); Chairperson/Moderator checkboxes exist without depth.",
-		"gap": "Speaker min/max works; other roles shallow; no total limits, custom labels, or conditional per-role overrides."
-	},
-	{
-		"name": "Question rules (conditional logic)",
-		"faithful": "Show a target field when a trigger field (Checkbox/Dropdown/Number only) matches a value; single condition, no AND/OR; rule set on the conditional question.",
-		"planned": "Show field B when field A matches; triggers checkbox/dropdown/number, no AND/OR chaining (P1).",
-		"gap": "At parity for show/hide questions; the conditional participant-limit and pricing-rule variants are not built."
-	},
-	{
-		"name": "Add custom field + field library",
-		"faithful": "+Add Field offers Add Section Element / Create Field / Search existing library; Library>Fields CRUD across Contact/Group/Session/Eval tabs, event-vs-global scope, type immutable after save.",
-		"planned": "Add text/dropdown custom fields and reuse from a library; Library manages Tags/Tracks/Formats/Levels feeding dropdowns (P1).",
-		"gap": "Add + reuse works; no full Fields CRUD module, no event-vs-global scope, no layout section elements."
-	},
-	{
-		"name": "Full field-type catalog",
-		"faithful": "Roughly fourteen types: text, textarea, wysiwyg, dropdown, checkbox, number, currency, datetime, email, phone, file, countries, languages, user.",
-		"planned": "A handful: text, dropdown, rich text, email, phone (the locked defaults plus Add Field's text/dropdown).",
-		"gap": "Implements about five common types; omits currency, datetime, checkbox, file, countries, languages, and user types."
-	},
-	{
-		"name": "Admin-notify recipient lists",
-		"faithful": "Notifications step: two multi-select recipient pickers (new submission vs updated submission) plus editable New Submission Alert and Submission Revision Alert admin templates.",
-		"planned": "Stubbed pickers in P0; real admin-notify recipient pickers on forms deferred to P1 ('nice to have').",
-		"gap": "Real pickers deferred to P1; new-vs-updated split and the two alert templates stay thin."
-	},
-	{
-		"name": "Forgot password",
-		"faithful": "'Forgot your password?' on the Account step sends a reset-link email from no-reply, landing on a /reset token page to set a new password.",
-		"planned": "Stub on the demo path in P0; real reset flow plus auth polish arrives in P1.",
-		"gap": "Stubbed for the demo; the working email-reset flow only lands in P1."
-	},
-	{
-		"name": "Add secondary contact",
-		"faithful": "'+ Add Secondary Contact' on the participant step adds a helper contact who 'can assist with tasks and communication'.",
-		"planned": "Deferred to P1; the primary per-speaker participant flow ships first in P0.",
-		"gap": "Deferred to P1; core participant capture ships without the secondary-contact affordance."
-	},
-	{
-		"name": "File downloads",
-		"faithful": "Portal Files button opens a widget to view/download organizer-shared files; Resources button shows wiki pages; sample files downloadable on requests.",
-		"planned": "Portal focus is uploads (headshot in profile, slides via file-request/task-attached uploads); organizer-to-speaker download widget not a named deliverable.",
-		"gap": "Upload path prioritized; the speaker-facing shared-file download widget and Resources pages are minimal or dropped."
-	},
-	{
-		"name": "Multiple audience portals",
-		"faithful": "Default People/Exhibitor/Sponsor portals plus custom filter-defined portals, first-match-wins ordering, one-portal-per-contact resolution, and per-portal config and appearance.",
-		"planned": "One speaker portal (Home/Submissions/Profile/Tasks); CRM, sponsor, and exhibitor portals are explicitly out of scope.",
-		"gap": "Builds a single speaker portal; no audience segmentation, filter matching, ordering, or sponsor/exhibitor portals."
-	},
-	{
-		"name": "Admin impersonation (View portal as)",
-		"faithful": "Top-right View Portal > 'View portal as...' searches a contact, shows their assigned portal, and opens it in preview-only mode (tasks viewable, not completable).",
-		"planned": "P2 bonus: a simple 'View Portal / Back to Admin Mode' toggle swyx used constantly on camera.",
-		"gap": "Simple view-as toggle in P2; no per-contact search/resolution or explicit preview-only guardrails."
-	},
-	{
-		"name": "Status set (Pending / Queues / Accepted / Declined / Withdrawn / Draft)",
-		"faithful": "Five statuses (Pending, Accept Queue, Accepted, Decline Queue, Declined) with queues masking as 'Pending' in the portal, plus Draft (pre-submission), Withdrawn, and category-mapped custom statuses.",
-		"planned": "Status tabs All/Accepted/Accept Queue/Pending/Decline Queue/Declined/Withdrawn/Drafts with queues masked as Pending in the portal (P0 + P1).",
-		"gap": "Near-parity on the built-in set; no admin-defined custom statuses mapped to categories."
-	},
-	{
-		"name": "Bulk accept/decline + email send",
-		"faithful": "Check sessions, bulk Edit status; separately Send Emails with Accept/Decline templates (<=100 per send, choose recipient type), then manually flip queue to final status.",
-		"planned": "Replicate bulk-select > send Accept/Decline template > flip status, plus a one-click 'accept + send + finalize' improvement (P0).",
-		"gap": "Core bulk send built; recipient-type granularity and 100-per-send batching simplified, plus a non-parity one-click auto-send."
-	},
-	{
-		"name": "Column preferences (25-field picker)",
-		"faithful": "Columns panel: Fields/Reporting Fields, search, ~25-item Session Details checklist (Capacity, CEU, Client Session ID...), 'x/25 selected', drag-reorder, Reset to Default, Apply; plus Saved Views.",
-		"planned": "Deprioritized to bottom of P2 ('skip unless free'); tables ship with a fixed default column set.",
-		"gap": "Column picker and saved views skipped unless free; admin tables have fixed, non-configurable columns."
-	},
-	{
-		"name": "Per-person participant acceptance",
-		"faithful": "Each participant confirms/declines each role from the portal (Confirm/Withdraw buttons on Accepted sessions); statuses Pending/Accepted/Declined; admin override; rebrandable pending wording.",
-		"planned": "Portal shows session status pills (Accepted/Pending); acceptance auto-provisions speaker/session/tasks. Per-person confirm/decline not a named deliverable.",
-		"gap": "Portal shows session status only; the per-person confirm/decline/withdraw machine is not built."
-	},
-	{
-		"name": "Evaluation plans (name, dates, evaluators)",
-		"faithful": "+Add Plan wizard: Overview (name, instructions, open toggle, Opens/Closes dates), Rounds with scorecards, Evaluators from event users, Assignments; percentage or points scoring.",
-		"planned": "Lightweight plan grouping evaluators plus many-to-many track routing; 3-state decision floor; rounds/scorecards/dates are P2 bonus.",
-		"gap": "Builds a minimal plan (name, evaluators, track routing); drops Opens/Closes dates, rounds, scorecards, and scoring methods."
-	},
-	{
-		"name": "Conflict-of-interest abstain",
-		"faithful": "Scorecard 'Conflict of interest or cannot review' abstain toggle removes the submission from pending count and notifies the admin; admin sets allow/require-reason (free-text or fixed list).",
-		"planned": "Not in the 3-state (approve/maybe/deny) decision floor; abstain sits in evaluation depth (P2).",
-		"gap": "Abstain likely folded into the decision states or dropped; no reason capture or admin abstain controls."
-	},
-	{
-		"name": "Evaluation summary metrics",
-		"faithful": "Summary page: counts of evaluations/sessions/plans/evaluators, highest/lowest session, completion chart, Average Score by Plan, Top 10, Thought-Provoking, Started/In-progress/Complete.",
-		"planned": "Admin sees a per-submission decision tally (approve/maybe/deny counts); full summary charts are P2 dashboard extras.",
-		"gap": "Shows per-submission decision tally only; drops the summary dashboard, score charts, and rankings."
-	},
-	{
-		"name": "Conflicts view",
-		"faithful": "Dedicated Conflicts tab lists overlapping sessions and double-booked participants, each with an Open button to the editor; red dot on cards; recomputes on refresh.",
-		"planned": "Conflict detection (same room/time overlap, same speaker double-booked) with a visible warning plus a dashboard alert (P0).",
-		"gap": "Detection and warnings ship; a dedicated Conflicts tab/list is lighter (inline warnings rather than a separate view)."
-	},
-	{
-		"name": "Week / Month / Track views",
-		"faithful": "Agenda views List, Day, Week, Month, Rooms (plus Conflicts and Embeds tabs); track colors paint Day/Week/Rooms blocks.",
-		"planned": "P0 floor is List plus Day/Rooms; Week and Track views are P1; Month demoted to bonus.",
-		"gap": "Floor ships List + Day/Rooms only; Week/Track deferred to P1 and Month dropped to bonus."
-	},
-	{
-		"name": "Public schedule page (/schedule)",
-		"faithful": "Agenda/Schedule embed: day tabs, track filter, colored track pills, expandable session cards, session-detail modal, deep-linkable sessions (reference wf2025.ai.engineer/schedule).",
-		"planned": "P2 bonus: a public mobile-friendly /schedule page with session-detail modal, high tiebreaker value.",
-		"gap": "Planned but P2 bonus; ships only if time remains, not part of the guaranteed core."
-	},
-	{
-		"name": "Speaker gallery page",
-		"faithful": "Speaker Gallery embed: speakers alphabetically by last name with headshots and details, a search box, and pagination.",
-		"planned": "P2 bonus: a public /speakers gallery page alongside /schedule.",
-		"gap": "Bonus-tier; alphabetical sort and pagination parity uncertain; ships only if time allows."
-	},
-	{
-		"name": "Styled-HTML embeds (web component)",
-		"faithful": "One-line script registering a <sessionboard-embed> web component (shadow DOM), five widget types, async-data fetch, theme/primaryColor/showSearch/extraCss config, and ?sb-*-id deep-link params.",
-		"planned": "P2 bonus: an embeddable snippet for the schedule/speakers pages.",
-		"gap": "A basic embed snippet is a stretch; the full web-component, shadow DOM, and config surface won't be matched."
-	},
-	{
-		"name": "iCal / JSON export feeds",
-		"faithful": "Embed output formats: iCal (all approved sessions as events), JSON, XML, and basic HTML; server cache auto-refreshes every 60 minutes.",
-		"planned": "Per-speaker .ics on acceptance is the P0 differentiator; whole-agenda iCal/JSON/XML feeds sit under the P2 API/embeds bonus.",
-		"gap": "Per-speaker .ics prioritized; whole-agenda iCal/JSON/XML feeds are bonus-tier and may not ship."
-	},
-	{
-		"name": "Add-to-calendar on schedule",
-		"faithful": "Agenda/schedule embed shows an 'Add to Calendar' button on each session-detail modal, toggled by show_add_to_calendar.",
-		"planned": "Depends on the P2 public schedule page; .ics email attachments on acceptance are the P0 calendar play instead.",
-		"gap": "The add-to-calendar button rides on the bonus schedule page; not core, unlike the P0 email .ics."
-	},
-	{
-		"name": "File requests (upload → review)",
-		"faithful": "File Requests: title/type/instructions/sample; user upload enters Pending Feedback; admin approve/deny/revert; one file per request, versioned, stored separately from record; per-request message thread.",
-		"planned": "File-request and task-attached uploads for slides/documents; files listed on the submission admin-side (P1).",
-		"gap": "Upload and listing ship; the approve/deny/revert review loop, versioning, and message thread are simplified."
-	},
-	{
-		"name": "Standalone portal forms",
-		"faithful": "Portal Forms (distinct from submission forms): Contacts/Groups/Sessions type, 3-page builder, prefill from record data, confirmation email with PDF attached, View Submissions and CSV/XLSX export.",
-		"planned": "Portal forms attached to tasks, seeded with the must-have hotel-stay and flight-reimbursement forms (P0/P1).",
-		"gap": "Builds portal forms for the two must-have tasks; drops Groups type, PDF-attach confirmation, and submissions export depth."
-	},
-	{
-		"name": "Task types (contact / group / submission)",
-		"faithful": "Task Type targets Contacts, Groups, or Sessions(submission), each with per-portal assignment settings and Assign-By-Filter (up to 3 filters) for session tasks.",
-		"planned": "Task types Contact/Group/Submission (P1); Group tasks nominal since sponsor/exhibitor modules are out of scope.",
-		"gap": "Contact and submission tasks built; group tasks are vestigial with the sponsor/exhibitor modules omitted."
-	},
-	{
-		"name": "Email template editor (subject + body)",
-		"faithful": "Settings > Email Templates list (Name/Subject/Category/Type/Trigger); edit subject and rich body; Type scoping (Groups/Contacts/Sessions), reply-to and CC/BCC, manual vs automatic triggers.",
-		"planned": "Template editor page with category/type/trigger columns; edit subject/body; manual vs automatic triggers (P1).",
-		"gap": "Edit subject/body at event level; drops Type-scoped merge fields, reply-to/CC/BCC config, and unlimited-template depth."
-	},
-	{
-		"name": "Merge tags / personalization",
-		"faithful": "Type-scoped merge tags: First/Last/Full Name, Email, Job Title, Company, Portal Link, session fields; [PORTAL_LINK] token; theme triple-brace variables.",
-		"planned": "Templates personalized with core tags (name, portal link, session and decision details).",
-		"gap": "Supports core tags; no type-scoped catalog or theme-wrapper variables."
-	},
-	{
-		"name": "Email speaker with decision feedback",
-		"faithful": "[doc-silent] No integrated at-decision compose exists; admins manually Send Emails using Accept/Decline templates, typing feedback into the body, decoupled from the status change.",
-		"planned": "Compose and send an email to the speaker (request changes / attach feedback) while recording the decision (swyx-named bonus).",
-		"gap": "We integrate compose-at-decision beyond parity; but it's bonus-tier and may slip under time pressure."
-	},
-	{
-		"name": "Email history log",
-		"faithful": "History > Emails audit trail with per-message statuses Delivered/Opened/Clicked/Bounced/Spam/Dropped; campaigns add open/click/bounce metrics.",
-		"planned": "Not a named deliverable in any tier; deliverability is tested end-to-end but not surfaced as an admin log.",
-		"gap": "No email history or delivery-status audit UI planned; admins can't see per-message delivery outcomes."
-	},
-	{
-		"name": "\"Today\": stat cards + status breakdown",
-		"faithful": "Today tab: greeting plus days-to-event, stat cards (Submissions, Accepted Speakers, Exhibitors, Sponsors), Submission Status row (Accepted/Pending/Declined/Drafts/Withdrawn), and section tabs.",
-		"planned": "Greeting + days-to-event, stat cards (Submissions, Accepted Speakers), status breakdown row, recent submissions, per-form progress (P1).",
-		"gap": "Builds Submissions/Accepted cards and the status row; drops Exhibitors/Sponsors cards (those modules are out of scope)."
-	},
-	{
-		"name": "\"Also check\" alert links",
-		"faithful": "'Also check' links, e.g. '1 accepted session still needs a time slot (Agenda)', '3 submissions awaiting a decision (Participants)', '+1 more'.",
-		"planned": "'Also check' alert links included on the dashboard Today view (P1).",
-		"gap": "Near-parity on the core alerts (unscheduled sessions, pending decisions); fewer alert types are seeded."
-	},
-	{
-		"name": "Speaker Tracking dashboard",
-		"faithful": "Custom dashboard: Accepted Speakers, Outstanding Speaker Tasks, Speaker Confirmation Mix chart, Top Speakers by Outstanding Tasks, with +Add Widget.",
-		"planned": "Firm req: an outstanding-onboarding-tasks view (counts + per-speaker list); the charted Speaker Tracking widgets are P2 extras.",
-		"gap": "Builds the firm outstanding-tasks list; the charted Speaker Tracking widget dashboard stays P2 bonus."
-	},
-	{
-		"name": "CSV / XLSX export",
-		"faithful": "Every module's Options > Export dumps the current view as CSV or Excel; file fields export as hosted URLs; reflects visible columns and filters.",
-		"planned": "P2 bonus: CSV/XLSX export plus a download-files bundle, small effort with real migration value.",
-		"gap": "Export is bonus-tier; both formats and per-view column fidelity may be simplified and are not guaranteed."
-	},
-	{
-		"name": "CSV / XLSX import",
-		"faithful": "Options > Import: generate template, upload, map fields, validate (red cells), submit; update via 'Update record if exists'=TRUE; max 1,000 rows per file.",
-		"planned": "P2 bonus: CSV/XLSX import for teams migrating off Sessionboard.",
-		"gap": "Import is bonus-tier; the mapping/validation/update-existing wizard will be thinner if built at all."
-	},
-	{
-		"name": "Public API (Sessionboard-compatible subset)",
-		"faithful": "177-operation OpenAPI with x-access-token auth, pagination (25/max 100), response envelopes; full CRUD+search on sessions/speakers/contacts/settings, plus webhooks and OAuth 2.1.",
-		"planned": "P2 bonus: mirror the core read/search set (sessions, speakers, contacts) with x-access-token, their pagination, and response envelopes.",
-		"gap": "Read/search subset only; drops all writes, webhooks, OAuth, insights, and roughly 150 other operations."
-	},
-	{
-		"name": "Cloudflare deploy",
-		"faithful": "[doc-silent] Sessionboard is a closed hosted SaaS; there is no self-hosting or customer deploy story.",
-		"planned": "Deploy on Cloudflare (Workers) as the committed stack decision, targeting sub-second loads as a scored feature.",
-		"gap": "No Sessionboard equivalent; we add deployability and speed the hosted original can't match (surpasses parity)."
-	},
-	{
-		"name": "Forge hosting mirror",
-		"faithful": "[doc-silent] No equivalent; Sessionboard is single-vendor hosted with no alternate hosting target.",
-		"planned": "P2 'very teeny bonus points': mirror the repo on Forge at the end only if trivial.",
-		"gap": "Lowest-priority bonus, likely skipped; it's a repo mirror, not a second live deployment."
-	}
+ {
+  "name": "Logo & background upload",
+  "faithful": "Event Details drop zones for Logo (300x300) and Background (1500x500), plus event-wide form Appearance (colors, typography) and per-portal appearance branding panels.",
+  "planned": "Event Settings gets logo + background image upload (P1); feeds the CFP form and emails.",
+  "gap": "Builds event logo/background only; drops the form-wide color/typography and per-portal appearance branding panels."
+ },
+ {
+  "name": "Email themes",
+  "faithful": "Settings > Email Themes: drag-drop visual wrapper editor (header/footer/colors/layout), locked Standard default plus Plain/Event-Logo starters, {{{content}}} tag; applies to manual sends only.",
+  "planned": "Bottom-of-P2 stretch: at most a custom HTML/CSS option inside email templates; no visual theme editor.",
+  "gap": "No drag-drop theme wrapper editor; only raw custom HTML/CSS if reached, and it's lowest-priority bonus."
+ },
+ {
+  "name": "Multi-step builder wizard",
+  "faithful": "Seven-step wizard: Submission Setup, Welcome, Session/Abstract Info, Participant Info, Payments & Fees, Form Settings, Notifications; completed-step checkmarks; header Save / Copy Link / View Form.",
+  "planned": "Six working steps with Save/Copy Link/View Form; Payments & Fees step omitted entirely (marked NOT NEEDED).",
+  "gap": "Drops the Payments & Fees step entirely (six steps versus the original's seven)."
+ },
+ {
+  "name": "Participant roles + min/max",
+  "faithful": "Three core roles (Speaker/Chairperson/Moderator) with per-role min/max, total min/max across roles, custom role labels, and first-match-wins conditional participant-limit overrides.",
+  "planned": "All three roles (Speaker/Chairperson/Moderator) with per-role min/max (schema: role_*_min/max on forms). Total-across-roles limits, custom role labels, and conditional per-role overrides stay out.",
+  "gap": "COMMITTED TO REACH per-role min/max (was Speaker-only). Remaining gap: total limits, custom labels, conditional overrides."
+ },
+ {
+  "name": "Question rules (conditional logic)",
+  "faithful": "Show a target field when a trigger field (Checkbox/Dropdown/Number only) matches a value; single condition, no AND/OR; rule set on the conditional question.",
+  "planned": "Show field B when field A matches; triggers checkbox/dropdown/number, no AND/OR chaining (P1).",
+  "gap": "At parity for show/hide questions; the conditional participant-limit and pricing-rule variants are not built."
+ },
+ {
+  "name": "Add custom field + field library",
+  "faithful": "+Add Field offers Add Section Element / Create Field / Search existing library; Library>Fields CRUD across Contact/Group/Session/Eval tabs, event-vs-global scope, type immutable after save.",
+  "planned": "Add text/dropdown custom fields, reuse from library, PLUS Fields CRUD in Library with event-vs-global scope (schema: fields.scope) and section header/divider layout elements (in FIELD_TYPE).",
+  "gap": "COMMITTED TO REACH Fields CRUD + scope + section elements (schema already supports all three; UI-only). Remaining gap: Contact/Group/Eval tab split, type-immutability enforcement."
+ },
+ {
+  "name": "Full field-type catalog",
+  "faithful": "Roughly fourteen types: text, textarea, wysiwyg, dropdown, checkbox, number, currency, datetime, email, phone, file, countries, languages, user.",
+  "planned": "Nine types: text, textarea, wysiwyg, dropdown, checkbox, number, date, email, phone (all in FIELD_TYPE, which also carries section_header/divider layout elements). Currency, file, countries, languages, user types stay out.",
+  "gap": "COMMITTED TO REACH checkbox/number/date (schema-ready, render-only). Remaining: currency, file, countries, languages, user."
+ },
+ {
+  "name": "Admin-notify recipient lists",
+  "faithful": "Notifications step: two multi-select recipient pickers (new submission vs updated submission) plus editable New Submission Alert and Submission Revision Alert admin templates.",
+  "planned": "Stubbed pickers in P0; real admin-notify recipient pickers on forms deferred to P1 ('nice to have').",
+  "gap": "Real pickers deferred to P1; new-vs-updated split and the two alert templates stay thin."
+ },
+ {
+  "name": "Forgot password",
+  "faithful": "'Forgot your password?' on the Account step sends a reset-link email from no-reply, landing on a /reset token page to set a new password.",
+  "planned": "Stub on the demo path in P0; real reset flow plus auth polish arrives in P1.",
+  "gap": "Stubbed for the demo; the working email-reset flow only lands in P1."
+ },
+ {
+  "name": "Add secondary contact",
+  "faithful": "'+ Add Secondary Contact' on the participant step adds a helper contact who 'can assist with tasks and communication'.",
+  "planned": "COMMITTED (P1 #13): + Add Secondary Contact on the participant step — PARTICIPANT_ROLE now carries \"secondary\"; a secondary contact assists with tasks and communication.",
+  "gap": "Remaining vs faithful: none material once the affordance ships."
+ },
+ {
+  "name": "File downloads",
+  "faithful": "Portal Files button opens a widget to view/download organizer-shared files; Resources button shows wiki pages; sample files downloadable on requests.",
+  "planned": "COMMITTED TO REACH: portal Files list where speakers view/download organizer-shared files (speaker kits, logos, templates) — the files table already models it; one portal route + admin upload. Resources/wiki pages stay OUT (struck).",
+  "gap": "Remaining vs faithful: Resources wiki pages (explicitly struck) and per-request sample files."
+ },
+ {
+  "name": "Multiple audience portals",
+  "faithful": "Default People/Exhibitor/Sponsor portals plus custom filter-defined portals, first-match-wins ordering, one-portal-per-contact resolution, and per-portal config and appearance.",
+  "planned": "One speaker portal (Home/Submissions/Profile/Tasks); CRM, sponsor, and exhibitor portals are explicitly out of scope.",
+  "gap": "Builds a single speaker portal; no audience segmentation, filter matching, ordering, or sponsor/exhibitor portals."
+ },
+ {
+  "name": "Admin impersonation (View portal as)",
+  "faithful": "Top-right View Portal > 'View portal as...' searches a contact, shows their assigned portal, and opens it in preview-only mode (tasks viewable, not completable).",
+  "planned": "COMMITTED TO REACH: 'View portal as...' with per-contact search (a real event has hundreds of contacts) opening that contact's portal in preview-only mode (tasks viewable, not completable), plus Back to Admin Mode. BUILD CONSTRAINT: enforce preview-only ONCE in the shared portal auth helper, never per-route — per-route checks balloon past the P2 #6 slot.",
+  "gap": "Remaining vs faithful: none material once search + preview-only land."
+ },
+ {
+  "name": "Status set (Pending / Queues / Accepted / Declined / Withdrawn / Draft)",
+  "faithful": "Five statuses (Pending, Accept Queue, Accepted, Decline Queue, Declined) with queues masking as 'Pending' in the portal, plus Draft (pre-submission), Withdrawn, and category-mapped custom statuses.",
+  "planned": "Status tabs All/Accepted/Accept Queue/Pending/Decline Queue/Declined/Withdrawn/Drafts with queues masked as Pending in the portal (P0 + P1).",
+  "gap": "Near-parity on the built-in set; no admin-defined custom statuses mapped to categories."
+ },
+ {
+  "name": "Bulk accept/decline + email send",
+  "faithful": "Check sessions, bulk Edit status; separately Send Emails with Accept/Decline templates (<=100 per send, choose recipient type), then manually flip queue to final status.",
+  "planned": "Replicate bulk-select > send Accept/Decline template > flip status, plus a one-click 'accept + send + finalize' improvement (P0).",
+  "gap": "Core bulk send built; recipient-type granularity and 100-per-send batching simplified, plus a non-parity one-click auto-send."
+ },
+ {
+  "name": "Column preferences (25-field picker)",
+  "faithful": "Columns panel: Fields/Reporting Fields, search, ~25-item Session Details checklist (Capacity, CEU, Client Session ID...), 'x/25 selected', drag-reorder, Reset to Default, Apply; plus Saved Views.",
+  "planned": "Deprioritized to bottom of P2 ('skip unless free'); tables ship with a fixed default column set.",
+  "gap": "Column picker and saved views skipped unless free; admin tables have fixed, non-configurable columns."
+ },
+ {
+  "name": "Per-person participant acceptance",
+  "faithful": "Each participant confirms/declines each role from the portal (Confirm/Withdraw buttons on Accepted sessions); statuses Pending/Accepted/Declined; admin override; rebrandable pending wording.",
+  "planned": "Portal Confirm/Withdraw buttons per participant on Accepted sessions, driving participants.acceptance_status (pending/accepted/declined); admin sees per-person status. DESIGNATED FIRST CUT if the deadline bites (weakest of the committed reaches; most UI-touching).",
+  "gap": "COMMITTED TO REACH the per-person confirm/decline machine (schema-ready via acceptanceStatus). Remaining gap: admin override UI + rebrandable pending wording."
+ },
+ {
+  "name": "Evaluation plans (name, dates, evaluators)",
+  "faithful": "+Add Plan wizard: Overview (name, instructions, open toggle, Opens/Closes dates), Rounds with scorecards, Evaluators from event users, Assignments; percentage or points scoring.",
+  "planned": "PLAN-LESS by design: reviewer⇄track routing (reviewerTracks) + 3-state decision (reviews) — there is deliberately NO plan table in the schema, and none can be migrated for from a feature branch. Do not build against a plan entity.",
+  "gap": "Vs faithful: no plan entity, Opens/Closes dates, rounds, scorecards, or scoring methods (swyx demoted all of it to bonus)."
+ },
+ {
+  "name": "Conflict-of-interest abstain",
+  "faithful": "Scorecard 'Conflict of interest or cannot review' abstain toggle removes the submission from pending count and notifies the admin; admin sets allow/require-reason (free-text or fixed list).",
+  "planned": "Not in the 3-state (approve/maybe/deny) decision floor; abstain sits in evaluation depth (P2).",
+  "gap": "Abstain likely folded into the decision states or dropped; no reason capture or admin abstain controls."
+ },
+ {
+  "name": "Evaluation summary metrics",
+  "faithful": "Summary page: counts of evaluations/sessions/plans/evaluators, highest/lowest session, completion chart, Average Score by Plan, Top 10, Thought-Provoking, Started/In-progress/Complete.",
+  "planned": "Admin sees a per-submission decision tally (approve/maybe/deny counts); full summary charts are P2 dashboard extras.",
+  "gap": "Shows per-submission decision tally only; drops the summary dashboard, score charts, and rankings."
+ },
+ {
+  "name": "Conflicts view",
+  "faithful": "Dedicated Conflicts tab lists overlapping sessions and double-booked participants, each with an Open button to the editor; red dot on cards; recomputes on refresh.",
+  "planned": "COMMITTED TO REACH: dedicated Conflicts tab listing overlapping sessions + double-booked speakers with Open→editor — same computation as the inline warnings, one list route. At 100+ real sessions a producer works conflicts as a backlog, not one-by-one.",
+  "gap": "Remaining vs faithful: red-dot card markers and auto-recompute polish."
+ },
+ {
+  "name": "Week / Month / Track views",
+  "faithful": "Agenda views List, Day, Week, Month, Rooms (plus Conflicts and Embeds tabs); track colors paint Day/Week/Rooms blocks.",
+  "planned": "P0 floor is List plus Day/Rooms; Week and Track views are P1; Month demoted to bonus.",
+  "gap": "Floor ships List + Day/Rooms only; Week/Track deferred to P1 and Month dropped to bonus."
+ },
+ {
+  "name": "Public schedule page (/schedule)",
+  "faithful": "Agenda/Schedule embed: day tabs, track filter, colored track pills, expandable session cards, session-detail modal, deep-linkable sessions (reference wf2025.ai.engineer/schedule).",
+  "planned": "P2 bonus: a public mobile-friendly /schedule page with session-detail modal, high tiebreaker value.",
+  "gap": "Planned but P2 bonus; ships only if time remains, not part of the guaranteed core."
+ },
+ {
+  "name": "Speaker gallery page",
+  "faithful": "Speaker Gallery embed: speakers alphabetically by last name with headshots and details, a search box, and pagination.",
+  "planned": "P2 bonus: a public /speakers gallery page alongside /schedule.",
+  "gap": "Bonus-tier; alphabetical sort and pagination parity uncertain; ships only if time allows."
+ },
+ {
+  "name": "Styled-HTML embeds (web component)",
+  "faithful": "One-line script registering a <sessionboard-embed> web component (shadow DOM), five widget types, async-data fetch, theme/primaryColor/showSearch/extraCss config, and ?sb-*-id deep-link params.",
+  "planned": "P2 bonus: an embeddable snippet for the schedule/speakers pages.",
+  "gap": "A basic embed snippet is a stretch; the full web-component, shadow DOM, and config surface won't be matched."
+ },
+ {
+  "name": "iCal / JSON export feeds",
+  "faithful": "Embed output formats: iCal (all approved sessions as events), JSON, XML, and basic HTML; server cache auto-refreshes every 60 minutes.",
+  "planned": "Per-speaker .ics on acceptance is P0. OPPORTUNISTIC (not committed): a whole-agenda iCal feed is ~one route once the .ics builder exists — take it if the agenda lands early.",
+  "gap": "Whole-agenda iCal opportunistic; JSON/XML feeds and the 60-min cache stay bonus-tier."
+ },
+ {
+  "name": "Add-to-calendar on schedule",
+  "faithful": "Agenda/schedule embed shows an 'Add to Calendar' button on each session-detail modal, toggled by show_add_to_calendar.",
+  "planned": "Depends on the P2 public schedule page; .ics email attachments on acceptance are the P0 calendar play instead.",
+  "gap": "The add-to-calendar button rides on the bonus schedule page; not core, unlike the P0 email .ics."
+ },
+ {
+  "name": "File requests (upload → review)",
+  "faithful": "File Requests: title/type/instructions/sample; user upload enters Pending Feedback; admin approve/deny/revert; one file per request, versioned, stored separately from record; per-request message thread.",
+  "planned": "COMMITTED TO REACH the approve/deny review core: speaker upload lands as pending_feedback, admin approves or denies triggering re-upload — TASK_STATUS.pending_feedback and files.version already carry the state machine. Message thread and versioning UI stay out.",
+  "gap": "Remaining vs faithful: per-request message thread, version history UI, sample files."
+ },
+ {
+  "name": "Standalone portal forms",
+  "faithful": "Portal Forms (distinct from submission forms): Contacts/Groups/Sessions type, 3-page builder, prefill from record data, confirmation email with PDF attached, View Submissions and CSV/XLSX export.",
+  "planned": "Portal forms attached to tasks (hotel/flight P0) PLUS COMMITTED: admin response viewing — the answers land in taskAssignments.response and the organizer must read them (arrival dates → hotel bookings) or the P0 feature is decorative. One detail route over an existing column.",
+  "gap": "Remaining vs faithful: Groups type (excluded), PDF-attach confirmation, CSV/XLSX export of responses."
+ },
+ {
+  "name": "Task types (contact / group / submission)",
+  "faithful": "Task Type targets Contacts, Groups, or Sessions(submission), each with per-portal assignment settings and Assign-By-Filter (up to 3 filters) for session tasks.",
+  "planned": "Task types Contact/Group/Submission (P1); Group tasks nominal since sponsor/exhibitor modules are out of scope.",
+  "gap": "Contact and submission tasks built; group tasks are vestigial with the sponsor/exhibitor modules omitted."
+ },
+ {
+  "name": "Email template editor (subject + body)",
+  "faithful": "Settings > Email Templates list (Name/Subject/Category/Type/Trigger); edit subject and rich body; Type scoping (Groups/Contacts/Sessions), reply-to and CC/BCC, manual vs automatic triggers.",
+  "planned": "Template editor page (category/type/trigger columns; edit subject/body; manual vs auto) PLUS reply-to per template — real speaker replies must land in the organizer inbox (one field + one send header). CC/BCC and type-scoped merge fields stay out.",
+  "gap": "COMMITTED TO REACH reply-to. Remaining: CC/BCC config, type-scoped merge-field catalog, unlimited-template depth."
+ },
+ {
+  "name": "Merge tags / personalization",
+  "faithful": "Type-scoped merge tags: First/Last/Full Name, Email, Job Title, Company, Portal Link, session fields; [PORTAL_LINK] token; theme triple-brace variables.",
+  "planned": "Templates personalized with core tags (name, portal link, session and decision details).",
+  "gap": "Supports core tags; no type-scoped catalog or theme-wrapper variables."
+ },
+ {
+  "name": "Email speaker with decision feedback",
+  "faithful": "[doc-silent] No integrated at-decision compose exists; admins manually Send Emails using Accept/Decline templates, typing feedback into the body, decoupled from the status change.",
+  "planned": "COMMITTED (was bonus-may-slip): compose + send feedback email while recording the review decision — textarea on the decision UI + existing EmailSender port; exceeds Sessionboard parity.",
+  "gap": "None vs parity (Sessionboard lacks integrated compose). Committed so it cannot slip."
+ },
+ {
+  "name": "Email history log",
+  "faithful": "History > Emails audit trail with per-message statuses Delivered/Opened/Clicked/Bounced/Spam/Dropped; campaigns add open/click/bounce metrics.",
+  "planned": "Admin email history page listing email_outbox rows (to/subject/status/sentAt/error) — one list route over data the port already writes.",
+  "gap": "COMMITTED TO REACH a per-message delivery log. Remaining gap vs faithful: Opened/Clicked engagement metrics (needs provider webhooks — out)."
+ },
+ {
+  "name": "\"Today\": stat cards + status breakdown",
+  "faithful": "Today tab: greeting plus days-to-event, stat cards (Submissions, Accepted Speakers, Exhibitors, Sponsors), Submission Status row (Accepted/Pending/Declined/Drafts/Withdrawn), and section tabs.",
+  "planned": "Greeting + days-to-event, stat cards (Submissions, Accepted Speakers), status breakdown row, recent submissions, per-form progress (P1).",
+  "gap": "Builds Submissions/Accepted cards and the status row; drops Exhibitors/Sponsors cards (those modules are out of scope)."
+ },
+ {
+  "name": "\"Also check\" alert links",
+  "faithful": "'Also check' links, e.g. '1 accepted session still needs a time slot (Agenda)', '3 submissions awaiting a decision (Participants)', '+1 more'.",
+  "planned": "'Also check' alert links included on the dashboard Today view (P1).",
+  "gap": "Near-parity on the core alerts (unscheduled sessions, pending decisions); fewer alert types are seeded."
+ },
+ {
+  "name": "Speaker Tracking dashboard",
+  "faithful": "Custom dashboard: Accepted Speakers, Outstanding Speaker Tasks, Speaker Confirmation Mix chart, Top Speakers by Outstanding Tasks, with +Add Widget.",
+  "planned": "Firm req: an outstanding-onboarding-tasks view (counts + per-speaker list); the charted Speaker Tracking widgets are P2 extras.",
+  "gap": "Builds the firm outstanding-tasks list; the charted Speaker Tracking widget dashboard stays P2 bonus."
+ },
+ {
+  "name": "CSV / XLSX export",
+  "faithful": "Every module's Options > Export dumps the current view as CSV or Excel; file fields export as hosted URLs; reflects visible columns and filters.",
+  "planned": "COMMITTED TO REACH: CSV export for submissions + speakers — pure serialization of the queries the list loaders already run (one resource-route branch per list). XLSX and the files bundle stay opportunistic P2.",
+  "gap": "Remaining vs faithful: XLSX format, per-view column/filter fidelity, download-files bundle."
+ },
+ {
+  "name": "CSV / XLSX import",
+  "faithful": "Options > Import: generate template, upload, map fields, validate (red cells), submit; update via 'Update record if exists'=TRUE; max 1,000 rows per file.",
+  "planned": "P2 bonus: CSV/XLSX import for teams migrating off Sessionboard.",
+  "gap": "Import is bonus-tier; the mapping/validation/update-existing wizard will be thinner if built at all."
+ },
+ {
+  "name": "Public API (Sessionboard-compatible subset)",
+  "faithful": "177-operation OpenAPI with x-access-token auth, pagination (25/max 100), response envelopes; full CRUD+search on sessions/speakers/contacts/settings, plus webhooks and OAuth 2.1.",
+  "planned": "P2 bonus: mirror the core read/search set (sessions, speakers, contacts) with x-access-token, their pagination, and response envelopes.",
+  "gap": "Read/search subset only; drops all writes, webhooks, OAuth, insights, and roughly 150 other operations."
+ },
+ {
+  "name": "Cloudflare deploy",
+  "faithful": "[doc-silent] Sessionboard is a closed hosted SaaS; there is no self-hosting or customer deploy story.",
+  "planned": "Deploy on Cloudflare (Workers) as the committed stack decision, targeting sub-second loads as a scored feature.",
+  "gap": "No Sessionboard equivalent; we add deployability and speed the hosted original can't match (surpasses parity)."
+ },
+ {
+  "name": "Forge hosting mirror",
+  "faithful": "[doc-silent] No equivalent; Sessionboard is single-vendor hosted with no alternate hosting target.",
+  "planned": "P2 'very teeny bonus points': mirror the repo on Forge at the end only if trivial.",
+  "gap": "Lowest-priority bonus, likely skipped; it's a repo mirror, not a second live deployment."
+ },
+ {
+  "name": "Duplicate-contact handling",
+  "faithful": "Sessionboard dedupes via Unique Contact Settings (allow new info for existing contacts / notify existing contacts) and contact merge tooling in the CRM.",
+  "planned": "KNOWN GAP — documented, not built: unique(eventId, email) prevents exact-email duplicates, but the same human under two emails becomes two portal identities with divergent tasks/bios; no reassign-participant-to-another-contact affordance.",
+  "gap": "No merge/reassign tooling; moderate effort, below the committed bar for the deadline. Revisit post-hackathon."
+ }
 ]

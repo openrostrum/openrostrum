@@ -1,0 +1,305 @@
+area: abstract-management
+title: Abstract Management (Review Depth & Disposition)
+prefix: ABS
+overview: >
+  Abstract management is the review-and-disposition engine that sits behind the call for
+  papers. Organizers configure evaluation plans with multiple independent review rounds,
+  each carrying its own scorecard (numeric, dropdown, and free-text criteria, optionally
+  weighted), its own open/close dates, its own anonymization setting, and its own reviewer
+  pool. Submissions are distributed to reviewers at scale with per-reviewer caps,
+  auto-distribution or track-filtered bulk assignment, and a real-time progress dashboard
+  with bulk reminders keeps the committee on schedule. Reviewers score their assigned
+  abstracts (blinded when the round requires it, with conflict-of-interest recusal where
+  supported), and chairs work from an aggregate score table they can sort, export for the
+  committee, and optionally seed with AI first-pass triage scores. Basic form building,
+  the submitter portal, and simple accept/reject flows are owned by the call-for-papers
+  spec; this spec grades the depth of the review workflow itself. Note: a scenario's
+  persona is its STARTING identity — scenarios may sign out and switch identities
+  mid-run; the harness supplies all fixture credentials to every scenario.
+personas: [organizer, speaker, reviewer]
+scenarios:
+  - id: ABS-S1
+    name: Speaker seeds submissions with a co-author
+    persona: speaker
+    steps: |
+      1. Navigate to the target site. Find the public call-for-papers / submission area —
+         it may be called Apply, CFP, Submit a talk, Call for Speakers, Submissions, or
+         Proposals, and may live behind the event "DevFlow Conf 2027" if the site hosts
+         multiple events. CHAINED-RUN PRECONDITION: if the portal shows a CLOSED state
+         (area 01 deliberately closes the CFP at its end), first sign in as the organizer
+         Jordan Alvarez (jordan.organizer@sbek-test.example.com, fixture password), move
+         the CFP close date back into the future (e.g. 2027-04-30), save, sign out, and
+         return here before continuing.
+      2. Sign up as the speaker identity Priya Raman (priya.speaker@sbek-test.example.com,
+         fixture password, title/company/bio from the sample data). If the account already
+         exists (e.g. created in area 01), sign in instead.
+      3. Ensure the "Taming 40-Minute CI: Incremental Builds at Monorepo Scale" proposal
+         exists with a co-author. If it already exists from area 01, REUSE it — do not
+         submit a duplicate: open it from the speaker dashboard and add the co-author by
+         EDITING the existing submission. Otherwise submit it fresh from the sample data
+         (format Talk, track Platform & Infra, abstract and audience-level text from the
+         fixture). Either way, look for an add co-author / co-presenter / additional
+         speaker / participant control. If present, add Marcus Okafor from the sample data
+         (marcus.speaker@sbek-test.example.com, Staff Developer Advocate at Cloudreach
+         Labs) and assign him a role if role labels are offered (Co-author, Co-speaker,
+         Co-presenter, or similar). Screenshot the form or edited submission INCLUDING the
+         participants/co-author section before saving/submitting, then screenshot the
+         confirmation or saved state. If no co-author control exists anywhere in the flow,
+         record that observation explicitly.
+      4. Ensure the second proposal "Your AI Pair Programmer Is Lying to You: Verification
+         Patterns That Scale" exists. If it already exists from area 01 (it may even carry
+         a Rejected decision), reuse it as-is — do not submit a duplicate. Otherwise
+         submit it from the sample data (Talk, AI Engineering), no co-author.
+      5. Submit the third proposal "Docs That Answer Back: Retrieval-Grounded Documentation
+         Sites" from the sample data (Lightning Talk, Developer Experience), no co-author.
+         This is the only proposal guaranteed not to exist yet — always submit it fresh.
+      6. Open the speaker's submissions list / dashboard and screenshot it showing all
+         three submissions with their status labels.
+      7. Open the detail view of "Taming 40-Minute CI" and screenshot the participants
+         list. Record whether Marcus Okafor appears with a role label alongside Priya
+         Raman.
+    success_signals:
+      - Three submissions visible in the speaker dashboard with status labels
+      - Submission detail shows both Priya Raman and Marcus Okafor, each with a role label
+      - Screenshot of the co-author control in the submission form or edit view
+  - id: ABS-S2
+    name: Organizer configures rounds, pools, assignments, reminders
+    persona: organizer
+    steps: |
+      1. Navigate to the target site and find the organizer/admin area — try obvious nav
+         links first, then routes like /admin, /dashboard, /organizer. Sign up as Jordan
+         Alvarez (jordan.organizer@sbek-test.example.com, fixture password) if the site
+         has open signup; otherwise sign in with the fixture organizer credentials.
+      2. Locate the event "DevFlow Conf 2027". If it does not exist, create it from the
+         sample data (2027-05-12 to 2027-05-14, Moscone West SF, tracks AI Engineering /
+         Platform & Infra / Developer Experience, session formats from the fixture).
+      3. Open the submissions/proposals list and confirm the three ABS-S1 submissions are
+         visible. Screenshot the list.
+      4. Find the review/evaluation configuration area — it may be called Evaluation Plans,
+         Review Rounds, Review Workflow, Review Settings, or Scorecards. Create a first
+         round named "Initial Review" with open date 2026-08-01 and close date 2026-10-15.
+         Enable anonymization / blind review / double-blind for this round if the option
+         exists (screenshot the toggle). Build its scorecard with four fields — numeric 1-5
+         "Originality", numeric 1-5 "Relevance", dropdown "Recommendation" with options
+         Accept / Maybe / Reject, and a long-text "Comments" field. If the editor supports
+         per-criterion weights, set Originality to weight 2 and Relevance to weight 1 and
+         screenshot the weight configuration; if not, record that weights are unsupported.
+         Screenshot the completed scorecard editor.
+      5. Create a second round named "Final Review" with open date 2026-10-16 and close
+         date 2026-11-30 and a DIFFERENT scorecard: numeric 1-10 "Final Score" plus a
+         "Comments" text field. If reviewer pools are configured per round, give this
+         round a pool distinct from round 1 (it may be empty or contain only the
+         organizer). Save everything, then reload the evaluation-plan page and screenshot
+         it showing both rounds with their distinct names, date ranges, and scorecards.
+      6. Add Sam Whitfield (sam.reviewer@sbek-test.example.com, fixture identity) as a
+         reviewer in the Round 1 "Initial Review" pool — via invite reviewer, add reviewer,
+         or team/committee management. If an invitation link is displayed on screen,
+         record it as an observation. Screenshot the reviewer-pool state showing Sam
+         Whitfield attached to Round 1 and, if pools are per-round, Round 2's separate
+         (possibly empty) pool; if reviewers can only be added globally rather than
+         per round, record that observation explicitly.
+      7. Open the reviewer-assignment area. Assign exactly TWO of the three submissions to
+         Sam Whitfield: "Taming 40-Minute CI" and "Your AI Pair Programmer Is Lying to
+         You". Deliberately leave "Docs That Answer Back" unassigned. While here, look for
+         at-scale assignment tooling — a per-reviewer cap / max-assignments setting,
+         auto-distribute / auto-assign, or assign-by-track filtering. Exercise whichever
+         exists (e.g. set a cap of 5, or filter by track before assigning) and screenshot
+         it. Confirm the assignments and screenshot the final assignment state.
+      8. Open the review progress dashboard / monitoring view. Screenshot the baseline
+         state showing Sam Whitfield with 2 assigned and 0 completed (or equivalent
+         counts/percentages).
+      9. From the progress view (or reviewer list), select the lagging reviewer Sam
+         Whitfield and trigger the bulk / send-reminder action. Screenshot the
+         confirmation that a reminder was sent. Do not expect to verify the email itself.
+      10. If the site advertises AI evaluation / AI triage / AI reviewer features, enable
+          or run it on "Taming 40-Minute CI" (configuring a persona if required).
+          Screenshot any AI-produced score and its written reasoning, plus any
+          override control. If no AI feature exists, record that observation.
+    success_signals:
+      - Evaluation plan persists two rounds with different names, dates, and scorecards
+        after reload
+      - Scorecard editor screenshot showing numeric, dropdown, and text fields (and
+        weights if supported)
+      - Assignment state shows exactly 2 submissions assigned to Sam Whitfield
+      - Progress dashboard shows 2 assigned / 0 complete for Sam
+      - Reminder-sent confirmation captured
+  - id: ABS-S3
+    name: Reviewer scores blind; organizer checks aggregates and export
+    persona: reviewer
+    steps: |
+      1. Navigate to the target site and sign in as Sam Whitfield
+         (sam.reviewer@sbek-test.example.com, fixture password). If no account exists yet,
+         sign up with the fixture reviewer identity, or use any reviewer-invitation link
+         that was displayed on screen during ABS-S2. If the reviewer portal is
+         magic-link-only (no reviewer password sign-in or signup anywhere), sign in as
+         the organizer Jordan Alvarez (jordan.organizer@sbek-test.example.com, fixture
+         password), look for a copyable reviewer-portal link or a "view as reviewer" /
+         impersonate control for Sam Whitfield, record it, sign out, and open that link.
+         If no such on-screen path exists either, record that reviewer access requires
+         an emailed link that cannot be verified, and stop this scenario.
+      2. Open the reviewer queue / review portal. Screenshot it. Record exactly which
+         submission titles appear: it should list the two assigned submissions ("Taming
+         40-Minute CI..." and "Your AI Pair Programmer...") and must NOT list the
+         unassigned "Docs That Answer Back".
+      3. Open the review view for "Taming 40-Minute CI". Scan the entire visible page for
+         the author identity: the names "Priya Raman" and "Marcus Okafor" and the company
+         "Latticework Systems". Screenshot the page and record explicitly whether author
+         identity is hidden (round 1 was configured as blinded in ABS-S2) and whether any
+         other reviewer's scores are visible.
+      4. While in the review view, look for a conflict-of-interest control — "Declare
+         conflict", "Recuse", "I have a conflict", "Cannot review", or similar. Screenshot
+         it if present and record its exact wording; only click it if the UI clearly shows
+         the action is reversible or scoped to a single submission you can still see.
+         Record its absence otherwise.
+      5. Fill the round-1 scorecard for "Taming 40-Minute CI": Originality = 4 (the sample
+         review rating), Relevance = 2, Recommendation = Accept (the sample decision), and
+         paste the sample review comment into Comments. If Sam already reviewed this
+         submission in an earlier area (CFP-S3 records an all-4s review), submit this
+         scorecard within the Round 1 "Initial Review" plan created in ABS-S2 — and if the
+         clone allows only one review per reviewer per submission, edit/replace the prior
+         review with these values instead. Screenshot the filled scorecard,
+         submit it, and verify the item is marked complete in the queue. Then reopen the
+         submitted review and screenshot it showing the stored values (4, 2, Accept, and
+         the comment) so storage — not just the completion badge — is captured.
+      6. Open "Your AI Pair Programmer Is Lying to You" and submit a second evaluation:
+         Originality = 5, Relevance = 5, Recommendation = Accept, brief comment "Excellent
+         fit for the AI Engineering track." Screenshot, submit, and screenshot the queue
+         showing both items complete.
+      7. Sign out. Sign in as the organizer Jordan Alvarez
+         (jordan.organizer@sbek-test.example.com, fixture password) and open the review
+         results / scores / decisions area for DevFlow Conf 2027.
+      8. Verify an aggregate (average/total) score is displayed per submission. Record the
+         displayed aggregates for both reviewed submissions. Note for the judge: with
+         Originality 4 and Relevance 2, an unweighted average is 3.0 while the weighted
+         average configured in ABS-S2 (Originality x2) is approximately 3.33; record which
+         the site shows. If the clone pooled an earlier-area review into the aggregate
+         (e.g. CFP-S3's all-4s scorecard), record the arithmetic INCLUDING that review
+         rather than treating the differing number as an error. Screenshot the results
+         table.
+      9. Sort the results table by aggregate score — click the score column header or use
+         a sort control — in descending then ascending order. Screenshot both orderings and
+         record the row order each time ("Your AI Pair Programmer" should rank above
+         "Taming 40-Minute CI" on score).
+      10. Open "Taming 40-Minute CI" in the organizer's review/results context and
+          screenshot the participants: author identity (Priya Raman, Marcus Okafor with
+          his role, Latticework Systems) should be fully visible to the organizer, in
+          contrast to the blinded reviewer view from step 3.
+      11. Open the progress dashboard again and screenshot it now showing Sam Whitfield
+          with 2 of 2 reviews complete (or 100%).
+      12. Find an export / download control for scores or review results (CSV/XLSX), in
+          the results table or a reports area. Trigger it, screenshot the control and any
+          confirmation or download indication, and record the filename if shown. Do not
+          attempt to open the downloaded file.
+      13. If AI scores were produced in ABS-S2, verify in the results view that the AI
+          score is visually distinguishable from human reviewer scores, and if an override
+          control exists, override the AI score to a different value, save, reload, and
+          screenshot the persisted override.
+    success_signals:
+      - Reviewer queue contains exactly the two assigned submissions
+      - Blinded review view without author names, organizer view with them
+      - Both evaluations submitted and marked complete
+      - Results table with per-submission aggregates, screenshots of both sort orders
+      - Progress dashboard showing 2/2 complete; export control triggered
+rubric:
+  - id: ABS-01
+    criterion: Organizer can configure an evaluation plan with two or more independent review rounds, each with its own name, open/close dates, and its own scorecard, and the configuration persists.
+    weight: 3
+    testability: auto
+    scenarios: [ABS-S2]
+    pass_criteria: "After saving and reloading, both rounds ('Initial Review' 2026-08-01..2026-10-15 and 'Final Review' 2026-10-16..2026-11-30) are listed with visibly distinct names, date ranges, and scorecards; a single global review setup with no round concept fails."
+    evidence: Screenshot of the reloaded evaluation-plan screen showing both named rounds with their differing dates and scorecard contents.
+  - id: ABS-02
+    criterion: Review rounds can each have their own reviewer pool, so a reviewer scoped to round 1 is not automatically a reviewer for round 2.
+    weight: 2
+    testability: auto
+    scenarios: [ABS-S2]
+    pass_criteria: The UI attaches reviewers (or a pool/committee) to a specific round rather than only globally, and Sam Whitfield could be added to the Round 1 pool while Round 2 shows a different (possibly empty) pool.
+    evidence: Screenshots of per-round reviewer-pool configuration showing Round 1 containing Sam Whitfield and Round 2 configured separately; agent observation of where reviewer membership is scoped.
+  - id: ABS-03
+    criterion: The scorecard editor supports numeric rating, dropdown, and free-text criteria, and all three field types render on the reviewer side and store submitted values.
+    weight: 3
+    testability: auto
+    scenarios: [ABS-S2, ABS-S3]
+    pass_criteria: "Organizer could build the round-1 scorecard with numeric Originality/Relevance, a Recommendation dropdown (Accept/Maybe/Reject), and a Comments text area; the reviewer view rendered all three types; the submitted evaluation (values 4, 2, Accept, sample comment) is stored and visible after submission."
+    evidence: Scorecard-editor screenshot from ABS-S2 plus the filled reviewer scorecard and its completed/stored state from ABS-S3.
+  - id: ABS-04
+    criterion: "Scoring criteria can carry weights and the per-submission aggregate reflects the weighting (inferred — SessionBoard marketing references weighted criteria only for AI personas; aggregation method unspecified)."
+    weight: 1
+    testability: auto
+    scenarios: [ABS-S2, ABS-S3]
+    pass_criteria: "Weight configuration exists in the scorecard editor and persists (Originality weight 2, Relevance weight 1); full credit if the displayed aggregate for 'Taming 40-Minute CI' matches the weighted math (approximately 3.33 rather than the plain 3.0 average) or is explicitly labeled as weighted; no weight concept anywhere fails. If an earlier-area review (CFP-S3's all-4s scorecard) is folded into the displayed aggregate, judge the arithmetic including it per the agent's recorded observation rather than failing the item."
+    evidence: Screenshot of the weight configuration in the editor and the results-table aggregate value for the submission scored 4 and 2, with the agent's recorded arithmetic observation.
+  - id: ABS-05
+    criterion: Organizer can assign specific submissions to a specific reviewer, and the reviewer's queue contains exactly the assigned submissions and nothing else.
+    weight: 3
+    testability: auto
+    scenarios: [ABS-S2, ABS-S3]
+    pass_criteria: "Sam Whitfield's queue lists 'Taming 40-Minute CI' and 'Your AI Pair Programmer' and does NOT list the unassigned 'Docs That Answer Back'; a portal that exposes all submissions to every reviewer fails."
+    evidence: ABS-S2 assignment-state screenshot plus the ABS-S3 reviewer-queue screenshot; agent's recorded list of titles visible in the queue.
+  - id: ABS-06
+    criterion: Assignment tooling works at scale — at least one of per-reviewer caps/limits, auto-distribution of submissions across reviewers, or track-filtered bulk assignment is present and functional.
+    weight: 2
+    testability: auto
+    scenarios: [ABS-S2]
+    pass_criteria: The assignment UI offers a per-reviewer limit, an auto-assign/distribute action, or track/bulk filtering, and the agent exercised it without error; assignment strictly one-submission-at-a-time with no caps, filters, or auto-distribution fails.
+    evidence: Screenshot of the cap setting, auto-distribute control, or track filter in use during ABS-S2 step 7, with the agent's observation of what happened.
+  - id: ABS-07
+    criterion: With anonymization enabled on a round, the reviewer's view hides author and co-author identity while the organizer's view of the same submission shows it.
+    weight: 2
+    testability: auto-partial
+    scenarios: [ABS-S2, ABS-S3]
+    pass_criteria: "A per-round anonymization/blind setting exists (ABS-S2 step 4) and the blinded reviewer view of 'Taming 40-Minute CI' contains none of 'Priya Raman', 'Marcus Okafor', or 'Latticework Systems', while the organizer view (ABS-S3 step 10) shows them; author names leaking anywhere in the reviewer view fails."
+    evidence: "Contrasting screenshots: blinded reviewer view vs organizer view of the same submission; agent's explicit observation from scanning for the three identity strings."
+    manual_instructions: "Cross-reviewer isolation needs a second simultaneous account: invite a second reviewer you control to the same round, assign them 'Taming 40-Minute CI', log in as them in a separate browser, and confirm they cannot see Sam Whitfield's scores or comments before submitting their own."
+  - id: ABS-08
+    criterion: A review progress dashboard shows per-reviewer completion counts or percentages that match the actual review state in real time.
+    weight: 2
+    testability: auto
+    scenarios: [ABS-S2, ABS-S3]
+    pass_criteria: "The dashboard showed Sam Whitfield at 2 assigned / 0 complete before any reviews (ABS-S2 step 8) and 2 of 2 complete (or 100%) after both evaluations were submitted (ABS-S3 step 11); stale or absent counts fail."
+    evidence: Before/after progress-dashboard screenshots from the two scenarios with matching reviewer name and counts.
+  - id: ABS-09
+    criterion: Organizer can select reviewers with outstanding reviews and send them a bulk reminder from the progress or reviewer view.
+    weight: 2
+    testability: auto-partial
+    scenarios: [ABS-S2]
+    pass_criteria: A reminder/nudge action is available against the lagging reviewer (Sam at 0 of 2 complete), and triggering it reports success (confirmation toast, sent status, or log entry).
+    evidence: Screenshot of the reminder control and the sent confirmation from ABS-S2 step 9.
+    manual_instructions: Check the sam.reviewer@sbek-test.example.com inbox (or the clone's outbound-mail log if it exposes one) and confirm a reminder email arrived referencing the pending reviews.
+  - id: ABS-10
+    criterion: Organizer sees an aggregate score per submission in a results table and can sort submissions by that score.
+    weight: 3
+    testability: auto
+    scenarios: [ABS-S3]
+    pass_criteria: "Both reviewed submissions display aggregates consistent with the entered scores ('Your AI Pair Programmer' at 5.0 outranking 'Taming 40-Minute CI' at ~3.0-3.33), and toggling the sort visibly reorders rows correctly in both directions; a list with raw per-review data but no aggregate or no working sort fails. If an earlier-area review is folded into the aggregate (per the agent's recorded arithmetic in step 8), judge consistency including that review rather than requiring the exact 3.0/3.33 values."
+    evidence: Results-table screenshots in descending and ascending score order plus the agent's recorded row orders and aggregate values.
+  - id: ABS-11
+    criterion: Co-authors/co-presenters added at submission time persist with their role labels and are visible on the submission in organizer-side review and results views.
+    weight: 2
+    testability: auto
+    scenarios: [ABS-S1, ABS-S3]
+    pass_criteria: "Marcus Okafor appears alongside Priya Raman on 'Taming 40-Minute CI' with a role label in the speaker-side detail (ABS-S1) and in the organizer's review/results context (ABS-S3 step 10); no co-author support at all fails; partial credit if co-authors persist but without role labels."
+    evidence: Submission-detail screenshots from both scenarios showing the participants list with names and roles.
+  - id: ABS-12
+    criterion: "Reviewer can declare a conflict of interest / recuse themselves on an assigned submission (inferred — not documented in SessionBoard marketing; category norm from peer review tools)."
+    weight: 1
+    testability: auto
+    scenarios: [ABS-S3]
+    pass_criteria: A conflict-of-interest or recusal control is present in the reviewer's scoring view (screenshot with wording recorded); full credit if exercising it flags the submission or removes it from the reviewer's actionable queue.
+    evidence: Screenshot of the COI/recuse control from ABS-S3 step 4 and the agent's recorded wording; if exercised, the resulting flagged/removed state.
+  - id: ABS-13
+    criterion: Review scores and statuses can be exported to a downloadable file (CSV/XLSX) from the results or reports area.
+    weight: 2
+    testability: auto-partial
+    scenarios: [ABS-S3]
+    pass_criteria: An export/download control exists for review results and triggering it initiates a download or reports success without error.
+    evidence: Screenshot of the export control and any confirmation/download indication from ABS-S3 step 12, plus the recorded filename if shown.
+    manual_instructions: "Trigger the export yourself, open the downloaded file, and verify it contains one row per submission with title, per-criterion or aggregate scores, recommendation, and review status matching the on-screen results table (Taming 40-Minute CI with Originality 4 / Relevance 2 / Accept; Your AI Pair Programmer with 5 / 5 / Accept)."
+  - id: ABS-14
+    criterion: If the clone claims AI-assisted triage, an AI evaluator produces a first-pass numeric score with written reasoning on a submission, and a human override persists distinguishably.
+    weight: 1
+    testability: auto-partial
+    scenarios: [ABS-S2, ABS-S3]
+    pass_criteria: "An AI evaluation feature exists and yields a numeric score plus rationale text attributed to the AI on 'Taming 40-Minute CI'; the results view distinguishes AI from human scores; an admin override to a different value persists after reload. Judge this item only if the clone claims AI review anywhere in its UI or marketing; otherwise score as not applicable per the agent's recorded observation of absence."
+    evidence: Screenshots of the AI score with its reasoning text, the AI-vs-human distinction in results, and the persisted override after reload.
+    manual_instructions: Read the AI-generated rationale and confirm it is substantive and specific to the abstract's actual content (mentions CI/builds/monorepo concepts) rather than generic boilerplate reusable on any submission.

@@ -1,0 +1,411 @@
+{
+  "area": "speaker-management",
+  "sources": [
+    "https://www.sessionboard.com/capabilities/speaker-management",
+    "https://www.sessionboard.com/capabilities/content-management",
+    "https://www.sessionboard.com/products/speaker-crm",
+    "https://learn.sessionboard.com/en/knowledge-base",
+    "https://learn.sessionboard.com/en/knowledge-base/participants/access-portal",
+    "https://learn.sessionboard.com/en/knowledge-base/communications/create-send-emails",
+    "https://www.sessionboard.com/blog/make-life-easy-for-your-speakers-with-personalized-tasks-sessionboard-product-update",
+    "https://www.sessionboard.com/blog/product-update-custom-statuses-and-extending-portal-task-deadlines"
+  ],
+  "fetch_status": "Primary URL fetched OK (rich content). Internal links /capabilities/content-management and /products/speaker-crm fetched OK. learn.sessionboard.com knowledge-base pages returned only nav-level content (JS-heavy help center; partial value: confirmed portal tasks, wiki pages, file downloads, email campaigns, SMS, automated emails, comms history). Fell back to WebSearch (\"sessionboard speaker tasks portal deadline\") which surfaced two product-update blog posts; both fetched OK and gave concrete task/status/deadline mechanics. No fetch failures requiring retry.",
+  "summary": "SessionBoard speaker management is the post-acceptance workflow hub between CFP and agenda publishing. Organizers maintain a speaker directory/CRM (profiles with bio, headshot, title/company, social links, custom fields, tags, session assignments, cross-event history). Each speaker gets a personalized portal where they see only their own sessions, tasks, files, and resources; they self-serve bio/headshot/social updates (within organizer-set field-level locks), upload requested files, complete forms, and check deadlines. Organizers create tasks (general action items, file requests, forms) with due dates, assign them individually, in bulk, or automatically from session data, and track completion in a filterable progress dashboard. Deadline automation sends reminder emails to speakers with incomplete tasks; organizers can extend due dates per speaker by 1-31 days and accept late submissions. Built-in communications cover bulk email/SMS to filtered speaker groups using templates with auto-filled merge fields, plus per-speaker/per-session message threads and comments, with logged communication history. Speaker/session statuses (including custom statuses mapped to system statuses) track workflow states like Confirmed or Pending Contract. Collaborators (co-presenters, assistants, agency contacts) get role-scoped portal access. Returning-speaker data pre-populates across events.",
+  "personas": [
+    "Organizer/admin (event team member managing speakers, tasks, communications)",
+    "Speaker (portal user completing profile and deliverables)",
+    "Collaborator (co-presenter, assistant, or agency contact with scoped portal access)"
+  ],
+  "user_journeys": [
+    {
+      "name": "Onboard confirmed speakers",
+      "persona": "Organizer/admin",
+      "steps": [
+        "Log in and open the Speakers section of an event",
+        "Add or import speakers (name, email, title, company, bio, headshot)",
+        "Set each speaker's status (Invited/Confirmed/Declined)",
+        "Create tasks: headshot file request, bio form, slides upload with due dates",
+        "Assign tasks to all confirmed speakers in bulk",
+        "Send portal invitation email via template with merge fields"
+      ],
+      "filled_state": "Speaker list shows 12+ speakers with headshot thumbnails, titles, companies, status badges; each confirmed speaker has 3-4 assigned tasks with due dates visible in a tasks view"
+    },
+    {
+      "name": "Speaker completes deliverables",
+      "persona": "Speaker",
+      "steps": [
+        "Open personalized portal via emailed link/login",
+        "See only own profile, sessions, and task list with due dates",
+        "Edit bio and social links; upload a new headshot",
+        "Open the slides file-request task and upload a presentation file",
+        "Confirm session time / complete a form task; watch task status flip to complete"
+      ],
+      "filled_state": "Portal shows the speaker's name/photo, their 1-2 sessions, a task list with mixed states (2 completed with checkmarks, 1 pending with a due date), and a resources/info section"
+    },
+    {
+      "name": "Chase incomplete deliverables",
+      "persona": "Organizer/admin",
+      "steps": [
+        "Open the speaker tasks/progress dashboard",
+        "Filter to incomplete or overdue tasks",
+        "Select the lagging speakers and send a bulk reminder email using a template",
+        "Extend the due date for one priority speaker who asked for more time",
+        "Verify a late upload from that speaker is accepted and dashboard updates"
+      ],
+      "filled_state": "Dashboard shows per-speaker completion status (e.g., 8/12 complete), overdue tasks highlighted, filter chips active, communication history logging the sent reminder"
+    },
+    {
+      "name": "Answer a speaker question",
+      "persona": "Organizer/admin + Speaker",
+      "steps": [
+        "Speaker posts a comment/message from their portal on a session or task",
+        "Organizer sees the thread tied to that speaker/session and replies",
+        "Speaker sees the reply in their portal thread"
+      ],
+      "filled_state": "A visible two-way message/comment thread with 2-3 messages, timestamps, and author names attached to a specific speaker or session"
+    }
+  ],
+  "features": [
+    {
+      "id": "spk-speaker-directory",
+      "name": "Speaker directory",
+      "description": "Central per-event list of all speakers with search, filters (status, task completion, custom tags), and bulk selection/actions for high volumes (12-400+ speakers).",
+      "must_have": true,
+      "ui_expectations": "List or card grid with headshot thumbnail, name, title/company, status badge; search box; filter controls; checkbox bulk-select with bulk action menu"
+    },
+    {
+      "id": "spk-speaker-profile",
+      "name": "Speaker profile record",
+      "description": "Full speaker record: bio, headshot, contact info, social links, custom fields, session assignments, and change history with timestamps/attribution. Organizer-editable.",
+      "must_have": true,
+      "ui_expectations": "Profile detail page with photo, editable fields, sessions list, tabs or sections for files/history/comments; save persists on reload"
+    },
+    {
+      "id": "spk-speaker-portal",
+      "name": "Personalized speaker portal",
+      "description": "Per-speaker workspace scoped to that speaker only: their sessions, tasks with deadlines, files, profile editing, resource/wiki pages. Mobile-friendly, event-branded. Access via emailed link/credentials (inferred: magic-link or account login, per Sessionize norms).",
+      "must_have": true,
+      "ui_expectations": "Distinct speaker-facing view (separate from organizer admin) greeting the speaker by name, showing only their own content; nav tabs for profile, tasks, sessions, resources"
+    },
+    {
+      "id": "spk-profile-self-service",
+      "name": "Speaker profile self-service",
+      "description": "Speakers update their own bio, headshot, and social links from the portal; organizer-configured field-level locking restricts which fields speakers may edit; edits sync to organizer view.",
+      "must_have": true,
+      "ui_expectations": "Editable profile form in portal with image upload for headshot; locked fields read-only; saved changes visible in organizer's speaker record"
+    },
+    {
+      "id": "spk-task-management",
+      "name": "Tasks and deliverables",
+      "description": "Organizers create tasks with title, description, due date, and type: general action item, file request (upload document/image), or form. Assign individually, in bulk, or automatically from session/contact data; task content auto-fills contact record values (personalized tasks).",
+      "must_have": true,
+      "ui_expectations": "Task creation modal/form with type selector, due date picker, assignee picker (multi-select speakers); assigned tasks appear on speaker records and in speaker portals"
+    },
+    {
+      "id": "spk-file-collection",
+      "name": "Document and file collection",
+      "description": "Files uploaded by speakers (headshots, bios, presentations, contracts, insurance certs) are collected against the task/speaker/session and viewable/downloadable by organizers with name and timestamp.",
+      "must_have": true,
+      "ui_expectations": "Files list on task, speaker, or session detail showing filename, uploader, upload time, and a download control"
+    },
+    {
+      "id": "spk-progress-dashboard",
+      "name": "Task progress dashboard",
+      "description": "Central organizer dashboard showing real-time per-speaker/per-task completion status across tasks, sessions, and events; filterable by status (complete/incomplete/overdue) to see who needs a nudge.",
+      "must_have": true,
+      "ui_expectations": "Table or board of speakers x tasks with status indicators (done/pending/overdue), counts or progress summary, status filter; updates after a speaker completes a task"
+    },
+    {
+      "id": "spk-deadline-reminders",
+      "name": "Automated deadline reminders",
+      "description": "System automatically emails reminders to speakers with incomplete tasks based on due dates; reminders reference the original due date (inferred cadence: before due date and when overdue, per category norms).",
+      "must_have": true,
+      "ui_expectations": "Reminder settings on tasks or portal config; sent reminders appear in communication history/log"
+    },
+    {
+      "id": "spk-deadline-extension",
+      "name": "Per-speaker deadline extension",
+      "description": "Organizer extends a task/document-request/form due date by 1-31 days for an individual speaker; late completions are accepted; speaker keeps seeing original due date while backend honors the extension (documented SessionBoard behavior).",
+      "must_have": false,
+      "ui_expectations": "Extend-deadline control on a task assignment (per speaker), accepting a new date or day count; previously-overdue task becomes completable"
+    },
+    {
+      "id": "spk-bulk-communications",
+      "name": "Bulk email and SMS",
+      "description": "Compose and send email (and SMS) to any filtered group of speakers; supports scheduling and campaigns; every send is logged in a communications history (emails, SMS, exports).",
+      "must_have": true,
+      "ui_expectations": "Compose flow with recipient selection from filtered speaker list, subject/body editor, send/schedule buttons; history page listing sent messages with recipients and timestamps"
+    },
+    {
+      "id": "spk-email-templates",
+      "name": "Email templates with merge fields",
+      "description": "Pre-built and custom reusable email templates with personalization tokens that auto-fill speaker details (name, session, task, portal link) so bulk sends are personalized per recipient.",
+      "must_have": false,
+      "ui_expectations": "Template picker in compose; body shows merge tokens or a per-recipient preview substituting real speaker data"
+    },
+    {
+      "id": "spk-direct-messaging",
+      "name": "Direct messaging and comments",
+      "description": "Threaded messages/comments tied to a specific speaker or session; organizers post, speakers see and reply from their portal; shared context preserved for the team.",
+      "must_have": false,
+      "ui_expectations": "Comment/message thread panel on speaker or session detail (organizer side) and matching thread in speaker portal, with authors and timestamps"
+    },
+    {
+      "id": "spk-speaker-statuses",
+      "name": "Workflow statuses incl. custom statuses",
+      "description": "Speakers/sessions carry workflow statuses (e.g., Invited, Confirmed, Accepted, Declined); organizers create custom statuses mapped to system statuses (e.g., 'Pending Contract', 'Declined (Queue)') and filter by them; statuses survive event cloning/import.",
+      "must_have": false,
+      "ui_expectations": "Status badge on records, status dropdown to change it, settings screen to define custom statuses, status filter in lists"
+    },
+    {
+      "id": "spk-collaborator-roles",
+      "name": "Collaborator access",
+      "description": "Co-presenters, assistants, and agency contacts can be added with role-based permissions and controlled portal access to help complete a speaker's deliverables.",
+      "must_have": false,
+      "ui_expectations": "Add-collaborator control on a speaker/session with role selection; collaborator listed with their role"
+    },
+    {
+      "id": "spk-crm-reuse",
+      "name": "Cross-event speaker CRM reuse",
+      "description": "Speaker records persist in an org-wide CRM across events: bio, headshot, session history, ratings, communication logs carry forward; returning speakers are pre-populated; searchable by expertise/tag/event history with dynamic lists (auto-updating saved segments).",
+      "must_have": false,
+      "ui_expectations": "Org-level speaker database view (outside a single event) showing per-speaker event/session history and search across events"
+    }
+  ],
+  "rubric": [
+    {
+      "id": "SPK-01",
+      "feature_id": "spk-speaker-directory",
+      "criterion": "Organizer speaker list shows all speakers with identity info and supports search/filter",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as organizer (seeded credentials) and open the event's Speakers section",
+        "Confirm a list/grid of multiple speakers renders with name plus headshot and title or company",
+        "Type a seeded speaker's name in search (or apply a filter) and confirm the list narrows to matching speakers",
+        "Clear the search and confirm the full list returns"
+      ],
+      "pass_criteria": "Speakers section exists, renders seeded speakers with name + photo + title/company, and search/filter correctly narrows and restores the list",
+      "evidence": "Screenshot of full list and of filtered list showing the query and reduced results"
+    },
+    {
+      "id": "SPK-02",
+      "feature_id": "spk-speaker-profile",
+      "criterion": "Organizer can open a speaker record and edit profile fields with persistence",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "From the speaker list, open one speaker's detail page",
+        "Verify it shows bio, headshot, contact info, and assigned session(s)",
+        "Edit the bio text to a sentinel string and save",
+        "Reload the page and confirm the sentinel bio persists"
+      ],
+      "pass_criteria": "Speaker detail page exists with bio/headshot/contact/sessions, and an organizer edit survives a reload",
+      "evidence": "Screenshot of profile before edit and after reload showing the sentinel text"
+    },
+    {
+      "id": "SPK-03",
+      "feature_id": "spk-speaker-portal",
+      "criterion": "A speaker-facing portal exists and is scoped to only that speaker's content",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Access the portal as a seeded speaker (portal link or speaker login)",
+        "Confirm the view identifies the speaker (name/photo) and differs from the organizer admin UI",
+        "Confirm it lists only that speaker's session(s) and task(s)",
+        "Confirm other seeded speakers' names/tasks are not visible anywhere in the portal"
+      ],
+      "pass_criteria": "Portal loads for a speaker identity, shows their own sessions/tasks/profile, and exposes no other speaker's data",
+      "evidence": "Screenshot of portal home showing speaker identity, their tasks/sessions, and absence of other speakers"
+    },
+    {
+      "id": "SPK-04",
+      "feature_id": "spk-profile-self-service",
+      "criterion": "Speaker can update bio and upload headshot from the portal, reflected in organizer view",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "In the speaker portal, open profile editing",
+        "Change the bio to a sentinel string and upload an image file as headshot",
+        "Save and confirm the portal shows the new bio and image",
+        "Switch to organizer session, open that speaker's record, confirm sentinel bio and new headshot appear"
+      ],
+      "pass_criteria": "Portal-side profile edits (text + image upload) save and are visible on the organizer's speaker record",
+      "evidence": "Screenshots of portal profile after save and of organizer record showing same bio/headshot"
+    },
+    {
+      "id": "SPK-05",
+      "feature_id": "spk-task-management",
+      "criterion": "Organizer can create a task with type, due date, and assign it to speaker(s)",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, open the tasks area and start creating a task",
+        "Set title 'Upload presentation slides', choose file-request type (or equivalent), set a future due date",
+        "Assign it to at least two seeded speakers (bulk or multi-select)",
+        "Save and confirm the task appears in the task list with due date and assignees"
+      ],
+      "pass_criteria": "Task creation supports title, a type distinction (at minimum file-upload vs general/form), due date, and multi-speaker assignment; created task is listed",
+      "evidence": "Screenshot of creation form and of task list row showing due date and assignees"
+    },
+    {
+      "id": "SPK-06",
+      "feature_id": "spk-task-management",
+      "criterion": "Assigned task appears in speaker portal with due date and can be completed (file upload)",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "As the assigned speaker, open the portal task list",
+        "Confirm the 'Upload presentation slides' task shows with its due date and an incomplete state",
+        "Open the task and upload a file (e.g., PDF)",
+        "Confirm the task state changes to completed/submitted and the file is shown as uploaded"
+      ],
+      "pass_criteria": "Task assigned by organizer is visible in the correct speaker's portal with due date; completing it via file upload changes its status",
+      "evidence": "Screenshots of task pending with due date, and after upload showing completed state"
+    },
+    {
+      "id": "SPK-07",
+      "feature_id": "spk-progress-dashboard",
+      "criterion": "Organizer dashboard reflects real-time task completion per speaker and filters by status",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "After SPK-06, as organizer open the task progress dashboard/list",
+        "Confirm the completing speaker's task shows completed while the other assignee's shows incomplete",
+        "Apply an incomplete/pending filter and confirm only unfinished assignments remain",
+        "Apply a completed filter and confirm the finished one appears"
+      ],
+      "pass_criteria": "A per-speaker completion view exists, reflects the portal completion from SPK-06 without manual refresh tricks, and status filters work",
+      "evidence": "Screenshot of dashboard showing mixed statuses and of each filtered state"
+    },
+    {
+      "id": "SPK-08",
+      "feature_id": "spk-file-collection",
+      "criterion": "Organizer can see and download speaker-uploaded files with metadata",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "As organizer, open the completed task, speaker record, or files area",
+        "Confirm the uploaded file is listed with filename and uploader/timestamp",
+        "Confirm a download control exists and clicking it triggers a download response (non-error)"
+      ],
+      "pass_criteria": "Uploaded file is listed with metadata and a working download control; UNVERIFIED BY AGENT: that the downloaded bytes match the uploaded file \u2014 human should download and open the file to confirm content integrity",
+      "evidence": "Screenshot of file listing with filename/timestamp and download control; network response status for the download"
+    },
+    {
+      "id": "SPK-09",
+      "feature_id": "spk-deadline-reminders",
+      "criterion": "Automated reminder emails are sent to speakers with incomplete tasks near/after the deadline",
+      "weight": 2,
+      "testability": "manual",
+      "auto_steps": [],
+      "pass_criteria": "Human: seed a speaker with a real test inbox and an incomplete task due within the reminder window (or 1 day ago); wait for the reminder cycle (up to 24h); confirm an email arrives referencing the task name and due date without any organizer manually sending it; also confirm the send appears in the app's communication history/log if one exists",
+      "evidence": "Copy/screenshot of received reminder email showing task name and due date, plus the history log entry"
+    },
+    {
+      "id": "SPK-10",
+      "feature_id": "spk-deadline-extension",
+      "criterion": "Organizer can extend a task deadline for one speaker and late completion is accepted",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Seed or create a task whose due date has passed for one speaker",
+        "As organizer, use the extend-deadline control on that speaker's task assignment and add days (e.g., 7)",
+        "As that speaker, open the portal and confirm the task is still completable; upload/complete it",
+        "As organizer, confirm the completion registered despite the original deadline having passed"
+      ],
+      "pass_criteria": "A per-assignment deadline extension exists and a completion after the original due date is accepted and tracked",
+      "evidence": "Screenshots of the extension control, the speaker completing post-deadline, and the organizer view showing completed"
+    },
+    {
+      "id": "SPK-11",
+      "feature_id": "spk-bulk-communications",
+      "criterion": "Organizer can compose a bulk email to a filtered speaker group and it is logged in history",
+      "weight": 3,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "As organizer, open communications/email area and start a new email",
+        "Select recipients via a speaker filter or multi-select (e.g., all speakers with incomplete tasks, or all Confirmed)",
+        "Enter subject and body, send (or schedule)",
+        "Open the communications history and confirm the send is logged with recipient count and timestamp"
+      ],
+      "pass_criteria": "Compose-to-filtered-group flow completes and the message is logged in history; UNVERIFIED BY AGENT: actual email delivery to inboxes \u2014 human should confirm receipt at a seeded test inbox",
+      "evidence": "Screenshots of recipient selection, compose screen, and history log entry"
+    },
+    {
+      "id": "SPK-12",
+      "feature_id": "spk-email-templates",
+      "criterion": "Email templates with merge fields personalize content per recipient",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "In the email compose flow, select a saved/pre-built template",
+        "Confirm the body contains personalization tokens (e.g., first name, session title, portal link) or a preview",
+        "Open per-recipient preview (or send-to-self equivalent view) and confirm tokens resolve to a seeded speaker's actual data"
+      ],
+      "pass_criteria": "Templates are selectable and merge tokens demonstrably resolve to recipient-specific values in preview or rendered output",
+      "evidence": "Screenshot of template with tokens and of preview showing resolved speaker name/session"
+    },
+    {
+      "id": "SPK-13",
+      "feature_id": "spk-direct-messaging",
+      "criterion": "Two-way message/comment thread tied to a speaker or session works across organizer and portal",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, open a speaker or session record and post a comment/message with sentinel text",
+        "As that speaker, open the portal and confirm the message is visible",
+        "Reply from the portal with a second sentinel",
+        "As organizer, confirm the reply appears in the same thread with author and timestamp"
+      ],
+      "pass_criteria": "Messages posted on either side appear to the other side, threaded to the correct speaker/session, with authorship",
+      "evidence": "Screenshots of the thread from both organizer and speaker views showing both sentinels"
+    },
+    {
+      "id": "SPK-14",
+      "feature_id": "spk-speaker-statuses",
+      "criterion": "Speaker/session workflow statuses can be changed, filtered, and extended with custom statuses",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, change a speaker's (or their session's) status, e.g., Invited to Confirmed, and confirm the badge updates",
+        "Filter the list by that status and confirm correct membership",
+        "Open status settings, create a custom status (e.g., 'Pending Contract') mapped to a base status if mapping exists",
+        "Assign the custom status to a record and confirm it displays and is filterable"
+      ],
+      "pass_criteria": "Status change persists and filters correctly; custom status creation exists and behaves like built-in statuses (mapping to system status is a plus, not required)",
+      "evidence": "Screenshots of status change, filtered list, custom-status settings, and record bearing the custom status"
+    },
+    {
+      "id": "SPK-15",
+      "feature_id": "spk-collaborator-roles",
+      "criterion": "Co-presenter/assistant can be added to a speaker or session with a role",
+      "weight": 1,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "As organizer, open a session or speaker record and use the add-collaborator/add-speaker control",
+        "Add a person with a non-primary role (co-presenter, assistant, or agency contact)",
+        "Confirm they are listed on the record with their role label"
+      ],
+      "pass_criteria": "Collaborator can be attached with a distinct role and is displayed; UNVERIFIED BY AGENT: that the collaborator receives their own scoped portal access \u2014 human should log in as the collaborator (second account/inbox) and confirm they see only permitted content",
+      "evidence": "Screenshot of the record listing the collaborator with role"
+    },
+    {
+      "id": "SPK-16",
+      "feature_id": "spk-crm-reuse",
+      "criterion": "Speaker records show cross-event history / org-level speaker database",
+      "weight": 1,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Navigate to an org-level speaker CRM/database view outside a single event, or open a seeded returning speaker's profile",
+        "Confirm the profile shows history (past sessions/events, prior submissions, or ratings)",
+        "Search the database by tag/expertise and confirm results span events"
+      ],
+      "pass_criteria": "Some cross-event speaker continuity exists (history on profile or org-wide searchable database); UNVERIFIED BY AGENT: that creating a second event actually pre-populates a returning speaker's data \u2014 human can create a new event, add the same email, and confirm bio/headshot pre-fill",
+      "evidence": "Screenshot of CRM view or profile history section spanning more than one event"
+    }
+  ],
+  "sample_data": "Event \"TechSummit 2026\" (Oct 14-16, 2026). 12 speakers: mix of Confirmed (8), Invited (2), Declined (1), custom \"Pending Contract\" (1). Each: full name, email (use mailinator-style test inboxes for 2), job title, company, 2-3 sentence bio, headshot image (seed 10 with photos, leave 2 missing), LinkedIn/Twitter links, 1-2 assigned sessions. Tasks: (1) \"Upload headshot\" file request due 2026-08-20; (2) \"Confirm your session time\" general task due 2026-08-15 (seed some overdue/incomplete); (3) \"Upload presentation slides\" file request (PDF/PPTX) due 2026-09-30; (4) \"Speaker AV & travel form\" form task due 2026-09-01. Seed completion mix: ~60% complete on tasks 1-2, 0-20% on 3-4, at least one overdue speaker for extension testing. 2 email templates with merge fields ({{first_name}}, {{session_title}}, {{portal_link}}): \"Welcome to your speaker portal\" and \"Reminder: deliverables due\". One logged sent campaign in history. One message thread (2 messages) between organizer and a speaker about AV needs. 2 sample uploaded files (headshot JPG, slides PDF). One collaborator (assistant) attached to a speaker. Optional: a second archived event \"TechSummit 2025\" sharing 3 speaker emails to exercise CRM history.",
+  "gaps": "Portal authentication mechanism not documented (magic link vs password) \u2014 inferred emailed portal link per category norms; rubric accepts any speaker-scoped access method. Exact reminder cadence/timing and configurability not documented \u2014 inferred pre-deadline plus overdue reminders. Task status vocabulary (pending/submitted/approved?) not documented \u2014 rubric only requires an incomplete-to-complete transition. Form-task builder detail (field types, validation) not documented. SMS specifics (provider, opt-in) thin \u2014 rubric tests email path only. Organizer approval/rejection of submitted deliverables not mentioned anywhere \u2014 omitted from rubric. Documented quirk worth noting for judges: after a deadline extension, speakers still see the original due date and reminders keep referencing it while the backend accepts late work \u2014 clones showing the new date should not be penalized. Knowledge-base article bodies (Portals 101, Understanding a portal task) were JS-gated; details came from marketing pages and product-update blogs instead."
+}

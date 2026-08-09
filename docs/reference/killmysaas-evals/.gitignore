@@ -1,0 +1,7 @@
+node_modules/
+runs/
+evalconfig.json
+*.log
+.env
+.auth/
+evalconfig.*.json

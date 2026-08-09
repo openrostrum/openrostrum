@@ -10,6 +10,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Server-side twin of scripts/guard-schema.sh: pre-commit hooks are bypassable
+  # (--no-verify), this is not. Fails any PR from a feature branch that touches
+  # an integration-owned shared file. The integration owner ships those changes
+  # on branches prefixed `integration/` (or direct pushes to main).
+  guard-shared-files:
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'integration/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Block integration-owned file changes
+        run: |
+          changed="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
+          if printf '%s\n' "$changed" | grep -Eq \
+            '^(app/db/schema\.ts|drizzle/seed\.sql|package\.json|pnpm-lock\.yaml|wrangler\.json)$|^drizzle/migrations/'; then
+            echo "::error::This branch edits an integration-owned shared file (schema/migrations/seed/package.json/lockfile/wrangler.json)."
+            echo "::error::Request the change from the integration owner, or ship it on an integration/* branch."
+            exit 1
+          fi
+
   quality:
     runs-on: ubuntu-latest
     steps:

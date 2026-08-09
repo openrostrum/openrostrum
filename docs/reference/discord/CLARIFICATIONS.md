@@ -39,6 +39,22 @@ Other swyx remark in #general (context on the judges): end users **"are not tech
 
 ---
 
+## AIRTABLE Q&A (#general, Aug 8, read live 22:4x) — verbatim
+
+> **Alex Lazar | alexlazar.dev** (02:59): "How do you specifically use Airtable? Is it just read-only or do you guys expect to be able to write to Airtable as well and update state/data from there? @swyx.io"
+> **bodhi** (07:23): "@swyx.io the persistence db being airtable is dicey coz it could hit performance of the apis. how do you folks interface with airtable. do you like use your service UI and then again go to airtable to interact directly?"
+> **swyx.io** (09:05): "but the team does love being able to augment data in airtable and in the past when i had a private developer only database they were frustrated"
+> **swyx.io** (09:09, replying to Alex Lazar): "good question- for now read only is fine (they like to setup automations that happen on airtable once a new row lands) / you probably get read/write for 'free' since you have to read the airtable source of truth periodically/on load anyway so u pick up any airtable side changes"
+> **andheller** (18:53): "Are you good with Durable Objects as the main database and Airtable as a synced team view, or did you want Airtable itself to be the database?"
+> **swyx.io** (18:54, replying): "up to you but yes **the bonus points would be airtable as source of truth**"
+
+**Impact:** the Airtable bonus is TIERED, and our original "one-way mirror, never primary" framing is only the floor:
+- **Floor** ("read only is fine for now"): one-way push — our rows land in Airtable, their team consumes + runs automations on new rows. Covered by the existing `upsert()` port.
+- **Full bonus** ("airtable as source of truth"): the team edits data IN Airtable and the app picks up those changes via periodic/on-load pull — i.e. two-way sync with Airtable authoritative for team-side edits. swyx himself sketches the implementation (read the base periodically/on load → "read/write for free").
+- The perf concern (bodhi's point + our SCOPE note) stands: Airtable I/O stays background-only (push on change + periodic pull), D1 remains the serving layer — never read Airtable inline in a request.
+
+---
+
 ## What this CHANGES in our scope (impact analysis)
 
 | # | Answer | Scope impact |

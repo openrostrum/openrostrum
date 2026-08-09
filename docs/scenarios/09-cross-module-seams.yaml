@@ -1,0 +1,410 @@
+module: cross-module-seams
+# This file is the regression suite for DESIGN SEAMS — every scenario crosses
+# ≥2 modules, because both known design defects lived at seams (a rule that
+# could not trigger on a built-in dropdown; no requirement that visibility
+# toggles happen without reload). Written adversarially: each scenario is
+# built to FAIL a plausible-but-wrong implementation.
+#
+# `touches` is filled by the WALKER (design-side), not the author.
+# Walked 2026-08-09 → docs/scenarios/walks/09-cross-module-seams.walk.md
+touches:
+  tables:
+    - events            # close date, agenda settings (day start/end, schedulableStatuses), timezone
+    - forms             # close_at, success_html, submission_limit, public_id, status
+    - fields            # custom field create + rename (shared library, live-read)
+    - formFields        # placement + questionRule (the built-in-Format BLOCKER lives here)
+    - submissions       # the spine: status, scheduling (starts/ends/room), withdraw, hard-delete
+    - submissionTracks  # track rename propagation + delete-track cascade (silent strip)
+    - submissionTags
+    - submissionAnswers # custom-field answers survive accept/schedule; CSV pivot
+    - participants      # identity join; co-speaker reuse; contact-delete cascade
+    - contacts          # one identity per (event,email); profile edit; delete-my-data
+    - users             # signup/login; case-sensitivity gap; withdrawn_by/submitter refs
+    - authSessions      # session cookie → user
+    - tracks            # rename + delete guard; reviewer routing
+    - tags
+    - formats           # default_duration_mins → agenda end-time auto-fill
+    - levels
+    - rooms             # agenda placement, room-overlap conflict
+    - reviews           # reviewer decisions; withdraw removes from queue
+    - reviewerTracks    # track-overlap routing (reviewer "My Reviews")
+    - tasks             # is_onboarding_default set (hotel/flight) auto-assigned on accept
+    - taskAssignments   # provision-by-transition; outstanding-tasks dashboard; portal responses
+    - portalForms       # hotel/flight task-attached forms
+    - emailTemplates    # accept/decline/confirmation templates
+    - emailOutbox       # send verification; ics_attachment; dedupe_key
+    - emailSuppressions # bulk-send suppression check (tangential)
+    - files             # delete cascades (set null) — tangential
+  ports:
+    - EmailSender       # app/ports/email.ts — confirmation, accept/decline bulk, .ics attach
+    - Clock             # app/ports/clock.ts — form close-date checks (XM-S2.7)
+    - Turnstile         # app/ports/turnstile.ts — public CFP submit (XM-S1 anonymous path)
+    # AirtableSync — P2, out of walk scope per README
+  routes:
+    - login.tsx / logout.tsx / 403.tsx          # auth sweep, deep-link redirect
+    - admin.tsx                                  # shell layout loader = the (insufficient) GET auth gate
+    - admin.submissions.tsx                      # golden path: list, inline status, export toolbar
+    - admin.submissions.$id.tsx                  # detail: custom answer, withdraw resolution
+    - admin.forms.tsx / admin.forms.$formId.tsx  # builder: question rule, close date, field rename
+    - admin.settings.library.tsx                 # taxonomy rename/delete, format duration
+    - admin.agenda.tsx                           # scheduling, conflicts, unscheduled panel
+    - admin.tasks.tsx                            # outstanding-tasks dashboard, task-response detail
+    - admin.emails.tsx / admin.emails.$key.tsx   # accept/decline template send
+    - admin._index.tsx                           # dashboard status counts
+    - admin.evaluation.tsx                       # reviewer "My Reviews" — HOMELESS for reviewer role (see gap)
+    - submit.$eventSlug.$formId.tsx (+ .step.*)  # public CFP wizard
+    - portals.$eventSlug.$portalId.tsx (+ home/submissions/profile/tasks)  # portal, queue-mask, impersonation
+    - "MISSING: submissions CSV export route (committed P2 #3, not in ROUTE-MAP)"
+
+scenarios:
+  # ===========================================================================
+  # XM-S1 — THE FULL SPINE, one unbroken chain. Every arrow is a checkable
+  # signal. Crosses: form builder → public CFP → email → review → accept
+  # auto-provision → portal → tasks → agenda → conflicts → dashboard.
+  # ===========================================================================
+  - id: XM-S1
+    name: "The spine: public submit → accept → portal tasks → agenda → dashboard, unbroken"
+    persona: admin   # actor switches are marked [anonymous]/[speaker]/[admin] per step
+    steps: |
+      1. [admin] Open Forms, locate the seeded form "Call for Speakers 2026"
+         (close date 2026-09-15 11:59 PM PT, submission limit 3, success message
+         configured as "Thanks! Watch your inbox for a confirmation email — your
+         speaker portal link is inside."). Click Copy Link and record the public URL.
+      2. [anonymous] In a fresh incognito window, open the copied URL. The Welcome
+         step and a banner with the close date "September 15" render.
+      3. [anonymous] Account step: enter new email maya.chen@example.com → the form
+         branches to signup; create account "Maya Chen" with password "Kms!2026demo".
+      4. [anonymous→speaker] Submission step: attempt Next with an empty Title —
+         inline validation error appears, no data already typed is lost. Then fill
+         Title "Serving 10B Tokens a Day on a Shoestring", Description (rich text,
+         2 paragraphs), Format "Workshop", Track "AI Infrastructure", Level
+         "Advanced", Language "English".
+      5. [speaker] Participant step: Maya pre-filled as speaker 1 (bio "Platform
+         engineer at Fictional Corp"); add speaker 2 Diego Alvarez,
+         diego.alvarez@example.com. Enter "not-an-email" first in Diego's email —
+         live inline "Enter a valid email address." — then correct it.
+      6. [speaker] Review → Submit. Success page shows the EXACT admin-configured
+         message from step 1, plus Continue-to-portal (and ~10s auto-redirect).
+      7. [admin] All Submissions: the new row exists with status Pending and
+         source = "Call for Speakers 2026". Set its status pill to Accept Queue
+         (inline: click pill → pick → save).
+      8. [speaker] Portal home + Submissions tab: the submission renders status
+         "Pending" — NOT "Accept Queue". No new email since the confirmation.
+      9. [admin] Bulk-select the submission (plus 2 other seeded accept-queue
+         rows) → send the "Accept Sessions" template email with .ics → the 3 rows
+         flip to Accepted.
+      10. [speaker] Portal now shows "Accepted", and the onboarding tasks
+          auto-appeared: "Hotel Stay Requirement Form" and "Flight Reimbursement
+          Form" (both portal forms), assigned without any admin manually creating them.
+      11. [speaker] Open the hotel task, fill check-in 2026-10-11, check-out
+          2026-10-15, room preference "Non-smoking, high floor", submit.
+      12. [admin] Open the task-response detail for Maya's hotel form: the exact
+          dates 2026-10-11 / 2026-10-15 and the preference text are readable.
+      13. [admin] Agenda: "Serving 10B Tokens a Day on a Shoestring" sits in the
+          Unscheduled panel (accept auto-provisioned the session). Drag it onto
+          Oct 13 · 10:00 AM · Room A. End time auto-fills 11:30 AM (Format
+          "Workshop" default duration = 90 min from Agenda Settings).
+      14. [admin] Add Submission (manual): "Office Hours: Ask Me Anything" with
+          participant Diego Alvarez; set it Accepted; drag it onto Oct 13 ·
+          10:30 AM · Room B → conflict: Diego is double-booked 10:30–11:00.
+      15. [admin] Conflicts tab lists the reciprocal pair; Open → move Office
+          Hours to Oct 13 · 1:00 PM → conflict clears.
+      16. [admin] Outstanding-tasks dashboard: Maya Chen shows exactly 1
+          outstanding task (Flight Reimbursement Form); the hotel task no longer
+          counts against her.
+    success_signals:
+      - "Step 6 screenshot: success page body contains the verbatim configured string 'your speaker portal link is inside'."
+      - "Outbox query after step 6: exactly 1 email to maya.chen@example.com, subject containing the event name, body containing a working portal URL (GET it → login gate for Maya's account, then portal)."
+      - "DB query after step 6: 1 submission row (Pending), 2 participant/contact rows (Maya submitter+speaker, Diego speaker), each with the entered bio/email values."
+      - "Step 8: screenshot of portal home AND submissions tab both showing pill text 'Pending'; outbox query shows total emails to maya.chen@example.com still = 1 (no queue-triggered send)."
+      - "Step 9: outbox query shows exactly 3 accept emails (one per selected row, ≤100/send respected); Maya's has an attachment ending .ics that parses as BEGIN:VCALENDAR with ≥1 VEVENT whose DTSTART falls within 2026-10-12..2026-10-15 (save-the-date hold acceptable pre-scheduling) and whose SUMMARY references the event or session title."
+      - "Step 10: DB query shows task assignments for Maya created by the accept transition itself (created_at within seconds of the status flip), including the two named must-have forms — not seeded, not admin-created."
+      - "Step 12: admin task-response view screenshot shows 2026-10-11, 2026-10-15, and 'Non-smoking, high floor' verbatim."
+      - "Step 13: agenda grid screenshot shows the session block Oct 13 10:00–11:30 in Room A with the 'AI Infrastructure' track color; DB query confirms starts_at/ends_at 90 min apart."
+      - "Step 14–15: Conflicts tab lists 2 reciprocal rows naming Diego Alvarez; after the move, Conflicts tab is empty and neither card carries a conflict marker."
+      - "Step 16: dashboard query/screenshot — Maya outstanding count = 1; the per-speaker list names 'Flight Reimbursement Form'."
+      - "If scheduling triggers a speaker email, its .ics parses with DTSTART 2026-10-13T10:00 America/Los_Angeles and LOCATION containing 'Room A'."
+      - "SCALE: with ≥200 seeded submissions, step 7's list finds the new row via search 'Shoestring' in under 1s, paginated at 25/page, status-tab counts correct."
+      - "EXPERIENCE: step 8→10 the portal status pill changes Pending→Accepted and the two tasks appear on a plain revisit/refresh of the portal — no cache-stale stale 'Pending', no admin intervention; step 11's task flips to Complete in the task list without a full-page reload."
+      - "EXPERIENCE: the whole anonymous path (steps 2–6) completes in under 3 minutes on a phone-width viewport with no horizontal scrolling."
+
+  # ===========================================================================
+  # XM-S2 — CONFIG → PUBLIC PROPAGATION. Crosses: form builder + taxonomy
+  # library → live public form → submissions → agenda. Kills copy-on-write
+  # and stale-snapshot designs.
+  # ===========================================================================
+  - id: XM-S2
+    name: "Form/taxonomy edits propagate to the live public form, existing data, and agenda"
+    persona: admin
+    steps: |
+      1. [admin] Edit "Call for Speakers 2026": rename the custom field "Anything
+         else we should know?" to "Special requirements"; change close date from
+         2026-09-15 to 2026-08-20 11:59 PM PT; change the success message to
+         "Decisions go out the week of August 24."
+      2. [anonymous] Open the public form URL in incognito: the close-date banner
+         reads August 20, the field label reads "Special requirements", and a full
+         test submission ("Postgres on the Edge", Track "AI Infrastructure",
+         speaker sam.okafor@example.com) ends on the NEW success message.
+      3. [admin] Library → Tracks: rename "Developer Experience" → "DevEx &
+         Tooling". Do not touch any submission.
+      4. Verify the rename everywhere the old value lived: the public form's Track
+         dropdown, the admin submissions table's track pills on the ≥40 seeded
+         submissions that carried "Developer Experience", one affected speaker's
+         portal submission detail, and the agenda cards of its scheduled sessions.
+      5. [admin] Library → Formats: change "Lightning Talk" default duration
+         30 → 20 min. Drag an accepted unscheduled Lightning Talk onto
+         Oct 14 · 9:00 AM · Room B.
+      6. [admin] Library → Tracks: attempt to DELETE track "Web3", which 4 seeded
+         submissions carry. The app must refuse-with-count or force reassignment
+         to a named track — pick reassignment to "AI Infrastructure" if offered.
+      7. [admin] Set the form's close date to yesterday (2026-08-08). [anonymous]
+         Reload the public URL: a closed message renders instead of the wizard;
+         attempt to submit anyway by replaying the step-2 POST — server rejects it.
+    success_signals:
+      - "Step 2 screenshot: banner shows 'August 20', label shows 'Special requirements', success page shows 'Decisions go out the week of August 24' — all without redeploy or admin cache action."
+      - "Step 4: one screenshot per surface (public dropdown, admin table, portal detail, agenda card) all reading 'DevEx & Tooling'; DB query shows the 40+ existing submissions reference the renamed track (single row updated, not 40 stale copies)."
+      - "Step 5: the Lightning Talk block spans 9:00–9:20 (new default), while sessions scheduled BEFORE the change keep their stored times."
+      - "Step 6: after deletion/reassignment, zero submissions reference a nonexistent track — DB query for orphaned track references returns 0 rows; no blank/undefined pill in admin table, portal, agenda, or a fresh CSV export."
+      - "Step 7: closed form renders a human message (not an error page); replayed POST returns a rejection (4xx), and DB submission count is unchanged."
+      - "SCALE: step 4's admin table check is done on a ≥200-row dataset; the track filter facet shows the new name with the correct count instantly."
+      - "EXPERIENCE: step 2 requires nothing but a plain browser reload — the live form reflects config immediately; no 'republish' step exists or is needed."
+
+  # ===========================================================================
+  # XM-S3 — BUILT-IN ↔ CUSTOM FIELD SEAM. The permanent regression scenario
+  # for the known defect: a conditional rule triggered by the BUILT-IN Format
+  # dropdown, toggling client-side with no reload. Crosses: form builder →
+  # public CFP → review → agenda → export.
+  # ===========================================================================
+  - id: XM-S3
+    name: "Conditional rule on the BUILT-IN Format dropdown; custom answer survives the whole lifecycle"
+    persona: anonymous
+    steps: |
+      1. [admin] On "Call for Speakers 2026", create custom field "Workshop
+         prerequisites" (textarea, max 500) in the session step, set it Required,
+         and add a question rule: show "Workshop prerequisites" WHEN the built-in
+         Format dropdown IS "Workshop".
+      2. [anonymous] Open the public form fresh. On the submission step, "Workshop
+         prerequisites" is NOT visible.
+      3. Select Format = "Workshop" → the field appears. Select Format =
+         "Featured Keynote" → it disappears. Toggle back and forth twice.
+      4. With Format = "Featured Keynote" (field hidden), complete every visible
+         required field and proceed through Review → Submit. The HIDDEN required
+         field must NOT block submission and must NOT be stored.
+      5. Start a second submission, Format = "Workshop", fill "Workshop
+         prerequisites" with "Bring a laptop with Node 22 and a Cloudflare
+         account", Title "Hands-on: Durable Objects from Zero", submit as
+         lena.fischer@example.com.
+      6. [admin] Open the review detail of "Hands-on: Durable Objects from Zero":
+         the custom answer renders with its label.
+      7. [admin] Accept it (queue → template email → Accepted), then schedule it
+         onto Oct 12 · 2:00 PM · Room A. Re-open the admin session/submission
+         detail: the custom answer is still there, unchanged.
+    success_signals:
+      - "Step 3: the field toggles with ZERO full-page reloads and zero page navigations (network log shows no document reload between toggles) — the rule engine sees the BUILT-IN Format dropdown as a trigger, not only custom fields."
+      - "Step 4: submission succeeds; DB query shows no stored value for 'Workshop prerequisites' on the keynote submission; the review detail does not render an empty required row for it."
+      - "Step 6 screenshot: label 'Workshop prerequisites' + verbatim value 'Bring a laptop with Node 22 and a Cloudflare account' in the admin review detail."
+      - "Step 7: after accept AND schedule, the same value is still attached to the session record (DB query + admin detail screenshot) — accept auto-provisioning did not drop custom-field answers."
+      - "A fresh submissions CSV export contains the custom answer for Lena's row (or the export's documented custom-field handling explicitly covers it — silence is a failure)."
+      - "EXPERIENCE: field appear/disappear is instant (<100ms perceived) with typed content preserved if the user toggles away and back within the same page session."
+
+  # ===========================================================================
+  # XM-S4 — IDENTITY SEAM. One human = one portal identity across roles and
+  # submissions; duplicate signups blocked/merged. Crosses: public CFP →
+  # contacts/identity → portal → admin review.
+  # ===========================================================================
+  - id: XM-S4
+    name: "One person, two submissions, two hats — one identity; duplicate signup blocked"
+    persona: speaker
+    steps: |
+      1. [anonymous] Priya Raman (priya.raman@example.com) submits submission A
+         "Streaming Inference on a Budget" as submitter + sole speaker.
+      2. [anonymous] Rahul Iyer (rahul.iyer@example.com) submits submission B
+         "Panel: Scaling Eval Pipelines" and adds Priya Raman,
+         priya.raman@example.com, as second speaker.
+      3. [speaker] Priya logs into the portal once: BOTH A and B appear in her
+         submissions view (A as her submission, B as a session she speaks on).
+      4. [speaker] Priya edits her Profile bio to "Head of Inference at Nimbus
+         Labs. 10 years in distributed systems." — one edit, one place.
+      5. [admin] Open participant details on submission A and on submission B:
+         both show the NEW bio.
+      6. [anonymous] In a fresh incognito window, open the public form and enter
+         priya.raman@example.com at the Account step → the flow must offer login,
+         not a second signup; attempting to create a new account with that email
+         is blocked.
+      7. [anonymous] Repeat step 6 with "Priya.Raman@Example.com" (case variant)
+         → same result: matched to the existing account, no new identity.
+    success_signals:
+      - "Step 3 screenshot: Priya's portal lists both 'Streaming Inference on a Budget' and 'Panel: Scaling Eval Pipelines' under one login."
+      - "DB query after step 2: exactly ONE contact/identity row for priya.raman@example.com; submission B references that same row, not a clone."
+      - "Step 5: two admin screenshots, both containing 'Head of Inference at Nimbus Labs' — the bio lives on the person, not copied per submission."
+      - "Steps 6–7: DB query still shows exactly one identity row for the email (case-insensitively unique); no duplicate contact was created by either attempt."
+      - "Rahul's portal does NOT show Priya's private profile fields beyond what a co-speaker surface legitimately exposes."
+      - "SCALE: the admin contacts/speakers view at ≥300 contacts finds Priya via search 'Raman' in under 1s and shows ONE row for her."
+      - "EXPERIENCE: step 6's email-first lookup responds inline (login form swaps in without a full page reload)."
+
+  # ===========================================================================
+  # XM-S5 — LIFECYCLE/DELETION SEAM. Withdraw, hard-delete, and "delete my
+  # data" each ripple correctly through portal, agenda, tasks, exports,
+  # dashboards. Crosses: portal → review → agenda → tasks → export → dashboard.
+  # ===========================================================================
+  - id: XM-S5
+    name: "Withdraw, delete a submission, delete a contact — no orphans anywhere"
+    persona: admin
+    steps: |
+      1. Precondition: seeded submission "Quantum LLMs Are a Lie" (speaker
+         noor.haddad@example.com) is Accepted AND scheduled Oct 14 · 2:00 PM ·
+         Room B, with its onboarding tasks assigned.
+      2. [speaker] Noor withdraws it from her portal, reason "Schedule conflict
+         with another conference."
+      3. [admin] Submissions list: status Withdrawn; detail shows who withdrew
+         and the verbatim reason. Agenda: the 2:00 PM Room B slot no longer shows
+         it as a normal scheduled session (removed to Unscheduled/withdrawn, or
+         visibly flagged — a silent stale block is a failure). Reviewer queues:
+         it no longer appears in any reviewer's pending list.
+      4. [admin] Hard-delete the seeded junk submission "BUY CHEAP FOLLOWERS
+         →→ bestgrowth.example": the action demands explicit confirmation; cancel
+         once (nothing happens), then confirm.
+      5. Verify the deleted submission is gone from: admin lists + status-tab
+         counts, the submitter's portal, agenda panels, task assignments, a fresh
+         CSV export, and dashboard submission counts.
+      6. [admin] "Delete my data": delete contact leo.mars@example.com, who is
+         co-speaker on "Panel: Postmortems We Survived" alongside speaker
+         ana.silva@example.com and has 2 open tasks. Confirm the guard.
+      7. Verify: the panel submission still exists and renders correctly with Ana
+         as remaining speaker; Leo's tasks are gone from the outstanding-tasks
+         dashboard; Leo's portal login no longer resolves; no surface renders a
+         blank/undefined speaker where Leo was.
+    success_signals:
+      - "Step 3: admin detail screenshot shows 'Noor Haddad' + 'Schedule conflict with another conference'; Withdrawn tab count incremented by 1; DB query shows the agenda slot cleared or the session flagged withdrawn — and the speaker-visible portal shows Withdrawn status truthfully."
+      - "Step 3: reviewer 'My Reviews' query for every reviewer covering its track returns 0 rows for this submission."
+      - "Step 4: the confirm guard is real — cancel leaves DB row count unchanged; only explicit confirm deletes."
+      - "Step 5: DB queries return 0 rows for the deleted submission across submissions, participants links, task assignments, and schedule slots; CSV export row count = table count and contains no trace of it; dashboard total decremented."
+      - "Step 7: DB query — the panel submission has exactly 1 remaining speaker link (Ana); zero dangling participant references to Leo; outstanding-tasks dashboard no longer lists Leo; screenshot of the panel's admin detail and agenda card renders Ana only, no empty slot."
+      - "SCALE: step 5's export check runs against the ≥200-row dataset and still matches exactly."
+      - "EXPERIENCE: step 2's withdraw is available to Noor self-serve in the portal (no email-the-organizer fallback), and her submissions view updates without a full page reload."
+
+  # ===========================================================================
+  # XM-S6 — QUEUE-MASK CONSISTENCY. Accept/Decline Queue must read "Pending"
+  # on EVERY speaker surface while every admin surface shows truth — at the
+  # same moment. Crosses: review → portal → emails → dashboard → export.
+  # ===========================================================================
+  - id: XM-S6
+    name: "Accept/Decline Queue masks as Pending everywhere the speaker looks, truth everywhere the admin looks"
+    persona: admin
+    steps: |
+      1. [admin] Record the outbox email count. Set 3 seeded Pending submissions
+         to Accept Queue and 2 to Decline Queue (owned by speakers
+         tomas.novak@example.com and yuki.tanaka@example.com among them).
+      2. [speaker] As Tomas (accept-queued) and as Yuki (decline-queued), check
+         EVERY speaker-visible surface: portal home pill, submissions tab,
+         submission detail page.
+      3. [speaker] View the page source / API responses behind those portal
+         surfaces and search for the true status strings.
+      4. [admin] Simultaneously check every admin surface: submissions table
+         pills, status-tab counts, dashboard status breakdown, and a fresh CSV
+         export.
+      5. [admin] Send the decline template email to the 2 decline-queued rows and
+         finalize them to Declined; re-check Yuki's portal.
+    success_signals:
+      - "Step 2: all speaker surfaces render exactly 'Pending' for all 5 queued submissions — screenshots of portal home, submissions tab, and detail for both speakers."
+      - "Step 3: the served portal HTML/JSON contains ZERO occurrences of 'Accept Queue'/'accept_queue'/'Decline Queue'/'decline_queue' — masking is server-side, not a client-side cover-up over leaked truth."
+      - "Step 1→4: outbox count unchanged — entering a queue sends nothing."
+      - "Step 4: admin table shows true pills; tab counts read Accept Queue (3) and Decline Queue (2); dashboard breakdown matches; CSV export's status column carries the TRUE queue statuses (admin artifact, never masked)."
+      - "Step 5: outbox gains exactly 2 decline emails; Yuki's portal now reads 'Declined'; Declined tab count +2, Decline Queue count back to 0."
+      - "SCALE: tab counts and dashboard numbers are exact on the ≥200-submission dataset, not approximations."
+      - "EXPERIENCE: the admin inline pill change (step 1) commits without a full page reload and the tab counts update immediately."
+
+  # ===========================================================================
+  # XM-S7 — CSV EXPORT SEAM (committed). The export must be a faithful
+  # serialization of the reviewed truth AFTER the spine and config edits ran.
+  # Crosses: review/list → export → taxonomy → custom fields → identity.
+  # ===========================================================================
+  - id: XM-S7
+    name: "Submissions CSV after the spine: counts, statuses, renamed tracks, speakers, custom answers"
+    persona: admin
+    steps: |
+      1. Preconditions (explicit dependencies): XM-S1 ran (Maya accepted +
+         scheduled, manual 'Office Hours' submission exists), XM-S2 ran (track
+         renamed to "DevEx & Tooling", "Web3" deleted/reassigned), XM-S3 ran
+         (custom 'Workshop prerequisites' answered), XM-S5 ran (one submission
+         withdrawn, one hard-deleted).
+      2. [admin] Create one more submission titled exactly:
+         Benchmarks, "Lies", and Streaming Metrics
+         (comma + double-quotes in the title) via the public form.
+      3. [admin] All Submissions, tab "All": note the total row count N displayed.
+         Options → Export CSV.
+      4. Parse the CSV with a real parser (not string-split).
+      5. [admin] Switch to the "Accepted" tab and export again.
+    success_signals:
+      - "CSV data-row count == N (the on-screen 'All' count); the deleted submission from XM-S5 is absent; the withdrawn one is present with status Withdrawn."
+      - "Statuses are the TRUE admin statuses (Accept Queue rows say Accept Queue, not Pending)."
+      - "Maya's row: track column reads the CURRENT taxonomy name; both speakers appear ('Maya Chen' and 'Diego Alvarez'); Lena's row carries 'Bring a laptop with Node 22 and a Cloudflare account' in the custom-field column (or the export documents custom-field handling explicitly)."
+      - "The title 'Benchmarks, \"Lies\", and Streaming Metrics' round-trips intact through the parser — proper RFC-4180 quoting, no column shift on its row."
+      - "Step 5: the filtered export's row count equals the Accepted tab count, and every row's status is Accepted (whichever contract — filtered or full — it must match the visible count consistently)."
+      - "SCALE: export of the ≥200-row dataset completes without truncation; row count still exact."
+      - "EXPERIENCE: export starts from the list toolbar in one action and downloads directly — no email-me-later ceremony for a few hundred rows."
+
+  # ===========================================================================
+  # XM-S8 — IMPERSONATION SEAM (committed). Preview must equal the speaker's
+  # truth (masks included) and must be inert. Crosses: admin shell → portal →
+  # tasks → review masking → auth.
+  # ===========================================================================
+  - id: XM-S8
+    name: "View portal as Maya: sees her masked reality, cannot act, returns cleanly"
+    persona: admin
+    steps: |
+      1. Preconditions: XM-S1 state (Maya has an outstanding Flight Reimbursement
+         task) and XM-S6 state (queued submissions masked as Pending) exist; the
+         event has ≥300 contacts.
+      2. [admin] Open "View portal as…", type "maya" — search narrows across the
+         hundreds of contacts; select Maya Chen.
+      3. Compare the preview side-by-side with a real login as Maya: identical
+         submission list, identical status pills (queued items read 'Pending' in
+         BOTH), identical task list.
+      4. In preview, attempt to complete the "Flight Reimbursement Form" task via
+         the UI.
+      5. Still in preview, replay the task-completion POST directly (same request
+         a real speaker would send) while carrying the admin-preview session.
+      6. Click "Back to Admin Mode".
+    success_signals:
+      - "Step 3: no admin-only leakage in preview — the preview page source contains zero true-status strings for queued submissions (same grep as XM-S6) and no admin nav/controls."
+      - "Step 4: the UI blocks completion (control disabled or preview notice); DB query — Maya's task assignment remains incomplete; outbox unchanged."
+      - "Step 5: the direct POST is rejected server-side (4xx); DB state still unchanged — preview-only is enforced in the shared auth layer, not by hiding buttons."
+      - "Step 6: admin lands back in the admin shell with the admin session intact — no re-login; a follow-up admin action (open All Submissions) succeeds."
+      - "Maya's real portal, logged in separately after all steps, shows the task still incomplete and no artifacts of the preview."
+      - "SCALE: step 2's contact search returns filtered results in under 1s at 300+ contacts."
+      - "EXPERIENCE: search-as-you-type narrows instantly; entering and leaving preview never logs the admin out."
+
+  # ===========================================================================
+  # XM-S9 — AUTH BOUNDARY SWEEP. Every protected surface × every wrong actor.
+  # Crosses: auth → admin shell → portal → review → agenda → actions.
+  # ===========================================================================
+  - id: XM-S9
+    name: "Logged-out, speaker, and reviewer each hit every surface they must not see"
+    persona: anonymous
+    steps: |
+      1. [anonymous] GET each protected URL directly: admin dashboard, All
+         Submissions, the form builder editor for "Call for Speakers 2026", email
+         templates, agenda, outstanding-tasks dashboard, Maya's portal home, and
+         a reviewer's My Reviews queue.
+      2. [anonymous] Replay a protected mutation directly: POST the inline
+         status-change action for a known submission, logged out.
+      3. [anonymous] Confirm the public surfaces still work logged out: the
+         public CFP form loads through its Welcome step without any login.
+      4. [speaker] Log in as Maya, then GET the admin URLs from step 1 by direct
+         address-bar entry, and replay the step-2 status-change POST with her
+         session.
+      5. [reviewer] Log in as seeded reviewer omar.aziz@example.com (assigned
+         track "AI Infrastructure"): My Reviews works; then GET admin-only
+         surfaces (form builder, email templates, All Submissions, settings) and
+         attempt the status-change POST.
+      6. [anonymous] After being gated at the login screen in step 1, log in as
+         an admin from that gate.
+    success_signals:
+      - "Step 1: every protected GET yields a login gate; the response bodies contain ZERO record data — grep each response for seeded titles ('Serving 10B Tokens', 'Quantum LLMs') and seeded emails: 0 matches."
+      - "Step 2: the logged-out POST is rejected (401/403/redirect, no side effect) — DB status unchanged; actions authenticate themselves, not just page loaders."
+      - "Step 4: Maya gets an explicit denial (403 page or equivalent) on every admin URL — never a data page, never a blank 200 with leaked payload; her POST replay changes nothing (DB check)."
+      - "Step 5: Omar's My Reviews lists only submissions overlapping his track; every admin-only GET is denied; his status-change POST is rejected and the DB is unchanged — reviewer is not a partial admin."
+      - "Step 3: the public form is reachable and interactive with no session."
+      - "EXPERIENCE: after step 6's login, the admin lands on the originally requested page (deep link preserved), not a generic home."
+      - "EXPERIENCE: denial pages are humane (branded 403/login, a way back) — no raw stack traces or JSON error dumps on any of the ~10 URLs swept."

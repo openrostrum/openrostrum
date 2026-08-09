@@ -1,0 +1,30 @@
+{
+  "name": "sessionboard-eval-kit",
+  "version": "0.1.0",
+  "description": "LLM-as-judge evaluation harness for SessionBoard clones: a Claude-driven browser agent clicks through a submission URL and scores it against feature rubrics.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "sbek": "tsx src/cli.ts",
+    "smoke": "tsx scripts/browser-smoke.mts",
+    "list": "tsx src/cli.ts list",
+    "eval": "tsx src/cli.ts run",
+    "finalize": "tsx src/cli.ts finalize",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "playwright": "^1.50.0",
+    "yaml": "^2.6.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

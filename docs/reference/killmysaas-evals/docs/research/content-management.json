@@ -1,0 +1,390 @@
+{
+  "area": "content-management",
+  "sources": [
+    "https://www.sessionboard.com/capabilities/content-management",
+    "https://www.sessionboard.com/capabilities/speaker-management",
+    "https://learn.sessionboard.com/en/knowledge-base/6952482-enable-upload-download-content",
+    "https://www.sessionboard.com/blog/mastering-sessionboard-with-the-cs-team-the-power-of-portals"
+  ],
+  "fetch_status": "All 4 URLs fetched OK on first attempt. Primary capability page fetched directly. WebSearch (sessionboard knowledge base speaker tasks file upload) located the key KB article 'Enable, Upload, & Download Files' which supplied exact UI labels (Sessions > Settings > Files toggle, Library > Files, Download Files, Generate Download) and the 1.95 GB limit. No fallbacks needed.",
+  "summary": "SessionBoard's content management covers the post-acceptance content lifecycle. Organizers edit all session and speaker content (titles, abstracts, tags, bios, photos) in one centralized dashboard with bulk editing, full version history with timestamped attribution and restore, role-based permissions, and internal approval gating publication. File collection: organizers enable Files per event (Sessions > Settings > Files), create file-request tasks (e.g. \"Upload Session Presentation\") with deadlines auto-assigned from session data; speakers get a personalized portal listing tasks/deadlines where they upload files up to 1.95 GB with built-in per-file versioning and comments (author + timestamp logged; notably no email notification on new comments). Organizers track deliverables on a filterable Speaker Tasks Dashboard, send bulk automated reminders to speakers with outstanding tasks, and review files via a central Library > Files module or a per-session Files tab. Distribution: bulk-select sessions and \"Download Files\" as ZIP with folder-grouping options (latest versions only; email when export is ready), generate shareable links for AV/marketing teams, and auto-sync approved content to embeddable public agenda widgets. AI \"Studio Remix\" suggests clarity/tone/length edits across sessions.",
+  "personas": [
+    "Organizer/admin (content manager)",
+    "Speaker (portal user uploading deliverables)",
+    "Internal reviewer/approver",
+    "AV/production team (consumer of final files)",
+    "Web/marketing team (published agenda consumer)"
+  ],
+  "user_journeys": [
+    {
+      "name": "Set up content collection",
+      "persona": "Organizer/admin",
+      "steps": [
+        "Enable file uploads in event/session settings (Sessions > Settings > Files toggle)",
+        "Create file-request task 'Upload Session Presentation' with instructions and due date",
+        "Create second task 'Upload Headshot'",
+        "Assign tasks to speakers (auto-assign by session)",
+        "Confirm tasks appear on the tracking dashboard as incomplete"
+      ],
+      "filled_state": "Task dashboard shows 3 speakers x 2 tasks with due dates (e.g. 2026-09-01), status chips Incomplete, filter controls, and a Files column on the session list showing 0 files"
+    },
+    {
+      "name": "Speaker uploads deliverables",
+      "persona": "Speaker",
+      "steps": [
+        "Log in to personal speaker portal",
+        "See task list with deadlines and completion status",
+        "Upload slides-v1.pdf against the presentation task/session",
+        "Add a comment on the file ('draft, final coming Friday')",
+        "Later upload slides-v2.pdf creating version 2",
+        "Mark task complete; portal shows what's next"
+      ],
+      "filled_state": "Portal shows tasks 'Upload Session Presentation' (Complete, file slides-v2.pdf listed as latest of 2 versions) and 'Upload Headshot' (Due Sep 1, Incomplete); comment thread shows author + timestamp"
+    },
+    {
+      "name": "Review, edit, and approve content",
+      "persona": "Organizer/admin + reviewer",
+      "steps": [
+        "Open central content dashboard listing all sessions and speakers",
+        "Inline-edit a session title and abstract; edit a speaker bio",
+        "Open version history, see timestamped entries per editor, restore a prior version",
+        "Optionally apply AI Studio Remix suggestion to an abstract",
+        "Set session content status to Approved",
+        "Verify approved content syncs to the public agenda embed"
+      ],
+      "filled_state": "Session detail shows edited title, history panel with 3 dated entries and Restore buttons, status chip Approved, and public agenda page displaying the updated title/abstract"
+    },
+    {
+      "name": "Distribute final assets to AV/web teams",
+      "persona": "Organizer/admin -> AV team",
+      "steps": [
+        "Filter session list by sessions with uploaded files / completed tasks",
+        "Send bulk reminder to speakers still missing files",
+        "Select sessions, click Download Files, choose grouping (folder per session), deselect unwanted files, click Generate Download",
+        "Receive notification when ZIP export is ready; download contains latest file versions",
+        "Generate a shareable link for one file and hand it to the AV team"
+      ],
+      "filled_state": "Files library lists all uploads with session/speaker association and version count; export dialog shows grouping options; a shareable URL resolves to slides-v2.pdf"
+    }
+  ],
+  "features": [
+    {
+      "id": "cnt-central-content-editor",
+      "name": "Centralized session & speaker content editing",
+      "description": "Edit session titles, abstracts, tags, speaker bios and photos in one dashboard; bulk edits across dozens/hundreds of sessions; multi-user editing with timestamped attribution and field-level locking.",
+      "must_have": true,
+      "ui_expectations": "Sessions/content list with inline or modal edit forms for title/abstract/tags; speaker cards with photo + bio edit; changes persist on reload"
+    },
+    {
+      "id": "cnt-file-upload-tasks",
+      "name": "File-request tasks with deadlines",
+      "description": "Organizer creates deliverable tasks (e.g. 'Upload Session Presentation', headshots, bios) with due dates, instructions (rich text/links), auto-assigned to speakers based on session data.",
+      "must_have": true,
+      "ui_expectations": "Task builder with name, description, due date, assignment; tasks listed per speaker/session with status"
+    },
+    {
+      "id": "cnt-speaker-portal-upload",
+      "name": "Speaker portal for uploads & tasks",
+      "description": "Personalized speaker workspace showing assigned tasks, deadlines, and status; speakers upload files (up to 1.95 GB per file), complete forms/tasks, and see what's next. Speaker sees only own sessions/tasks.",
+      "must_have": true,
+      "ui_expectations": "Speaker-facing portal page with task checklist, due dates, upload buttons per task/session, completion indicators"
+    },
+    {
+      "id": "cnt-file-versioning",
+      "name": "File versioning",
+      "description": "Re-uploading a deliverable creates a new version; latest version is the default for exports; previous versions remain accessible from the session content/files tab.",
+      "must_have": true,
+      "ui_expectations": "Version list/history on a file entry showing v1/v2 with dates; latest clearly marked; older versions individually downloadable"
+    },
+    {
+      "id": "cnt-file-comments",
+      "name": "Per-file comments",
+      "description": "Speakers and admins exchange comments attached to uploaded files; commenter name and timestamp auto-logged. In SessionBoard, no email notification fires on new file comments.",
+      "must_have": false,
+      "ui_expectations": "Comment thread on the file detail with author + timestamp; visible to both organizer and speaker roles"
+    },
+    {
+      "id": "cnt-version-history-audit",
+      "name": "Content version history & audit log",
+      "description": "Full change history per session/speaker record with timestamped user attribution; restore prior versions; supports compliance logging.",
+      "must_have": false,
+      "ui_expectations": "History/activity panel per record listing edits with who/when; Restore action reverts content"
+    },
+    {
+      "id": "cnt-approval-workflow",
+      "name": "Internal review & approval workflow",
+      "description": "Role-based permissions (organizer, reviewer, speaker) and internal approval states gating publication; only approved content syncs to public agenda. Exact state names undocumented; draft/in-review/approved is the category norm (inferred).",
+      "must_have": true,
+      "ui_expectations": "Status field/chip on sessions; permission-scoped edit rights; unapproved sessions absent from public output"
+    },
+    {
+      "id": "cnt-deadline-reminders",
+      "name": "Automated & bulk reminders",
+      "description": "System auto-sends reminder emails to speakers with incomplete required tasks; organizers can trigger bulk reminders from the dashboard using built-in email templates.",
+      "must_have": false,
+      "ui_expectations": "Bulk 'send reminder' action on filtered incomplete tasks; template picker; confirmation of send"
+    },
+    {
+      "id": "cnt-progress-dashboard",
+      "name": "Deliverables tracking dashboard",
+      "description": "One filterable view tracking speaker progress across tasks, sessions, and events; Files column addable to session views to spot sessions with/without uploads.",
+      "must_have": true,
+      "ui_expectations": "Dashboard/table with per-speaker per-task status, filters (incomplete/overdue), counts update after uploads"
+    },
+    {
+      "id": "cnt-files-library",
+      "name": "Central files library",
+      "description": "Library > Files module aggregating all uploaded files across sessions, plus per-session Files tab; shows file metadata and session/speaker association.",
+      "must_have": false,
+      "ui_expectations": "Library page listing files with name, session, uploader, date, version count; per-session Files tab mirrors subset"
+    },
+    {
+      "id": "cnt-bulk-download",
+      "name": "Bulk export/download of final assets",
+      "description": "Select sessions or files and 'Download Files' as ZIP; choose folder grouping, deselect files, 'Generate Download'; latest versions only included; email notification when export is ready.",
+      "must_have": true,
+      "ui_expectations": "Multi-select on session/file lists, Download Files button, grouping dialog, async generation with ready notification"
+    },
+    {
+      "id": "cnt-shareable-links",
+      "name": "Shareable file links for AV/web teams",
+      "description": "Generate shareable links for direct file access to distribute final assets to onsite A/V or marketing teams without platform accounts.",
+      "must_have": false,
+      "ui_expectations": "'Copy/share link' action on a file; resulting URL serves the file"
+    },
+    {
+      "id": "cnt-agenda-sync",
+      "name": "Auto-sync to public agenda embeds",
+      "description": "Approved session/speaker content auto-publishes to embeddable agenda widgets on the event website; edits propagate on approval.",
+      "must_have": false,
+      "ui_expectations": "Public agenda page/embed listing approved sessions with titles, abstracts, speaker names/photos; reflects edits"
+    },
+    {
+      "id": "cnt-ai-studio-remix",
+      "name": "AI content optimization (Studio Remix)",
+      "description": "AI-suggested edits for clarity, tone, formatting, and length on session/speaker content, applicable in bulk; AI review against agenda rules and conflicts.",
+      "must_have": false,
+      "ui_expectations": "AI suggest/improve control on abstract/title fields producing an editable suggestion card with apply/dismiss"
+    }
+  ],
+  "rubric": [
+    {
+      "id": "CNT-01",
+      "feature_id": "cnt-central-content-editor",
+      "criterion": "Organizer can edit a session's title and abstract from a central content/sessions view and the change persists",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as organizer",
+        "Open sessions/content management list",
+        "Open a session and edit title to 'EDITED: <orig>' and append a sentence to abstract",
+        "Save, navigate away, reopen the session"
+      ],
+      "pass_criteria": "Edited title and abstract persist after reload and appear in the session list",
+      "evidence": "Screenshots of edit form and reloaded session detail showing new text"
+    },
+    {
+      "id": "CNT-02",
+      "feature_id": "cnt-central-content-editor",
+      "criterion": "Organizer can edit speaker profile content (bio, photo) from the same admin area",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, open a speaker record",
+        "Edit bio text; upload/replace headshot image",
+        "Save and reload"
+      ],
+      "pass_criteria": "Bio text and photo persist; speaker card shows updated photo",
+      "evidence": "Before/after screenshots of speaker record"
+    },
+    {
+      "id": "CNT-03",
+      "feature_id": "cnt-file-upload-tasks",
+      "criterion": "Organizer can create a file-request task with a due date and assign it to speakers/sessions",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, open tasks/deliverables setup",
+        "Create task 'Upload Session Presentation' with instructions and due date",
+        "Assign to at least one speaker or all speakers of a session",
+        "Verify task appears in the speaker's row on the tracking view"
+      ],
+      "pass_criteria": "Task exists with correct name, deadline, and assignee(s), shown as incomplete",
+      "evidence": "Screenshot of task creation form and task list with due date"
+    },
+    {
+      "id": "CNT-04",
+      "feature_id": "cnt-speaker-portal-upload",
+      "criterion": "Speaker portal lists assigned tasks with deadlines and allows uploading a file that is recorded against the task/session",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as speaker (second account)",
+        "Open speaker portal; confirm task list shows 'Upload Session Presentation' with due date",
+        "Upload a small PDF (fixture slides-v1.pdf)",
+        "Confirm filename and completed/uploaded status appear"
+      ],
+      "pass_criteria": "Upload succeeds, file listed under the task/session, task status updates",
+      "evidence": "Screenshots of portal task list before and after upload"
+    },
+    {
+      "id": "CNT-05",
+      "feature_id": "cnt-speaker-portal-upload",
+      "criterion": "Speaker access is scoped: a speaker sees only their own sessions/tasks and cannot reach organizer admin views",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As speaker, inspect portal navigation for other speakers' sessions",
+        "Attempt to open an organizer admin URL captured earlier"
+      ],
+      "pass_criteria": "Other speakers' content not visible; admin routes blocked or redirected for speaker account",
+      "evidence": "Screenshot of speaker portal scope and of blocked admin route"
+    },
+    {
+      "id": "CNT-06",
+      "feature_id": "cnt-file-versioning",
+      "criterion": "Uploading a replacement file creates a new version; latest is marked and previous versions remain accessible",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "As speaker (or organizer), upload slides-v2.pdf to the same deliverable/session file slot",
+        "Open the file's detail/version view",
+        "Verify two versions listed with dates and latest flagged",
+        "Download or open the previous version"
+      ],
+      "pass_criteria": "Both versions retained; latest clearly identified; v1 still retrievable",
+      "evidence": "Screenshot of version list showing 2 entries with timestamps"
+    },
+    {
+      "id": "CNT-07",
+      "feature_id": "cnt-file-comments",
+      "criterion": "Comments can be added to an uploaded file and are visible to the other role with author name and timestamp",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As speaker, add comment 'Draft only - final Friday' on the uploaded file",
+        "Log out; log in as organizer",
+        "Open the same file's comments"
+      ],
+      "pass_criteria": "Comment visible cross-role with correct author and timestamp; organizer can reply",
+      "evidence": "Screenshots of comment thread from both accounts"
+    },
+    {
+      "id": "CNT-08",
+      "feature_id": "cnt-progress-dashboard",
+      "criterion": "Organizer dashboard tracks per-speaker task/deliverable status, is filterable, and reflects uploads in near-real time",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, open the tasks/deliverables dashboard",
+        "Filter to incomplete or overdue tasks",
+        "Verify the speaker who uploaded in CNT-04 now shows complete/has-file, others show incomplete",
+        "Check session list shows a files indicator/column"
+      ],
+      "pass_criteria": "Statuses accurate per fixture state; filters change the visible set; files indicator matches uploads",
+      "evidence": "Screenshots of dashboard unfiltered and filtered, and session list with files column"
+    },
+    {
+      "id": "CNT-09",
+      "feature_id": "cnt-deadline-reminders",
+      "criterion": "Organizer can trigger bulk reminder emails to speakers with outstanding tasks",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "As organizer, filter to speakers with incomplete tasks",
+        "Select them and invoke the bulk reminder/send action (template picker if present)",
+        "Capture the send confirmation"
+      ],
+      "pass_criteria": "UI offers bulk reminder on incomplete tasks and confirms sending; actual email receipt verified manually via a test inbox showing the reminder naming the outstanding task and deadline",
+      "evidence": "Screenshot of bulk action and confirmation toast/dialog; unverified: email delivery"
+    },
+    {
+      "id": "CNT-10",
+      "feature_id": "cnt-approval-workflow",
+      "criterion": "Session content carries a review/approval status the organizer can change, and unapproved content is excluded from public output",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, locate the status control on a session (e.g. draft/in review/approved)",
+        "Set one session Approved and leave another unapproved",
+        "Open the public agenda/embed page",
+        "Verify only the approved session appears"
+      ],
+      "pass_criteria": "Status persists; public page includes approved and excludes unapproved sessions",
+      "evidence": "Screenshots of status controls and of public agenda listing"
+    },
+    {
+      "id": "CNT-11",
+      "feature_id": "cnt-version-history-audit",
+      "criterion": "Content edits are logged in a version/change history with user and timestamp, and a prior version can be restored",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, edit an abstract twice with distinct text",
+        "Open the record's history/activity panel",
+        "Verify entries with editor name and time",
+        "Restore the first version and confirm text reverts"
+      ],
+      "pass_criteria": "History lists distinct timestamped edits attributed to the user; restore reverts content",
+      "evidence": "Screenshots of history panel and reverted abstract"
+    },
+    {
+      "id": "CNT-12",
+      "feature_id": "cnt-bulk-download",
+      "criterion": "Organizer can multi-select sessions/files and generate a bulk download (ZIP) of latest file versions with grouping options",
+      "weight": 3,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "As organizer, open sessions or files library",
+        "Select 2+ sessions with files and click Download Files (or equivalent)",
+        "Choose a grouping option and deselect one file if offered",
+        "Trigger Generate Download and capture the ready/queued state"
+      ],
+      "pass_criteria": "UI supports selection, grouping choice, and export generation; manual step: download the ZIP and confirm it contains only latest versions organized per chosen grouping",
+      "evidence": "Screenshots of selection, grouping dialog, and generation confirmation; unverified: ZIP contents"
+    },
+    {
+      "id": "CNT-13",
+      "feature_id": "cnt-shareable-links",
+      "criterion": "A shareable direct link can be generated for an uploaded file for AV/web team distribution",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "As organizer, open a file's actions and generate/copy a share link",
+        "Open the link in a fresh tab/session"
+      ],
+      "pass_criteria": "Link is generated and serves the file; manual step if agent cannot create a logged-out context: confirm link works without authentication",
+      "evidence": "Screenshot of share action and of the link resolving to the file"
+    },
+    {
+      "id": "CNT-14",
+      "feature_id": "cnt-files-library",
+      "criterion": "A central files view aggregates uploads across sessions with metadata, plus a per-session files tab",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, open the files library/module",
+        "Verify fixture uploads listed with session association, uploader, date",
+        "Open one session's Files tab and confirm its files shown"
+      ],
+      "pass_criteria": "Both aggregate and per-session views exist and agree with actual uploads",
+      "evidence": "Screenshots of library list and session files tab"
+    },
+    {
+      "id": "CNT-15",
+      "feature_id": "cnt-ai-studio-remix",
+      "criterion": "An AI-assist control offers content edit suggestions (clarity/tone/length) on session content that can be applied",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, open a session abstract editor",
+        "Invoke the AI improve/remix control",
+        "Apply a suggestion and save"
+      ],
+      "pass_criteria": "A suggestion is produced and applying it updates the field (stub/LLM quality not judged)",
+      "evidence": "Screenshot of suggestion card and applied result"
+    }
+  ],
+  "sample_data": "Event 'TechConf 2026' (Oct 12-14, 2026). Speakers: Ada Lorenz (ada@example.com), Ben Ito (ben@example.com), Cara Voss (cara@example.com). Sessions: S1 'Scaling Vector Search' (Ada, approved), S2 'LLM Eval Pipelines' (Ben, in review), S3 'Edge Inference on ARM' (Cara, draft), S4 'Panel: AI in Production' (Ada+Ben). Tasks: 'Upload Session Presentation' due 2026-09-01, 'Upload Headshot' due 2026-08-20, assigned to all speakers. Files: slides-v1.pdf (~200KB) then slides-v2.pdf (same deliverable, for versioning), headshot-ada.jpg. Fixture state: Ada complete (2 versions + 1 file comment), Ben partially complete, Cara overdue/incomplete (target for bulk reminder). Accounts: organizer admin@techconf.test, speaker ada@example.com, reviewer with read+approve rights.",
+  "gaps": "Not learnable from sources: exact approval-state names/stages (draft/in-review/approved inferred from category norms), accepted file types and per-type validation, whether deadlines hard-lock late uploads (Sessionize/Cvent norm: soft deadline with reminders - inferred), reviewer-assignment mechanics for content approval, and any dedicated AV-team portal (distribution appears to be ZIP export + shareable links only). Documented quirk worth noting for judges: SessionBoard explicitly does NOT email-notify on new file comments, so clones should not be penalized either way on comment notifications. Field-level locking and simultaneous-editing conflict behavior mentioned in marketing but mechanics undocumented; excluded from rubric. Studio Remix internals (models, bulk apply UX) undocumented; rubric only checks presence of an apply-able suggestion."
+}

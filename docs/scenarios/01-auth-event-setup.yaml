@@ -1,0 +1,156 @@
+module: auth-event-setup
+# `touches` filled by the WALKER 2026-08-09 — see docs/scenarios/walks/01-auth-event-setup.walk.md
+touches:
+  tables: [users, authSessions, passwordResets, events, tracks, tags, formats, levels, rooms, fields, formFields, forms, submissions, contacts, reviewerTracks, reviews, emailOutbox]
+  ports: [EmailSender]
+  # routes marked (missing) are required by steps but have no ROUTE-MAP assignment — see walk gaps.
+  routes: [login.tsx, logout.tsx, 403.tsx, admin.tsx, admin._index.tsx, admin.submissions.tsx, admin.settings.tsx, admin.settings.library.tsx, admin.forms.$formId.tsx, admin.evaluation.tsx, "create-event (missing)", "set-password/reset (missing)", "reviewer queue (missing)", "event switcher mechanism (missing)"]
+
+# Shared vocabulary for BOTH scenario files:
+#   ADMIN_EMAIL / ADMIN_PASSWORD — the seeded admin credentials (documented in the repo
+#     README / seed script). Concrete at run time; symbolic here because seeding owns them.
+#   "seed event" — the pre-seeded demo event ("AI.Engineer Sandbox Event"-equivalent)
+#     with tracks/tags/formats/levels/rooms and sample submissions across statuses.
+# Scenario outputs referenced downstream (eval-kit style):
+#   AE-S2 creates the event "DevOps Days Lyon 2027" used by AE-S3/S4/S5 and all FB-S*.
+#   AE-S3 creates the taxonomies (incl. formats "Talk (30 min)" / "Workshop (120 min)")
+#     that FB-S3's Format-triggered conditional rule depends on.
+#   AE-S4 creates the library field "Earliest arrival date" reused in FB-S2.
+
+scenarios:
+  - id: AE-S1
+    name: Admin signs in — wrong password first, then success; logged-out access is gated
+    persona: admin
+    steps: |
+      1. In a fresh logged-out browser context, navigate DIRECTLY to an admin deep link
+         (the admin dashboard URL, and one nested admin URL such as the submissions list).
+         Expect the login gate for both — no admin data may render.
+      2. On the login form, enter ADMIN_EMAIL with password "definitely-wrong-99" and submit.
+      3. While still on the error state, open the admin dashboard URL in the same context
+         again — confirm the failed attempt created no session (login gate again).
+      4. Back on the login form: the email field still contains ADMIN_EMAIL. Enter
+         ADMIN_PASSWORD and submit.
+      5. Confirm arrival in the admin app on the seed event: the event switcher/header names
+         the seed event, and the submissions area lists the seeded sample submissions.
+      6. Log out via the app's logout control. Re-open the admin dashboard URL — the login
+         gate returns; no admin content is served from cache.
+    success_signals:
+      - "Steps 1, 3 and 6 all end on the login screen (screenshot each); at no point does a logged-out request render event names, submission titles, or counts."
+      - "Step 2 shows a single inline authentication error that does not disclose whether email or password was wrong, and does not clear the typed email."
+      - "Step 5 screenshot shows the seed event name plus a populated submissions list (seeded rows visible)."
+      - "EXPERIENCE: submit-to-dashboard in under 1 second against the seeded dataset — content renders directly, no skeleton-screen theater; the login form is password-manager friendly (labeled email/password inputs that autofill cleanly)."
+
+  - id: AE-S2
+    name: Admin creates a brand-new event from scratch and edits its details — nothing leaks from the seed event
+    persona: admin
+    steps: |
+      1. Log in as ADMIN_EMAIL / ADMIN_PASSWORD.
+      2. Start the create-event flow. Submit once with Event Name left BLANK and everything
+         else filled — expect an inline required-field error; the other typed values remain
+         in the form.
+      3. Fill and save: Name "DevOps Days Lyon 2027", Slug "devops-days-lyon-2027",
+         Type "Conference", Website URL "https://devopsdays-lyon.example.com",
+         Location "Lyon, France", Timezone "Europe/Paris",
+         Starts At 2027-06-10 09:00, Ends At 2027-06-11 18:00,
+         Theme "Two days of DevOps war stories for platform teams."
+      4. The event switcher now lists BOTH the seed event and "DevOps Days Lyon 2027".
+         Switch into the new event.
+      5. Walk the new event's core screens: submissions list, forms list, library/settings
+         area, reviewer/evaluation area. Every list is empty AND shows a designed empty
+         state; zero records from the seed event appear anywhere (no seeded submissions,
+         forms, tracks, or contacts bleed through).
+      6. Edit the new event's details: change Location to
+         "Cité Internationale, Lyon, France" and Ends At to 2027-06-12 18:00. Save.
+      7. Hard-reload the browser and re-open event details — both edits persisted.
+      8. Switch back to the seed event — its details and data are untouched.
+    success_signals:
+      - "Step 2 screenshot: inline 'name is required'-class error on the blank field, with the other typed values still present."
+      - "DB check: an events row exists with slug 'devops-days-lyon-2027', timezone 'Europe/Paris', ends_at reflecting the 2027-06-12 edit after step 7."
+      - "Step 5 screenshots: each empty list shows purposeful empty-state copy (what this screen is + what to do next), not a blank panel, spinner, or error."
+      - "Step 5: a count query per module scoped to the new event returns 0 submissions / 0 forms / 0 tracks — proof of tenant isolation from the seed event."
+      - "EXPERIENCE: switching events swaps ALL visible data in under 1 second; the new event is fully operable through the same UI as the seed event (no route 404s, no hardcoded seed-event assumptions anywhere on the walked screens)."
+
+  - id: AE-S3
+    name: Admin builds the new event's library — tracks with colors, tags, formats with default durations, levels, rooms; edit one, delete one
+    persona: admin
+    steps: |
+      1. As admin inside "DevOps Days Lyon 2027" (from AE-S2), open the library/settings
+         area where Tracks, Tags, Formats, Levels and Rooms are managed.
+      2. Tracks — attempt to add a track with a BLANK name → inline required error. Then
+         create three: "AI Infrastructure" color #7C3AED, "Developer Experience" color
+         #F59E0B, "Security" color #0EA5E9.
+      3. Tags — create "Hands-on" and "Sponsored".
+      4. Formats — create "Talk (30 min)" with default duration 30 minutes,
+         "Workshop (120 min)" with default duration 120 minutes, and
+         "Panel (45 min)" with default duration 45 minutes.
+      5. Levels — create "Beginner", "Intermediate", "Advanced", "Expert".
+      6. Rooms — create "Auditorium A" capacity 300 and "Workshop Room 1" capacity 40.
+      7. EDIT one: rename track "Security" to "Security & Privacy" and change its color
+         to #DC2626. The list row reflects both changes.
+      8. DELETE one: delete level "Expert" (confirm if prompted). It disappears from the
+         Levels list AND from every Level dropdown fed by the library (check via the
+         form-builder's Level options or the add-session drawer in this event).
+      9. Reload the page — all created/edited/deleted state persists exactly.
+    success_signals:
+      - "DB check: 3 tracks (with the renamed 'Security & Privacy' carrying color #DC2626), 2 tags, 3 formats with default durations 30/120/45 minutes, 3 levels (no 'Expert'), 2 rooms with capacities 300/40 — all scoped to the new event only."
+      - "Screenshot: track rows render their color swatches; format rows show their default duration; room rows show capacity."
+      - "Step 2's blank-name attempt is rejected inline without wiping the color selection."
+      - "Step 8: no Level dropdown anywhere in this event still offers 'Expert'."
+      - "EXPERIENCE: every add/edit/delete is reflected in its list in under 1 second — creating the 12 records above feels like rapid data entry, never a page-reload-per-row slog."
+
+  - id: AE-S4
+    name: Admin manages the custom-field library — all six field types, event vs global scope, edit and delete
+    persona: admin
+    steps: |
+      1. As admin inside "DevOps Days Lyon 2027", open the Library's Fields area.
+      2. Attempt to save a new field with a BLANK name → inline required error; the
+         selected type is not lost.
+      3. Create five fields:
+         a. "T-shirt size" — type Dropdown, options S / M / L / XL — scope GLOBAL.
+         b. "Years of speaking experience" — type Number — scope Event.
+         c. "Requires visa letter" — type Checkbox — scope Event.
+         d. "Earliest arrival date" — type Date — scope Event.
+         e. "Scratch field" — type Text, Maximum Length 255 — scope Event.
+      4. EDIT: rename "Years of speaking experience" to "Years of experience" and confirm
+         the rename shows in the list.
+      5. DELETE: delete "Scratch field" (confirm if prompted) — it disappears from the
+         fields list and from the form-builder's add-question picker.
+      6. Scope check — switch to the SEED event and open its field picker/library:
+         "T-shirt size" (global) IS available there; "Requires visa letter" (event-scoped)
+         is NOT.
+      7. Back in the new event, open the form-builder's add-question picker: all four
+         surviving custom fields are listed with visible type and scope labels, and the
+         picker's search narrows to "Earliest arrival date" when typing "arriv".
+    success_signals:
+      - "DB check: fields rows exist for the four surviving fields with types dropdown/number/checkbox/date, 'T-shirt size' carrying global scope and the others event scope; 'Scratch field' is gone."
+      - "Screenshot from step 6: the seed event's picker showing 'T-shirt size' present and 'Requires visa letter' absent — the event/global scope boundary is real, both directions."
+      - "Step 4's rename is visible wherever the field is listed (single definition, no stale copy)."
+      - "EXPERIENCE: the add-question picker search filters keystroke-fast with no per-keystroke server spinner, and stays instant with dozens of fields in the library; each field's type and scope are readable at a glance in the list."
+
+  - id: AE-S5
+    name: Admin provisions a reviewer — account created, tracks assigned, invite email delivered, reviewer logs in and is walled out of admin
+    persona: admin
+    steps: |
+      1. As admin inside "DevOps Days Lyon 2027", open reviewer management and create a
+         reviewer: name "Nadia Kessler", email "nadia.kessler@example.com", assigned
+         tracks "AI Infrastructure" AND "Security & Privacy" (from AE-S3).
+      2. Verify the admin-side reviewer list now shows Nadia with her two track
+         assignments.
+      3. Check the email outbox / test inbox: an invite email addressed to
+         nadia.kessler@example.com exists and contains a working set-password (or
+         activation) link.
+      4. In a fresh logged-out browser context, open the invite link, set password
+         "Rev!ewer2027", and log in as nadia.kessler@example.com.
+      5. Nadia lands in her reviewer context. Her review queue is EMPTY (the new event has
+         no submissions yet) and shows a designed empty state, not an error.
+      6. Unhappy path: as Nadia, navigate directly to an admin-only URL (event settings or
+         the admin submissions list). Expect a proper access-denied response (403 page or
+         redirect) — no admin data renders.
+      7. Nadia logs out and logs back in with the same credentials — succeeds (the invite
+         flow produced a durable account, not a one-shot session).
+    success_signals:
+      - "DB check: a reviewer account exists for nadia.kessler@example.com linked to exactly the two assigned tracks of the new event."
+      - "Email outbox row: recipient nadia.kessler@example.com, invite/set-password template, status sent — queryable, plus a screenshot of the email body with its link."
+      - "Step 4 works first try in a cold browser: link → set password → logged in, no dead ends."
+      - "Step 6 screenshot: a designed 403/access-denied page (branded, with a way back), never a stack trace or a blank screen, and no admin data in the response."
+      - "EXPERIENCE: the whole reviewer journey (invite link → password → queue) completes without the reviewer ever having to guess a URL or ask the admin for anything beyond the email; the empty review queue explains that submissions in her tracks will appear here."

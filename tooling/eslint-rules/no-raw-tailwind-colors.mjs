@@ -15,12 +15,12 @@ export const noRawTailwindColors = {
 		type: "problem",
 		docs: {
 			description:
-				"Require semantic theme tokens instead of raw hexadecimal Tailwind color utilities.",
+				"Disallow arbitrary hexadecimal Tailwind color utilities (e.g. bg-[#fff]); use a palette or @theme token utility.",
 		},
 		schema: [],
 		messages: {
 			rawColor:
-				"Use a semantic @theme color token instead of a raw hexadecimal Tailwind color utility.",
+				"Avoid an arbitrary hex color utility like `bg-[#fff]`; use a Tailwind palette or @theme token utility.",
 		},
 	},
 	create(context) {

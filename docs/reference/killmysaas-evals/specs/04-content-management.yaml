@@ -1,0 +1,290 @@
+area: content-management
+title: Content Management & Speaker Deliverables
+prefix: CNT
+overview: >
+  Owns the post-acceptance content lifecycle: organizers request session
+  deliverables (slides, headshots) from speakers via file-request tasks with
+  due dates, speakers upload files through a personalized portal with per-file
+  versioning and comments, and organizers track who has and hasn't submitted
+  on a filterable deliverables dashboard with bulk reminder emails. It also
+  covers centralized editing of session and speaker content (titles,
+  abstracts, bios, photos) with timestamped change history and restore, an
+  internal approval status that gates what appears on the public agenda, a
+  central files library aggregating all uploads, and bulk ZIP export of the
+  latest file versions for AV/web teams. Ownership boundary: this area owns
+  file-request tasks, uploads, the deliverables dashboard, and
+  deliverables-reminder emails; general/action onboarding tasks and general
+  bulk speaker comms (e.g. welcome emails) are owned by the
+  speaker-management spec. Scenarios chain: the organizer sets
+  up collection (S1), a speaker uploads and versions a deck (S2), and the
+  organizer tracks, reminds, reviews, approves, and exports (S3).
+personas: [organizer, speaker]
+scenarios:
+  - id: CNT-S1
+    name: Organizer sets up content collection
+    persona: organizer
+    steps: |
+      1. Navigate to the site root. Find the organizer/admin area - try obvious
+         routes (/admin, /dashboard, /organizer) and nav links labeled Admin,
+         Dashboard, Manage, or Organizer.
+      2. Sign in as organizer Jordan Alvarez using the fixture credentials. If
+         no account exists and the clone offers open signup, sign up first with
+         Jordan's fixture identity and email.
+      3. Find or create the event "DevFlow Conf 2027" (2027-05-12 to
+         2027-05-14, Moscone West SF) from the sample data.
+      4. Ensure at least two sessions with two DISTINCT speakers exist. For
+         Priya Raman: reuse the accepted "Taming 40-Minute CI: Incremental
+         Builds at Monorepo Scale" session if it exists from earlier areas;
+         otherwise create it directly as an accepted/confirmed session (Talk,
+         Platform & Infra) with her fixture email. For Marcus Okafor: if
+         "Your AI Pair Programmer Is Lying to You" already exists from earlier
+         areas it belongs to Priya Raman (and may carry a Rejected decision) —
+         do NOT reassign or reuse it. Instead create a NEW accepted session
+         owned by Marcus from fixture values: "Lightning: Agents in Production
+         Q&A" (Lightning Talk (10 min), track AI Engineering) with his fixture
+         email — the same extra session area 05 (ai-agenda) uses. Use the
+         fixture emails so speaker accounts link to these sessions. Screenshot
+         the session list.
+      5. Find the content/file-collection settings - the area may be called
+         Files, Content, Deliverables, Tasks, or Speaker Tasks. If there is an
+         enable-file-uploads toggle (SessionBoard: Sessions > Settings >
+         Files), turn it on and screenshot it.
+      6. Create a file-request task named "Upload Session Presentation" with
+         instructions "Final slide deck as a PDF, 16:9 aspect ratio." and due
+         date 2027-05-01 (the fixture slides deadline), assigned to all
+         speakers (or auto-assigned per session). Screenshot the filled task
+         form before saving.
+      7. Create a second task "Upload Final Headshot (print quality)" with due
+         date 2027-04-14, assigned to all speakers. (The distinct name is
+         deliberate: it must not be confused with any headshot handling from
+         the speaker-management area, where the headshot flows through profile
+         editing.)
+      8. Open the deliverables/task tracking dashboard (may be called Speaker
+         Tasks, Deliverables, Tasks, or Progress). Verify both tasks appear for
+         both speakers with due dates and an incomplete/pending status.
+         Screenshot the full dashboard.
+    success_signals:
+      - Filled task-creation form screenshot showing name, instructions, and due date
+      - Tracking dashboard showing 2 speakers x 2 tasks, all incomplete, with due dates
+      - File-uploads-enabled setting visible (if the clone has such a toggle)
+  - id: CNT-S2
+    name: Speaker uploads and versions a deliverable
+    persona: speaker
+    steps: |
+      1. Navigate to the site root. Sign in as speaker Priya Raman using the
+         fixture credentials; if no account exists, sign up with her fixture
+         identity/email, or follow any speaker invite link the clone surfaces
+         in its own UI (do not rely on emailed links - email is not readable).
+      2. Find the speaker portal - may be called My Tasks, Speaker Portal, My
+         Sessions, or Dashboard. Screenshot the task list showing "Upload
+         Session Presentation" and "Upload Final Headshot (print quality)" with their due dates and
+         incomplete status.
+      3. Open the upload flow for the "Upload Session Presentation" task (for
+         the "Taming 40-Minute CI" session). Before uploading, record and
+         screenshot any stated file constraints (accepted file types, maximum
+         file size) shown in the upload UI or its help text.
+      4. Upload the slides.pdf fixture against that task. Screenshot the state
+         after upload: filename listed and task showing uploaded/complete.
+      5. Add a comment on the uploaded file: "Draft deck - final version coming
+         Friday." Screenshot the comment showing author name and timestamp.
+      6. Upload slides.pdf again to the same deliverable slot (replace/new
+         version). Open the file's version list and verify two versions with
+         timestamps and the latest clearly marked. Screenshot the version list.
+      7. If there is an explicit mark-complete action on the presentation task,
+         use it. Deliberately leave "Upload Final Headshot (print quality)" incomplete.
+      8. Scoping check: browse the portal for any trace of Marcus Okafor's
+         sessions or tasks and screenshot the portal navigation/scope. Then try
+         to open organizer/admin routes directly (/admin, /organizer,
+         /dashboard variants, and any admin-looking links). Screenshot the
+         resulting block, redirect, or denial.
+      9. Screenshot the final portal state: presentation task
+         complete/uploaded with a 2-version file, headshot task still open
+         with its due date.
+    success_signals:
+      - Portal task list with both tasks, due dates, and status before any upload
+      - Post-upload state with slides.pdf recorded against the task
+      - Version list showing v1 and v2 with latest flagged
+      - Comment with author and timestamp
+      - Evidence that admin routes are inaccessible to the speaker account
+  - id: CNT-S3
+    name: Organizer tracks, reviews, approves, and exports
+    persona: organizer
+    steps: |
+      1. Sign in as organizer Jordan Alvarez (fixture credentials).
+      2. Open the deliverables tracking dashboard. Verify statuses reflect S2:
+         Priya Raman shows "Upload Session Presentation" complete/uploaded and
+         "Upload Final Headshot (print quality)" incomplete; Marcus Okafor shows both incomplete.
+         Screenshot the unfiltered dashboard.
+      3. Apply a filter (incomplete, overdue, or by task) and screenshot the
+         filtered view to show the visible set changed.
+      4. Trigger the bulk reminder action for speakers with outstanding tasks -
+         select the incomplete rows if required, pick a template if a picker
+         appears, and send. Screenshot the send confirmation (toast, dialog, or
+         sent count). Do not attempt to verify email delivery.
+      5. Open the central files library (may be Library > Files, Files,
+         Content, or Assets). Verify slides.pdf is listed with its session and
+         speaker association, upload date, and a version count of 2. Screenshot
+         the library. If sessions have a per-session Files tab, open it on
+         "Taming 40-Minute CI" and screenshot it too.
+      6. Open the uploaded file's detail. Verify Priya's S2 comment is visible
+         with her name and timestamp, then reply "Thanks - please confirm the
+         final version by Tuesday." Screenshot the thread. Confirm the version
+         list shows both versions with the latest marked and the older version
+         still individually accessible (a view/download control exists - do
+         not download).
+      7. Content editing: open the "Taming 40-Minute CI" session, change the
+         title to start with "UPDATED: " and append this sentence to the
+         abstract: "This session now includes a live demo of remote build
+         caching." Save, navigate away, then reopen the session. Screenshot the
+         reloaded detail and the session list showing the new title.
+      8. Make a second distinct edit to the same abstract (append "Attendees
+         should bring a laptop.") and save.
+      9. Open the session's version/change history or activity panel. Verify at
+         least two timestamped entries attributed to Jordan Alvarez. Restore
+         the version prior to the second edit and verify the abstract loses the
+         "Attendees should bring a laptop." sentence but keeps the live-demo
+         sentence. Screenshot the history panel and the restored abstract.
+      10. Speaker profile editing: open Priya Raman's speaker record, append to
+          her bio "Priya leads the developer-productivity group at Latticework
+          Systems." and replace/upload her photo using the headshot.png
+          fixture. Save, reload, and screenshot the updated record.
+      11. Approval: set the "Taming 40-Minute CI" session's content status to
+          Approved (or the clone's equivalent published/final state) and leave
+          Marcus's session unapproved. Screenshot the status control on both
+          sessions.
+      12. Open the public agenda/schedule page - may be /agenda, /schedule, a
+          "public page" or "preview" link, or an embed preview. Verify the
+          approved session appears with its UPDATED title and the unapproved
+          session does not appear. Screenshot the public listing. If no public
+          agenda exists yet because the agenda has not been built or published
+          (that happens in a later area), verify the approval gate on whatever
+          public sessions/preview surface exists (a public sessions list or
+          embed preview); if no public surface exists at all yet, record that
+          observation explicitly so the judge can defer CNT-12 to the area-06
+          evidence.
+      13. Distribution: from the sessions or files view, multi-select the
+          items with uploads and invoke the bulk download action (Download
+          Files, Export, or similar). If a dialog offers grouping (folder per
+          session/speaker), pick one and screenshot the dialog; deselect one
+          file if the dialog allows it. Trigger the generation (Generate
+          Download or equivalent) and screenshot the queued/generating/ready
+          confirmation. Do NOT download or inspect the ZIP contents.
+      14. Bonus evidence: if a file row or detail offers a share-link action,
+          generate/copy the link and screenshot it.
+      15. Cleanup for later areas: edit the "Taming 40-Minute CI" session title
+          one final time to remove the "UPDATED: " prefix, restoring the exact
+          original title "Taming 40-Minute CI: Incremental Builds at Monorepo
+          Scale" (later areas look this session up by its original title).
+          Keep the abstract as-is. Save and screenshot the session list showing
+          the restored title.
+    success_signals:
+      - Dashboard statuses matching the S2 fixture state, unfiltered and filtered
+      - Bulk reminder send confirmation
+      - Files library entry with session/speaker metadata and version count
+      - Cross-role comment thread with organizer reply
+      - Persisted title/abstract edits after reload
+      - History panel with attributed entries and a successful restore
+      - Public agenda showing only the approved session
+      - Export/grouping dialog and generation confirmation
+      - Session title reverted to the original as final cleanup
+rubric:
+  - id: CNT-01
+    criterion: Organizer can create a file-request task with instructions and a due date, assigned to speakers.
+    weight: 3
+    testability: auto
+    scenarios: [CNT-S1]
+    pass_criteria: Both fixture tasks ("Upload Session Presentation" due 2027-05-01, "Upload Final Headshot (print quality)" due 2027-04-14) exist after creation with correct names, due dates, and speaker assignment, shown as incomplete/pending.
+    evidence: Screenshot of the filled task-creation form and of the task/deliverables list showing both tasks with due dates and assignees.
+  - id: CNT-02
+    criterion: Speaker portal lists the speaker's assigned tasks with deadlines and accepts a file upload recorded against the task/session.
+    weight: 3
+    testability: auto
+    scenarios: [CNT-S2]
+    pass_criteria: Priya's portal shows both assigned tasks with due dates and status; uploading slides.pdf succeeds and the file appears attached to the presentation task/session with the task status updating to uploaded/complete.
+    evidence: Before/after screenshots of the portal task list and the post-upload state showing the slides.pdf filename against the task.
+  - id: CNT-03
+    criterion: Speaker access is scoped to their own sessions and tasks, and organizer/admin views are blocked for speaker accounts.
+    weight: 2
+    testability: auto
+    scenarios: [CNT-S2]
+    pass_criteria: Priya's portal shows no sessions or tasks belonging to Marcus Okafor, and direct navigation to admin/organizer routes is denied, redirected, or shows no admin capability while signed in as the speaker.
+    evidence: Screenshot of the portal scope (only Priya's session/tasks visible) and of the blocked/redirected admin route.
+  - id: CNT-04
+    criterion: Re-uploading a deliverable creates a new file version, with the latest clearly marked and previous versions still accessible.
+    weight: 3
+    testability: auto
+    scenarios: [CNT-S2, CNT-S3]
+    pass_criteria: After the second slides.pdf upload, a version list shows two entries with timestamps, the latest is flagged as current, and the older version remains individually viewable/downloadable (a control exists) rather than being overwritten.
+    evidence: Screenshot of the version list from the speaker side (S2) and the organizer side (S3) showing 2 versions with the latest marked.
+  - id: CNT-05
+    criterion: Comments can be attached to an uploaded file, are logged with author name and timestamp, and are visible across roles.
+    weight: 2
+    testability: auto
+    scenarios: [CNT-S2, CNT-S3]
+    pass_criteria: The speaker's comment ("Draft deck - final version coming Friday.") appears with Priya's name and a timestamp, the organizer sees the same thread on the same file, and the organizer's reply is added to it. Do not require email notification of comments (SessionBoard itself sends none).
+    evidence: Screenshots of the comment thread from the speaker account (S2) and the organizer account showing the original comment plus reply (S3).
+  - id: CNT-06
+    criterion: The upload UI communicates file constraints (accepted types and/or a maximum file size) to the speaker at the point of upload.
+    weight: 1
+    testability: auto
+    scenarios: [CNT-S2]
+    pass_criteria: Some explicit constraint statement is visible in or around the upload control - e.g. accepted file types, a max size such as SessionBoard's 1.95 GB per-file limit, or a file-picker type filter the agent observed. Fail if no constraint is communicated anywhere in the upload flow.
+    evidence: Screenshot of the upload dialog/help text captured in S2 step 3 showing the stated constraint.
+  - id: CNT-07
+    criterion: A deliverables dashboard tracks per-speaker per-task status with due dates, supports filtering, and reflects uploads.
+    weight: 3
+    testability: auto
+    scenarios: [CNT-S1, CNT-S3]
+    pass_criteria: "The dashboard shows all speaker-task pairs as incomplete in S1, and in S3 accurately reflects the S2 state: Priya's presentation task complete/uploaded (either label passes - clones without an explicit mark-complete action must not be penalized), her headshot task incomplete, Marcus's tasks incomplete; applying a filter visibly changes the displayed set."
+    evidence: S1 screenshot of the all-incomplete dashboard; S3 screenshots of the updated dashboard unfiltered and filtered.
+  - id: CNT-08
+    criterion: Organizer can trigger bulk reminder emails to speakers with outstanding tasks and receives a send confirmation.
+    weight: 2
+    testability: auto-partial
+    scenarios: [CNT-S3]
+    pass_criteria: A bulk reminder action is available from the dashboard for incomplete/outstanding tasks (with or without a template picker) and the UI confirms the send (toast, dialog, or sent count). Actual delivery is verified manually.
+    evidence: Screenshot of the reminder action being invoked on the filtered incomplete set and of the send confirmation.
+    manual_instructions: Check the inboxes for the fixture speaker addresses (Priya Raman and Marcus Okafor at sbek-test.example.com) or, if those are not real mailboxes, the clone's outbound-mail log / mail-catcher. Confirm each speaker with outstanding tasks received a reminder naming the outstanding task ("Upload Final Headshot (print quality)" and, for Marcus, "Upload Session Presentation") and its due date.
+  - id: CNT-09
+    criterion: Organizer can edit a session's title and abstract from a central admin view and the changes persist.
+    weight: 3
+    testability: auto
+    scenarios: [CNT-S3]
+    pass_criteria: "After saving, navigating away, and reopening, the session shows the \"UPDATED: \" title prefix and the appended live-demo sentence in the abstract, and the session list reflects the new title. (The prefix is reverted in the scenario's final cleanup step — judge from the mid-scenario screenshots.)"
+    evidence: Screenshots of the edit form, the reloaded session detail, and the session list with the updated title (captured before the final cleanup step reverts the prefix).
+  - id: CNT-10
+    criterion: Organizer can edit speaker profile content (bio text and headshot photo) from the admin area and the changes persist.
+    weight: 2
+    testability: auto
+    scenarios: [CNT-S3]
+    pass_criteria: Priya's bio shows the appended sentence and her record displays the newly uploaded headshot.png image after save and reload.
+    evidence: Before/after screenshots of the speaker record showing the updated bio and photo.
+  - id: CNT-11
+    criterion: Content edits are recorded in a version/change history with editor attribution and timestamps, and a prior version can be restored.
+    weight: 2
+    testability: auto
+    scenarios: [CNT-S3]
+    pass_criteria: The history panel lists at least two distinct timestamped entries attributed to Jordan Alvarez, and restoring the earlier version removes the second edit's sentence while keeping the first edit.
+    evidence: Screenshot of the history/activity panel with who/when entries and of the abstract after restore.
+  - id: CNT-12
+    criterion: Sessions carry a content approval/review status the organizer can set, and unapproved content is excluded from the public agenda output. (This item grades the approval GATE, not the public widget rendering itself — that is graded by public-widgets EMB-06.)
+    weight: 3
+    testability: auto
+    scenarios: [CNT-S3]
+    pass_criteria: A status control exists and persists (exact state names may vary - draft/in-review/approved is the inferred norm); the public agenda page shows the approved session (with its updated title) and omits the unapproved one. If no public agenda exists yet at area-04 time (it is built and published in a later area), the gate may be verified on any public sessions/preview surface, or judged from the agent's recorded observation together with the area-06 public-widget evidence.
+    evidence: Screenshots of the status controls on both sessions and of the public agenda (or the closest public sessions/preview surface) listing only the approved session; if no public surface exists yet, the agent's explicit deferral observation.
+  - id: CNT-13
+    criterion: A central files library aggregates uploads across sessions with metadata (session/speaker, date, versions), optionally mirrored by a per-session files tab.
+    weight: 2
+    testability: auto
+    scenarios: [CNT-S3]
+    pass_criteria: A files view lists the slides.pdf upload with its session and speaker association, upload date, and a version count of 2, consistent with actual uploads; a per-session Files tab, if present, shows the same file (its absence alone does not fail the item if the aggregate library exists).
+    evidence: Screenshot of the files library row for slides.pdf and, if present, the per-session Files tab.
+  - id: CNT-14
+    criterion: Organizer can multi-select sessions/files and generate a bulk download (ZIP) of latest file versions, with grouping options if offered.
+    weight: 3
+    testability: auto-partial
+    scenarios: [CNT-S3]
+    pass_criteria: The UI supports selecting multiple sessions/files and starting an export, and confirms generation (queued/generating/ready state or download start). Grouping options and file deselection are positive evidence but optional. ZIP contents are verified manually.
+    evidence: Screenshots of the multi-select state, the export/grouping dialog if shown, and the generation confirmation.
+    manual_instructions: Trigger the same export as an organizer, download the resulting ZIP (via the ready link or the email notification if the clone sends one), and verify it contains only the LATEST version of slides.pdf (the second upload), is organized according to the chosen grouping (e.g. one folder per session), and excludes any file deselected in the dialog.

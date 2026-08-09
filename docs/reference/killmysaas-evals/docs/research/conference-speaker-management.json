@@ -1,0 +1,387 @@
+{
+  "area": "conference-speaker-management",
+  "sources": [
+    "https://www.sessionboard.com/capabilities/conference-speaker-management",
+    "https://www.sessionboard.com/capabilities/speaker-management",
+    "https://www.sessionboard.com/products/speaker-crm",
+    "https://www.sessionboard.com/capabilities/content-management",
+    "https://www.sessionboard.com/feature/speaker-management"
+  ],
+  "fetch_status": "Primary URL fetched OK (2 passes: general + conference-specific quotes). Internal links fetched OK: /capabilities/speaker-management (baseline for deltas), /products/speaker-crm, /capabilities/content-management. /feature/speaker-management fetched OK via WebSearch discovery (mirrors speaker-management page). /solutions/conference-speaker-management returned 404. WebSearch used once to probe travel/logistics claims.",
+  "summary": "The conference-speaker-management page is SessionBoard's end-to-end lifecycle page: unlike the sibling speaker-management page (portals, comms, progress tracking only), it chains the full conference pipeline \u2014 Speaker CRM sourcing, Call for Papers, Submission Evaluation, Manage Sessions and Agendas, Personalized Onboarding Portals, Dynamic Dashboards and Communication, and Content Management. Distinct deltas on this page: session assignment with overlap/room-conflict detection (\"Assign sessions confidently\"), document requests explicitly covering contracts and certificates of insurance, email AND SMS automation, batch content download by room/track/day, and the \"submission to showtime\" onboarding framing. Data flows without reentry: accepted CFP submissions become speaker+session records that feed the agenda and portals. Conference-specific findings: contracts are handled as document-collection requests (no e-signature claimed); travel is NOT a booking feature \u2014 Speaker CRM profiles store travel preferences, and SessionBoard positions logistics/registration as out of scope (handled by integrated platforms like Cvent/Bizzabo/Swoogo). Speaker records persist in a cross-event CRM with tagging, expertise search, session history, and prefilled reuse for returning speakers.",
+  "personas": [
+    "Organizer/event content manager (admin): runs CFP-to-showtime pipeline, assigns sessions, requests documents, tracks status",
+    "Speaker/presenter: uses personalized branded portal to complete tasks, upload files, meet deadlines",
+    "Co-presenter/assistant/agency contact: limited-access collaborator on a speaker's sessions and deliverables",
+    "Reviewer/evaluator: scores submissions feeding speaker selection (owned by evaluation area; touchpoint only)",
+    "Attendee/public visitor: views published agenda with speaker, room, and time details"
+  ],
+  "user_journeys": [
+    {
+      "name": "Accepted submission to confirmed, scheduled speaker",
+      "persona": "Organizer/event content manager",
+      "steps": [
+        "Open submissions list and accept a pending CFP submission",
+        "Verify a speaker record and linked session record were created automatically (no reentry)",
+        "Set speaker status to Confirmed",
+        "Assign the session to a room and time slot; add the speaker as presenter",
+        "Attempt an overlapping second assignment and observe the conflict flag",
+        "Publish/preview the agenda showing speaker, room, time"
+      ],
+      "filled_state": "Speakers list shows 8 speakers with mixed status chips (Confirmed/Pending/Invited); session detail panel shows title, assigned speaker, room 'Ballroom A', slot 'Day 2 10:00-10:45'; one session row carries a visible overlap-conflict warning."
+    },
+    {
+      "name": "Speaker onboarding: contract to showtime",
+      "persona": "Speaker/presenter",
+      "steps": [
+        "Open personalized branded portal link",
+        "See task list with deadlines: upload signed speaking agreement, certificate of insurance, headshot, bio, slide deck",
+        "Upload contract PDF and headshot; mark tasks complete",
+        "See remaining tasks and next deadline clearly indicated"
+      ],
+      "filled_state": "Portal shows event branding, a 5-item task checklist with 2 green/complete and 3 pending with due dates, the speaker's session name/time, and an uploads area listing 'speaking-agreement.pdf' and 'headshot.jpg'."
+    },
+    {
+      "name": "Ops dashboard sweep and reminder blast",
+      "persona": "Organizer/event content manager",
+      "steps": [
+        "Open speaker status dashboard",
+        "Filter to speakers with overdue or missing deliverables",
+        "Select filtered speakers and compose a templated reminder with auto-filled name/session/deadline merge fields",
+        "Send and verify communication is logged on each speaker record"
+      ],
+      "filled_state": "Dashboard grid shows per-speaker completion (e.g. 3/5 tasks), filter chip 'Missing: contract' active with 3 rows, message composer preview showing resolved merge fields, and an activity log entry 'Reminder sent' timestamped today."
+    },
+    {
+      "name": "Sourcing returning speakers from the CRM",
+      "persona": "Organizer/event content manager",
+      "steps": [
+        "Open Speaker CRM database spanning past events",
+        "Search/filter by expertise tag (e.g. 'AI') and past rating",
+        "Open a returning speaker profile showing session history, ratings, communication log, travel preferences",
+        "Add speaker to the new event; verify bio and headshot prefill"
+      ],
+      "filled_state": "CRM list shows 20+ speakers with tags and event-count badges; profile page shows 2 prior events, 3 past sessions, a 4.6 rating, stored travel preference note; new-event speaker record arrives with bio/headshot already populated."
+    }
+  ],
+  "features": [
+    {
+      "id": "csm-cfp-to-speaker-pipeline",
+      "name": "CFP-to-speaker lifecycle pipeline",
+      "description": "Distinct to this page vs speaker-management: one connected pipeline from CFP submission through evaluation to speaker management and agenda. Accepting a submission creates/links speaker and session records automatically; 'information entered at the submission stage stays accurate and accessible throughout the entire event lifecycle' \u2014 no reentry or cross-checking.",
+      "must_have": true,
+      "ui_expectations": "Accepting a submission produces a speaker record and linked session visible in the speakers/sessions area, carrying over title, abstract, bio without retyping."
+    },
+    {
+      "id": "csm-session-assignment",
+      "name": "Session and speaker assignment",
+      "description": "'Assign sessions confidently': assign speakers to sessions and sessions to rooms and time slots as part of agenda management (drag-and-drop implied by platform copy).",
+      "must_have": true,
+      "ui_expectations": "Session detail view with editable speaker(s), room, date/time fields; assignments reflected in a schedule/agenda view."
+    },
+    {
+      "id": "csm-conflict-detection",
+      "name": "Overlap and room conflict detection",
+      "description": "Page contrasts with static tools where 'it's hard to see overlaps, gaps, or room issues until it's too late' \u2014 the system flags speaker double-bookings, schedule overlaps, and room clashes during assignment.",
+      "must_have": true,
+      "ui_expectations": "Visible warning/flag (icon, banner, or highlight) when a speaker or room is double-booked in overlapping time slots."
+    },
+    {
+      "id": "csm-document-requests",
+      "name": "Document requests incl. contracts and COI",
+      "description": "Conference-specific delta: 'Send requests to collect certificates of insurance, contracts or any other types of documents' with deadlines, automated reminders, and per-request tracking. Collection-only; no e-signature claimed (inferred: signed docs uploaded as files, per category norms).",
+      "must_have": true,
+      "ui_expectations": "Admin flow to create a named document request (type, assignee, deadline); request appears as pending task/row; uploaded file marks it complete and is tracked per speaker."
+    },
+    {
+      "id": "csm-speaker-status-dashboard",
+      "name": "Speaker status dashboard",
+      "description": "'Track the status of every speaker with clear dashboards. Set reminders, send messages, and manage tasks from one place.' Speaker records carry status tags (Confirmed/Pending seen in UI captions); lists are filterable for bulk actions.",
+      "must_have": true,
+      "ui_expectations": "Speaker list/grid with status chips, per-speaker deliverable completion indicators, filters (status, missing item), and bulk-select for actions."
+    },
+    {
+      "id": "csm-onboarding-portal",
+      "name": "Personalized onboarding portal (submission to showtime)",
+      "description": "Overlaps speaker-management area; conference framing: 'Give each speaker a clear path from submission to showtime' \u2014 every speaker gets a personalized, branded portal with tasks, content, and deadlines 'so nothing slips through and everyone shows up prepared'.",
+      "must_have": true,
+      "ui_expectations": "Per-speaker portal (unique link/login) showing event branding, task checklist with deadlines, file-upload areas, and the speaker's own session details."
+    },
+    {
+      "id": "csm-comm-automation",
+      "name": "Email and SMS automation",
+      "description": "Delta vs sibling page: conference page cites email AND SMS automation for targeted outreach and reminders, with templates that auto-fill speaker/session details, sent and logged from one dashboard.",
+      "must_have": true,
+      "ui_expectations": "Message composer reachable from speaker records with template picker and merge fields (name, session, deadline) resolving in preview; sent items logged per speaker. SMS channel optional/polish."
+    },
+    {
+      "id": "csm-batch-content-export",
+      "name": "Batch content download by room/track/day",
+      "description": "Conference day-of delta: files (decks, bios, videos) organized by session or speaker with batch download/export filtered by room, track, or day \u2014 for handoff to AV/production teams.",
+      "must_have": false,
+      "ui_expectations": "Content library grouped by session/speaker with filters for room/track/day and a bulk download/export control producing an archive."
+    },
+    {
+      "id": "csm-speaker-crm-reuse",
+      "name": "Cross-event Speaker CRM and reuse",
+      "description": "Persistent speaker database across events: dynamic tagging, advanced search by expertise/topic, session history, ratings, communication logs; returning speakers' bio/headshot/history prefill new events; dynamic lists auto-update on criteria; smart import with auto-mapping.",
+      "must_have": false,
+      "ui_expectations": "CRM area outside any single event with searchable/taggable profiles showing multi-event history; 'add to event' flow that prefills profile data."
+    },
+    {
+      "id": "csm-travel-profile-fields",
+      "name": "Travel preference profile fields",
+      "description": "Travel is not booked in-app \u2014 SessionBoard positions logistics/registration as out of scope, integrating with Cvent/Bizzabo/Swoogo instead. Speaker CRM profiles store travel preferences as data fields for coordination (custom fields norm inferred).",
+      "must_have": false,
+      "ui_expectations": "Speaker profile includes editable travel-preference or custom logistics fields that persist after save; no flight/hotel booking UI expected."
+    },
+    {
+      "id": "csm-collaborator-access",
+      "name": "Co-presenter and assistant access",
+      "description": "'Add co-presenters, assistants, or agency contacts with controlled access. Everyone sees what they need and nothing else' \u2014 scoped collaborator roles on a speaker's sessions/deliverables.",
+      "must_have": false,
+      "ui_expectations": "Add-collaborator control on speaker or session records with role/permission choice; collaborator appears listed on the record."
+    },
+    {
+      "id": "csm-public-agenda-sync",
+      "name": "Live agenda publish and embeds",
+      "description": "Real-time agenda publishing to event websites via embeds; speaker names, rooms, times auto-sync when assignments change (primary ownership in agenda/content areas; listed here as the pipeline's visible output).",
+      "must_have": false,
+      "ui_expectations": "Public agenda page/embed reflecting current session assignments; edits to room/time propagate without republishing manually."
+    }
+  ],
+  "rubric": [
+    {
+      "id": "CSM-01",
+      "feature_id": "csm-cfp-to-speaker-pipeline",
+      "criterion": "Accepting a CFP submission automatically creates linked speaker and session records with submitted data carried over (no reentry)",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as organizer",
+        "Open submissions/CFP area and locate a pending submission (create one via public form if none seeded)",
+        "Accept/approve it",
+        "Navigate to speakers list and open the new speaker record",
+        "Confirm bio/name carried over and a linked session with the submitted title exists"
+      ],
+      "pass_criteria": "Speaker record and linked session exist immediately after acceptance, populated with the submission's name, bio, and session title without manual retyping",
+      "evidence": "Screenshot of accepted submission, then screenshot of speaker record showing linked session and carried-over fields"
+    },
+    {
+      "id": "CSM-02",
+      "feature_id": "csm-session-assignment",
+      "criterion": "Organizer can assign a speaker to a session and set the session's room and time slot",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Open a session's detail/edit view",
+        "Add or change the assigned speaker",
+        "Set room and date/time",
+        "Save and reopen the session",
+        "Check the agenda/schedule view reflects the assignment"
+      ],
+      "pass_criteria": "Saved session persists speaker, room, and time; agenda view shows the session in the chosen room/slot with the speaker's name",
+      "evidence": "Screenshot of session detail with speaker/room/time set, and screenshot of agenda view showing it"
+    },
+    {
+      "id": "CSM-03",
+      "feature_id": "csm-conflict-detection",
+      "criterion": "Double-booking a speaker or room in overlapping time slots produces a visible conflict warning",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Assign speaker X to session A at Day 1 10:00-11:00 in Room 1",
+        "Assign speaker X to session B at Day 1 10:30-11:30 (any room), or assign session B to Room 1 same slot",
+        "Observe the UI during/after the second assignment",
+        "Capture any warning icon, banner, highlight, or blocking dialog"
+      ],
+      "pass_criteria": "A conflict indicator (warning, flag, or block) appears identifying the overlap; silent acceptance with no indication anywhere fails",
+      "evidence": "Screenshot of the overlapping assignments with the conflict indicator visible"
+    },
+    {
+      "id": "CSM-04",
+      "feature_id": "csm-document-requests",
+      "criterion": "Organizer can create a document request (e.g. contract or certificate of insurance) with a deadline assigned to a speaker, tracked as pending",
+      "weight": 3,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Open document/file requests or tasks area",
+        "Create request named 'Signed speaking agreement' with a document type, assignee speaker, and deadline",
+        "Save and locate the request in a tracking list",
+        "Verify it shows the speaker, deadline, and a pending/incomplete state"
+      ],
+      "pass_criteria": "Request persists with assignee and deadline and displays pending status; email notification to the speaker is NOT verified by the agent",
+      "evidence": "Screenshot of created request in the tracking list showing assignee, deadline, pending status"
+    },
+    {
+      "id": "CSM-05",
+      "feature_id": "csm-document-requests",
+      "criterion": "A file uploaded against a document request marks it complete in organizer tracking",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As the speaker (portal link or seeded speaker login), open the pending 'Signed speaking agreement' task",
+        "Upload a PDF fixture",
+        "Switch to the organizer view",
+        "Verify the request now shows completed/received with the file attached"
+      ],
+      "pass_criteria": "Organizer tracking flips from pending to complete and the uploaded file is accessible from the speaker's record",
+      "evidence": "Before/after screenshots of the request row, plus the file listed on the speaker record"
+    },
+    {
+      "id": "CSM-06",
+      "feature_id": "csm-speaker-status-dashboard",
+      "criterion": "Speakers carry an editable status (e.g. Invited/Pending/Confirmed) and the list is filterable by it",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Open the speakers dashboard/list",
+        "Change one speaker's status to Confirmed",
+        "Apply a status filter for Confirmed",
+        "Verify only matching speakers remain; clear filter and verify full list returns"
+      ],
+      "pass_criteria": "Status edit persists after reload and the filter correctly narrows the list",
+      "evidence": "Screenshot of speaker with updated status chip and screenshot of filtered list"
+    },
+    {
+      "id": "CSM-07",
+      "feature_id": "csm-speaker-status-dashboard",
+      "criterion": "Dashboard shows per-speaker deliverable completion so organizer can see who is missing what without opening each record",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Seed or use speakers with mixed task completion",
+        "Open the speakers dashboard",
+        "Verify each row exposes completion state (progress count, badges, or missing-item indicator)",
+        "If available, filter/sort by incomplete deliverables"
+      ],
+      "pass_criteria": "Completion status is visible at list level and distinguishes complete vs incomplete speakers accurately",
+      "evidence": "Screenshot of dashboard showing differing completion indicators across at least 3 speakers"
+    },
+    {
+      "id": "CSM-08",
+      "feature_id": "csm-onboarding-portal",
+      "criterion": "Each speaker gets a personalized portal showing their own tasks with deadlines and their session details",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Obtain a speaker portal link (organizer 'view as'/preview, or seeded speaker credentials)",
+        "Open the portal",
+        "Verify it shows that speaker's name, a task checklist with due dates, upload areas, and their assigned session",
+        "Verify another speaker's tasks are not visible"
+      ],
+      "pass_criteria": "Portal is speaker-specific (own tasks/session only) and lists actionable tasks with deadlines",
+      "evidence": "Screenshot of the portal showing speaker identity, task list with deadlines, session info"
+    },
+    {
+      "id": "CSM-09",
+      "feature_id": "csm-onboarding-portal",
+      "criterion": "Speaker can update their own bio/profile in the portal and the change reflects in the organizer's record",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "In the speaker portal, edit the bio field to a distinctive string",
+        "Save",
+        "As organizer, open that speaker's record",
+        "Verify the distinctive string appears"
+      ],
+      "pass_criteria": "Speaker-side edit persists and is visible organizer-side without manual sync",
+      "evidence": "Screenshot of portal edit saved and screenshot of organizer record showing the same text"
+    },
+    {
+      "id": "CSM-10",
+      "feature_id": "csm-comm-automation",
+      "criterion": "Organizer can send a templated message to selected speakers with merge fields (name/session/deadline) auto-filled",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "From the speaker list, select one or more speakers",
+        "Open the message/compose tool",
+        "Pick a template containing merge fields",
+        "Verify the preview resolves fields to the actual speaker name/session",
+        "Send, then check the speaker record's communication log for the sent entry"
+      ],
+      "pass_criteria": "Preview shows resolved merge values and a sent-log entry appears on the record; actual email/SMS delivery to an inbox is NOT verified by the agent",
+      "evidence": "Screenshot of resolved template preview and screenshot of the logged sent message"
+    },
+    {
+      "id": "CSM-11",
+      "feature_id": "csm-comm-automation",
+      "criterion": "Automated reminders fire for approaching/overdue task deadlines",
+      "weight": 2,
+      "testability": "manual",
+      "auto_steps": [],
+      "pass_criteria": "Human: configure a reminder rule (or default) on a task assigned to a speaker whose email you control; set deadline within the reminder window (or in the past); confirm a reminder email (or SMS if claimed) arrives at that address referencing the task and deadline within the expected schedule",
+      "evidence": "Copy of the received reminder email/SMS with timestamp, alongside screenshot of the reminder configuration"
+    },
+    {
+      "id": "CSM-12",
+      "feature_id": "csm-batch-content-export",
+      "criterion": "Speaker/session files can be batch-downloaded filtered by room, track, or day",
+      "weight": 2,
+      "testability": "manual",
+      "auto_steps": [],
+      "pass_criteria": "Human: seed files across at least 2 rooms/tracks/days; use the export/bulk-download control with a room (or track/day) filter; open the downloaded archive and confirm it contains exactly the files for the filtered subset, organized identifiably (folders or filenames by session/speaker)",
+      "evidence": "The downloaded archive's file listing plus screenshot of the filter/export UI used"
+    },
+    {
+      "id": "CSM-13",
+      "feature_id": "csm-speaker-crm-reuse",
+      "criterion": "A cross-event speaker database exists with search/tag filtering and per-speaker history (past sessions/events)",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Navigate to the CRM/speaker database area outside a single event",
+        "Search or filter by a tag/expertise term",
+        "Open a returning speaker's profile",
+        "Verify it shows history spanning more than one event (past sessions, ratings, or participation)"
+      ],
+      "pass_criteria": "Search narrows correctly and profile displays multi-event history fields",
+      "evidence": "Screenshot of filtered CRM list and screenshot of profile history section"
+    },
+    {
+      "id": "CSM-14",
+      "feature_id": "csm-speaker-crm-reuse",
+      "criterion": "Adding a returning speaker to a new event prefills their bio and headshot from the CRM",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "From the CRM or new event's speaker area, add an existing speaker to a second event",
+        "Open the resulting event-level speaker record",
+        "Verify bio text and headshot are already populated, matching the CRM profile"
+      ],
+      "pass_criteria": "No blank profile: bio and headshot carry over automatically on add",
+      "evidence": "Screenshot of CRM profile and screenshot of new event's speaker record showing identical prefilled data"
+    },
+    {
+      "id": "CSM-15",
+      "feature_id": "csm-travel-profile-fields",
+      "criterion": "Speaker profile supports travel-preference or custom logistics fields that persist (no booking UI required)",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Open a speaker profile in edit mode",
+        "Locate a travel-preferences field or add/populate a custom field (e.g. 'Arrival: Aug 12, aisle seat')",
+        "Save, reload, and verify the value persists and displays on the profile"
+      ],
+      "pass_criteria": "Logistics data can be stored on the speaker record and survives reload; absence of flight/hotel booking is acceptable and expected",
+      "evidence": "Screenshot of saved profile showing the travel/custom field value"
+    },
+    {
+      "id": "CSM-16",
+      "feature_id": "csm-collaborator-access",
+      "criterion": "A co-presenter or assistant can be added to a speaker/session with scoped access",
+      "weight": 1,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Open a session or speaker record",
+        "Use the add co-presenter/collaborator control with a new email and role",
+        "Verify the collaborator appears listed on the record with their role"
+      ],
+      "pass_criteria": "Collaborator persists on the record with role shown; what the collaborator can actually see/edit requires a second account and is NOT verified by the agent",
+      "evidence": "Screenshot of the record listing the added collaborator and role"
+    }
+  ],
+  "sample_data": "Event: \"TechSummit 2026\", Aug 12-14 2026, 3 tracks (AI, DevTools, Leadership), rooms Ballroom A, Room 201, Room 202. Speakers (8): Maya Chen (Confirmed, 5/5 tasks, returning \u2014 2 prior events, rating 4.6, tag: AI, travel pref \"arrives Aug 11, aisle seat\"), Diego Ruiz (Confirmed, 3/5, missing contract + slides), Priya Nair (Pending, 1/5), Sam Okafor (Invited, 0/5), Lena Vogel (Confirmed, co-presenter: assistant jordan@agency.example), plus 3 filler speakers with mixed statuses. Sessions (6) with title/abstract/track/room/slot; include deliberate conflict fixture: Maya double-booked Day 1 10:00-10:45 Ballroom A and 10:30-11:15 Room 201. Document request types: Signed speaking agreement (contract PDF), Certificate of insurance, Headshot (JPG), Bio (150 words), Slide deck (PPTX); deadlines spread Jul 15-Aug 5 2026 so some are overdue. Fixture files: contract.pdf, coi.pdf, headshot.jpg, deck.pptx. Email templates: \"Speaker confirmation\", \"Deliverable reminder\" with merge fields {first_name}, {session_title}, {deadline}. One pending CFP submission (\"Scaling LLM Evals\", submitter Alex Kim) ready to accept for pipeline test CSM-01.",
+  "gaps": "Marketing copy only \u2014 no product docs/screenshots were directly inspectable, so exact UI layouts, field names, and navigation are unknown. Travel/lodging: no booking or itinerary features exist; only \"travel preferences\" appears as a CRM profile field, and SessionBoard explicitly scopes out logistics/registration (integrations handle it) \u2014 CSM-15 therefore tests data fields, not booking. Contracts: only document collection is stated; e-signature, contract templates, and fee/honorarium tracking are not claimed (inferred as out of scope). SMS automation is named but undetailed (provider, opt-in unknown). Day-of coordination beyond batch export (\"showtime\" framing) is implied, not specified. Speaker confirmation/decline flow (accept-invitation button) is inferred from status tags plus category norms (Sessionize-style). Conflict detection granularity (warn vs block) unspecified \u2014 rubric accepts either. Reviewer/evaluation and agenda drag-and-drop details left to their assigned areas to avoid duplication."
+}

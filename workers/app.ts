@@ -1,4 +1,5 @@
 import { createRequestHandler } from "react-router";
+import { runScheduledJobs } from "../app/jobs/registry";
 
 declare module "react-router" {
 	export interface AppLoadContext {
@@ -20,4 +21,16 @@ export default {
 			cloudflare: { env, ctx },
 		});
 	},
+
+	// Cron Triggers (daily tick; wired in wrangler.json). Dispatches to every
+	// `app/jobs/*.scheduled.ts` — reminder/other jobs add a file, not an edit
+	// here (see app/jobs/registry.ts).
+	async scheduled(_controller, env, ctx) {
+		await runScheduledJobs(env, ctx);
+	},
+
+	// Queue consumer. Same rationale; a feature that needs a queue declares the
+	// queue + consumer in wrangler.json and dispatches from here. No queue is
+	// declared today, so this handler is unreachable.
+	async queue(_batch, _env, _ctx) {},
 } satisfies ExportedHandler<Env>;

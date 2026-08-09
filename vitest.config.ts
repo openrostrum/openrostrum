@@ -17,15 +17,14 @@ export default defineConfig(async () => {
 		plugins: [
 			tsconfigPaths(),
 			cloudflareTest({
-				singleWorker: true,
 				wrangler: { configPath: "./wrangler.json" },
 				miniflare: {
-					bindings: { TEST_MIGRATIONS: migrations },
+					bindings: { TEST_MIGRATIONS: migrations, APP_ENV: "test" },
 				},
 			}),
 		],
 		test: {
-			setupFiles: ["./test/apply-migrations.ts"],
+			setupFiles: ["./test/setup.ts"],
 		},
 	};
 });

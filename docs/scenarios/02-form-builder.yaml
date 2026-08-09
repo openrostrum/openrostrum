@@ -1,0 +1,210 @@
+module: form-builder
+# `touches` filled by the WALKER 2026-08-09 — see docs/scenarios/walks/02-form-builder.walk.md
+touches:
+  tables: [forms, fields, formFields, formats, tracks, tags, levels, events, users, authSessions, contacts, submissions, submissionAnswers, submissionTracks, participants, emailTemplates, emailOutbox]
+  ports: [EmailSender]
+  # portals.$eventSlug.$portalId.tsx is the FB-S5 redirect target — it has no backing portals table (see walk gaps).
+  routes: [admin.forms.tsx, admin.forms.$formId.tsx, submit.$eventSlug.$formId.tsx, portals.$eventSlug.$portalId.tsx, admin.submissions.tsx]
+
+# Dependencies (eval-kit style, explicit):
+#   All scenarios run inside the event "DevOps Days Lyon 2027" created in AE-S2 —
+#     deliberately NOT the seed event, so any builder code hardcoded to the seed event fails here.
+#   AE-S3 provides formats "Talk (30 min)" / "Workshop (120 min)", tracks, and levels.
+#   AE-S4 provides the library field "Earliest arrival date" (Date) reused in FB-S2.
+#   FB-S1 creates the form "CFP 2027 – Main Call"; FB-S2..S6 build on it in order.
+#   FB-S2 creates the public submitter account marie.dupont@example.com / "M4rie!2027",
+#     reused by FB-S3 and FB-S5.
+#   ADMIN_EMAIL / ADMIN_PASSWORD as defined in 01-auth-event-setup.yaml.
+
+scenarios:
+  - id: FB-S1
+    name: Admin starts a form — submission-type choice, welcome screen, and the 15-char page-heading cap
+    persona: admin
+    steps: |
+      1. As admin inside "DevOps Days Lyon 2027", open Forms and create a new form.
+      2. Submission Setup: choose "Abstracts" (not "Sessions"); leave the Participants
+         step enabled.
+      3. Welcome Screen: Internal Form Name "CFP 2027 – Main Call"; External Form Title
+         "DevOps Days Lyon 2027 — Call for Proposals".
+      4. Page Heading — unhappy path first: type "Call for Papers!" (16 characters).
+         The 15-character cap must make saving this value impossible (either the input
+         stops accepting at 15 characters, or an inline over-limit error blocks saving).
+      5. Set Page Heading to "CFP Lyon 2027" (13 characters).
+      6. Welcome Message (rich text): a paragraph containing one BOLD phrase and one
+         hyperlink to https://devopsdays-lyon.example.com; "Show message" toggle ON.
+      7. Save. Leave the builder entirely (back to the Forms list), then re-open the form
+         via its Edit action.
+      8. Verify persistence: submission type still "Abstracts", heading "CFP Lyon 2027",
+         external title intact, welcome message intact WITH its bold + link formatting.
+    success_signals:
+      - "Step 4: no persisted page-heading value ever exceeds 15 characters (screenshot of the cap behavior + DB check of the stored heading = 'CFP Lyon 2027')."
+      - "Step 8 screenshot: reopened builder shows every step-1..6 value exactly as entered, including rich-text formatting."
+      - "The Forms list shows the new form named 'CFP 2027 – Main Call'."
+      - "EXPERIENCE: moving between wizard steps is instant (no full-page reload per step) and values typed on a step survive Back/Next navigation within the builder before saving."
+
+  - id: FB-S2
+    name: Session information step — locked Title/Description, custom required field, dropdown field, library reuse, drag reorder
+    persona: admin
+    steps: |
+      1. Open "CFP 2027 – Main Call" in the builder, Session/Abstract Information step.
+         Verify Title and Description are LOCKED rows: no remove control, and Title's
+         required state cannot be toggled off.
+      2. Add a new question — Create New Field: name "Key takeaway", type Text, Maximum
+         Length 140, event scope. Toggle Required ON for this form.
+      3. Add a new question — Create New Field: name "Audience level", type Dropdown,
+         options Beginner / Intermediate / Advanced. Leave it optional.
+      4. Add a question by REUSING an existing library field: "Earliest arrival date"
+         (Date, created in AE-S4) — found via the picker's search.
+      5. Per-field required toggles: set Track required ON, Language required OFF.
+      6. Drag "Key takeaway" so the order reads: Title, Description, Key takeaway, Format,
+         (rest). Save, leave the builder, re-open: the order persisted.
+      7. Copy the form's public link. In a fresh logged-out browser context open it, sign
+         up as a new submitter marie.dupont@example.com / password "M4rie!2027", and
+         advance to the submission step.
+      8. Public-form verification: fields render in the saved order; "Key takeaway" is
+         marked required; "Audience level" offers exactly Beginner/Intermediate/Advanced;
+         "Earliest arrival date" renders as a date input; Language is not marked required.
+      9. Unhappy path: fill Title "Terraform at scale: lessons from 500 modules" and a
+         Description, leave "Key takeaway" empty, try to advance → an inline required
+         error appears on "Key takeaway" and the typed Title/Description are NOT lost.
+    success_signals:
+      - "Step 1 screenshot: Title/Description rows visibly locked (no remove affordance, required not toggleable on Title)."
+      - "DB check: the form's field list contains 'Key takeaway' (text, max 140, required on this form), 'Audience level' (dropdown with the 3 options), and a reference to the SAME library field created in AE-S4 for 'Earliest arrival date' (reuse, not a duplicate definition)."
+      - "Step 6: field order on reopen and on the public form both read Title, Description, Key takeaway, Format, … (screenshots of both)."
+      - "Step 9 screenshot: inline error anchored to 'Key takeaway' with all other entered values intact."
+      - "EXPERIENCE: drag-reorder gives live visual feedback while dragging and the drop lands without a page reload; the step-9 validation is inline (no full-page reload, no scroll-to-top data loss)."
+
+  - id: FB-S3
+    name: Conditional rules — custom-dropdown trigger AND built-in Format trigger, toggling client-side; hidden required fields never block submission
+    persona: admin
+    steps: |
+      1. In the builder's session information step, add two target fields:
+         a. "Workshop prerequisites" — type Textarea, Maximum Length 1000, Required ON.
+         b. "Assumed knowledge" — type Text, optional.
+      2. On "Workshop prerequisites", open question rules and configure: show when the
+         BUILT-IN "Format" dropdown is "Workshop (120 min)".
+      3. On "Assumed knowledge", configure: show when the CUSTOM dropdown "Audience level"
+         (from FB-S2) is "Advanced".
+      4. Save. In a logged-out context, open the public form, log in as
+         marie.dupont@example.com / "M4rie!2027", and go to the submission step.
+      5. With no Format chosen: both "Workshop prerequisites" and "Assumed knowledge" are
+         absent from the page.
+      6. Select Format "Talk (30 min)": "Workshop prerequisites" stays hidden.
+      7. Change Format to "Workshop (120 min)": "Workshop prerequisites" appears. Change
+         back to "Talk (30 min)": it disappears again.
+      8. Set "Audience level" to "Beginner": "Assumed knowledge" stays hidden. Change to
+         "Advanced": it appears.
+      9. DEFECT HUNT (hidden-but-required): with Format = "Talk (30 min)" (so the required
+         "Workshop prerequisites" is hidden), fill all visible required fields and advance
+         → the step MUST advance; the hidden required field must not block or fail
+         validation invisibly.
+      10. Counter-check: set Format = "Workshop (120 min)", leave the now-visible
+          "Workshop prerequisites" empty, try to advance → blocked with an inline required
+          error on that field.
+    success_signals:
+      - "DB check: two persisted question rules — one whose trigger is the built-in Format field with value 'Workshop (120 min)', one whose trigger is the custom 'Audience level' field with value 'Advanced'."
+      - "Screenshot pairs from steps 6–8: same page with the conditional field absent, then present, driven only by the dropdown value."
+      - "Step 9 advances to the participant step; step 10 blocks with an inline error — required-ness follows visibility."
+      - "EXPERIENCE: steps 6–8's show/hide happens client-side and instantly on selection change — no full page reload, no navigation, no loading spinner between dropdown change and field visibility (verifiable by the browser not issuing a document navigation)."
+
+  - id: FB-S4
+    name: Participant step — per-role min/max (Speaker 1–4, Chairperson max 1) configured and enforced, sane defaults
+    persona: admin
+    steps: |
+      1. Open the builder's participant-role configuration for "CFP 2027 – Main Call".
+         BEFORE editing, verify the default Speaker minimum is 1 (not 2 — the walkthrough's
+         famous foot-gun).
+      2. Unhappy path in the builder: try Speaker Min 5 / Max 4 → the builder rejects the
+         inverted range with an inline error and refuses to save it.
+      3. Configure and save: Speaker Min 1 / Max 4; Chairperson enabled, Min 0 / Max 1;
+         Moderator disabled.
+      4. Verify the participant fields: First Name, Last Name, Email are locked/required;
+         toggle Biography required ON.
+      5. In a logged-out context, open the public form, log in as a NEW submitter
+         theo.marchand@example.com / password "Th3o!2027", fill the submission step
+         (Title "Kubernetes cost archaeology", Description, Format "Talk (30 min)",
+         Track "Developer Experience", Key takeaway "Tag everything on day one"), and
+         reach the participant step.
+      6. The participant step communicates the limits (e.g. "1–4 Speakers allowed") and
+         shows no Moderator section.
+      7. Add speakers up to 4 (Theo + 3 more with distinct names/emails such as
+         speaker2@example.com, speaker3@example.com, speaker4@example.com) → adding a 5th
+         speaker is impossible (control disabled or blocked with a message).
+      8. Add 1 chairperson ("Claire Fontaine", claire.fontaine@example.com) → adding a
+         2nd chairperson is blocked.
+      9. Remove speakers back down to just Theo (1 speaker) and continue → allowed
+         (min 1 satisfied); Biography is enforced as required per step 4.
+    success_signals:
+      - "Step 1 screenshot: fresh-form default Speaker Min = 1."
+      - "Step 2 screenshot: min>max rejected inline in the builder — the mistake swyx made on camera is now hard to make."
+      - "DB check: the form's role config stores Speaker min 1/max 4, Chairperson min 0/max 1, Moderator disabled."
+      - "Steps 7–8 screenshots: the 5th-speaker and 2nd-chairperson attempts visibly blocked; step 6 shows the live role-count copy."
+      - "EXPERIENCE: the role-count indicator updates instantly as participants are added/removed (e.g. '1–4 Speakers allowed — 3 added'), without a page reload per participant."
+
+  - id: FB-S5
+    name: Form settings + notifications — close date, reminder toggle, limit 3, drafts, custom success message with ~10s redirect, confirmation + admin-notify emails, closed-form state
+    persona: admin
+    steps: |
+      1. Builder → Form Settings for "CFP 2027 – Main Call": Close Date 2027-04-30 at
+         11:59 PM (event timezone Europe/Paris); Send Reminder Email toggle ON; Set
+         Submission Limit ON with value 3; Allow multiple draft submissions ON;
+         auto-redirect-to-portal toggle ON; success page message set to exactly:
+         "Merci! Your proposal is in — watch your inbox for the confirmation email and
+         your speaker portal link."
+      2. Notifications step: submitter Submission Confirmation toggle ON; admin-notify
+         picker for NEW submissions → select the ADMIN_EMAIL admin; admin-notify picker
+         for UPDATED submissions → select the same admin. Save.
+      3. In a logged-out context, open the public form: the banner shows the close date
+         (April 30, 2027, 11:59 PM) and the "3 submissions per user" limit.
+      4. Log in as marie.dupont@example.com / "M4rie!2027" and complete a FULL submission:
+         Title "Postmortems people actually read", Description (2 sentences), Key takeaway
+         "Blameless or useless", Format "Talk (30 min)", Track "Developer Experience",
+         Level "Intermediate", Audience level "Intermediate", 1 speaker (Marie).
+      5. Submit → the success page shows EXACTLY the custom message from step 1, then
+         auto-redirects to Marie's speaker portal after roughly 10 seconds with no click.
+      6. Check the email outbox / test inbox: (a) a Submission Confirmation to
+         marie.dupont@example.com containing a working speaker-portal link; (b) an
+         admin-notification for the new submission addressed to ADMIN_EMAIL naming the
+         submission.
+      7. Unhappy path — closed form: as admin, temporarily set the Close Date to
+         2026-01-01 (in the past) and save. Reload the public form logged-out: it shows a
+         designed closed state and accepting a new submission is impossible.
+      8. Restore Close Date to 2027-04-30 11:59 PM; the public form accepts visitors again.
+    success_signals:
+      - "DB check: form settings store close date 2027-04-30 23:59 Europe/Paris, reminder ON, submission limit 3, multiple drafts ON, auto-redirect ON, and the exact success message text."
+      - "Step 3 screenshot: public banner with close date and '3 submissions per user'."
+      - "Step 6 outbox rows: confirmation email (to marie.dupont@example.com, portal link resolves while logged in as Marie) AND admin new-submission notification (to ADMIN_EMAIL) — both queryable with status sent."
+      - "Step 7 screenshot: friendly closed-form page (explains the form is closed; no form fields, no crash); a POST attempt against the closed form is also rejected server-side."
+      - "EXPERIENCE: after submit, the success page redirects itself to the portal in ~10 seconds with zero user action (timed screenshot pair); the whole public submission in step 4 completes with no dead ends in under 3 minutes."
+
+  - id: FB-S6
+    name: Publish and manage — Copy Link works logged-out, Duplicate carries fields and rules, Delete confirms and leaves a graceful dead link
+    persona: admin
+    steps: |
+      1. In the builder header for "CFP 2027 – Main Call", use Copy Link and record the
+         public URL.
+      2. Open that URL in a fresh incognito/logged-out browser context: the welcome screen
+         renders with page heading "CFP Lyon 2027" and the formatted welcome message —
+         no login is required to view it.
+      3. Back as admin, on the Forms list locate the form's ⋯ menu and confirm it offers:
+         Edit, View Results, View Draft Submissions, Duplicate, Delete.
+      4. View Results → shows the submissions from FB-S4/FB-S5 (e.g. "Postmortems people
+         actually read"); View Draft Submissions → shows a designed empty state (no drafts).
+      5. Duplicate → a copy (e.g. "Copy of CFP 2027 – Main Call") appears in the list with
+         0 submissions. Open its builder: it contains "Key takeaway", "Audience level",
+         "Workshop prerequisites" AND both question rules from FB-S3; its public URL is
+         DIFFERENT from the original's.
+      6. Delete the duplicate: a confirmation dialog appears — choose Cancel first
+         (nothing is deleted), then Delete again and CONFIRM.
+      7. The duplicate is gone from the Forms list; the original remains with its
+         submissions intact.
+      8. Unhappy path: open the DELETED duplicate's public URL logged-out → a graceful
+         not-found/no-longer-available page (no stack trace, no blank screen).
+      9. Re-open the ORIGINAL public URL from step 1 — still fully working.
+    success_signals:
+      - "Step 2 screenshot from a cold logged-out context: the public welcome screen with heading 'CFP Lyon 2027' — the copied link is the real shareable artifact."
+      - "Step 3 screenshot: the ⋯ menu listing all five actions."
+      - "Step 5: DB check shows the duplicate as a distinct form (own id/URL) whose fields and question rules match the original, with zero submissions attached; deleting it later leaves the original's submissions untouched (count unchanged)."
+      - "Step 6: the cancel path provably deletes nothing (form still listed); only the explicit confirm removes it."
+      - "Step 8 screenshot: designed dead-link page for the deleted form's URL."
+      - "EXPERIENCE: Duplicate and Delete update the Forms list immediately (no manual refresh needed), and the list's search/tabs stay instant with multiple forms present."

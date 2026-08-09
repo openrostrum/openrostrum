@@ -2,19 +2,39 @@
 pre-commit:
   parallel: false
   jobs:
+    - name: guard-schema
+      run: bash scripts/guard-schema.sh
+    - name: check-map
+      run: bash scripts/check-map.sh
     - name: format
       glob: "*.{js,jsx,ts,tsx,mjs,mts,cjs,cts,json,jsonc,md}"
       run: pnpm exec biome format --write {staged_files}
       stage_fixed: true
     - name: lint
       run: pnpm lint
+    - name: lint-css
+      glob: "*.css"
+      run: pnpm lint:css
 
 commit-msg:
   jobs:
     - name: commitlint
       run: pnpm exec commitlint --edit {1}
 
+prepare-commit-msg:
+  jobs:
+    - name: guard-amend
+      run: bash scripts/guard-append-only.sh amend {2} {3}
+
+pre-rebase:
+  jobs:
+    - name: guard-rebase
+      run: bash scripts/guard-append-only.sh rebase
+
 pre-push:
   jobs:
+    - name: guard-force-push
+      run: bash scripts/guard-append-only.sh force-push
+      use_stdin: true
     - name: verify
       run: pnpm verify

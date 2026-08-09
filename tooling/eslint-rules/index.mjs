@@ -1,17 +1,31 @@
+import { meaningfulTests } from "./meaningful-tests.mjs";
+import { noCitationComments } from "./no-citation-comments.mjs";
+import { noCompatShims } from "./no-compat-shims.mjs";
+import { noDeferralComments } from "./no-deferral-comments.mjs";
 import { noGenericInstanceof } from "./no-generic-instanceof.mjs";
 import { noRawTailwindColors } from "./no-raw-tailwind-colors.mjs";
 import { preferErrorNormalizer } from "./prefer-error-normalizer.mjs";
+import { pureNavModules } from "./pure-nav-modules.mjs";
+import { requireAuthInActions } from "./require-auth-in-actions.mjs";
 import { structuredTailwindClassname } from "./structured-tailwind-classname.mjs";
+import { uiPrimitivesOnly } from "./ui-primitives-only.mjs";
 
 // Local ESLint plugin. Rules ported from cloudflare-agent-exercise (the ones
 // that apply to this stack). Skipped there: cloudflare-workflow-determinism (no
 // Workflows/Durable Objects) and require-discriminated-agent-variants (no AI agents).
-export const killmysaasPlugin = {
-	meta: { name: "killmysaas", version: "0.0.0" },
+export const openrostrumPlugin = {
+	meta: { name: "openrostrum", version: "0.0.0" },
 	rules: {
+		"meaningful-tests": meaningfulTests,
+		"no-citation-comments": noCitationComments,
+		"no-compat-shims": noCompatShims,
+		"no-deferral-comments": noDeferralComments,
 		"no-generic-instanceof": noGenericInstanceof,
 		"no-raw-tailwind-colors": noRawTailwindColors,
 		"prefer-error-normalizer": preferErrorNormalizer,
+		"pure-nav-modules": pureNavModules,
+		"require-auth-in-actions": requireAuthInActions,
 		"structured-tailwind-classname": structuredTailwindClassname,
+		"ui-primitives-only": uiPrimitivesOnly,
 	},
 };

@@ -1,0 +1,186 @@
+area: ai-agenda
+title: AI Agenda & Schedule Builder
+prefix: AIA
+overview: >
+  Organizer-facing agenda/schedule builder for multi-track, multi-day programs.
+  Organizers configure the agenda structure (event days, time slots, rooms, tracks),
+  then place accepted sessions into specific day/time/room slots via drag-and-drop or
+  click-to-assign. The system detects scheduling conflicts as the agenda is edited --
+  most importantly speaker double-bookings across overlapping slots and two sessions
+  occupying the same room at the same time -- and organizers move sessions to resolve
+  them. Once built, the agenda is published to a public/attendee-facing schedule view.
+  SessionBoard also markets an AI "Scheduler Agent" that auto-packs unscheduled
+  sessions into a conflict-free draft; for this evaluation that AI layer is polish,
+  judged only as "some assisted/auto-place capability exists".
+personas: [organizer]
+scenarios:
+  - id: AIA-S1
+    name: Build agenda structure, place sessions, trigger and resolve conflicts
+    persona: organizer
+    steps: |
+      1. Navigate to the site root. Find the organizer/admin area -- try obvious
+         routes (/admin, /dashboard, /organizer) and nav links labeled Dashboard,
+         Admin, Organizer, or Manage Events. If authentication is required, sign in
+         as organizer Jordan Alvarez (jordan.organizer@sbek-test.example.com, fixture
+         password); if that account does not exist yet, sign up with the Jordan
+         Alvarez fixture identity.
+      2. Open the event "DevFlow Conf 2027" (2027-05-12 to 2027-05-14, Moscone West
+         SF). If no event exists yet, create it with those fixture dates and venue.
+      3. Find the agenda/schedule builder -- it may be called Agenda, Schedule,
+         Program, Timetable, or Sessions Calendar. Screenshot the initial builder
+         view and record what structural elements it shows (time axis, day
+         switcher/tabs, room or track columns, unscheduled-session pool/sidebar).
+      4. Configure the agenda structure. Confirm or add the three event days
+         (May 12, 13, 14, 2027). Add the four fixture rooms (Main Stage,
+         Room 2A, Room 2B, Workshop Lab) — rooms are normally first configured in
+         this area, so room creation is the primary configurability evidence. The
+         three fixture tracks (AI Engineering, Platform & Infra, Developer
+         Experience) will usually ALREADY exist on a chained run (they are created
+         back in area 01's CFP setup) — that is expected: confirm they are
+         available, and demonstrate track configurability by adding one extra track
+         (e.g. "Community") through the same UI (optionally deleting it afterwards),
+         or rely on the room-creation evidence if track creation is not exposed
+         here. These controls may live in agenda settings, event settings, or
+         inline "+ add" controls in the grid. If the deployment also pre-seeds all
+         fixture rooms, add one extra room (e.g. "Overflow Room") the same way.
+         Screenshot the room/track creation UI, then screenshot the builder
+         showing the rooms/tracks available for scheduling.
+      5. Ensure at least three schedulable sessions exist. Prefer accepted sessions
+         built from the fixture proposals ("Taming 40-Minute CI...", "Your AI Pair
+         Programmer Is Lying to You...", "Docs That Answer Back..."). If these
+         proposals exist from earlier areas but are NOT Accepted (e.g. "Your AI
+         Pair Programmer" was Rejected in area 01, "Docs That Answer Back" may
+         still be Pending), first change their status to Accepted as the organizer
+         so they become schedulable; only create fresh sessions with the fixture
+         titles, formats, and tracks if the proposals are absent entirely.
+      6. Ensure two of those sessions share the speaker Priya Raman -- assign her to
+         the "Taming 40-Minute CI" session and also add her as a speaker on the
+         "Your AI Pair Programmer" session (edit the session's speaker list; if
+         speakers cannot be edited on a session, create an extra session with Priya
+         as speaker). Record whether sessions can carry speaker assignments at all.
+      7. Place the "Taming 40-Minute CI" session into Day 1 (May 12) at 10:00 in
+         Room 2A, using drag-and-drop or whatever click-to-assign mechanism the UI
+         offers. Screenshot the grid with the session card visible in that slot.
+      8. Now place the "Your AI Pair Programmer" session at the SAME day and
+         overlapping time (Day 1, 10:00) in a DIFFERENT room (Room 2B). Both
+         sessions now overlap while sharing speaker Priya Raman. Look carefully for
+         any speaker double-booking indicator: a badge or highlight on the session
+         cards, a warning toast/dialog, or an entry in a conflicts panel. Screenshot
+         it and record its exact wording. If nothing appears, record that explicitly.
+      9. Attempt to place the "Docs That Answer Back" session at Day 1, 10:00 in
+         Room 2A -- the same room and time already occupied by the CI talk. Record
+         whether the placement is blocked outright or a room-overlap conflict is
+         flagged; screenshot the blocked state or the warning.
+      10. Resolve the conflicts by moving sessions to free slots: move "Your AI Pair
+          Programmer" to Day 1 at 14:00 in Room 2B, and place/move "Docs That Answer
+          Back" to Day 2 (May 13) at 11:00 in Room 2B. After each move, screenshot
+          the grid and record whether the earlier conflict indicators cleared, and
+          whether they cleared live (without a full page reload).
+      11. Reload the agenda builder page. Screenshot the grid to confirm every
+          placement (all three sessions in their final slots) persisted.
+    success_signals:
+      - Builder view shows a time dimension, day navigation across three days, and rooms/tracks
+      - Newly created rooms and tracks appear as schedulable options in the builder
+      - A session card renders in its assigned day/time/room slot and survives a reload
+      - A visible speaker double-booking warning while the two Priya Raman sessions overlap
+      - Room double-booking is blocked or visibly flagged
+      - Conflict indicators clear after the sessions are moved apart
+  - id: AIA-S2
+    name: Auto-schedule assist and publish the agenda
+    persona: organizer
+    steps: |
+      1. Sign in as organizer Jordan Alvarez (as in AIA-S1) and open the
+         "DevFlow Conf 2027" agenda builder. It should contain the placements from
+         AIA-S1; if state was not retained, place at least two fixture sessions into
+         slots first so the agenda is non-empty.
+      2. Ensure at least one session remains unscheduled in the pool/sidebar. The
+         pool will usually be empty here, since AIA-S1 schedules all three fixture
+         sessions -- in that case use the extra Marcus Okafor session "Lightning:
+         Agents in Production Q&A" if it already exists from area 04
+         (content-management creates it), or create it from fixture values: format
+         "Lightning Talk (10 min)", track "AI Engineering", speaker Marcus Okafor.
+         Leave it unplaced.
+      3. Search the builder for any assisted/auto-scheduling capability -- possible
+         labels include Auto-schedule, AI Scheduler, Auto-place, Smart Schedule,
+         Suggest slots, Generate schedule, or an AI assistant panel. Check toolbars,
+         overflow menus, and the unscheduled pool. Screenshot the control if found;
+         if none exists, screenshot the toolbar/menus you checked and record its
+         absence explicitly.
+      4. If an auto-schedule action exists, trigger it and wait for completion.
+         Screenshot the grid afterward; record whether the previously unscheduled
+         session(s) were placed into slots/rooms and whether any conflict indicators
+         are visible on the result.
+      5. Find the publish action for the agenda -- possible labels include Publish,
+         Publish agenda, Go live, Make public, or Share schedule. Screenshot the
+         pre-publish state, trigger the action, and screenshot the resulting
+         confirmation (success message, "published" status, or share link).
+      6. Locate the public/attendee-facing agenda: a public link offered after
+         publishing, an event-site page labeled Agenda or Schedule, or a share URL.
+         Open it and screenshot the published schedule; verify the sessions placed
+         in AIA-S1/S2 appear with their day, time, and room. This is a HANDOFF
+         observation — the public rendering itself is graded by area 06 (EMB-06).
+         If the page is reachable without organizer login (e.g. after signing out
+         at the very end), note that; otherwise viewing it while logged in is
+         acceptable evidence.
+    success_signals:
+      - Presence (or explicitly recorded absence) of an auto-schedule/AI-assist control
+      - If triggered, unscheduled sessions become placed (any new conflict flags recorded)
+      - A publish/go-live action reports success
+      - A public agenda surface shows the scheduled sessions as a handoff (rendering itself graded in area 06)
+rubric:
+  - id: AIA-01
+    criterion: An agenda/schedule builder view exists for a multi-day event, showing a time dimension plus rooms and/or tracks (grid, timeline, or per-day slot list) with day navigation.
+    weight: 3
+    testability: auto
+    scenarios: [AIA-S1]
+    pass_criteria: The builder renders time slots and room/track structure and lets the organizer navigate between the three event days; sessions are represented as cards/entries positioned by day, time, and room or track.
+    evidence: Screenshots from AIA-S1 steps 3-4 showing the builder layout (time axis, day switcher, room/track columns, unscheduled pool if present).
+  - id: AIA-02
+    criterion: Rooms and tracks are configurable by the organizer, and a newly added room and track immediately become usable in the agenda builder.
+    weight: 2
+    testability: auto
+    scenarios: [AIA-S1]
+    pass_criteria: Rooms and tracks can be created through the organizer UI -- the four fixture rooms (fresh in this area on a chained run) plus, where the fixture tracks already exist from an earlier area's setup or from pre-seeding, the extra track (and room, if rooms were pre-seeded too) added in step 4 -- and a newly added room appears as a schedulable location while a track can be assigned to or shown on a session. On a chained run, room-creation evidence plus confirmed availability of the pre-existing tracks satisfies this item; do not require re-creating tracks that already exist.
+    evidence: Screenshots of the room/track creation forms and of the builder afterward showing the new rooms available and a track label visible on a session or in a filter.
+  - id: AIA-03
+    criterion: An unscheduled session can be placed into a specific day/time/room slot, and the placement persists across a page reload.
+    weight: 3
+    testability: auto
+    scenarios: [AIA-S1]
+    pass_criteria: The "Taming 40-Minute CI" session is placed at Day 1 10:00 in Room 2A via drag-and-drop or click-to-assign, its card renders in that slot with its title, and it is still there after the builder page is reloaded in step 11.
+    evidence: The step 3-4 builder screenshots (pre-placement state), the step-7 screenshot showing the session card in its Day 1 10:00 Room 2A slot, and the post-reload grid screenshot (step 11) showing the same placement.
+  - id: AIA-04
+    criterion: Scheduling the same speaker into two time-overlapping sessions produces a visible speaker double-booking warning.
+    weight: 3
+    testability: auto
+    scenarios: [AIA-S1]
+    pass_criteria: When the two Priya Raman sessions overlap at Day 1 10:00 (different rooms), a conflict indicator appears without requiring a manual page refresh (or at latest on save) and identifies the double-booked speaker or the clashing sessions; agent observations record its wording.
+    evidence: Screenshot from step 8 showing the conflict badge/highlight/toast/panel while both sessions overlap, with the recorded warning text naming the speaker or sessions.
+  - id: AIA-05
+    criterion: Placing two sessions in the same room at overlapping times is blocked or visibly flagged as a room conflict.
+    weight: 2
+    testability: auto
+    scenarios: [AIA-S1]
+    pass_criteria: The step-9 attempt to put a second session at Day 1 10:00 in Room 2A is either prevented at placement time (drop rejected, slot shown occupied) or accepted with a clearly visible room-overlap warning.
+    evidence: Screenshot of the blocked placement or of the room-conflict warning from step 9, plus the agent's observation of which behavior occurred.
+  - id: AIA-06
+    criterion: A scheduled session can be moved to a different slot/room, the change takes effect, and previously flagged conflicts clear once the overlap is removed.
+    weight: 2
+    testability: auto
+    scenarios: [AIA-S1]
+    pass_criteria: The step-10 moves succeed (sessions render in their new slots), the speaker and room conflict indicators from steps 8-9 are gone afterward, and the new positions survive the step-11 reload. Live (no-reload) clearing is ideal but clearing after save/refresh still passes this item.
+    evidence: Screenshots after each move showing the sessions in new slots with no remaining conflict indicators, and the post-reload screenshot confirming persistence.
+  - id: AIA-07
+    criterion: "The agenda can be published: a publish/go-live action exists, reports success, and the scheduled session data becomes available to the public/attendee-facing surface as a handoff. (The public schedule rendering itself — layout and correctness of the day/time/room display — is graded by public-widgets EMB-06, not here.)"
+    weight: 2
+    testability: auto
+    scenarios: [AIA-S2]
+    pass_criteria: A publish/go-live action exists and reports success (confirmation message, published status, or share link), and after publishing the sessions scheduled in AIA-S1/S2 are observable on some public/attendee-facing surface as a handoff check. Viewing while still logged in as organizer is acceptable if the page is the attendee-facing view. Do not grade the public rendering's quality or field-level correctness here — that is owned by EMB-06.
+    evidence: Screenshots of the pre-publish state, the publish confirmation, and a handoff glimpse of the public agenda surface showing the fixture sessions present.
+  - id: AIA-08
+    criterion: Some assisted or automatic scheduling capability exists that places unscheduled sessions into slots in one action ("AI" auto-scheduling judged generously as any auto-place assist).
+    weight: 1
+    testability: auto
+    scenarios: [AIA-S2]
+    pass_criteria: An auto-schedule/AI-assist control is present in the builder and, when triggered, places at least one previously unscheduled session into a slot/room. Judge generously -- any one-action assisted placement counts, and whether the result shows conflict flags is recorded but not gating. Fail if no such capability exists anywhere in the builder (the agent's explicit absence observation from step 3 counts as evidence) or if the control exists but performs no placement when triggered.
+    evidence: Screenshot of the auto-schedule control, plus before/after grid screenshots showing the previously unscheduled session(s) now placed (noting any conflict badges); or the recorded absence observation.

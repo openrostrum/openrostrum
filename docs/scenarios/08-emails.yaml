@@ -1,0 +1,194 @@
+module: emails
+# `touches` is filled by the WALKER (design-side), not the author:
+# (walked 2026-08-09 → docs/scenarios/walks/08-emails.walk.md)
+touches:
+  tables:
+    [
+      emailTemplates,
+      emailOutbox,
+      emailSuppressions,
+      forms,
+      submissions,
+      participants,
+      contacts,
+      users,
+      events,
+      rooms,
+    ]
+  ports: [email, clock, turnstile] # clock drives EM-S4 time-travel; turnstile guards EM-S3's public submit
+  routes:
+    [
+      admin.emails.tsx,
+      admin.emails.$key.tsx,
+      admin.submissions.tsx,
+      admin.agenda.tsx,
+      admin.forms.$formId.tsx,
+      submit.$eventSlug.$formId.tsx,
+      portals.$eventSlug.$portalId.tsx,
+      login.tsx,
+    ]
+  jobs: [app/jobs/reminders.scheduled.ts] # EM-S4; file yet to be added per app/jobs/registry.ts pattern
+  utils:
+    [
+      "ics (npm, per docs/tech-stack.md)",
+      "merge-tag renderer (UNSPECIFIED — walk gap #3)",
+    ]
+  # UNASSIGNED in docs/ROUTE-MAP.md but required by these scenarios (see walk):
+  # email history log route (P1 #6), public unsubscribe route (cross-cutting).
+scenarios:
+  - id: EM-S1
+    name: Template editor — edited subject, body, and reply-to ride on the next accept send
+    persona: admin
+    steps: |
+      1. As admin, open the email templates page and edit the Accept template.
+      2. Unhappy first: clear the subject entirely and save — validation error, the
+         template keeps its previous subject (verify by reopening).
+      3. Now set subject to "You're in! 🎉" (emoji included — it must survive storage
+         and send), append a body line "See you in October — check your portal for
+         onboarding tasks.", and set reply-to to organizer@example.com. Save.
+      4. Select an accepted/accept-queue submission (Priya's "Scaling Vector Search at
+         the Edge" from TK-S1, or accept one now) and send the Accept email using this
+         template.
+      5. Query the email outbox: the send's row must carry subject "You're in! 🎉"
+         (emoji intact) AND reply-to organizer@example.com; the body contains the new
+         line with merge fields resolved to Priya's actual name/title (no literal
+         "{{{...}}}" tokens leaking).
+    success_signals:
+      - Outbox row for the accept send has subject "You're in! 🎉" and reply-to organizer@example.com — the template edit is live on the very next send.
+      - Rendered body shows resolved recipient values, zero unresolved merge-tag tokens.
+      - Empty-subject save is rejected with a field error and does not clobber the stored template.
+      - "EXPERIENCE: template save gives immediate feedback without a full-page reload, and the editor is usable by a non-technical organizer (rich body editing, no raw HTML required)."
+
+  - id: EM-S2
+    name: Acceptance email carries a parseable .ics for a scheduled session; unscheduled behavior is deliberate
+    persona: admin
+    steps: |
+      1. Schedule Priya's accepted session "Scaling Vector Search at the Edge" on the
+         agenda: 2026-10-12 10:00–10:45 in Room A (event timezone).
+      2. Send the Accept email for that session (template from EM-S1 is fine).
+      3. Pull the send from the outbox and extract the .ics attachment.
+      4. Parse it (real parser, not grep-only): it must be a valid VCALENDAR with a
+         VEVENT whose SUMMARY contains "Scaling Vector Search at the Edge", DTSTART/
+         DTEND equal 2026-10-12 10:00/10:45 in the event timezone (or correct UTC
+         equivalents), and LOCATION contains "Room A". It must carry a stable UID and
+         parse clean for Gmail/Outlook/Apple (VERSION:2.0, valid line folding).
+      5. Now accept a second, UNSCHEDULED submission (Mallory's "Prompt Injection Field
+         Notes" from TK-S6, no agenda slot) and send its Accept email.
+      6. Inspect that outbox row: record whether an .ics is present or absent. Either
+         is acceptable ONLY as a deliberate, recorded product decision — check the
+         product's own record of the choice (docs/UI copy/design note). What fails:
+         an attached invite with bogus dates (epoch, nulls, placeholder times) or a
+         malformed calendar.
+    success_signals:
+      - Parsed .ics from the scheduled-session accept matches title, start 2026-10-12T10:00, end T10:45, and Room A exactly.
+      - The .ics is standards-valid (parses with a strict parser; has UID, VERSION, METHOD or equivalent) — importable into Gmail/Outlook/iCal.
+      - Unscheduled-session accept behavior is deliberate and recorded (no .ics, or a documented fallback) — never a silently attached invite with garbage dates.
+      - "EXPERIENCE: the organizer does nothing extra to get the invite — scheduling + sending accept is enough; the speaker's mail client shows a real calendar invite, not a mystery attachment."
+
+  - id: EM-S3
+    name: Submission confirmation delivers immediately with a working portal link (+ admin-notify)
+    persona: anonymous
+    steps: |
+      1. If the form supports admin notifications on new submissions, configure the
+         form to notify the admin address first (as admin).
+      2. In a fresh incognito browser, open the public CFP form URL and submit a new
+         submission as a brand-new account: dana.wu@example.com / "Evals for Agentic
+         Pipelines" (fill all required fields).
+      3. Immediately query the outbox: a submission-confirmation row addressed to
+         dana.wu@example.com exists, created within seconds of the submit (compare
+         timestamps), status sent/delivered.
+      4. Extract the portal link from the email body and open it in a NEW incognito
+         window: it must land on the speaker portal for Dana (via the login/password
+         gate — deep link survives authentication and ends on the portal, not a 404).
+      5. If admin-notify was configured in step 1: verify a second outbox row to the
+         admin address referencing the new submission "Evals for Agentic Pipelines".
+      6. Double-submit probe: replay the form submit (back button → submit again or
+         re-POST). Exactly one submission record per actual submission — and the
+         confirmation email count matches the submission count (no duplicate
+         confirmation for a rejected duplicate).
+    success_signals:
+      - Confirmation outbox row to dana.wu@example.com exists with a sent timestamp within seconds of the submission — immediate, not batched.
+      - The portal link in the email works from a cold incognito session — after auth it lands on Dana's portal showing "Evals for Agentic Pipelines" with a Pending status.
+      - Admin-notify (when configured) produces its own outbox row to the admin address; when not configured, none.
+      - "EXPERIENCE: the whole submit→email→portal loop works logged-out on a mobile-sized viewport; the confirmation is the 'must have' swyx flagged — it cannot be missing or delayed."
+
+  - id: EM-S4
+    name: Draft reminders fire at 5-day and 1-day with dedupe — replaying an occurrence yields ONE row
+    persona: admin
+    steps: |
+      1. As admin, set the CFP form's close date to 2026-09-15 23:59 (event timezone)
+         and turn the reminder-email toggle ON.
+      2. Establish the audience: dana.wu@example.com saves a DRAFT (starts a second
+         submission "Latency Budgets in RAG" and saves without submitting); Priya has
+         only completed submissions and no draft.
+      3. Trigger the 5-day reminder occurrence (2026-09-10) — time-travel, cron
+         invocation, or manual trigger endpoint: the mechanism is the implementation's
+         problem; the observable is the outbox.
+      4. Query the outbox: exactly ONE reminder row to dana.wu@example.com for the
+         5-day occurrence of this form; ZERO reminder rows to Priya (no draft) and
+         zero to addresses with no drafts.
+      5. IDEMPOTENCY probe: trigger the SAME 5-day occurrence a second time. Re-query:
+         still exactly ONE row for (dana, this form, 5-day) — the dedupe key holds.
+      6. Trigger the 1-day occurrence (2026-09-14): a SECOND reminder row to Dana
+         appears (different occurrence ⇒ new row); replay it too — count stays 2.
+      7. Open Dana's reminder email body: it references the form/close date and links
+         her back to resume the draft; follow the link and land on the draft.
+    success_signals:
+      - Outbox contains exactly one 5-day and one 1-day reminder row for the draft-holder, and none for users without drafts — counts verified by SQL before and after each replay.
+      - Replaying an occurrence never creates a second row — dedupe is a hard invariant, not a race-prone check.
+      - Reminder body names the closing form and links to resume the saved draft.
+      - "EXPERIENCE: from the speaker's seat the reminder arrives once per occurrence — no double-send spam even when the scheduler misfires twice."
+
+  - id: EM-S5
+    name: Unsubscribe suppresses bulk sends but never transactional confirmations
+    persona: speaker
+    steps: |
+      1. Ensure speaker leo@example.com exists with at least one prior bulk email in
+         the outbox (e.g. included in an accept blast or bulk speaker email; create the
+         state if missing).
+      2. As Leo (logged-out is fine — footer links must work cold), open that bulk
+         email's unsubscribe link and confirm the unsubscribe.
+      3. Verify a suppression record for leo@example.com now exists (DB query).
+      4. As admin, run the next bulk send to a selection that includes Leo plus at
+         least two other speakers (e.g. Priya and Mallory).
+      5. Query the outbox: rows exist for Priya and Mallory; NO new row for Leo (the
+         suppression is honored before enqueue — not a sent-then-bounced row).
+      6. Now trigger a TRANSACTIONAL email for Leo: submit a new CFP submission as
+         leo@example.com. The submission-confirmation outbox row for Leo MUST exist —
+         transactional mail is exempt from suppression.
+      7. Confirm bulk sends carry the unsubscribe footer (inspect one of the rows from
+         step 5's rendered body).
+    success_signals:
+      - After unsubscribe, the bulk send produces zero outbox rows for leo@example.com while other recipients get theirs — skipped, not failed.
+      - Leo's subsequent submission confirmation is delivered normally — suppression never blocks transactional email.
+      - The unsubscribe link works from a logged-out cold click and lands on a clear confirmation page; a suppression record is written once (clicking twice doesn't error or duplicate).
+      - "EXPERIENCE: one click from the email footer to unsubscribed — no login wall, no hunting; the organizer never has to manually maintain the exclusion."
+
+  - id: EM-S6
+    name: Email history log is complete and immutable-in-hindsight; zero-recipient bulk send fails clean
+    persona: admin
+    steps: |
+      1. Depends on EM-S1..S5 having produced sends. As admin, open the email history
+         log.
+      2. Verify every send from this suite appears with to / subject / status /
+         sent-at: the "You're in! 🎉" accept (EM-S1), the scheduled-session accept with
+         .ics (EM-S2), Dana's confirmation (EM-S3), both reminders (EM-S4), the bulk
+         send rows and Leo's confirmation (EM-S5). Row count and fields must match a
+         direct outbox SQL query.
+      3. Retroactivity probe: edit the Accept template subject to "Updated for next
+         wave" and save. Re-open the history log: the EM-S1 row STILL shows
+         "You're in! 🎉" — already-sent rows are frozen snapshots, not live template
+         references.
+      4. Unhappy: from the submissions list, select ZERO rows (or deselect all) and
+         attempt a bulk email send. A clear, human-readable error states there are no
+         recipients; the send is blocked.
+      5. Re-query the outbox: row count unchanged from step 2 — the failed attempt
+         wrote nothing.
+      6. Scale check: with the suite's sends plus seeded history (hundreds of rows —
+         seed to ~300 if needed), search/filter the log (by recipient "dana.wu" and by
+         subject "You're in") and confirm correct narrowing.
+    success_signals:
+      - History log shows one row per send from EM-S1..S5 with accurate to/subject/status/sent-at, matching direct DB queries — nothing sent is missing from the log.
+      - Editing a template after the fact does not rewrite history — the sent row keeps its original subject and body.
+      - Zero-recipient bulk send yields a clear error and zero new outbox rows (verified by count before/after).
+      - "EXPERIENCE: at hundreds of rows the log loads in under 1s with working search/filter and pagination — an organizer can answer 'did Dana get her email?' in one search, no SQL required."

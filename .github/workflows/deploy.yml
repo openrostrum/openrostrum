@@ -1,9 +1,11 @@
 name: Deploy
 
 # Production auto-deploy on merge to main. GATED: skips cleanly until the
-# Cloudflare credentials + resources exist (real D1 database_id in wrangler.json,
-# CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID repo secrets) — provisioned in the
-# verification-capabilities phase.
+# Cloudflare credentials exist (CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID +
+# CLOUDFLARE_D1_DATABASE_ID repo secrets) — provisioned in the
+# verification-capabilities phase. The real D1 id is injected into wrangler.json
+# at deploy time from CLOUDFLARE_D1_DATABASE_ID, so the committed placeholder
+# never needs a manual edit.
 
 on:
   push:
@@ -34,6 +36,18 @@ jobs:
           cache: pnpm
       - if: steps.creds.outputs.have == 'true'
         run: pnpm install --frozen-lockfile
+      # MUST run BEFORE build: the CF Vite plugin bakes wrangler.json into
+      # build/server/wrangler.json, and `wrangler deploy` reads THAT redirected
+      # config — patching the root file after build would be ignored.
+      - name: Inject D1 database id
+        if: steps.creds.outputs.have == 'true'
+        run: |
+          tmp="$(mktemp)"
+          jq --arg id "$CLOUDFLARE_D1_DATABASE_ID" \
+            '.d1_databases[0].database_id = $id' wrangler.json > "$tmp"
+          mv "$tmp" wrangler.json
+        env:
+          CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
       - if: steps.creds.outputs.have == 'true'
         run: pnpm build
       - name: Apply D1 migrations (remote)

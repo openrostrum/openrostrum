@@ -20,10 +20,10 @@ The definitive stack for the Sessionboard clone. Cloudflare-native, TypeScript e
 |---|---|---|
 | Language | TypeScript, `strict` + `noUncheckedIndexedAccess` | — |
 | Framework | React + **React Router v7** (framework mode) | **7.x exact — never 8.x** |
-| ORM | **Drizzle** (on D1) | 0.44.x, exact |
+| ORM | **Drizzle** (on D1) | 0.45.x, lockfile-pinned |
 | Contracts/validation | **Zod** + **drizzle-zod** (DB schema is the single source for row + form + API types) | Zod 4 |
 | Styling | **Tailwind v4** (CSS-first config) | 4.x |
-| Components | **shadcn/ui** (Radix), copy-in, pre-installed in-repo | — |
+| Components | **shadcn/ui** (Radix), copy-in — added to the starter before fan-out; agents don't run `npx shadcn add` | — |
 | Rich text | **Tiptap** behind a shared `<RichText/>` component (`immediatelyRender:false`) | — |
 | Data tables | **TanStack Table** (headless) | v8 |
 | Drag-and-drop | **dnd-kit** (agenda builder) | — |
@@ -46,7 +46,7 @@ Everything that differs between local and cloud sits behind a typed interface wi
 | Port | Prod adapter | Local / test adapter |
 |---|---|---|
 | `EmailSender` | Resend | D1 `email_outbox` table (agent-queryable) |
-| `AirtableSync` | real Airtable base (serial integration lane) | local fake table |
+| `AirtableSync` | real Airtable base (serial integration lane); COMMITTED, tiered: push-on-change (Tier 1) + periodic pull of team edits ("source of truth", Tier 2) — see SCOPE P1 #15 | local fake table |
 | `Turnstile` | Cloudflare Turnstile verify | no-op pass |
 | `Clock` | real `now()` | injectable fixed time |
 
@@ -57,20 +57,25 @@ Everything that differs between local and cloud sits behind a typed interface wi
 - **D1 has no interactive transactions.** Use `db.batch()` for atomic multi-writes. Never `db.transaction()` — it throws at runtime.
 - **`nodejs_compat`** is enabled globally.
 - **Passwords:** WebCrypto PBKDF2 or native `node:crypto.scrypt`. Never native bcrypt (won't run on Workers) or pure-JS scrypt (blows the CPU budget).
-- **File uploads:** browser PUTs directly to R2 via a presigned URL. Never stream large bodies through the Worker (100 MB request cap).
-- **Email:** outbound only — no inbound `email()` handler. Deduplicate with a D1 `email_sends` table (unique key: template + recipient + occurrence) plus Resend idempotency keys; failed sends go to a Queue DLQ. Do not use the rate-limit binding for idempotency.
-- **React Router imports:** import from `react-router` only — never `react-router-dom` or `@remix-run/*`, and never the `json()` helper (return plain objects). A CI grep-guard fails the build on violations; `react-router typegen` is wired into the typecheck script.
+- **File uploads/downloads:** Worker-mediated through the R2 binding — a POST to a `files.upload` route streams to `env.BLOBS.put(...)`; a GET to `files/:id` streams `env.BLOBS.get(...)` back after an authz check. (The R2 binding works identically in local Miniflare and prod; presigned direct-to-R2 needs S3 creds that don't exist locally and gives no authz'd read-back path — verified by the scenario walk. Speaker uploads are small: headshots/slides, well under the 100 MB request cap. If a future need exceeds that, add presigned PUT for that path only.)
+- **Email:** outbound only — no inbound `email()` handler. Deduplicate with the D1 `email_outbox.dedupe_key` (template + recipient + occurrence) plus Resend idempotency keys; failed sends go to a Queue DLQ. Do not use the rate-limit binding for idempotency.
+- **React Router imports:** import from `react-router` only — never `react-router-dom` or `@remix-run/*`, and never the `json()`/`defer()` helpers (return plain objects). An ESLint `no-restricted-imports` rule fails lint on violations; `react-router typegen` is wired into the typecheck script.
 - **Client bundle:** public and schedule pages render SSR and stay light; Tiptap and dnd-kit are lazy-loaded / code-split so they never ship to public visitors. (They don't count against the 10 MB Worker script cap — they're static assets — but they hurt public-page load if shipped everywhere, and load speed is judged.)
 - **Tailwind v4:** CSS-first config (`@import "tailwindcss"` + `@theme`). No `tailwind.config.js`.
-- **shadcn:** the component set is pre-installed and committed; agents do not run `npx shadcn add`.
+- **shadcn:** the deps + `cn` util (`app/lib/utils.ts`) + `components.json` are committed; components are added centrally by the integration owner before the swarm; agents do not run `npx shadcn add`.
+- **Routing:** file-based (`@react-router/fs-routes` `flatRoutes()`). Each feature owns a file in `app/routes/` per `docs/ROUTE-MAP.md`; nobody edits `app/routes.ts`. `admin.tsx` is the admin shell layout; `admin.*.tsx` are its children.
+- **Nav:** each feature contributes one `app/nav/<feature>.nav.ts` (pure data); the shell auto-discovers via `import.meta.glob` — no shared nav file to edit.
+- **Async jobs:** the daily cron is pre-declared (`wrangler.json` `triggers.crons`) and `workers/app.ts` dispatches to `app/jobs/*.scheduled.ts`; reminder/other jobs add a file, not an entrypoint edit.
+- **Auth:** protect routes with `requireUser`/`requireAdmin`/`requireRole` from `app/lib/auth.ts`. A layout loader gates GET navigation for its children; **every `action` must self-authenticate** (a POST doesn't re-run parent loaders) — enforced by the `require-auth-in-actions` ESLint rule (opt out a genuinely public mutation with a `// @public` comment).
+- **Shared files are integration-owned + guarded:** `schema.ts`, `drizzle/migrations`, `drizzle/seed.sql`, `package.json`, `pnpm-lock.yaml`, `wrangler.json` (see `scripts/guard-schema.sh`). All stack deps are pre-installed/frozen — no `pnpm add` in worktrees.
 
 ## Local development & worktree isolation
 
 The stack runs as N concurrent, fully isolated local instances — one per git worktree — with zero cross-instance overlap. Everything is keyed to a single instance id and is ephemeral.
 
-- **Per instance:** unique worker `name` (`killmysaas-<instanceId>`), unique `--port` (base + offset), omit `--inspector-port` (auto-assigned), no service bindings, and per-worktree `.wrangler/state`. All persistent state (D1 file, R2 blobs, `email_outbox`) lives inside the worktree.
+- **Per instance:** a free `--port` (base + offset, probed for collisions by `scripts/worktree-dev.sh`), inspector port auto-assigned, no service bindings, and per-worktree `.wrangler/state`. All persistent state (D1 file, R2 blobs, `email_outbox`) lives inside the worktree, so isolation is by state + port — the worker `name` is shared and irrelevant locally (it only matters for remote deploy).
 - **Reset:** wipe `.wrangler/state` → apply migrations to local D1 → run seed. A `db:reset` and `db:seed` script provide this; the seed recreates a realistic conference (event, CFP forms, submissions across every status, an evaluation plan, scheduled + unscheduled sessions, onboarding tasks).
-- **Migrations:** authored on a single integration branch and consumed by worktrees — agents do not each mint migrations. One apply-path: **`drizzle-kit generate` (flat SQL into `migrations/`) → `wrangler d1 migrations apply`**, and the same `migrations/` directory feeds `@cloudflare/vitest-pool-workers` (`applyD1Migrations`) so dev, tests, and prod share one mechanism.
+- **Migrations:** authored on a single integration branch and consumed by worktrees — agents do not each mint migrations. This is ENFORCED, not just documented: a lefthook pre-commit (`scripts/guard-schema.sh`) blocks any feature-branch commit touching `app/db/schema.ts` or `drizzle/migrations/` (integration owner overrides with `ALLOW_SCHEMA_CHANGE=1`). One apply-path: **`drizzle-kit generate` (flat SQL into `migrations/`) → `wrangler d1 migrations apply`**, and the same `migrations/` directory feeds `@cloudflare/vitest-pool-workers` (`applyD1Migrations`) so dev, tests, and prod share one mechanism.
 - **Secrets:** `.dev.vars` locally (with a committed `.dev.vars.example`); `wrangler secret put` for prod.
 - **Binding-touching code is exercised under `wrangler dev`, not `vite dev`** (service/binding behavior differs between them; `wrangler dev` matches prod).
 

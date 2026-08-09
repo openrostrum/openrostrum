@@ -1,0 +1,396 @@
+{
+  "area": "learn-videos",
+  "sources": [
+    "https://learn.sessionboard.com/videos/overview",
+    "https://learn.sessionboard.com/videos/video-session-submission-form",
+    "https://learn.sessionboard.com/videos/portals-pro",
+    "https://learn.sessionboard.com/videos/video-evaluation-plans"
+  ],
+  "fetch_status": "overview fetched OK twice (2nd pass for per-card subtitles; only 3 featured cards carry subtitles). video-session-submission-form fetched OK with detailed UI steps. video-evaluation-plans fetched OK with detailed UI steps. portals-pro fetched but thin (index page, no transcript; yielded related doc-page titles). No WebSearch fallback needed. Video embeds themselves not transcribable via fetch.",
+  "summary": "learn.sessionboard.com hosts a 29-video tutorial catalog that maps SessionBoard's full product surface across 8 sections: Program & Agenda (create session, session settings, agenda building, AI agenda builder, accept & decline sessions, embeds), Submissions & Forms (session submission form, forms, fields, file requests), Contacts & Data (create contact, importing data, history), Portals (Portals Pro, custom portals, portal settings & appearance, tasks, files, session files, resources & wiki pages), Evaluations (evaluation plans, AI evaluations), Communications (creating & sending emails, email templates), Reporting & AI (reports, AI content remix), Event Team & Settings (event team, event details, record settings). Three featured videos signal the core loop: create a session, build the submission form, send emails. Detail pages reveal concrete UI: a 4-part form builder (welcome screen, session info page with locked Title/Description, speaker info page with locked first/last/email, settings with close date, 5-day/1-day reminders, up-to-15 speaker limit, up to 24 forms/event) and an evaluation-plan wizard (assign evaluators, anonymized review, Monday reminder emails, session filters, field visibility, custom questions, star/heart/face/number ratings, weighted rubrics totaling 100%).",
+  "personas": [
+    "organizer/admin (primary tutorial audience: builds forms, sessions, agendas, plans, emails)",
+    "speaker/submitter (submits via public form; uses portal for tasks, files, wiki)",
+    "evaluator/reviewer (event-team member assigned to evaluation plans; scores filtered sessions)",
+    "event team member (invited collaborators with roles in Event Team settings)"
+  ],
+  "user_journeys": [
+    {
+      "name": "Build and publish a CFP submission form",
+      "persona": "organizer/admin",
+      "steps": [
+        "From Dashboard click 'manage forms' (or Sessions module > Forms)",
+        "Open the default form or click 'Create additional forms' (up to 24 per event)",
+        "Configure Welcome screen: internal form name, external title, headers (15-char limit), welcome message",
+        "Customize Session Information page: Title and Description are required and non-removable; add custom questions, labels, help text",
+        "Customize Speaker Information page: First name/Last name/Email locked; add section headers, rich text blocks, dividers",
+        "Set Form Settings: close date, reminder emails (5 days and 1 day before), admin notification recipients, speaker limit (max 15), submission frequency limit, confirmation email, success message",
+        "Save and copy the public form link"
+      ],
+      "filled_state": "Forms list shows a default form plus 1-2 custom forms with open/closed status; form preview renders a multi-step public form with welcome text, session fields, speaker fields, and a visible close date."
+    },
+    {
+      "name": "Submit a session proposal",
+      "persona": "speaker/submitter",
+      "steps": [
+        "Open the public form URL",
+        "Read welcome screen and continue",
+        "Fill session title, description, and custom questions",
+        "Fill speaker first/last/email plus extra fields; add co-speakers up to the configured limit",
+        "Submit and see the custom success message; confirmation email is sent"
+      ],
+      "filled_state": "Admin submissions list gains a pending session (e.g. 'Scaling LLM Evals in Production') linked to speaker contact records; speaker sees the success message."
+    },
+    {
+      "name": "Create an evaluation plan and score submissions",
+      "persona": "organizer then evaluator/reviewer",
+      "steps": [
+        "Open Evaluations module, click 'add plan'",
+        "Choose 'assign evaluators' type",
+        "Enter plan title and instructions; set toggles: plan is open (with due date), anonymized review, weekly Monday reminders, include uploaded files",
+        "Check evaluator names (must be pre-added to event team)",
+        "Apply session filters: track, tags, format, level, language, status",
+        "Choose which session/speaker fields evaluators can see",
+        "Add custom evaluation questions; use ellipsis menu for required/help text",
+        "Configure rating: icon style (stars/hearts/faces/numbers) with colors; weighted rubric criteria totaling 100%; per-submission evaluation limit",
+        "Click 'add plan'; evaluator logs in, opens plan, rates each filtered session"
+      ],
+      "filled_state": "Plans list shows 'Round 1 Committee Review' with evaluator count and due date; reviewer view lists filtered anonymized sessions with star widgets; sessions accumulate average scores."
+    },
+    {
+      "name": "Program sessions and build the agenda",
+      "persona": "organizer/admin",
+      "steps": [
+        "In Program module create a session (title, description, format, track)",
+        "Adjust session settings / record settings",
+        "Accept or decline submitted sessions (bulk decisioning)",
+        "Open agenda builder and place accepted sessions into day/time/room slots",
+        "Optionally run AI agenda builder to auto-propose the schedule (inferred)",
+        "Generate an embed to publish the agenda on the event website"
+      ],
+      "filled_state": "Agenda grid shows 2 days x 3 rooms with colored session blocks; sessions list shows Accepted/Declined statuses; an embed snippet is available to copy."
+    },
+    {
+      "name": "Onboard speakers through a portal",
+      "persona": "organizer then speaker",
+      "steps": [
+        "Enable Portals (Pro tier) and/or create custom portals",
+        "Configure portal settings & appearance (branding)",
+        "Assign tasks to speakers, including bulk assignment",
+        "Create file requests and session-file upload slots",
+        "Publish resources & wiki pages",
+        "Speaker logs into portal, completes tasks, uploads requested files, reads resources"
+      ],
+      "filled_state": "Organizer portal dashboard shows per-speaker task completion; speaker portal shows a task checklist (e.g. 'Upload headshot', 'Sign release'), uploaded slide deck against their session, and a wiki page."
+    },
+    {
+      "name": "Communicate with participants and report",
+      "persona": "organizer/admin",
+      "steps": [
+        "Open Communications, create an email without leaving the platform",
+        "Pick or create an email template (e.g. acceptance notice)",
+        "Select recipients (speakers/submitters) and send",
+        "Check contact History for logged activity",
+        "Run Reports for submission/evaluation metrics; optionally use AI content remix on session content"
+      ],
+      "filled_state": "Templates list shows acceptance/decline templates; sent-email log has entries; contact records show history timeline; a report table of submissions by track is viewable."
+    },
+    {
+      "name": "Import and manage contacts",
+      "persona": "organizer/admin",
+      "steps": [
+        "Open Contacts & Data module",
+        "Create a single contact manually",
+        "Run Importing Data flow: upload CSV, map columns, confirm (inferred standard mapping wizard)",
+        "Open a contact record and review History of changes/activity"
+      ],
+      "filled_state": "Contacts list shows ~10 imported people with names/emails/companies; a contact detail page shows a history/audit trail."
+    }
+  ],
+  "features": [
+    {
+      "id": "vid-session-create",
+      "name": "Create a session (Program module)",
+      "description": "Featured tutorial 'Start here if you are new to the Program module'; organizers create sessions directly. Area: content/program.",
+      "must_have": true,
+      "ui_expectations": "Program/Sessions module with a create-session action; fields for title, description, format, track; session appears in sessions list."
+    },
+    {
+      "id": "vid-session-settings",
+      "name": "Session & record settings",
+      "description": "Videos 'Session settings' and 'Record settings' configure session/record fields and behavior. Area: content/admin. (details inferred)",
+      "must_have": false,
+      "ui_expectations": "Settings panels controlling session fields, statuses, and record-level defaults."
+    },
+    {
+      "id": "vid-agenda-building",
+      "name": "Agenda builder",
+      "description": "Video 'Agenda building': schedule accepted sessions into times/rooms. Area: agenda. (grid/drag-drop inferred from category norms)",
+      "must_have": true,
+      "ui_expectations": "Calendar/grid view with days, time slots, rooms/tracks; sessions placeable into slots."
+    },
+    {
+      "id": "vid-ai-agenda-builder",
+      "name": "AI agenda builder",
+      "description": "Video 'AI agenda builder': AI-assisted schedule generation. Area: agenda. (behavior inferred)",
+      "must_have": false,
+      "ui_expectations": "An AI action within agenda that proposes/auto-fills a schedule from accepted sessions."
+    },
+    {
+      "id": "vid-accept-decline",
+      "name": "Accept & decline sessions",
+      "description": "Video 'Accept & decline sessions': decisioning on submissions, feeding agenda and notifications. Area: CFP.",
+      "must_have": true,
+      "ui_expectations": "Status controls or bulk actions on the sessions/submissions list; status visibly changes; ties to decision emails (inferred)."
+    },
+    {
+      "id": "vid-embeds",
+      "name": "Embeds",
+      "description": "Video 'Embeds': embeddable widgets (agenda/speakers) for external sites. Area: widgets. (content types inferred)",
+      "must_have": false,
+      "ui_expectations": "Embed generator producing a copyable snippet/iframe for public agenda or speaker listings."
+    },
+    {
+      "id": "vid-submission-form",
+      "name": "Session submission form builder",
+      "description": "Featured: 'Build the form your speakers will submit through.' 4-part builder: Welcome screen (internal name, external title, 15-char headers, welcome message), Session Information (Title+Description locked required), Speaker Information (first/last/email locked), Form Settings (close date, 5-day/1-day reminder emails, admin notification recipients, speaker limit max 15, submission frequency limits, confirmation email, success message). Default form per event; up to 24 forms/event. Area: CFP.",
+      "must_have": true,
+      "ui_expectations": "Reachable via Dashboard 'manage forms' or Sessions > Forms; builder shows the four configuration pages; public form renders multi-step."
+    },
+    {
+      "id": "vid-forms-fields",
+      "name": "Custom forms & field library",
+      "description": "Videos 'Forms' and 'Fields': additional forms and custom field types with labels, help text, section headers, rich text boxes, dividers. Area: CFP.",
+      "must_have": true,
+      "ui_expectations": "Field type picker; per-field label/help-text/required editing; layout elements (headers, dividers, rich text)."
+    },
+    {
+      "id": "vid-file-requests",
+      "name": "File requests",
+      "description": "Video 'File requests': request specific files (slides, headshots) from speakers and track receipt. Area: content collection/speaker mgmt. (tracking inferred)",
+      "must_have": false,
+      "ui_expectations": "Create a named file request assigned to speakers; received uploads listed against the request."
+    },
+    {
+      "id": "vid-contacts-crm",
+      "name": "Contacts: create, import, history",
+      "description": "Videos 'Create a contact', 'Importing data', 'History': manual contact creation, bulk CSV import, per-record activity history. Area: CRM. (CSV column-mapping wizard inferred)",
+      "must_have": true,
+      "ui_expectations": "Contacts list; create-contact dialog with name/email; import wizard with file upload and field mapping; history/audit timeline on records."
+    },
+    {
+      "id": "vid-portals",
+      "name": "Speaker portals (Pro) & custom portals",
+      "description": "Videos 'Portals (Pro)', 'Custom portals', 'Portal settings & appearance'; related docs: 'Portals 101', 'Navigate your group portal', 'Create & assign portal forms'. Branded logged-in workspace for speakers/groups. Area: speaker mgmt. Pro-tier gated.",
+      "must_have": true,
+      "ui_expectations": "Portal configuration with appearance/branding settings; speaker-facing portal dashboard aggregating tasks, files, forms, resources."
+    },
+    {
+      "id": "vid-portal-tasks",
+      "name": "Portal tasks",
+      "description": "Video 'Tasks'; related doc 'Assign tasks (including bulk)': to-do items assigned to speakers with completion tracking. Area: speaker mgmt.",
+      "must_have": false,
+      "ui_expectations": "Task creation with assignee selection and bulk assign; speakers see a checklist; organizer sees completion status."
+    },
+    {
+      "id": "vid-portal-files",
+      "name": "Files & session files",
+      "description": "Videos 'Files' and 'Session files': document collection generally and per-session (slide decks). Area: content collection.",
+      "must_have": false,
+      "ui_expectations": "File upload areas in portal; files attached at contact level and at session level."
+    },
+    {
+      "id": "vid-wiki-resources",
+      "name": "Resources & wiki pages",
+      "description": "Video 'Resources & wiki pages': organizer-authored reference content shown to speakers in the portal. Area: speaker mgmt.",
+      "must_have": false,
+      "ui_expectations": "Editable wiki/resource pages in portal config; readable pages in speaker portal."
+    },
+    {
+      "id": "vid-evaluation-plans",
+      "name": "Evaluation plans",
+      "description": "Video 'Evaluation plans': Evaluations module > 'add plan'; assign evaluators (must be on event team); toggles for open/due date, anonymized review, weekly Monday reminder emails, include uploaded files; session filters (track, tags, format, level, language, status); field visibility control; custom questions via ellipsis menu; rating icons (stars/hearts/faces/numbers) with colors; weighted rubrics totaling 100%; per-submission evaluation limits. Area: CFP review.",
+      "must_have": true,
+      "ui_expectations": "Multi-step plan wizard exactly as described; reviewer view shows filtered sessions with rating widgets and hides speaker names when anonymized."
+    },
+    {
+      "id": "vid-ai-evaluations",
+      "name": "AI evaluations",
+      "description": "Video 'AI evaluations': AI-generated scoring/feedback on submissions alongside human plans. Area: CFP review. (behavior inferred)",
+      "must_have": false,
+      "ui_expectations": "An AI evaluation option in Evaluations producing scores/summaries per submission."
+    },
+    {
+      "id": "vid-emails",
+      "name": "Creating & sending emails",
+      "description": "Featured: 'Reach participants without leaving Sessionboard.' In-app email composer targeting speakers/submitters. Area: communications.",
+      "must_have": true,
+      "ui_expectations": "Compose UI with recipient selection from contacts/speakers, subject/body editor, send action, sent log."
+    },
+    {
+      "id": "vid-email-templates",
+      "name": "Email templates",
+      "description": "Video 'Email templates': reusable templates (acceptance/decline/reminders inferred), also referenced as next step from form builder. Area: communications.",
+      "must_have": false,
+      "ui_expectations": "Template library with create/edit; templates selectable when composing; merge fields (inferred)."
+    },
+    {
+      "id": "vid-reports",
+      "name": "Reports",
+      "description": "Video 'Reports': reporting on submissions/sessions/evaluations. Area: reporting. (report types inferred)",
+      "must_have": false,
+      "ui_expectations": "Reports area with tabular/exportable views over sessions, speakers, evaluations."
+    },
+    {
+      "id": "vid-ai-content-remix",
+      "name": "AI content remix",
+      "description": "Video 'AI content remix': AI repurposing of session content (descriptions, promo copy). Area: content. (behavior inferred)",
+      "must_have": false,
+      "ui_expectations": "AI action on session content generating rewritten/derived text."
+    },
+    {
+      "id": "vid-event-team",
+      "name": "Event team management",
+      "description": "Video 'Event team': invite team members; prerequisite for evaluator assignment ('evaluators must be pre-added to event team'). Area: admin.",
+      "must_have": true,
+      "ui_expectations": "Team settings page listing members with roles; invite flow; members selectable as evaluators."
+    },
+    {
+      "id": "vid-event-details",
+      "name": "Event details & settings",
+      "description": "Video 'Event details': event-level configuration (name, dates, branding inferred). Area: admin.",
+      "must_have": false,
+      "ui_expectations": "Event settings page with editable event metadata."
+    }
+  ],
+  "rubric": [
+    {
+      "id": "VID-01",
+      "feature_id": "vid-submission-form",
+      "criterion": "Submission form builder exposes the 4-part structure: Welcome screen (internal name + external title + welcome message), Session Information page, Speaker Information page, and Form Settings.",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as organizer",
+        "From Dashboard click 'manage forms' (or Sessions/Submissions area > Forms)",
+        "Open the default form or create a new one",
+        "Navigate each builder section: welcome, session info, speaker info, settings",
+        "Screenshot each section"
+      ],
+      "pass_criteria": "All four configuration areas exist (naming may differ) and each shows its expected controls: welcome text fields; session field list; speaker field list; settings panel.",
+      "evidence": "4 screenshots, one per builder section, plus the forms list showing at least one form."
+    },
+    {
+      "id": "VID-02",
+      "feature_id": "vid-submission-form",
+      "criterion": "Required system fields are locked: Title and Description on the session page, First name/Last name/Email on the speaker page cannot be removed; custom fields CAN be added with label and help text.",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "In the form builder open the session info page",
+        "Attempt to delete/remove Title and Description; observe disabled or absent remove control",
+        "Open speaker page; attempt same on first name, last name, email",
+        "Add one custom field with a custom label and help text; save"
+      ],
+      "pass_criteria": "Locked fields show no functional remove option (or removal is rejected); the custom field persists after save and appears in form preview.",
+      "evidence": "Screenshots of the field lists showing lock/disabled state and the added custom field in preview."
+    },
+    {
+      "id": "VID-03",
+      "feature_id": "vid-submission-form",
+      "criterion": "Form settings include close date, reminder-email options, speaker limit (up to 15), confirmation email customization, and success message customization.",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Open Form Settings in the builder",
+        "Set a close date, enable reminders, set speaker limit to 5, edit confirmation email body and success message; save",
+        "Submit a test entry via the public form and verify the custom success message renders",
+        "Verify the public form blocks adding a 6th co-speaker"
+      ],
+      "pass_criteria": "Settings persist after save; success message and speaker limit are enforced on the public form. UNVERIFIED by agent: actual delivery of confirmation/reminder emails (needs inbox and time passage) \u2014 human confirms receipt of confirmation email after a test submission.",
+      "evidence": "Screenshots of settings panel, custom success screen after test submit, and blocked co-speaker add."
+    },
+    {
+      "id": "VID-04",
+      "feature_id": "vid-evaluation-plans",
+      "criterion": "Evaluation plan wizard supports: title/instructions, assign evaluators from event team, anonymized-review toggle, due date, session filters (track/format/status etc.), field visibility selection, custom questions, rating icon choice (stars/numbers etc.), and weighted rubric criteria totaling 100%.",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Open Evaluations module, click add plan",
+        "Enter title/instructions; enable anonymized review and a due date",
+        "Select at least one evaluator from team member checkboxes",
+        "Add a session filter (e.g. status = submitted or a track)",
+        "Uncheck one speaker field from visibility",
+        "Add a custom question; choose a star or numeric rating; create 2 rubric criteria weighted 60/40",
+        "Save plan and screenshot the plan summary/list"
+      ],
+      "pass_criteria": "Plan saves with all configured options visible on reopen; rubric weights validate to 100%; filtered session set matches the filter.",
+      "evidence": "Screenshots of each wizard step and the saved plan detail."
+    },
+    {
+      "id": "VID-05",
+      "feature_id": "vid-accept-decline",
+      "criterion": "Sessions can be created in the Program module and submissions can be accepted or declined with a visible status change.",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Create a session manually in the Program/Sessions module with title and description",
+        "Verify it appears in the sessions list",
+        "Select a submitted session and use the accept action; verify status shows Accepted",
+        "Decline another session; verify status shows Declined"
+      ],
+      "pass_criteria": "Created session persists; accept/decline actions exist and update the visible status on the list and detail views.",
+      "evidence": "Screenshots of sessions list before/after status changes and of the created session detail."
+    },
+    {
+      "id": "VID-06",
+      "feature_id": "vid-agenda-building",
+      "criterion": "An agenda builder places accepted sessions into date/time/room slots, and an AI agenda-builder option is present.",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Open the Agenda area",
+        "Verify a schedule grid/calendar with days, times, and rooms/tracks",
+        "Place or assign one accepted session into a slot; verify it renders as a scheduled block",
+        "Locate the AI agenda builder entry point and screenshot it"
+      ],
+      "pass_criteria": "Manual scheduling verified end-to-end. UNVERIFIED by agent: quality/output of AI agenda generation (nondeterministic; human reviews one AI-generated schedule for plausibility).",
+      "evidence": "Screenshots of the agenda grid with a placed session and the AI builder entry point."
+    },
+    {
+      "id": "VID-07",
+      "feature_id": "vid-portals",
+      "criterion": "Speaker portal is configurable (appearance/branding, tasks incl. bulk assign, file requests, resources/wiki) and speakers get a logged-in portal view of their assignments.",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Open Portals configuration as organizer",
+        "Change an appearance setting (logo/color) and save",
+        "Create a task and bulk-assign to 2+ speakers",
+        "Create a file request; add a resource/wiki page",
+        "Screenshot each configuration surface"
+      ],
+      "pass_criteria": "Organizer-side configuration all persists. UNVERIFIED by agent: the speaker-side portal experience requires a second (speaker) account \u2014 human logs in as an invited speaker and confirms the task, file request, and wiki page appear and the task can be completed.",
+      "evidence": "Screenshots of portal settings, task assignment list, file request, wiki page; human-provided screenshot of speaker portal view."
+    },
+    {
+      "id": "VID-08",
+      "feature_id": "vid-emails",
+      "criterion": "In-app email: compose to selected speakers/contacts, use a saved template, and see the message logged (contact History/sent log).",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Open Communications/Emails area",
+        "Create an email template with subject and body; save",
+        "Compose a new email, select recipients from contacts/speakers, apply the template",
+        "Send (or schedule) and screenshot the sent/queued log",
+        "Open a recipient contact record and check History for the email activity"
+      ],
+      "pass_criteria": "Template persists and is applicable in compose; send action produces a log entry and contact history entry. UNVERIFIED by agent: actual inbox delivery \u2014 human checks a test inbox for the received email.",
+      "evidence": "Screenshots of template editor, compose with recipients, sent log, and contact history entry."
+    }
+  ],
+  "sample_data": "Event: 'AI Engineer Summit 2026' (2 days, 3 rooms: Main Stage, Workshop A, Workshop B; tracks: Agents, Infra, Evals). Submission form 'CFP 2026' with welcome message, custom session fields (Format: talk/workshop; Level: intro/advanced; 'Learning objectives' long-text) and custom speaker field 'Company'; close date 2 weeks out; speaker limit 3. 6 sample proposals, e.g. 'Scaling LLM Evals in Production' (Jane Rivera, jane@examplecorp.com, Evals track), 'Multi-Agent Orchestration Patterns' (Sam Okafor), 'GPU Cost Engineering 101' (Li Wei); statuses mixed submitted/accepted/declined. Contacts CSV: 10 rows (first,last,email,company,job title). Event team: 1 admin + 2 evaluators (Alex Kim, Priya Nair). Evaluation plan 'Round 1 Committee Review': anonymized, due date +7 days, 5-star rating, rubric Relevance 40/Originality 30/Clarity 30, filter status=submitted. Email template 'Acceptance Notification' with event-name and speaker-name merge fields. Portal: tasks 'Upload headshot' and 'Confirm AV needs'; file request 'Final slide deck (PDF)'; wiki page 'Speaker FAQ'.",
+  "gaps": "26 of 29 video cards have no subtitle text on the catalog; no durations shown; video content itself (embedded players) is not transcribable via fetch, so only 2 videos yielded step-level UI detail (submission form, evaluation plans). Portals-pro detail page was a thin index. Not learnable from this source: exact navigation labels for Agenda/Reports/AI features, AI agenda-builder and AI-evaluations behavior, embed content types, import wizard mechanics, report types, pricing tiers beyond the 'Pro' badge on portals. Inferred (marked in descriptions): drag-drop agenda grid, CSV mapping wizard, embed snippet output, template merge fields, decision-email linkage, AI feature behaviors \u2014 inferred from Sessionize/Cvent/EasyChair category norms. Numeric limits (24 forms/event, 15 speakers, 15-char headers, 5-day/1-day reminders, Monday reminder emails) come from tutorial text and may have changed."
+}

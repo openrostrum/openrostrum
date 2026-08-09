@@ -1,0 +1,108 @@
+{
+  "event": {
+    "name": "DevFlow Conf 2027",
+    "tagline": "The developer workflow conference",
+    "dates": "2027-05-12 to 2027-05-14",
+    "location": "Moscone West, San Francisco, CA",
+    "description": "A three-day, three-track conference on developer tooling, AI-assisted engineering, and platform infrastructure.",
+    "tracks": [
+      "AI Engineering",
+      "Platform & Infra",
+      "Developer Experience"
+    ],
+    "session_formats": [
+      "Keynote (45 min)",
+      "Talk (30 min)",
+      "Lightning Talk (10 min)",
+      "Workshop (120 min)",
+      "Panel (45 min)"
+    ],
+    "rooms": [
+      "Main Stage",
+      "Room 2A",
+      "Room 2B",
+      "Workshop Lab"
+    ]
+  },
+  "identities": {
+    "organizer": {
+      "name": "Jordan Alvarez",
+      "email": "sbek-organizer@example.com",
+      "password": "SbekTest!2027-org",
+      "role": "Event Organizer / Admin"
+    },
+    "speaker": {
+      "name": "Priya Raman",
+      "email": "sbek-speaker@example.com",
+      "password": "SbekTest!2027-spk",
+      "title": "Principal Engineer",
+      "company": "Latticework Systems",
+      "bio": "Priya Raman is a Principal Engineer at Latticework Systems where she leads the build-tooling platform team. She previously maintained the open-source task runner 'gantry' and has spoken at over a dozen developer conferences on build systems, CI reliability, and developer productivity metrics.",
+      "twitter": "@priyabuilds",
+      "linkedin": "https://www.linkedin.com/in/priya-raman-example",
+      "dietary": "Vegetarian",
+      "tshirt": "M"
+    },
+    "speaker2": {
+      "name": "Marcus Okafor",
+      "email": "sbek-speaker2@example.com",
+      "password": "SbekTest!2027-spk2",
+      "title": "Staff Developer Advocate",
+      "company": "Cloudreach Labs",
+      "bio": "Marcus Okafor is a Staff Developer Advocate at Cloudreach Labs focused on AI agents in production. He writes the newsletter 'Agents Weekly' and co-organizes the SF AI Tinkerers meetup."
+    },
+    "reviewer": {
+      "name": "Sam Whitfield",
+      "email": "sbek-reviewer@example.com",
+      "password": "SbekTest!2027-rev",
+      "role": "Program Committee Reviewer"
+    }
+  },
+  "submissions": [
+    {
+      "title": "Taming 40-Minute CI: Incremental Builds at Monorepo Scale",
+      "format": "Talk (30 min)",
+      "track": "Platform & Infra",
+      "abstract": "Our monorepo CI took 40 minutes on a good day. This talk walks through how we cut it to 6 minutes with content-addressed caching, remote execution, and a test-selection model \u2014 including the two migrations that failed first. You'll leave with a decision framework for which incremental-build investments pay off at which repo sizes, and the graphs to convince your platform team.",
+      "audience_level": "Intermediate",
+      "notes_for_reviewers": "Previously presented a 10-minute version at PlatformCon; this is the expanded version with new data."
+    },
+    {
+      "title": "Your AI Pair Programmer Is Lying to You: Verification Patterns That Scale",
+      "format": "Talk (30 min)",
+      "track": "AI Engineering",
+      "abstract": "Code generation is easy; trusting it is hard. This session covers verification patterns for AI-generated code \u2014 property tests, mutation coverage, snapshot judges, and CI gates \u2014 with data from 18 months of running them on a 200-engineer codebase. Includes what we stopped doing because it didn't catch anything.",
+      "audience_level": "Advanced",
+      "notes_for_reviewers": "Can also be delivered as a 120-minute hands-on workshop if the committee prefers."
+    },
+    {
+      "title": "Docs That Answer Back: Retrieval-Grounded Documentation Sites",
+      "format": "Lightning Talk (10 min)",
+      "track": "Developer Experience",
+      "abstract": "A 10-minute tour of turning a static docs site into one that answers questions with citations, stays honest when it doesn't know, and costs under $50/month to run. Live demo, real failure cases, and a checklist you can apply to your own docs this week.",
+      "audience_level": "Beginner"
+    }
+  ],
+  "review": {
+    "rating_example": 4,
+    "comment_example": "Strong practical content and a clear narrative arc; abstract could name the specific tooling used. Recommend accept for the Platform track.",
+    "decision_example": "accept"
+  },
+  "communications": {
+    "acceptance_subject": "Your talk has been accepted to DevFlow Conf 2027",
+    "acceptance_body": "Hi {speaker_name}, congratulations! Your session '{talk_title}' has been accepted. Please confirm your participation and complete your speaker profile by April 1, 2027."
+  },
+  "tasks_for_speakers": [
+    "Confirm participation",
+    "Upload headshot",
+    "Complete bio and profile",
+    "Upload final slides by 2027-05-01",
+    "Sign speaker release form"
+  ],
+  "files": {
+    "headshot": "fixtures/headshot.png",
+    "slides": "fixtures/slides.pdf",
+    "speakers_csv": "fixtures/speakers.csv"
+  },
+  "_email_note": "Placeholder addresses. To exercise email verification or magic-link flows, set personaEmails in evalconfig.json to inboxes you control (plus-addressing gives each persona a distinct account on one inbox, e.g. you+sbek-speaker@your-domain.com). Those values override the emails here at run time."
+}

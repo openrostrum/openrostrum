@@ -1,0 +1,470 @@
+{
+  "area": "learn-participant",
+  "sources": [
+    "https://learn.sessionboard.com/participants/overview",
+    "https://learn.sessionboard.com/participants/access-portal",
+    "https://learn.sessionboard.com/participants/edit-submission",
+    "https://learn.sessionboard.com/participants/save-a-submission-as-a-draft",
+    "https://learn.sessionboard.com/participants/how-to-add-of-edit-speaker-information-for-an-accepted-session",
+    "https://learn.sessionboard.com/participants/updated-portal",
+    "https://learn.sessionboard.com/participants/upload-files",
+    "https://learn.sessionboard.com/participants/pp-how-to-view-and-download-files-from-my-portal",
+    "https://learn.sessionboard.com/participants/updated-portals-1",
+    "https://learn.sessionboard.com/participants/speaker-headshot-dos-and-donts",
+    "https://learn.sessionboard.com/participants/how-to-change-my-portal-username-or-email",
+    "https://learn.sessionboard.com/participants/updated-portals",
+    "https://learn.sessionboard.com/participants/pp-how-to-access-additional-event-portals-you-are-associated-with",
+    "https://learn.sessionboard.com/participants/exhibitor-portal",
+    "https://learn.sessionboard.com/en/knowledge-base/portal-users",
+    "https://learn.sessionboard.com/en/knowledge-base/6284020-configure-customize-portals"
+  ],
+  "fetch_status": "Primary URL fetched OK on first try; enumerated all 13 participant-guide articles and fetched each. 12/13 rendered full bodies. 'Add or edit session speakers' body failed to render twice (nav shell only); recovered partial info via WebSearch and the Portals 101 admin article. support.sessionboard.com URLs 301-redirect to learn.sessionboard.com (followed manually). WebSearch used twice as fallback (speaker-info article, participant-acceptance mechanics); knowledge-base collection page /en/knowledge-base/portal-users fetched OK to confirm complete article list.",
+  "summary": "SessionBoard's participant (speaker/submitter/exhibitor) experience centers on a per-event portal. A submitter fills a public submission form, can save a draft (needs at least a Title; banner marks draft mode; resume prompt on return; 'Reset saved data' discards), and submits. The confirmation email carries a portal link; new users create a password, click 'Continue to portal', and choose a portal. The dashboard shows branded (logo, accent color, welcome message) widgets: My Sessions/My Submissions, Invited Sessions (unanswered invitations), Confirmed Participation (accepted), Tasks, Files, Resources, with top-nav Submissions/Files/Resources. Speakers view/edit their submission via a session sidebar 'View Submission' button until the submission close date, after which editing locks. Tasks list name, required asterisk, description, due date+timezone, Incomplete/Complete status; detail view offers 'Open Link' and 'Mark as Complete'. Speakers upload session files (drag-drop/browse) typed as Presentation/Poster/Handout, version them with history, and exchange comments with admins. They download organizer-shared files, read wiki pages under Resources, change account email in Account Settings, switch portals (top-right 'Switch Portals') and events (top-left dropdown), and share group (exhibitor/sponsor) portal access via the admin. Headshots feed the agenda, program site, and embeds.",
+  "personas": [
+    "Speaker/submitter (portal user): submits proposals, edits submissions, accepts invitations, completes tasks, uploads content",
+    "Speaker assistant: logs into portals on behalf of a speaker to complete tasks",
+    "Exhibitor/sponsor group member: shares a group portal with teammates, each with own credentials",
+    "Event admin/organizer (counterpart): configures portals, sends portal links, receives uploads/comments"
+  ],
+  "user_journeys": [
+    {
+      "name": "Submit a proposal with draft save",
+      "persona": "Speaker/submitter",
+      "steps": [
+        "Open the event's public submission form",
+        "Enter at least a Title",
+        "Click 'Save as draft' (bottom right); banner at top confirms draft mode",
+        "Leave; return later and log in; accept the resume-draft prompt",
+        "Complete all required fields per page (required to advance pages)",
+        "Submit; receive confirmation email containing the portal link"
+      ],
+      "filled_state": "Form pre-filled with draft data (title 'Scaling LLM Inference in Production', abstract, track, format); yellow/info banner reading that you are editing a draft; 'Reset saved data' control visible on the right"
+    },
+    {
+      "name": "First portal login",
+      "persona": "Speaker/submitter",
+      "steps": [
+        "Click portal link from the submission confirmation email",
+        "New user: create a password; returning user: enter password ('Forgot your password?' link at bottom right of login box)",
+        "Click 'Continue to portal'",
+        "Pick a portal from the list of portals you have access to",
+        "Land on branded dashboard"
+      ],
+      "filled_state": "Dashboard with event logo, accent color, welcome message; widgets: My Sessions (1 submission, status Accepted), Tasks (3 items, 2 incomplete), Files, Resources; top nav with Submissions/Files/Resources; initials avatar top right"
+    },
+    {
+      "name": "View and edit a submission before deadline",
+      "persona": "Speaker/submitter",
+      "steps": [
+        "Log into portal",
+        "In the 'My Sessions' widget, click the session",
+        "In the session sidebar, click 'View Submission' at the bottom",
+        "Edit form fields and save",
+        "Reload and confirm changes persisted"
+      ],
+      "filled_state": "Editable multi-page form pre-populated with the original submission answers; after the submission close date the same form is read-only with a message that editing is no longer available"
+    },
+    {
+      "name": "Accept a session invitation",
+      "persona": "Speaker/submitter",
+      "steps": [
+        "Log into portal (participant acceptance enabled for event)",
+        "Open the 'Invited Sessions' section listing sessions invited to but not yet answered",
+        "Open the invitation and accept (or decline) participation",
+        "Confirm the session now appears under 'Confirmed Participation'"
+      ],
+      "filled_state": "Invited Sessions shows 'AI Ethics Panel \u2014 Sat 10:00 AM' with Accept/Decline controls; after accepting, Confirmed Participation lists it and Invited Sessions is empty"
+    },
+    {
+      "name": "Complete portal tasks",
+      "persona": "Speaker/submitter",
+      "steps": [
+        "Open the task list on the dashboard",
+        "Note per-task: name, red asterisk if required, description, due date with timezone, status Incomplete/Complete",
+        "Click a task to expand the full view (deadline status 'Open')",
+        "Click 'Open Link' if the task has an external link attached",
+        "Click 'Mark as Complete'; or click 'Done' to exit without changing status",
+        "Verify status flips to Complete and persists"
+      ],
+      "filled_state": "Task list: 'Sign speaker agreement *' (required, due Sep 1 11:59 PM ET, Incomplete), 'Register for the event' (has Open Link, Incomplete), 'Read T&C' (Complete). Expanded task shows description, due date, Open status, Mark as Complete button"
+    },
+    {
+      "name": "Upload session files, version them, and comment",
+      "persona": "Speaker/submitter",
+      "steps": [
+        "Open 'Submissions' in the portal top navigation",
+        "Select the session to open its sidebar",
+        "Click the 'Files' button beneath the session name",
+        "Drag-and-drop or browse to upload a file; designate it as Presentation, Poster, or Handout",
+        "Upload again and mark the file as a new version of the previous upload",
+        "Use 'History'/'Expand All' to view and download all versions",
+        "Click 'Comment'/'Expand All' to read admin comments and post a reply"
+      ],
+      "filled_state": "Files panel listing 'keynote-slides.pptx \u2014 Presentation \u2014 v2' with expandable history showing v1 and v2; comment thread with an admin note ('Please use the event template') and the speaker's reply"
+    },
+    {
+      "name": "Consume organizer resources and manage account",
+      "persona": "Speaker/submitter",
+      "steps": [
+        "Click 'Files' at the top of the portal; select a file from the Files widget to view/download",
+        "Click 'Resources' at the top; select a wiki page from the Resources widget and read it",
+        "Click the initials square top right > 'Account Settings'",
+        "Update the 'Email Address' field; press the green 'SAVE CHANGES' button"
+      ],
+      "filled_state": "Files widget lists 'Speaker Guide.pdf'; Resources widget lists wiki page 'Event FAQ' rendered as a readable page; Account Settings shows name/email fields with save button"
+    },
+    {
+      "name": "Work across multiple portals",
+      "persona": "Speaker assistant / group member",
+      "steps": [
+        "Log into any portal with your email",
+        "Click your name top right > 'Switch Portals' to change between user/group portals and complete each portal's tasks",
+        "Click the down arrow or event name at the top left to see other events (alphabetical) tied to the same email and switch",
+        "Group portal: teammates added by the event admin (first name, last name, email) each get a login link and set their own password, then see the same group info and tasks"
+      ],
+      "filled_state": "Portal switcher dropdown listing 'Jane Doe (Speaker)' and 'Acme Corp (Sponsor)' portals; top-left event dropdown listing 'DevConf 2026' and 'MedTech Summit 2026'"
+    }
+  ],
+  "features": [
+    {
+      "id": "prt-portal-auth",
+      "name": "Portal login and account creation",
+      "description": "Participants reach the portal via a link in the submission confirmation email. New users are prompted to create a password; returning users enter theirs, click 'Continue to portal', then choose from the portals they can access. 'Forgot your password?' (bottom right of login box) sends a reset email from no-reply@sessionboard.com. Wrong-email login errors are resolved by the event team.",
+      "must_have": true,
+      "ui_expectations": "Login page with email + password fields, forgot-password link at bottom right, 'Continue to portal' button, then a portal-picker list when the user has multiple portals"
+    },
+    {
+      "id": "prt-portal-dashboard",
+      "name": "Participant dashboard with widgets",
+      "description": "Branded per-event home (welcome message, accent color, logo, background image) with section widgets: My Sessions/My Submissions, Invited Sessions, Confirmed Participation (when participant acceptance is on), Tasks, Files, Resources. Top navigation includes Submissions, Files, Resources. Admin controls which sections and profile fields show (Show/Hide Fields; view-only locks).",
+      "must_have": true,
+      "ui_expectations": "Dashboard of labeled widgets/cards; top nav bar; event branding; initials avatar menu top right; event switcher top left"
+    },
+    {
+      "id": "prt-view-edit-submission",
+      "name": "View and edit submission",
+      "description": "From the My Sessions widget, clicking a session opens a sidebar; 'View Submission' at the bottom opens the original form pre-populated and editable. Editing is allowed any time before the submission close date; after it passes, editing is disabled and changes require the event team.",
+      "must_have": true,
+      "ui_expectations": "Session sidebar with 'View Submission' button; editable multi-page form; read-only/locked state after deadline"
+    },
+    {
+      "id": "prt-submission-draft",
+      "name": "Save submission as draft",
+      "description": "On the public submission form, entering at least a Title enables 'Save as draft' (bottom right). A banner marks the form as a draft. Returning users are prompted to resume the draft; 'Reset saved data' discards it. Advancing pages still requires all required fields.",
+      "must_have": false,
+      "ui_expectations": "'Save as draft' button bottom right, draft banner at form top, resume-draft prompt on return, 'Reset saved data' control"
+    },
+    {
+      "id": "prt-invitation-acceptance",
+      "name": "Accept/decline session participation",
+      "description": "When participant acceptance is enabled, speakers see 'Invited Sessions' (invited, not yet answered) and can accept or decline participation per accepted session in the portal; accepted ones move to 'Confirmed Participation'. Exact accept/decline button labels not documented (inferred from category norms, e.g. Sessionize).",
+      "must_have": true,
+      "ui_expectations": "Invited Sessions list with per-session accept/decline actions; Confirmed Participation list of accepted sessions"
+    },
+    {
+      "id": "prt-tasks",
+      "name": "Portal task list and completion",
+      "description": "Task list shows task name (e.g. 'Read T&C'), red asterisk for required, description, due date with timezone, and status Incomplete/Complete. Clicking expands full view with deadline status 'Open', full description, 'Open Link' when the team attached an external link, 'Mark as Complete' to finish, and 'Done' to exit without changing status. Tasks may be visible only to accepted speakers unless 'Always Show Tasks' is enabled. Task types include reading terms, external links, confirmations, file requests, and forms (headshot/bio questionnaires).",
+      "must_have": true,
+      "ui_expectations": "Task list widget with required asterisks, due dates, status chips; expandable task detail with Open Link, Mark as Complete, Done buttons"
+    },
+    {
+      "id": "prt-file-upload",
+      "name": "Upload files to a session with versioning",
+      "description": "Via top-nav Submissions > select session > 'Files' button beneath the session name; drag-and-drop or browse to upload. Files are designated 'Presentation', 'Poster', or 'Handout'. A new upload can be marked as a new version of a previous file; all versions stay downloadable via History/Expand All. Max file size documented in FAQ (limit not stated in article).",
+      "must_have": true,
+      "ui_expectations": "Files panel per session with drag-drop zone, browse button, file-type selector, version history expander"
+    },
+    {
+      "id": "prt-file-comments",
+      "name": "Comments on session content",
+      "description": "Participants view and post comments on their session content to communicate directly with event admins, via 'Expand All' or the 'Comment' button next to files/content.",
+      "must_have": false,
+      "ui_expectations": "Comment thread attached to session files/content with a compose box; existing admin comments readable"
+    },
+    {
+      "id": "prt-file-downloads",
+      "name": "View and download organizer-shared files",
+      "description": "Click 'Files' at the top of the portal, then select a file from the Files widget to view or download materials the event team shared.",
+      "must_have": false,
+      "ui_expectations": "Files area/widget listing shared files; clicking opens or downloads"
+    },
+    {
+      "id": "prt-resources-wiki",
+      "name": "Resources and wiki pages",
+      "description": "Click 'Resources' at the top of the portal; the Resources widget lists organizer-assigned items including downloadable documents and wiki pages that render as readable pages.",
+      "must_have": false,
+      "ui_expectations": "Resources button/tab; widget listing wiki pages; wiki page renders formatted content"
+    },
+    {
+      "id": "prt-profile-account",
+      "name": "Account settings and profile editing",
+      "description": "Click the square with your initials (top right) > 'Account Settings'; edit the 'Email Address' field and press the green 'SAVE CHANGES' button \u2014 new email becomes the login. Portals also let users view/edit profile information (bio, headshot, etc.) subject to admin Show/Hide Fields settings (fields can be editable, view-only, or hidden).",
+      "must_have": false,
+      "ui_expectations": "Avatar/initials menu with Account Settings; email field; SAVE CHANGES button; profile fields respecting visibility settings"
+    },
+    {
+      "id": "prt-speaker-info-edit",
+      "name": "Add or edit session speakers on accepted session",
+      "description": "For accepted sessions, speakers add/edit speaker information via 'View Submission' or a dedicated portal task asking to add speakers; if neither is visible the feature isn't enabled and users must contact the event admin. Detailed steps not rendered in docs; add/remove co-speaker mechanics inferred from category norms.",
+      "must_have": false,
+      "ui_expectations": "Within View Submission or a task: speaker section with fields per speaker and add-speaker control (inferred)"
+    },
+    {
+      "id": "prt-multi-portal",
+      "name": "Multi-portal and multi-event switching",
+      "description": "Name menu (top right) > 'Switch Portals' switches among user/group portals (speakers with group portals, sponsor affiliates, speaker assistants) to view and complete each portal's tasks. Down arrow/event name at top left lists other events tied to the same email, alphabetically sorted; different credentials require re-login.",
+      "must_have": false,
+      "ui_expectations": "'Switch Portals' entry in top-right name dropdown; top-left event-name dropdown listing events alphabetically"
+    },
+    {
+      "id": "prt-group-portal",
+      "name": "Shared group (exhibitor/sponsor) portals",
+      "description": "Exhibitors/sponsors are 'groups'; multiple teammates access the same group portal with individual credentials and see identical info. Colleagues are added by the event admin (given first name, last name, email); each receives a portal login link and creates their own password, then can complete group tasks.",
+      "must_have": false,
+      "ui_expectations": "Group portal identical for all members; per-member logins; group tasks completable by any member"
+    },
+    {
+      "id": "prt-headshot",
+      "name": "Speaker headshot upload and guidelines",
+      "description": "Headshot appears on the event agenda, program site, and speaker embeds. Guidance: face camera and smile naturally, well-lit photo, neutral background; avoid uneven lighting, multiple people, busy backgrounds. Collected via profile fields or a headshot/bio form task (upload location inferred); size specs live in a separate FAQ.",
+      "must_have": false,
+      "ui_expectations": "Headshot image field on profile or a form task with image upload preview (inferred)"
+    }
+  ],
+  "rubric": [
+    {
+      "id": "PRT-01",
+      "feature_id": "prt-portal-auth",
+      "criterion": "Participant portal has a login page with email/password auth and first-time password creation",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Navigate to the clone's participant portal/login URL",
+        "Verify email and password fields and a login/continue action exist",
+        "Log in with seeded participant credentials (or complete new-user create-password flow)",
+        "Verify redirect to a participant dashboard, not an admin view"
+      ],
+      "pass_criteria": "Login form accepts credentials; new users set a password; successful auth lands on a participant dashboard",
+      "evidence": "Screenshot of login page and of post-login dashboard"
+    },
+    {
+      "id": "PRT-02",
+      "feature_id": "prt-portal-auth",
+      "criterion": "Forgot-password flow sends a working reset email",
+      "weight": 1,
+      "testability": "manual",
+      "auto_steps": [],
+      "pass_criteria": "Human clicks 'Forgot your password?' (or equivalent) on the login box, receives a reset email at the account address, and the link allows setting a new password that then logs in",
+      "evidence": "Reset email screenshot plus successful login after reset"
+    },
+    {
+      "id": "PRT-03",
+      "feature_id": "prt-portal-dashboard",
+      "criterion": "Dashboard shows the participant's sessions/submissions with status plus distinct Tasks and Files/Resources areas",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as seeded speaker with one submission, tasks, and shared files",
+        "Verify a My Sessions/My Submissions widget lists the seeded submission with its status (e.g. Accepted/Pending)",
+        "Verify a Tasks section and Files and/or Resources sections are present and populated"
+      ],
+      "pass_criteria": "All three areas visible and populated with the seeded data; submission status displayed",
+      "evidence": "Full-page screenshot of dashboard; text of widget headings and listed items"
+    },
+    {
+      "id": "PRT-04",
+      "feature_id": "prt-view-edit-submission",
+      "criterion": "Speaker can open their submission from a session and edit it, with changes persisting",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "From dashboard, click the seeded session in the sessions widget",
+        "In the session view/sidebar, click 'View Submission' (or equivalent)",
+        "Verify the form is pre-populated with original answers",
+        "Change the abstract text, save, reload, reopen the submission",
+        "Verify the edited text persisted"
+      ],
+      "pass_criteria": "Submission form opens pre-filled, accepts edits, and persists them across reload",
+      "evidence": "Screenshots before and after edit; persisted field text after reload"
+    },
+    {
+      "id": "PRT-05",
+      "feature_id": "prt-view-edit-submission",
+      "criterion": "Submission editing is locked after the call's close date",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Log in as speaker with a seeded submission whose call close date is in the past",
+        "Open the submission via View Submission",
+        "Verify the form is read-only or shows an editing-closed message"
+      ],
+      "pass_criteria": "Past-deadline submission cannot be edited via the portal; UI communicates this. Unverified without a past-deadline fixture: real-time lock transition at deadline",
+      "evidence": "Screenshot of locked/read-only submission form or closed message"
+    },
+    {
+      "id": "PRT-06",
+      "feature_id": "prt-submission-draft",
+      "criterion": "Public submission form supports save-as-draft with title only, draft banner, resume, and discard",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Open the public submission form for the seeded open call",
+        "Enter only a Title and click 'Save as draft' (or equivalent)",
+        "Verify a draft indicator/banner appears",
+        "Close and reopen the form (same identity); verify a resume-draft prompt or restored data",
+        "Use 'Reset saved data'/discard and verify the draft is cleared"
+      ],
+      "pass_criteria": "Draft saves with minimal data, restores on return, and can be discarded; required fields still gate page progression",
+      "evidence": "Screenshots of draft banner, resume prompt, and cleared form after reset"
+    },
+    {
+      "id": "PRT-07",
+      "feature_id": "prt-invitation-acceptance",
+      "criterion": "Speaker can accept or decline a session invitation and the session moves to confirmed",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as speaker seeded with one pending session invitation",
+        "Verify an Invited Sessions (or equivalent) area lists the invitation with accept/decline actions",
+        "Accept the invitation",
+        "Verify the session now appears under Confirmed Participation (or equivalent) and leaves the invited list",
+        "Reload and verify state persists"
+      ],
+      "pass_criteria": "Accept action transitions the session from invited to confirmed persistently; decline path removes/marks it declined",
+      "evidence": "Screenshots of invited list before, confirmation dialog/action, and confirmed list after"
+    },
+    {
+      "id": "PRT-08",
+      "feature_id": "prt-tasks",
+      "criterion": "Task list shows name, required indicator, due date, and Incomplete/Complete status; detail view opens",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as speaker seeded with 3 tasks (one required, one with external link, one complete)",
+        "Verify list rows show task name, a required marker on the required task, due dates, and per-task status",
+        "Click the required task and verify an expanded view with full description and due date/status"
+      ],
+      "pass_criteria": "All listed metadata renders per task; clicking opens a detail view",
+      "evidence": "Screenshot of task list and of one expanded task"
+    },
+    {
+      "id": "PRT-09",
+      "feature_id": "prt-tasks",
+      "criterion": "Tasks can be marked complete (persisting), exited without change, and expose attached external links",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Open the external-link task; verify an 'Open Link' (or equivalent) control targeting the seeded URL",
+        "Open an incomplete task and click 'Done'/close without completing; verify status stays Incomplete",
+        "Reopen it and click 'Mark as Complete'",
+        "Verify status changes to Complete in the list and persists after reload"
+      ],
+      "pass_criteria": "Completion is explicit, persistent, and distinct from merely closing the task; external link control present and correct",
+      "evidence": "Screenshots of status before/after completion and of the Open Link control"
+    },
+    {
+      "id": "PRT-10",
+      "feature_id": "prt-file-upload",
+      "criterion": "Speaker can upload a file to their session and classify it (Presentation/Poster/Handout)",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Navigate Submissions > seeded session > Files (or equivalent upload area)",
+        "Upload a small .pptx or .pdf via browse or drag-drop",
+        "Set its type to 'Presentation' (or equivalent category)",
+        "Verify the file appears listed with name and type; reload and verify persistence"
+      ],
+      "pass_criteria": "Upload succeeds, file is listed with its designated category, and persists",
+      "evidence": "Screenshot of upload UI and of listed file with category"
+    },
+    {
+      "id": "PRT-11",
+      "feature_id": "prt-file-upload",
+      "criterion": "File versioning: a new upload can be marked as a new version, with history of prior versions",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "In the session Files area, upload a second file and mark it as a new version of the PRT-10 file",
+        "Expand History/Expand All (or equivalent)",
+        "Verify both versions are listed and individually accessible"
+      ],
+      "pass_criteria": "Versions are linked to one logical file; all versions remain viewable/downloadable",
+      "evidence": "Screenshot of version history showing v1 and v2"
+    },
+    {
+      "id": "PRT-12",
+      "feature_id": "prt-file-comments",
+      "criterion": "Speaker can read and post comments on session content to communicate with admins",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "In the session Files/content area, open comments via Comment/Expand All (or equivalent)",
+        "Verify a seeded admin comment is readable",
+        "Post a reply and verify it appears in the thread and persists after reload"
+      ],
+      "pass_criteria": "Comment thread readable and writable from participant side. Unverified: admin-side receipt/notification of the new comment (needs second account)",
+      "evidence": "Screenshot of thread showing seeded admin comment and posted reply"
+    },
+    {
+      "id": "PRT-13",
+      "feature_id": "prt-file-downloads",
+      "criterion": "Organizer-shared files are listed in a portal Files area and can be opened/downloaded",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Click 'Files' in the portal top navigation",
+        "Verify the seeded organizer file (e.g. 'Speaker Guide.pdf') is listed",
+        "Click it and verify a view or download is initiated"
+      ],
+      "pass_criteria": "Shared file listed and click triggers open/download. Unverified: integrity of the downloaded file content (manual check of the downloaded file if required)",
+      "evidence": "Screenshot of Files widget and of the triggered open/download"
+    },
+    {
+      "id": "PRT-14",
+      "feature_id": "prt-resources-wiki",
+      "criterion": "Resources area lists wiki pages that open as readable formatted content",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Click 'Resources' at the top of the portal",
+        "Verify the seeded wiki page (e.g. 'Event FAQ') is listed in the Resources widget",
+        "Open it and verify formatted content renders"
+      ],
+      "pass_criteria": "Wiki page discoverable under Resources and renders its content",
+      "evidence": "Screenshot of Resources list and rendered wiki page"
+    },
+    {
+      "id": "PRT-15",
+      "feature_id": "prt-profile-account",
+      "criterion": "Account settings reachable from the avatar menu allow changing the login email with persistence",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Click the initials/avatar menu top right and select Account Settings (or equivalent)",
+        "Edit the Email Address field to a new value and click SAVE CHANGES (or equivalent)",
+        "Verify a success state and that the field shows the new value after reload",
+        "Log out and log back in with the new email"
+      ],
+      "pass_criteria": "Email updates persist and become the login credential. Unverified: any email confirmation message sent to old/new address",
+      "evidence": "Screenshots of settings form before/after save; successful re-login with new email"
+    },
+    {
+      "id": "PRT-16",
+      "feature_id": "prt-multi-portal",
+      "criterion": "User associated with multiple portals/events can switch between them from the header",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as seeded user tied to two portals (e.g. speaker portal + sponsor group portal)",
+        "Open the name menu top right and select 'Switch Portals' (or use the top-left event/portal dropdown)",
+        "Switch to the second portal",
+        "Verify the dashboard content changes to the second portal's tasks/branding"
+      ],
+      "pass_criteria": "Switcher lists both portals and switching swaps context without re-login",
+      "evidence": "Screenshots of switcher menu and of both portal dashboards"
+    }
+  ],
+  "sample_data": "Event 'DevConf 2026' with open call (close date +30d) and event 'MedTech Summit 2026' with closed call (close date -7d). Speaker account jane.speaker@example.com / Passw0rd! tied to both events plus a sponsor group portal 'Acme Corp' (for switch-portals test). Seed: one submission 'Scaling LLM Inference in Production' (abstract, track 'AI/ML', format 'Breakout', status Accepted) on DevConf; one past-deadline submission on MedTech; one pending session invitation 'AI Ethics Panel, Sat 10:00 AM' (participant acceptance enabled); 3 tasks \u2014 'Sign speaker agreement' (required, due +14d 11:59 PM ET, Incomplete), 'Register for the event' (external link https://example.com/register, Incomplete), 'Read T&C' (Complete); organizer-shared file 'Speaker Guide.pdf'; wiki page 'Event FAQ' with formatted text; one seeded admin comment on session files ('Please use the event slide template'); local upload fixtures keynote-v1.pptx and keynote-v2.pptx (small); headshot.jpg for profile. Group portal has second member bob.assistant@example.com to validate shared group access.",
+  "gaps": "The 'Add or edit session speakers' article body never rendered (2 fetch attempts returned nav shell); only its access-requirement note was recovered \u2014 co-speaker add/edit/remove mechanics are inferred from category norms. Exact accept/decline button labels for invitations are undocumented (widget names 'Invited Sessions'/'Confirmed Participation' come from the Portals 101 admin guide). Max upload file size and recommended headshot dimensions live in FAQ articles not fetched. Headshot upload location (profile field vs form task) inferred. Task reminder/notification emails and post-acceptance notification flows are not covered in the participant guide (inferred as standard). No screenshots were extractable, so pixel-level layout (widget order, sidebar composition) is approximate. Attendee-facing experience is out of scope of these docs \u2014 participant here means speaker/submitter/exhibitor/sponsor."
+}

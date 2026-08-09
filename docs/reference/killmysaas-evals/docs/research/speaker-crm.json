@@ -1,0 +1,424 @@
+{
+  "area": "speaker-crm",
+  "sources": [
+    "https://www.sessionboard.com/products/speaker-crm",
+    "https://www.sessionboard.com/capabilities/speaker-management",
+    "https://learn.sessionboard.com/en/knowledge-base/8576387-add-on-speaker-crm",
+    "https://learn.sessionboard.com/en/knowledge-base/crm-best-practices",
+    "https://learn.sessionboard.com/en/knowledge-base/creating-crm-fields",
+    "https://learn.sessionboard.com/en/knowledge-base/crm",
+    "https://learn.sessionboard.com/speaker-crm/pipeline.html",
+    "https://learn.sessionboard.com/contacts/contact-profile.html",
+    "https://learn.sessionboard.com/contacts/merge-duplicates.html",
+    "https://learn.sessionboard.com/speaker-crm/speaker-crm-interest-forms.html",
+    "https://learn.sessionboard.com/speaker-crm/crm-add-contact-to-events.html",
+    "https://learn.sessionboard.com/en/knowledge-base/feature-overview-guides",
+    "https://www.sessionboard.com/blog/new-speaker-crm-dashboards-unlock-insights-drive-activation-and-prove-value"
+  ],
+  "fetch_status": "All fetches OK. Primary URL fetched twice (feature + UI-detail passes). WebSearch found learn.sessionboard.com knowledge base which supplied exact UI labels. Three KB URLs under /en/knowledge-base/ (pipeline, contact-profile, merge-duplicates) returned nav-only shells; retried with path-style URLs (learn.sessionboard.com/speaker-crm/pipeline.html, /contacts/contact-profile.html, /contacts/merge-duplicates.html) which succeeded. No fallbacks beyond that; screenshots described only via alt-text.",
+  "summary": "Speaker CRM is SessionBoard's org-level add-on: a persistent, cross-event speaker database sitting above individual events. Its modules are Dashboard (org-wide metrics: total events, contacts, accepted/returning speakers; widgets for Speaker Engagement Flow, Top Companies, Speaker Source, Areas of Focus, Contacts by Region), Pipeline (kanban sourcing workflow with 8 system stages from Researching to Confirmed/Future Fit/Declined, drag-and-drop, enroll with score+rationale, stage history, notes, exit via Assign to event), Directory (all contacts \u2014 speakers, moderators, chairpersons, sponsor contacts, submitters \u2014 with search, Filter panel across Demographics/Relevance/Company/History & Connections/Sessions/Custom categories), Segments (dynamic auto-updating segments vs manually curated lists saved from filtered searches), Fields (custom + system contact fields: Profile, Attribute, Communication categories), and History (campaign and per-email logs with open/click/bounce status). Contacts enter via smart import (CSV/XLSX, \u22641000 rows, auto-mapping, issue flagging), public Interest Forms (year-round intake that auto-creates contacts and Identified-stage pipeline cards), or event submissions. Contact profiles carry bio, headshot, custom fields, internal notes, event/session connections, files, and full activity log; near-duplicates (70-80% email/name match) can be merged. Bulk actions: Communicate (templated email with merge tags), Invite To Event, + Add To Event.",
+  "personas": [
+    "Organizer/Admin (event marketing team, content curator: sources, imports, segments, emails speakers org-wide)",
+    "Org team member (invited via Settings > Team with Organization Access or Selected Events permissions)",
+    "Speaker/Prospect (submits public Interest Form, tracks 'My Submissions' in portal, receives outreach)"
+  ],
+  "user_journeys": [
+    {
+      "name": "Source and confirm a speaker through the pipeline",
+      "persona": "Organizer/Admin",
+      "steps": [
+        "Open org-level CRM Dashboard, see totals for events/contacts/returning speakers",
+        "Go to Directory, click Filter, filter by expertise tag 'AI' AND Job Title 'CTO'",
+        "Open a matching contact profile (pencil icon), review bio, past sessions, ratings, notes",
+        "Enroll the contact in the Pipeline via + Enroll, set starting stage Identified, Score 85, Rationale text",
+        "Select contact in Directory, click Communicate, send templated outreach email",
+        "Drag pipeline card Contacted -> Interested -> Confirmed",
+        "Click Assign to event on the card to hand off into the event speaker workflow"
+      ],
+      "filled_state": "Kanban board with 15-25 cards spread across Researching/Identified/Contacted/Interested/Confirmed columns, each card showing name, company, score; Confirmed column has 3-4 cards; card detail shows stage history timestamps and 2 internal notes"
+    },
+    {
+      "name": "Import and organize the speaker network",
+      "persona": "Organizer/Admin",
+      "steps": [
+        "Go to Library/Fields, + Add Field: dropdown 'Speaker Type' (Internal/External), global level",
+        "In Directory, open Import, generate/download the import template",
+        "Upload CSV of 50 speakers, review auto-mapped columns, fix flagged issues (missing email, bad phone format)",
+        "Complete import, verify 50 rows in Directory with custom column visible via Columns button",
+        "Open a profile flagged with duplicates, click Merge Duplicates, pick Primary, choose values side-by-side, Merge",
+        "Run a filtered search, click Save Segment, save 'AI Experts' as Dynamic Segment and '2025 Keynotes' as Curated List"
+      ],
+      "filled_state": "Directory table with ~50 contacts, columns for Name, Email, Company, Job Title, Tags, Speaker Type; Segments list showing 2 segments with contact counts; one merged contact with unified history"
+    },
+    {
+      "name": "Year-round speaker intake via Interest Form",
+      "persona": "Speaker/Prospect + Organizer/Admin",
+      "steps": [
+        "Organizer: CRM > Interest Forms > + Create Form; wizard: name/title/description, Opens At/Closes At, mode 'Speakers Only'",
+        "Select future events, add fields (First Name, Last Name, Email required), assign managers, configure confirmation email",
+        "Publish form and Copy Link",
+        "Speaker: open public link in fresh session, click Start Submission, fill fields, submit, see on-screen confirmation",
+        "Organizer: verify new contact appears in Directory and a new card sits in the Pipeline Identified stage tagged with its source",
+        "Triage: move card or Assign to event"
+      ],
+      "filled_state": "Interest Forms dashboard showing 1 open form with submission count and unique speaker count; Pipeline Identified column contains fresh cards tagged with the form as source; Directory has the new contacts with Speaker Source = submission form"
+    },
+    {
+      "name": "One-voice bulk outreach with tracking",
+      "persona": "Organizer/Admin",
+      "steps": [
+        "Settings > Email Templates > + Add Template with merge tags, Reply To, CC/BCC",
+        "In Directory, open the 'AI Experts' segment, select all via checkboxes",
+        "Click Communicate, insert template, Review to preview resolved personalization, Send Now",
+        "Open History module: CAMPAIGNS tab shows subject, total recipients, unique opens, sent by, sent at; SENT EMAILS tab shows per-recipient status (Open/Clicked/Bounced/Spam)"
+      ],
+      "filled_state": "History module with 2-3 campaigns and 20+ sent-email rows with mixed statuses; template library with 2 named templates sorted A-Z"
+    }
+  ],
+  "features": [
+    {
+      "id": "crm-directory",
+      "name": "Cross-Event Contact Directory",
+      "description": "Org-level 'Directory' module holding all contacts across every event: speakers, moderators, chairpersons, sponsor/exhibitor contacts, submitters. Persistent across events \u2014 returning speakers' bio, headshot, and session history are already in the system. Table search bar plus per-row edit (pencil icon) to open profile.",
+      "must_have": true,
+      "ui_expectations": "Table/list of contacts with configurable columns (Columns button, up to 25 columns), text search bar, row checkboxes for bulk actions, pencil/edit icon opening contact profile; sits at organization level, not inside a single event"
+    },
+    {
+      "id": "crm-advanced-search",
+      "name": "Advanced Search & Filters",
+      "description": "'Filter' button beside the search bar opens categorized filter panel: Demographics, Relevance, Company, History & Connections, Sessions, Custom. AND logic between different filters, OR within a filter; attribute values show contact counts (e.g. 'CEO (560)'). Supports finding candidates by expertise tags, event history, company.",
+      "must_have": true,
+      "ui_expectations": "Filter button right of search bar; slide-out/panel with grouped filter categories, checkbox values with counts, X icon to exit; result table updates to matching contacts"
+    },
+    {
+      "id": "crm-segments",
+      "name": "Segments & Dynamic Lists",
+      "description": "Save a filtered search as a segment: 'Dynamic Segment' auto-updates as new contacts match the criteria; 'Curated List' is static until manually managed. Segments module lists saved segments for reuse in campaigns.",
+      "must_have": false,
+      "ui_expectations": "'Save Segment' button top-right after filtering; naming dialog with Dynamic vs Curated type choice; Segments section listing segments with contact counts, clickable to open the member list"
+    },
+    {
+      "id": "crm-contact-fields",
+      "name": "Custom & System Contact Fields",
+      "description": "Fields module manages contact attributes in four categories: Custom, Profile (Name, Pronouns, Honorific, Job Title, Company Name, Headshot, Bio), Attribute (Audience Type, Ethnicity, Languages, Speaker Fee), Communication (Phone, Email, Address). '+ Add Field' with Field Name (max 255 chars), Field Type (text, dropdown, checkbox), Description, Field Level (Global applies across all events). System field names editable; dropdown options editable; attribute field type immutable after creation.",
+      "must_have": false,
+      "ui_expectations": "Library > Fields page with field list by category; + Add Field dialog; Save Changes button; fields surface as directory columns and editable inputs on contact profiles; right-click 'Edit Column' to rename in views"
+    },
+    {
+      "id": "crm-contact-profile",
+      "name": "Contact Profile with History",
+      "description": "Central per-contact hub with five tabs: 'Profile' (fields, headshot, bio, address/social links, global attributes, custom fields, portal task progress, additional contacts), 'Notes' (internal, not visible to contact), 'Connections' (events, sessions, and segments the contact is involved in), 'Files' (all files tied to contact and their sessions), 'Activity' (all communications sent plus record changes). Accumulates cross-event history: sessions delivered, ratings, content, communication logs.",
+      "must_have": true,
+      "ui_expectations": "Profile detail view/drawer with 5 named tabs (or equivalents); editable fields; notes composer; chronological activity feed; lists of linked events/sessions/segments"
+    },
+    {
+      "id": "crm-import",
+      "name": "Smart Import",
+      "description": "Import contacts via generated template that auto-maps columns; flags data issues before commit. Accepts CSV/XLSX/XLS, max 1000 records/file; modes for New Contacts vs Update Existing Contacts. Requires First Name, Last Name, unique Email; cannot import file attachments (headshots) or currency fields (documented limits).",
+      "must_have": false,
+      "ui_expectations": "Import entry point in CRM module with template download, file upload, column-mapping/validation step showing flagged issues, then confirmation; imported rows appear in Directory"
+    },
+    {
+      "id": "crm-dedupe-merge",
+      "name": "Duplicate Detection & Merge",
+      "description": "System surfaces likely duplicates at 70-80% match on email or name. 'Merge Duplicates' action at top of affected profiles: check 2-3 contacts, designate one Primary, side-by-side comparison to pick which values to retain; primary inherits event-level fields, notes, additional contacts. Merge is irreversible (warning shown).",
+      "must_have": false,
+      "ui_expectations": "Merge Duplicates button/banner on profiles with detected duplicates; selection step, Primary designation, side-by-side field chooser, Merge confirm with cannot-be-undone caution, success message; single surviving record afterward"
+    },
+    {
+      "id": "crm-pipeline",
+      "name": "Speaker Sourcing Pipeline (Kanban)",
+      "description": "Kanban workflow from identification to confirmation with 8 system stages: Researching, Identified, Approved, Contacted, Interested (Open); Confirmed (Won); Future Fit (Nurture); Declined (Lost). Stages renameable (behavior preserved), reorderable, plus '+ Add custom stage'. Contacts enroll via '+ Enroll' (pick prospect, starting stage, optional Score 0-100 and Rationale) or automatically from Interest Form submissions (land in Identified, tagged with source). Cards move by drag-and-drop or 'Move to' quick action; 'Assign to event' exits the pipeline into normal event speaker workflows.",
+      "must_have": true,
+      "ui_expectations": "Kanban board with named stage columns, draggable cards showing contact name/company/score; + Enroll button; card detail with Move to menu and Assign to event action; Stages management UI for rename/reorder/add"
+    },
+    {
+      "id": "crm-pipeline-card-detail",
+      "name": "Pipeline Card Notes & Stage History",
+      "description": "Opening a card reveals activity logs filterable by User/Agent/System/Rule, internal Notes, scouting reports, and 'Stage History' listing every stage transition with timestamps.",
+      "must_have": false,
+      "ui_expectations": "Card detail panel/modal with notes composer, activity feed with source filter, and timestamped stage-transition history"
+    },
+    {
+      "id": "crm-interest-forms",
+      "name": "Interest Forms (Year-Round Intake)",
+      "description": "Public forms collecting speaker/session interest outside CFP windows. Modes: 'Sessions & Speakers' or 'Speakers Only'. 5-step wizard: Form Details (internal name, public title, description, Opens At/Closes At), Events (future-dated only), Form Fields (First/Last/Email required; Session Title required in session mode), Managers, Notifications (submitter confirmation + admin alerts). On submission: contact auto-created in CRM and pipeline card auto-created in Identified stage. Dashboard tabs: Forms, Submissions, Speakers; quick actions View Form, Edit Form, Copy Link. Speakers see 'Open Programs' and 'Start Submission' in portal, track via 'My Submissions'; multiple proposals per form allowed; auto-close at Closes At.",
+      "must_have": false,
+      "ui_expectations": "+ Create Form button launching multi-step wizard; forms list with submission and unique-speaker counts; shareable public URL rendering a submission form without login; confirmation screen after submit"
+    },
+    {
+      "id": "crm-communications",
+      "name": "Bulk Communication & Event Invites",
+      "description": "Select contacts in Directory to reveal 'Communicate' (custom email) and 'Invite To Event' (session submission invitations). Compose flow: recipients, 'Replies sent to', subject, body with template insertion and merge tags; 'Review' preview then 'Send Now'. Email templates managed at Settings > Email Templates ('+ Add Template': name, type Contacts/Awards, Reply To, up to 5 CC/BCC, subject, body with merge tags; listed A-Z). Default sender no-reply@sessionboard.com unless custom domain configured (inferred equivalent for clones: any default sender).",
+      "must_have": false,
+      "ui_expectations": "Checkbox selection reveals Communicate / Invite To Event buttons; composer modal with template picker and merge-tag personalization; Review preview step before Send Now; template CRUD screen"
+    },
+    {
+      "id": "crm-email-history",
+      "name": "Email History & Engagement Tracking",
+      "description": "'History' module logs every email sent by the team. 'CAMPAIGNS' tab: Subject Line, Module, Total Recipients, Unique Opens, Sent By, Sent At. 'SENT EMAILS' tab: per-recipient rows with name/email, Subject, Status (Open/Clicked/Bounced/Spam), Sent By, Sent At.",
+      "must_have": false,
+      "ui_expectations": "History section with two tabs; sortable tables of campaigns and individual sends with engagement status badges"
+    },
+    {
+      "id": "crm-dashboard",
+      "name": "CRM Dashboard & Analytics",
+      "description": "Org-wide metrics: total events, contacts, accepted and returning speakers, plus quick-start tools. Widgets: 'Speaker Engagement Flow'/Funnel (outreach through acceptance: email counts, acceptances, multi-event associations), 'Top Companies', 'Speaker Source' (submission forms, applications, manual/import), 'Areas of Focus' (driven by Tags field), 'Contacts by Region' (City/State/Zip/Country). Clicking a company or focus area drills into a segmented contact list.",
+      "must_have": false,
+      "ui_expectations": "Dashboard landing page with KPI counters and 4-5 chart widgets; widget elements clickable through to filtered Directory views"
+    },
+    {
+      "id": "crm-add-to-event",
+      "name": "Add Contacts to Event",
+      "description": "From Directory, check contacts and click '+ Add To Event'; modal to select the target event and confirm. One event per action. CRM data carries into the event context without re-keying (role assignment on add not documented; standard behavior is speaker/contact role selection (inferred)).",
+      "must_have": false,
+      "ui_expectations": "+ Add To Event toolbar button appearing on selection; event-picker modal; contact subsequently visible in that event's contacts/speakers module with profile data intact"
+    },
+    {
+      "id": "crm-team-permissions",
+      "name": "Team & Access Management",
+      "description": "Settings > Team: 'Invite User' (Email, First Name, Last Name), 'Active User' toggle (deactivated users lose org access), 'Organization Access' for CRM-wide rights, or 'Selected Events' for event-scoped permissions. Org settings also cover Details (name, URL slug, logo, banner), Email templates, Integrations, API tokens.",
+      "must_have": false,
+      "ui_expectations": "Team settings page listing members with status; Invite User form with access-scope controls (org-wide vs selected events)"
+    }
+  ],
+  "rubric": [
+    {
+      "id": "CRM-01",
+      "feature_id": "crm-directory",
+      "criterion": "An org-level speaker directory exists outside any single event, listing contacts across events in a searchable table",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as organizer/admin",
+        "Navigate to the org-level CRM area (nav item like 'CRM', 'Speaker CRM', or 'Directory' outside a specific event)",
+        "Confirm a table of contacts with at least name/email columns and multiple rows",
+        "Type a known contact's name into the search bar",
+        "Confirm the table filters to that contact"
+      ],
+      "pass_criteria": "Directory reachable at organization level (not nested under one event); table renders contacts; text search narrows results to matches",
+      "evidence": "Screenshot of full directory table and screenshot of filtered result after search"
+    },
+    {
+      "id": "CRM-02",
+      "feature_id": "crm-advanced-search",
+      "criterion": "A multi-criteria filter panel narrows the directory by field values (e.g. job title, company, tags) with combinable filters",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "In the directory, click the Filter (or equivalent) control near the search bar",
+        "Confirm a panel with multiple filter categories/fields opens",
+        "Apply one attribute filter (e.g. Job Title or Tag) and note result count",
+        "Add a second filter and confirm the result set changes consistently (AND across filters)",
+        "Clear/exit filters and confirm full list returns"
+      ],
+      "pass_criteria": "Filter panel exists, at least two different fields filterable, combined filters produce a consistent narrowed set, filters clearable",
+      "evidence": "Screenshots of open filter panel, filtered results with active filter chips/criteria visible, and restored unfiltered list"
+    },
+    {
+      "id": "CRM-03",
+      "feature_id": "crm-segments",
+      "criterion": "A filtered search can be saved as a segment; a dynamic segment auto-includes newly matching contacts, distinct from a static curated list",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Apply a filter (e.g. Company = 'Acme')",
+        "Click Save Segment (or equivalent), name it, choose the dynamic/auto-updating type",
+        "Open the Segments area and confirm the segment lists the matching contacts",
+        "Create a new contact matching the criteria (manual add or import)",
+        "Reopen the segment and confirm the new contact appears without manual addition"
+      ],
+      "pass_criteria": "Segment persists and reopens with correct members; dynamic segment gains the newly created matching contact; UI distinguishes dynamic vs curated/static type at creation",
+      "evidence": "Screenshots of segment creation dialog showing type choice, segment member list before and after adding the matching contact"
+    },
+    {
+      "id": "CRM-04",
+      "feature_id": "crm-contact-fields",
+      "criterion": "Custom contact fields can be created (with at least text and dropdown types) and appear on contact profiles and as directory columns",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Open the Fields management area (e.g. Library > Fields)",
+        "Click + Add Field; create dropdown field 'Speaker Type' with options Internal/External at global level",
+        "Open a contact profile and confirm the new field is present and settable",
+        "Set a value and save; reload and confirm persistence",
+        "In the directory, add the field as a visible column and confirm the value shows"
+      ],
+      "pass_criteria": "Field creation dialog offers name + type selection; created field is editable on profiles, persists values, and is exposable as a directory column",
+      "evidence": "Screenshots of field-creation dialog, profile showing the field with saved value after reload, directory with the custom column"
+    },
+    {
+      "id": "CRM-05",
+      "feature_id": "crm-contact-profile",
+      "criterion": "Contact profiles show identity fields plus internal notes and cross-event involvement (events/sessions history), and an activity log",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Open a contact from the directory (edit/pencil or row click)",
+        "Confirm profile shows name, email, job title/company, bio/headshot area",
+        "Locate a Notes tab/section; add an internal note and save; reload and confirm it persists",
+        "Locate a Connections/history section listing events and/or sessions the contact is tied to",
+        "Locate an Activity section showing sent communications and/or record changes"
+      ],
+      "pass_criteria": "Profile has identity fields, persistent internal notes (labeled or documented as not visible to the contact), an events/sessions involvement view, and an activity/audit trail; tab names may differ from SessionBoard's Profile/Notes/Connections/Files/Activity",
+      "evidence": "Screenshots of profile main view, saved note after reload, connections/history section, activity feed"
+    },
+    {
+      "id": "CRM-06",
+      "feature_id": "crm-import",
+      "criterion": "Contacts can be bulk-imported from a spreadsheet with column mapping and validation of bad rows",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Prepare fixture CSV with 3 valid contacts and 1 invalid row (missing email)",
+        "Open the CRM import flow; if a template is offered, note it",
+        "Upload the CSV via the file input",
+        "Complete/verify column mapping",
+        "Confirm the invalid row is flagged or rejected with a reason",
+        "Finish import and confirm the 3 valid contacts appear in the directory"
+      ],
+      "pass_criteria": "Import accepts CSV, maps columns (auto or manual), surfaces data issues rather than silently importing bad rows, and valid contacts land in the directory",
+      "evidence": "Screenshots of mapping/validation step showing the flagged row and directory rows for the 3 imported contacts"
+    },
+    {
+      "id": "CRM-07",
+      "feature_id": "crm-dedupe-merge",
+      "criterion": "Near-duplicate contacts are detected and can be merged into a chosen primary record with field-level value selection",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Create two contacts with the same name and similar emails (jane.doe@acme.com / jane.doe@gmail.com)",
+        "Open one profile and look for a duplicate indicator or Merge Duplicates action",
+        "Start the merge, select both contacts, designate a Primary",
+        "In the comparison view pick values from each record",
+        "Confirm merge (note any irreversibility warning) and verify only one record remains with the chosen values"
+      ],
+      "pass_criteria": "System surfaces suspected duplicates (fuzzy match on name/email), merge flow allows primary selection and per-field value choice, surviving record carries selected data, other record gone from directory",
+      "evidence": "Screenshots of duplicate indicator, side-by-side merge comparison, and post-merge single record; directory count before/after"
+    },
+    {
+      "id": "CRM-08",
+      "feature_id": "crm-pipeline",
+      "criterion": "A kanban sourcing pipeline exists with staged columns covering an open->won/lost lifecycle; contacts can be enrolled and moved between stages with persistence",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Open the Pipeline module from the CRM nav",
+        "Confirm a kanban board with named stage columns approximating Researching/Identified/Approved/Contacted/Interested (open), Confirmed (won), Future Fit (nurture), Declined (lost) \u2014 renamed equivalents acceptable",
+        "Enroll a directory contact via + Enroll (or equivalent), choosing a starting stage; add score/rationale if offered",
+        "Move the card to another stage via drag-and-drop or a Move-to action",
+        "Reload the page and confirm the card remains in the new stage"
+      ],
+      "pass_criteria": "Kanban board with at least 5 distinct stages including terminal confirmed/declined semantics; enrollment from the contact database works; stage moves persist across reload",
+      "evidence": "Screenshots of the full board, the enroll dialog, and the card in its new column after reload"
+    },
+    {
+      "id": "CRM-09",
+      "feature_id": "crm-pipeline-card-detail",
+      "criterion": "Pipeline cards open to a detail view with internal notes and a timestamped stage-transition history",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Open a pipeline card that has been moved at least once",
+        "Add an internal note and save; confirm it renders",
+        "Locate the stage history / activity showing each transition with a timestamp",
+        "Reload and confirm note and history persist"
+      ],
+      "pass_criteria": "Card detail exposes persistent notes and a chronological record of stage changes with timestamps (an activity log including the moves is acceptable)",
+      "evidence": "Screenshot of card detail showing the saved note and the transition history entries"
+    },
+    {
+      "id": "CRM-10",
+      "feature_id": "crm-interest-forms",
+      "criterion": "A public interest form can be created and published; an external submission auto-creates a CRM contact and a pipeline entry in the identified/intake stage",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "In CRM > Interest Forms (or equivalent), click + Create Form; complete wizard: title, open/close dates, speakers-only mode, required First/Last/Email fields",
+        "Publish the form and copy its public link",
+        "Open the link in a fresh incognito/browser context (no login)",
+        "Submit as 'Pat Newspeaker' with a unique email; confirm on-screen confirmation",
+        "Back as admin: confirm the contact exists in the directory",
+        "Confirm a new pipeline card for that contact sits in the Identified/intake stage with its source noted"
+      ],
+      "pass_criteria": "Form builds and publishes to a URL usable without authentication; submission creates both a directory contact and a pipeline card automatically; form dashboard reflects the submission count",
+      "evidence": "Screenshots of public form, confirmation screen, new directory row, and pipeline card in intake stage"
+    },
+    {
+      "id": "CRM-11",
+      "feature_id": "crm-communications",
+      "criterion": "Bulk email can be composed to selected contacts/segments from the directory, with template insertion, merge-tag personalization, and a preview step",
+      "weight": 1,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Create an email template with a merge tag (e.g. {{first_name}}) in the template settings area",
+        "In the directory, select 2+ contacts via checkboxes; confirm a Communicate/Send Email action appears",
+        "Compose using the template; confirm subject/body populate and a reply-to field exists",
+        "Use the Review/preview step; confirm merge tags resolve to real contact values",
+        "Send"
+      ],
+      "pass_criteria": "AUTO: selection reveals a communicate action; template inserts; preview shows personalized resolution; send completes without error. UNVERIFIED BY AGENT: actual email delivery to inboxes \u2014 human confirms receipt at a test mailbox with correct personalization",
+      "evidence": "Screenshots of composer with template, preview showing resolved merge tags, and post-send success state"
+    },
+    {
+      "id": "CRM-12",
+      "feature_id": "crm-email-history",
+      "criterion": "A history module logs sent communications with campaign-level and per-recipient rows including who sent, when, and engagement status",
+      "weight": 1,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "After executing CRM-11's send, open the History (or equivalent) module",
+        "Confirm a campaign-level entry with subject, recipient count, sender, timestamp",
+        "Confirm per-recipient rows exist with a status field (e.g. Sent/Open/Clicked/Bounced)"
+      ],
+      "pass_criteria": "AUTO: the send is logged at both campaign and per-recipient granularity with sender and timestamp. UNVERIFIED BY AGENT: open/click statuses actually updating requires a real recipient opening the email \u2014 human opens the test email and re-checks the status field",
+      "evidence": "Screenshots of campaigns tab and sent-emails tab showing the logged send"
+    },
+    {
+      "id": "CRM-13",
+      "feature_id": "crm-dashboard",
+      "criterion": "A CRM dashboard shows org-wide KPI counts and analytics widgets (companies, source, region/focus), with click-through to filtered contact lists",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "Open the CRM dashboard/landing page",
+        "Confirm KPI counters (total contacts and at least one other, e.g. events or returning speakers) and cross-check the contact count against the directory total",
+        "Confirm at least two analytics widgets render with fixture data (e.g. top companies, speaker source, region)",
+        "Click a widget element (e.g. a company name) and confirm navigation to a contact list filtered to that value"
+      ],
+      "pass_criteria": "Dashboard exists with accurate counts matching directory data, at least two populated widgets, and at least one widget supporting drill-through to a segmented list",
+      "evidence": "Screenshots of dashboard with widgets and of the filtered list reached via click-through; noted count comparison"
+    },
+    {
+      "id": "CRM-14",
+      "feature_id": "crm-add-to-event",
+      "criterion": "Directory contacts can be pushed into a specific event, appearing in that event's contacts/speakers module with profile data intact",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "In the directory, select a contact via checkbox",
+        "Click + Add To Event (or equivalent) and choose a target event in the modal; confirm",
+        "Navigate into that event's contacts/speakers module",
+        "Confirm the contact is listed with name/email/bio carried over (no re-entry)"
+      ],
+      "pass_criteria": "Add-to-event action exists from the org directory, event picker works, and the contact's CRM data is present in the event context afterward",
+      "evidence": "Screenshots of the event-picker modal and the contact inside the event's speaker/contact list"
+    },
+    {
+      "id": "CRM-15",
+      "feature_id": "crm-team-permissions",
+      "criterion": "Org team management supports inviting users with org-wide vs event-scoped access controls",
+      "weight": 1,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Open Settings > Team (or equivalent)",
+        "Click Invite User; confirm form takes email/first/last and offers an access scope (organization access vs selected events) and an active/deactivate control",
+        "Submit the invite and confirm the user appears in the team list (e.g. pending state)"
+      ],
+      "pass_criteria": "AUTO: invite form with scope options exists and the invitee is listed after submission. UNVERIFIED BY AGENT: the invited user actually receiving the email and logging in with correctly scoped access \u2014 human accepts the invite from a second mailbox and confirms they can see only permitted events/CRM",
+      "evidence": "Screenshots of invite form showing scope controls and team list including the new invitee"
+    }
+  ],
+  "sample_data": "~50 speaker contacts with unique emails; fields: first/last name, pronouns, honorific, job title, company, bio (2-3 sentences), headshot URL, phone (+1 format), city/state/country, tags/areas of focus (AI, DevOps, Healthcare, Marketing, Leadership), languages, speaker fee, audience type, custom dropdown 'Speaker Type' (Internal/External). Distribution: ~10 companies (Acme Corp x6, Globex x4...) and ~8 countries for dashboard widgets; speaker source mix (import / submission form / manual). Include 2 near-duplicate pairs (same name, work vs gmail email) for merge tests, and 1 CSV fixture of 3 valid + 1 invalid row (missing email) for import tests. Cross-event history: 3 fictional events ('DevConf 2025' past, 'HealthTech Summit 2026' and 'AI Leaders Forum 2026' future-dated) with 15 contacts linked to past sessions/ratings for returning-speaker metrics. Pipeline: 18 cards across Researching(4)/Identified(5)/Contacted(3)/Interested(2)/Confirmed(3)/Declined(1), scores 40-95 with rationale text. Segments: dynamic 'AI Experts' (tag=AI), curated '2025 Keynotes' (5 hand-picked). 2 email templates with {{first_name}} merge tags; 2 sent campaigns with mixed per-recipient statuses. 1 published interest form 'Year-Round Speaker Interest 2026' (Speakers Only, open now, closes in 90 days).",
+  "gaps": "Not learnable from sources: exact pipeline card layout/fields beyond score+rationale; what role a contact receives when added to an event (marked inferred); dashboard chart types (funnel vs bar) and exact drill-through behavior beyond 'click company -> segmented list'; whether directory supports export; whether SMS is available at CRM level (SMS documented only for event-level speaker management); duplicate-detection algorithm beyond the stated '70-80% match on email or name'; 'scouting reports' on pipeline cards mentioned but undefined; AI-agent/rule activity filters on cards implied but undocumented. Screenshots were only accessible as alt-text summaries, so pixel-level UI layout is inferred. Speaker CRM is a paid add-on (contact support to enable), so trial verification against the real product was not possible; all behavior comes from vendor marketing + knowledge base. Category norms (Sessionize/Cvent) were used only for the add-to-event role inference; everything else is documented behavior."
+}

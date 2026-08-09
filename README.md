@@ -1,4 +1,8 @@
-# Welcome to React Router + Cloudflare Workers!
+# OpenRostrum
+
+**The open-source Sessionboard alternative** — conference speaker, session, and program management: CFP forms, speaker portals, submission review, agenda building, speaker comms. Free, self-hostable, Cloudflare-native. Built for swyx's Kill My SaaS 1 hackathon.
+
+> Full product README coming with the submission; docs live in `SCOPE.md`, `docs/`, and `docs/JUDGING.md` (for graders).
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/react-router-starter-template)
 

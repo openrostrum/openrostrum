@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head><title>sbek smoke page</title></head>
+<body>
+  <h1>Call for Papers</h1>
+  <nav><a href="#sessions">Sessions</a> <a href="#speakers">Speakers</a></nav>
+  <form id="cfp">
+    <label>Talk title <input name="title" placeholder="Your talk title"></label>
+    <label>Track
+      <select name="track">
+        <option>AI Engineering</option>
+        <option>Platform &amp; Infra</option>
+      </select>
+    </label>
+    <label>Abstract <textarea name="abstract"></textarea></label>
+    <label>Slides <input type="file" name="slides"></label>
+    <button type="button" id="submit-btn" onclick="document.getElementById('ok').textContent='Submission received: '+document.querySelector('[name=title]').value">Submit proposal</button>
+  </form>
+  <p id="ok"></p>
+
+  <h2>Agenda (drag-and-drop)</h2>
+  <div id="pool">
+    <div id="card" draggable="true" role="button" style="border:1px solid #333;padding:8px;width:200px">SESS-1 Taming 40-Minute CI</div>
+  </div>
+  <div id="slot" role="button" style="border:2px dashed #999;padding:20px;width:260px;margin-top:12px">Main Stage 10:00 (empty slot)</div>
+  <p id="placed"></p>
+  <script>
+    const card = document.getElementById('card');
+    const slot = document.getElementById('slot');
+    const place = () => {
+      slot.textContent = 'Main Stage 10:00 — SESS-1 Taming 40-Minute CI';
+      document.getElementById('placed').textContent = 'Scheduled: SESS-1 at Main Stage 10:00';
+    };
+    // HTML5 drag-and-drop
+    card.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', 'SESS-1'));
+    slot.addEventListener('dragover', e => e.preventDefault());
+    slot.addEventListener('drop', e => { e.preventDefault(); place(); });
+    // Pointer-based fallback path (mouse down on card, up on slot)
+    let dragging = false;
+    card.addEventListener('mousedown', () => { dragging = true; });
+    slot.addEventListener('mouseup', () => { if (dragging) { dragging = false; place(); } });
+    document.addEventListener('mouseup', () => { dragging = false; });
+  </script>
+</body></html>

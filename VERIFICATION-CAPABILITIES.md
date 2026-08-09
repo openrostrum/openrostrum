@@ -3,7 +3,7 @@
 > ## 🚧 HARD GATE — do not start build work until this list is solved
 > No scaffolding, no coding, no screen-building, no agent swarm — **nothing** — until every capability below is **Provisioned** (an agent can reach and exercise it with zero human help). The swarm is only reliable if every functional claim can be self-verified by the agent. Until then, work stops here.
 >
-> **Owner of the gate:** Val. **Status:** 🔴 OPEN (0 / 9 provisioned). Last updated 2026-08-08.
+> **Owner of the gate:** Val. **Status:** 🔴 OPEN (0 / 10 provisioned). Last updated 2026-08-09.
 
 ## Principle
 We do **not** write the tests or dictate the method (no mandated Playwright, no mandated anything). **We provision access; the agent picks how to verify.** Our only job is to remove every "I can't check this because I lack access to X" blocker. A feature is not "done" until the paired reviewer agent has *exercised the real thing* and shown the result — not eyeballed a screenshot.
@@ -27,6 +27,9 @@ Priority order = judge-replay path first. "Acceptance" = what proves an agent ca
 | 7 | **Airtable one-way sync** (P2) | change a record in-app, then read Airtable to confirm | Airtable base + API token wired | agent mutates in-app, reads the synced row in Airtable | 🔴 |
 | 8 | **API compatibility** (P2) | hit our API, diff response shapes vs spec | the Sessionboard OpenAPI (have it) + HTTP access | agent diffs a core endpoint's envelope against the spec | 🔴 |
 | 9 | **Performance (<1s)** | measure real load against the deployed URL | deployed target + timing capability | agent records sub-1s loads on the demo path | 🔴 |
+| 10 | **The judges' own harness** | run swyx's eval kit end-to-end against our deploy and read the scored report | `docs/reference/killmysaas-evals/` (vendored, runnable: `npm install && npm run eval -- --url <ours>`) + `ANTHROPIC_API_KEY` (~$2–10/run) | a full 01→06 run produces `report.html` with ≥60% coverage and per-area scores we've read and acted on (crosswalk: `docs/eval-crosswalk.md`) | 🔴 |
+
+> **Cost policy for #10 (binding):** the kit is **integration-owner-only — feature agents NEVER run it** (their oracles are the free local ones above). Paid runs are budgeted: a few area-scoped checkpoints after major waves (`--areas … --agent-model claude-haiku-4-5 --judge-model claude-haiku-4-5 --max-turns 18`, ~cents–$1 each) + ONE full Sonnet-agent/Opus-judge run against the deploy on Aug 11 + one subset re-run of failed areas. Everything else uses the free modes: `npm run smoke` (offline), `--dry-run` (validate/plan, no API calls), `rescore`/`finalize` (re-score stored evidence, no API calls). Total ceiling ≈ $40.
 
 ---
 

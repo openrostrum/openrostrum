@@ -1,0 +1,213 @@
+# Scenarios — Admin review, accept/decline queues, evaluation & the accept spine.
+# Ground truth: SCOPE.md P0 #4/#5, docs/flows/04 + 05, docs/flows/verification/B + C,
+# docs/reference/discord/CLARIFICATIONS.md (3-state review floor, many-to-many track
+# routing, accept→auto-provision, committed decision-feedback email).
+#
+# SEED BASELINE (fresh `db:reset`-equivalent; scenarios run in order RV-S1 → RV-S8 on one instance):
+#   Event "AI.Engineer Sandbox Event", Oct 12–14 2026, TZ America/Los_Angeles.
+#   Tracks: AI Infrastructure · Developer Experience · Security · Product & Design.
+#   300 submitted submissions (220 Abstracts / 80 Sessions):
+#     Pending 173 · Accepted 58 · Accept Queue 24 · Decline Queue 19 · Declined 15 · Withdrawn 11,
+#     plus 40 Drafts. Submissions carry ≥1 track (many-to-many; ~25 carry two).
+#   Named fixtures (all Abstracts unless noted; submitter has a working portal login):
+#     "Prompt Injection Field Notes"                          Pending, tracks [Security, AI Infrastructure], Priya Nair <priya.nair@example.com>
+#     "Legacy Monolith Confessions"                           Pending, track [Product & Design], Tom Novak <tom.novak@example.com>
+#     "Edge-Native Vector Search on D1"                       Accept Queue, [AI Infrastructure], Marco Silva <marco.silva@example.com>
+#     "Shipping .ics That Gmail Actually Parses"              Accept Queue, [Developer Experience], Dana Kim <dana.kim@example.com>
+#     "Observability for Workers: Tracing Across Service Bindings"  Pending, [AI Infrastructure], submitter Alex Okafor <alex.okafor@example.com> + co-speaker Jun Park <jun.park@example.com>
+#     "Realtime Collab on Durable Objects"                    Accept Queue, [Developer Experience], Ines Moreau <ines.moreau@example.com>
+#     "RAG Evals Beyond Vibes"                                Pending, [Security, AI Infrastructure], Omar Haddad <omar.haddad@example.com>
+#     "SOC 2 for Startups: A War Story"                       Pending, [Security] ONLY, Lena Fischer <lena.fischer@example.com>
+#     "Edge Case Testing for LLM Apps"                        Pending, [Developer Experience], Sam Rivera <sam.rivera@example.com>
+#   Seeded reviewer: Ben Ito <ben.ito@example.com>, track [AI Infrastructure], with an existing
+#   Approve + comment recorded on "RAG Evals Beyond Vibes".
+#   Literal counts below are this fresh-seed baseline; when suites run back-to-back, the paired
+#   DB-count signal is authoritative over the literal number.
+
+module: review-accept
+# `touches` filled by the WALKER 2026-08-09 — see docs/scenarios/walks/05-review-accept.walk.md
+touches:
+  tables:
+    [
+      events,
+      users,
+      authSessions,
+      passwordResets,
+      contacts,
+      participants,
+      submissions,
+      submissionTracks,
+      tracks,
+      formats,
+      reviews,
+      reviewerTracks,
+      tasks,
+      taskAssignments,
+      portalForms,
+      emailTemplates,
+      emailOutbox,
+      emailSuppressions,
+    ]
+  ports: [email] # EmailSender (local adapter = email_outbox sink; ics built by the `ics` util, not a port)
+  domain: [app/domain/accept.ts] # the accept spine (CLAUDE.md Wave 2) — RV-S3/S4/S5 all route through it
+  routes:
+    [
+      login.tsx,
+      403.tsx,
+      admin.submissions.tsx,
+      admin.abstracts.tsx,
+      admin.sessions.tsx,
+      admin.submissions.$id.tsx,
+      admin.evaluation.tsx,
+      admin.agenda.tsx,
+      portals.$eventSlug.$portalId.tsx,
+    ]
+  # MISSING from ROUTE-MAP (walk gaps G3/G4): a set-password route for the reviewer-invite
+  # link (e.g. reset-password.$token.tsx) and a reviewer-facing My Reviews route (e.g.
+  # reviews.tsx) — RV-S6/RV-S7 cannot execute without them.
+scenarios:
+  - id: RV-S1
+    name: All Submissions table holds up at 300 rows — tabs, counts, search, sort, pagination, type split
+    persona: admin
+    steps: |
+      1. Reset to the seed baseline. Log in as the seeded admin and open All Submissions.
+      2. Read the status tabs: All (300) · Accepted (58) · Accept Queue (24) · Pending (173) · Decline Queue (19) · Declined (15) · Withdrawn (11) · Drafts (40).
+      3. Verify pagination: 25 rows per page, a "1–25 of 300" range indicator, and working navigation to page 2 and to the last page (12).
+      4. Type "vector" in search → the table filters to the matching rows, including "Edge-Native Vector Search on D1". Clear the search → all 300 return.
+      5. Sort by Title A→Z and confirm the first page is alphabetical; re-sort by submitted date, newest first.
+      6. Click the Pending tab → only Pending rows show and the range indicator reads 173 total.
+      7. Open the Abstracts view → 220 rows; open the Sessions view → 80 rows; confirm "Closing Keynote: The Post-SaaS Stack" (a Session) appears under Sessions and All, but NOT under Abstracts.
+      8. Unhappy path: search "zzzz-no-such-talk" → an explicit empty state (no blank/broken table).
+    success_signals:
+      - "Status tab counts sum to 300 and each equals the matching DB count (screenshot + SQL cross-check)."
+      - "Pagination is real at 300 rows: page 12 reachable, range indicator correct, no row rendered twice."
+      - "Abstracts (220) + Sessions (80) partition All (300); the named Session fixture never leaks into Abstracts."
+      - "Empty search state shows a designed message, not a raw empty grid."
+      - "EXPERIENCE: search and tab switches filter in under 1s with no full-page reload and no skeleton-screen theater at 300 rows."
+
+  - id: RV-S2
+    name: Accept Queue is silent staging — portal masks it as Pending and zero email leaves
+    persona: admin
+    steps: |
+      1. In All Submissions, find "Prompt Injection Field Notes" (Pending). Click its status pill → the dropdown offers exactly Accepted / Accept Queue / Pending / Decline Queue / Declined → pick Accept Queue → save. Note the wall-clock time T.
+      2. Confirm the row's pill now reads Accept Queue and the tabs update to Pending (172) / Accept Queue (25) without a full page reload.
+      3. Repeat for "Legacy Monolith Confessions" → Decline Queue (tabs: Pending 171 / Decline Queue 20).
+      4. Query the email outbox: zero rows addressed to priya.nair@example.com or tom.novak@example.com with sent-at ≥ T.
+      5. In an incognito window, log in to the speaker portal as priya.nair@example.com → her submission shows the Pending state (pending pill/icon); the string "Accept Queue" appears nowhere in the portal page source.
+      6. Same check as tom.novak@example.com → his submission shows Pending, never "Decline Queue".
+      7. Back as admin, reload All Submissions → both queue statuses persisted.
+    success_signals:
+      - "Outbox query returns 0 rows for both speakers after the flips — status changes NEVER auto-send email."
+      - "Portal screenshot: queued submissions render as Pending; grep of portal HTML finds no 'Accept Queue' / 'Decline Queue' text for a speaker session."
+      - "Admin pill and tab counts reflect the queue statuses immediately and survive reload."
+      - "EXPERIENCE: inline status change is click-pill → pick → save in place — no navigation away, no full-page reload, live tab counts."
+
+  - id: RV-S3
+    name: Bulk accept end-to-end — template email with .ics, flip to final, double-submit is idempotent
+    persona: admin
+    steps: |
+      1. Open the Accept Queue tab (25 after RV-S2). Check the boxes for "Edge-Native Vector Search on D1" and "Shipping .ics That Gmail Actually Parses" → a bulk action bar appears showing 2 selected.
+      2. Choose Send Emails → pick the event's "Accept Sessions" template → the preview lists exactly marco.silva@example.com and dana.kim@example.com → Send. Note time T.
+      3. Flip both to Accepted (via the send flow's finalize step if it offers one, otherwise bulk status edit → Accepted).
+      4. Verify the table: both rows read Accepted; tabs now Accept Queue (23) / Accepted (60).
+      5. Query the outbox for sent-at ≥ T: exactly 2 rows — one per recipient — each with subject equal to the Accept Sessions template's subject and one .ics attachment.
+      6. Parse one .ics: valid VCALENDAR containing a VEVENT whose SUMMARY references the event/session and whose DTSTART falls in Oct 12–14 2026.
+      7. Double-submit probe: immediately re-trigger the identical send (double-click Send / re-submit the confirmation) → re-query the outbox: still exactly 2 rows for this send, no duplicates.
+      8. Incognito: dana.kim@example.com's portal now shows "Accepted" on her submission.
+    success_signals:
+      - "Outbox has exactly 2 rows post-send (SQL count), recipients match the selection, subject matches the template."
+      - ".ics attachment parses as VCALENDAR/VEVENT with plausible event dates (automated parse, not eyeball)."
+      - "Double-submit leaves the outbox at 2 rows — the bulk send is idempotent."
+      - "Both submissions end Accepted; the portal shows the final status only after the flip (queue masking held until then per RV-S2)."
+      - "EXPERIENCE: selecting rows summons the bulk bar in place; the whole select → send → finalize loop completes without a full-page reload."
+
+  - id: RV-S4
+    name: Accepting auto-provisions the spine — speakers, session, hotel/flight tasks, and it never double-fires
+    persona: admin
+    steps: |
+      1. Record the pre-state by DB query for "Observability for Workers: Tracing Across Service Bindings" (Pending): no agenda-session record, no onboarding task assignments for alex.okafor@example.com or jun.park@example.com.
+      2. Inline-flip the submission to Accepted → save. Note time T.
+      3. Verify each provisioned artifact:
+         a. Speaker/participant records exist and are linked for BOTH Alex Okafor and Jun Park (admin speakers list + DB row check).
+         b. A session record for the submission exists and appears in the Agenda's Unscheduled panel (cross-checked by AG-S1).
+         c. Onboarding task set assigned to each speaker: "Hotel Stay Requirement" form task and "Flight Reimbursement" form task (≥2 assignments per speaker, DB query).
+      4. Incognito: log in as jun.park@example.com → portal Tasks shows both tasks as open; Home shows the submission as Accepted.
+      5. Query the outbox: zero rows to either speaker with sent-at ≥ T — provisioning does NOT email (notification stays a separate, manual send).
+      6. Illegal-transition probe: flip the submission Pending → Accepted again → re-query: still exactly one session record, one speaker record per person, no duplicated task assignments.
+    success_signals:
+      - "All three artifact classes verifiable independently: 2 speaker records, 1 session record, 4 task assignments (2 per speaker) — SQL counts before/after."
+      - "Speaker portal shows the hotel + flight tasks with no admin manual assignment step in between."
+      - "Outbox stays empty for these speakers — accept provisions silently."
+      - "Re-accepting is idempotent: artifact counts unchanged after the Pending→Accepted round-trip."
+      - "EXPERIENCE: the status flip returns instantly and the portal reflects tasks on next load — the spine runs as one transition, not a wizard the admin babysits."
+
+  - id: RV-S5
+    name: One-click "accept + send + finalize" does all of RV-S3 + RV-S4 in a single action
+    persona: admin
+    steps: |
+      1. In the Accept Queue tab, locate "Realtime Collab on Durable Objects" (Ines Moreau).
+      2. Trigger the one-click "accept + send + finalize" action on it. Note time T.
+      3. Verify in one pass: status pill reads Accepted (final, not queued); outbox has exactly 1 row ≥ T to ines.moreau@example.com with the Accept template's subject and a parseable .ics attachment; speaker record exists; the session sits in the Agenda Unscheduled panel; hotel + flight tasks are assigned.
+      4. Double-click probe: fire the same action again immediately (double-click / replay the request) → outbox still 1 row, still one session record, no duplicate tasks.
+      5. Incognito: Ines's portal shows Accepted plus her 2 onboarding tasks.
+    success_signals:
+      - "One admin action yields all four outcomes — final status, 1 templated email with .ics, provisioned spine, assigned tasks — each independently verified (screenshot + SQL + outbox + .ics parse)."
+      - "Replay/double-click leaves exactly 1 outbox row and no duplicate artifacts."
+      - "EXPERIENCE: single click with visible confirmation (updated pill/toast), no page reload, no multi-screen ceremony — the improvement over Sessionboard's 3-step loop is demonstrable side-by-side with RV-S3."
+
+  - id: RV-S6
+    name: Reviewer provisioning + track routing — My Reviews shows only overlapping tracks, decisions tally for the admin
+    persona: reviewer
+    steps: |
+      1. As admin: add reviewer Rosa Delgado <rosa.delgado@example.com> with assigned tracks [AI Infrastructure, Developer Experience]. Note time T.
+      2. Query the outbox: exactly 1 invite email ≥ T to rosa.delgado@example.com containing a working set-password/login link.
+      3. Follow the link from the outbox, set password "R0sa!review2026", and land logged in as a reviewer.
+      4. Open "My Reviews": the queue contains only submissions whose tracks overlap {AI Infrastructure, Developer Experience}; its total equals the matching DB count (submission⇄track join under the same status scoping the queue displays).
+      5. Negative routing probe: search the queue for "SOC 2 for Startups: A War Story" (Security-only, Pending) → it does NOT appear.
+      6. Many-to-many probe: "RAG Evals Beyond Vibes" (tracks Security + AI Infrastructure) DOES appear — one overlapping track suffices.
+      7. Open "RAG Evals Beyond Vibes" → record Approve with comment "Strong speaker, fresh data — verify the offline demo claim." → the item marks as reviewed in the queue.
+      8. Change the decision: reopen it and switch Approve → Maybe → the change persists on reload.
+      9. Authorization probe: as Rosa, navigate directly to the admin All Submissions URL → blocked (403/redirect), no admin data rendered.
+      10. As admin: open the submission's review detail → per-submission decision tally shows 1 approve (Ben Ito, seeded) · 1 maybe (Rosa) · 0 deny, with Rosa's comment attached.
+    success_signals:
+      - "Invite email is outbox-verifiable and its link actually provisions reviewer access end-to-end."
+      - "Queue membership matches the track-overlap DB query; the Security-only fixture is absent, the dual-track fixture present (screenshots of both searches)."
+      - "Decision is a 3-state control (approve/maybe/deny) + optional comment; the edited decision (maybe) is what persists."
+      - "Admin tally aggregates per submission across reviewers: 1 approve · 1 maybe · 0 deny, names + comments visible."
+      - "Reviewer role cannot reach admin screens (403/redirect screenshot)."
+      - "EXPERIENCE: recording or changing a decision updates the queue item in place — no full reload; the queue stays navigable (search/pagination) at its real size (~200 items at seed baseline)."
+
+  - id: RV-S7
+    name: Committed decision-feedback email — compose + send to the speaker while recording the decision
+    persona: reviewer
+    steps: |
+      1. As Rosa (provisioned in RV-S6), open "Edge Case Testing for LLM Apps" in My Reviews.
+      2. Record decision Maybe and, in the feedback compose area on the decision UI, write: "Promising topic — the abstract needs concrete production benchmarks. Can you add latency/cost numbers before Aug 30?" → send together with the decision. Note time T.
+      3. Query the outbox: exactly 1 row ≥ T to sam.rivera@example.com whose body contains the feedback text verbatim.
+      4. Verify the decision recorded (tally on the submission shows 1 maybe) AND the submission's admin status is still Pending — feedback email is not a status change.
+      5. Negative probe: on a different queue item, record Deny WITHOUT composing feedback → outbox gains no new row (email fires only on explicit compose + send).
+      6. Incognito: sam.rivera@example.com's portal still shows Pending (a reviewer decision never leaks as a status).
+    success_signals:
+      - "Outbox row with the verbatim feedback body, addressed to the speaker, timestamped at decision time."
+      - "Decision-without-feedback sends nothing (outbox count unchanged) — no surprise emails."
+      - "Submission status remains Pending in admin and portal after both decisions — decision, feedback email, and status are three decoupled facts."
+      - "EXPERIENCE: decision + feedback compose live on one screen and submit as one save — no detour into a separate email tool."
+
+  - id: RV-S8
+    name: Withdrawal keeps the record — data intact, who/when/why visible, session leaves the agenda
+    persona: speaker
+    steps: |
+      1. As dana.kim@example.com (accepted in RV-S3), open the portal → "Shipping .ics That Gmail Actually Parses" → Withdraw.
+      2. Unhappy path: submit the withdraw dialog with an empty reason → blocked with a validation message; the submission stays Accepted.
+      3. Enter reason "Visa denied — I can't travel to the US in October." → confirm.
+      4. Portal now shows the submission as Withdrawn.
+      5. As admin: the Withdrawn tab counts 12 (11 seeded + 1). Open the withdrawn submission: title, full description, speakers, and tracks all intact — nothing wiped.
+      6. Verify the withdrawal metadata on the record: who (Dana Kim), when (today's timestamp), why (the reason text verbatim).
+      7. Agenda check: the session provisioned for this submission no longer appears in the Unscheduled panel (Withdrawn is not a schedulable status).
+      8. DB probe: the submission row still exists with its content columns populated; the withdrawal who/when/why is queryable.
+    success_signals:
+      - "Empty reason is rejected — the why is mandatory metadata, not optional."
+      - "Withdrawn tab count increments to 12 and matches the DB count."
+      - "Screenshot of the admin record: full submission data intact + withdrawal metadata (who/when/why) rendered."
+      - "The session is gone from the agenda's schedulable pool after withdrawal."
+      - "EXPERIENCE: withdrawal is speaker self-service — completes in the portal in one dialog, and the admin sees it under Withdrawn on next load without hunting."

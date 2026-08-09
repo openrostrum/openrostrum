@@ -1,0 +1,485 @@
+{
+  "area": "learn-organizer",
+  "sources": [
+    "https://learn.sessionboard.com/get-started/overview",
+    "https://learn.sessionboard.com/sitemap-0.xml",
+    "https://learn.sessionboard.com/get-started/onboarding-checklist.html",
+    "https://learn.sessionboard.com/events/event-details",
+    "https://learn.sessionboard.com/sessions/submission-forms",
+    "https://learn.sessionboard.com/evaluations/evaluation-plans",
+    "https://learn.sessionboard.com/sessions/agenda",
+    "https://learn.sessionboard.com/communications/create-send-emails",
+    "https://learn.sessionboard.com/sessions/accept-decline",
+    "https://learn.sessionboard.com/speakers/create-assign-speakers",
+    "https://learn.sessionboard.com/portals/portals-101"
+  ],
+  "fetch_status": "All 11 fetches succeeded on first attempt; no WebSearch fallback needed. /sitemap.xml was an index pointing to /sitemap-0.xml, which yielded the complete KB article enumeration (~200 articles across 25 sections: get-started, concepts, events, sessions, speakers, contacts, evaluations, communications, portals, participants, sponsors-exhibitors, speaker-crm, settings, reporting, event-team, marketing, studio, awards, agents, site, documents, integrations, apps, faq, videos). Deep-fetched 8 flow articles covering event setup, form builder, evaluation plans, agenda, accept/decline, email sending, speaker assignment, portals.",
+  "summary": "SessionBoard is a speaker and content management platform covering the full organizer journey: create event (name, slug, timezone, dates, logo, record settings) -> build a 4-section customizable session submission form (welcome, session info, speaker info, form settings) with custom fields and conditional logic -> collect submissions with 5-stage status pipeline (Pending, Accepted queue, Accepted, Decline queue, Declined) -> grade via evaluation plans (anonymized review, 1-5 or 1-20 rating scales, weighted rubrics, evaluator assignment, round-based) -> build agenda with 5 views (List/Day/Week/Month/Rooms), drag-and-drop scheduling by track color, and automatic conflict detection (overlaps and double-booked participants) -> communicate via templated email/SMS with per-recipient preview (100/send cap, no auto-email on status change) -> onboard accepted speakers through configurable portals (tasks, file requests, forms, wiki pages, appearance theming, field-level visibility). Adjacent modules: contacts/CRM (org-level pipeline, segments), sponsors/exhibitors with intake forms, reporting dashboards with custom views and exports, event team roles, data import, embeds/program site, plus AI features (AI evaluations, AI agenda builder, Insights AI) and a marketing/studio suite.",
+  "personas": [
+    "Organizer/Admin (event-level)",
+    "Organization team member (CRM/account level)",
+    "Evaluator/Reviewer",
+    "Evaluator Session Manager",
+    "Speaker/Submitter (portal participant)",
+    "Moderator/Chairperson",
+    "Sponsor/Exhibitor group contact"
+  ],
+  "user_journeys": [
+    {
+      "name": "Launch a call for papers",
+      "persona": "Organizer/Admin",
+      "steps": [
+        "Create event; in Settings fill event name, slug, type, website URL, location, timezone, start/end datetimes, theme description",
+        "Upload logo (300x300) and background image (1500x500)",
+        "Configure record settings: submission limit per user, auto portal access, additional contacts, primary speaker, record ID prefix",
+        "Open Sessions > Forms; edit default submission form",
+        "Customize Welcome screen message; add session fields (Add Field: standard/custom, event- or global-level); add speaker fields (First/Last/Email locked)",
+        "Add layout elements via blue + icon: section header, divider, rich text; apply conditional logic on checkbox/dropdown/number fields",
+        "Set form settings: close date, 5/1-day reminder emails, admin notification, speaker limit (max 15), submission limit, confirmation message with 10s portal redirect",
+        "Share public form link (View Form)"
+      ],
+      "filled_state": "Settings page shows a complete event profile (e.g. ACME Conference 2025, app URL slug acme-conference-2025, GMT-5 timezone, Dec 2-5 2025); form builder shows 4 sections with ~10 mixed-type questions; public form renders welcome screen then paginated session and speaker questions."
+    },
+    {
+      "name": "Review and accept submissions",
+      "persona": "Organizer/Admin + Evaluator",
+      "steps": [
+        "Sessions > Evaluation > Evaluation Plans > Add Plan; enter name and instructions with scoring guidance",
+        "Toggle anonymized review (hide speaker names), weekly Monday reminders, session-file access",
+        "Pick grading: faces/numbers 1-5 or stars/hearts 1-20; optional weighted rubric summing to 100%; max evaluations per submission",
+        "Filter which sessions enter the plan; configure which session/speaker fields evaluators see; add custom rating questions (dropdown, comment)",
+        "Add evaluators to event, then assign to (closed) plan; open plan",
+        "Evaluators score sessions; organizer monitors Evaluation Summary and exports reports",
+        "In Sessions module, click status pill and move sessions between Pending / Accepted queue / Accepted / Decline queue / Declined, incl. bulk updates",
+        "Select accepted/declined records and separately send decision emails (status change never auto-emails)"
+      ],
+      "filled_state": "Evaluation plan detail shows N assigned evaluators and per-session average scores; Sessions table shows a mix of status pills across ~30 submissions with dashboard columns showing form answers."
+    },
+    {
+      "name": "Build and de-conflict the agenda",
+      "persona": "Organizer/Admin",
+      "steps": [
+        "Sessions > Settings: define rooms and tracks (tracks drive session colors)",
+        "Open Sessions > Agenda; switch among List, Day, Week, Month, Rooms views",
+        "Drag accepted sessions onto date/time slots and rooms (only Accepted status appears by default; configurable)",
+        "Zoom Rooms view (rooms on x-axis) to spot gaps",
+        "Open Sessions > Agenda > Conflicts; review overlapping sessions and double-booked participants; sessions with conflicts show a red dot",
+        "Reschedule to clear conflicts; refresh to re-run detection"
+      ],
+      "filled_state": "Day view shows a color-coded grid of sessions across 4-6 rooms and 3 days; Conflicts tab lists 1-2 remaining issues; List view table shows every accepted session with date, time, room, track."
+    },
+    {
+      "name": "Onboard accepted speakers via portal",
+      "persona": "Organizer/Admin + Speaker",
+      "steps": [
+        "Open Portals; use Default People portal or create a custom portal filtered by role/session type",
+        "Create tasks: general task with deadline, file request (e.g. upload headshot), form (e.g. bio confirmation); add resources: static files and wiki pages",
+        "Configure visibility: Always Show Tasks toggle, field-level view/edit/hide, reminder frequency, deadline extension (final deadline defaults +7 days)",
+        "Customize appearance: welcome message, accent color, logo, background image",
+        "Invite users to the portal; grant portal access to event contacts",
+        "Speaker logs in, sees Invited Sessions / My Submissions / Confirmed Participation sections, completes tasks",
+        "Organizer tracks task completion and sends reminder emails"
+      ],
+      "filled_state": "Portal admin view lists 3 tasks with completion counts (e.g. 12/20 headshots uploaded); speaker-side portal shows branded welcome screen, task checklist with due dates, and confirmed sessions."
+    }
+  ],
+  "features": [
+    {
+      "id": "org-event-setup",
+      "name": "Event details settings",
+      "description": "Settings module captures event name, URL slug, event type, website URL, location, timezone, start/end date-times, theme description, logo (300x300) and background image (1500x500). AI features consume type/URL/location/theme.",
+      "must_have": true,
+      "ui_expectations": "Settings page/form with labeled fields, timezone dropdown, date-time range picker, two image upload slots with dimension hints, save persists."
+    },
+    {
+      "id": "org-record-settings",
+      "name": "Record settings",
+      "description": "Event-level toggles: submission limit per user, automatic portal access on contact creation, additional-contacts collection, primary speaker designation, participant (speaker) acceptance workflow, headshot file restrictions, sponsor/exhibitor logo limits, record ID prefixes (3-6 uppercase chars).",
+      "must_have": false,
+      "ui_expectations": "Toggle/number-input list within Settings; prefix text inputs with validation."
+    },
+    {
+      "id": "org-form-builder",
+      "name": "Submission form builder",
+      "description": "Sessions > Forms hosts a default editable CFP form with 4 sections: Welcome screen, Session Information (required page heading, custom questions), Speaker Information (First/Last/Email locked), Form Settings. Add Field picker offers standard + custom fields; new fields can be event-level or global; editing a field affects all forms using it.",
+      "must_have": true,
+      "ui_expectations": "Form list with ellipsis menu (Edit/View Submissions/View Draft Submissions/View Form/Duplicate/Delete); section-tabbed editor; Add Field modal; field Actions ellipsis for label/help-text edits."
+    },
+    {
+      "id": "org-form-logic-layout",
+      "name": "Conditional logic and layout elements",
+      "description": "Question rules (conditional logic) on Checkbox, Dropdown, and Number fields show/hide dependent questions. Blue + icon inserts section headers (255-char max), dividers, and rich text blocks (images, links, formatting) between fields.",
+      "must_have": false,
+      "ui_expectations": "Rule builder on eligible fields; insertion + icon between rows; rich text editor."
+    },
+    {
+      "id": "org-form-settings",
+      "name": "Form settings and publishing",
+      "description": "Per-form: close date (blocks new submissions/edits), automatic reminder emails 5 and 1 day before close, admin notification on new submission, speaker limit up to 15 per session, submission limit per submitter, custom confirmation message, automatic 10-second redirect to portal. Public shareable form URL; submitters can save drafts.",
+      "must_have": true,
+      "ui_expectations": "Form Settings panel; public form reachable without login via link; closed form shows closed state."
+    },
+    {
+      "id": "org-session-statuses",
+      "name": "Submission status pipeline",
+      "description": "Five statuses: Pending (default), Accepted queue, Accepted, Decline queue, Declined; custom statuses creatable in Program settings. Status changed via dropdown on the status pill; bulk status updates supported. Status change deliberately does NOT auto-email submitters.",
+      "must_have": true,
+      "ui_expectations": "Status pill per row in Sessions table; dropdown on click; multi-select checkboxes enabling bulk status action."
+    },
+    {
+      "id": "org-sessions-module",
+      "name": "Sessions dashboard and manual session management",
+      "description": "Sessions table with customizable dashboard views that can surface submission-form answers as columns; pencil icon opens session editor; manual session creation; clone session; subsessions (create, convert session<->subsession, view in agenda); draft submissions view; per-session file upload/download enablement; embeds for public display.",
+      "must_have": true,
+      "ui_expectations": "Data table with column/view customization, row edit icon, Create Session button, drafts filter."
+    },
+    {
+      "id": "org-evaluation-plans",
+      "name": "Evaluation plans (session grading)",
+      "description": "Sessions > Evaluation > Evaluation Plans > Add Plan. Config: name, instructions, open/closed state, anonymized review (hides speaker names), weekly Monday evaluator reminders, session-file access toggle, session filters, evaluator-visible field selection, custom rating questions (dropdown, comment box). Grading (immutable post-create): faces/numbers 1-5 or stars/hearts 1-20, optional weighted rubric summing to 100%, max evaluations cap per submission. Roles: Evaluator, Evaluator Session Manager, Admin. Evaluators must be added to event first; plan must be closed to assign. Results admin-only; export per-plan or cumulative reports; duplicate plans.",
+      "must_have": true,
+      "ui_expectations": "Plan list with ellipsis actions; multi-step plan wizard; evaluator assignment picker; summary view with per-session scores."
+    },
+    {
+      "id": "org-eval-rounds-ai",
+      "name": "Round-based and AI evaluations",
+      "description": "Multi-round evaluation workflow advances submissions through successive review rounds (setup documented in dedicated article). AI Evaluations auto-score submissions (AI-assisted grading; details inferred from norms - AI produces suggested ratings organizers can review).",
+      "must_have": false,
+      "ui_expectations": "Round selector/progression controls on evaluation plans; AI evaluation trigger and generated scores."
+    },
+    {
+      "id": "org-agenda-builder",
+      "name": "Agenda builder with 5 views",
+      "description": "Sessions > Agenda offers List (default table), Day (hourly timeline), Week (7-day), Month, and Rooms (rooms on x-axis, zoomable) views. Drag-and-drop accepted sessions to assign date, time, and room. Track assignment determines session color in Day/Week/Rooms views. Only Accepted sessions appear by default; additional statuses configurable. Rooms/tracks managed under Sessions > Settings.",
+      "must_have": true,
+      "ui_expectations": "View switcher; calendar grid with draggable session cards; color-coded by track; room columns."
+    },
+    {
+      "id": "org-conflict-detection",
+      "name": "Agenda conflict detection",
+      "description": "Sessions > Agenda > Conflicts detects overlapping sessions and double-booked participants (same speaker in concurrent sessions). Conflicted sessions show a red dot in agenda views; conflict list updates on page refresh.",
+      "must_have": true,
+      "ui_expectations": "Conflicts tab/panel listing issues; red-dot badge on conflicting session cards."
+    },
+    {
+      "id": "org-email-composer",
+      "name": "Email composer (bulk send)",
+      "description": "From Contacts/Sessions/Sponsors/Exhibitors modules: check records > Send Emails. Popup: recipient scope incl. additional contacts, replies-to (single address), send-from, CC/BCC (up to 5 each), subject, rich body, Template button for prebuilt templates, per-recipient preview by clicking each contact, Send Now. Hard cap 100 recipients per send; no attachments (share files via portal); default sender no-reply@notify.sessionboard.com unless custom-domain add-on.",
+      "must_have": true,
+      "ui_expectations": "Row checkboxes; Send Emails action; two-pane compose modal (settings left, body right); recipient preview list."
+    },
+    {
+      "id": "org-comms-suite",
+      "name": "Templates, automation, SMS, history",
+      "description": "Email templates and themes (Settings), automated emails (form reminders, portal task reminders, weekly digests), SMS messaging, email/SMS history log with per-message tracking, notifications, custom email domain add-on.",
+      "must_have": false,
+      "ui_expectations": "Template library CRUD; history table with status per recipient; SMS compose."
+    },
+    {
+      "id": "org-speaker-mgmt",
+      "name": "Contact creation and speaker assignment",
+      "description": "Contacts module > Add Contact (first name, last name, email required). Contacts appear in Speakers module only once assigned to a session: edit session > Participants tab > Session Participants dropdown (event contacts only) > Save. Speakers drag-reorder for display order; visibility toggle (public by default, appears in embeds; hidden = is_public FALSE via API). Also: moderators/chairpersons, additional contacts, merge duplicates, contact profile with New/Returning badge.",
+      "must_have": true,
+      "ui_expectations": "Add Contact modal; Participants tab with searchable dropdown; Speakers module listing assigned speakers with reorder handles and eye/visibility icon."
+    },
+    {
+      "id": "org-speaker-acceptance",
+      "name": "Speaker acceptance workflow",
+      "description": "Optional participant-acceptance flow: invited speakers confirm participation via portal; portal splits sessions into Invited Sessions (awaiting response), My Submissions, Confirmed Participation sections (renameable, up to 100 chars; confirmed section can merge into My Submissions).",
+      "must_have": false,
+      "ui_expectations": "Accept/decline controls on invited sessions in speaker portal; organizer-side acceptance status tracking."
+    },
+    {
+      "id": "org-portals",
+      "name": "Portal configuration",
+      "description": "Three default portals (People, Exhibitor, Sponsor) plus custom portals filtered by role/session type/tier. Config: tasks (general with deadline, file request, form), resources (static files, wiki pages), Always Show Tasks toggle (off = only accepted speakers see tasks), field-level visibility (view-only/editable/hidden) for contact and session data, reminder frequency, deadline extension with Final Deadline (default +7 days), weekly digest, appearance (welcome message, accent color, logo, background image), user invitations, admin view-as-portal-user, task completion tracking, mark-complete on behalf of users.",
+      "must_have": true,
+      "ui_expectations": "Portals module with per-portal settings pages: Tasks, Appearance, Visibility tabs; invite users action; task completion dashboard."
+    },
+    {
+      "id": "org-sponsors-exhibitors",
+      "name": "Sponsors and exhibitors",
+      "description": "Group-based records for sponsors and exhibitors with member contacts, sponsor/exhibitor intake forms, sponsor settings (tiers inferred), logo limits, dedicated group portals.",
+      "must_have": false,
+      "ui_expectations": "Sponsors and Exhibitors modules with group cards/tables and intake form links."
+    },
+    {
+      "id": "org-crm",
+      "name": "Organization-level speaker CRM",
+      "description": "Cross-event contact database: custom CRM fields, advanced search, segments, pipeline (kanban-style speaker sourcing, inferred), interest forms, add contact to events, invite organization team members.",
+      "must_have": false,
+      "ui_expectations": "Org-level CRM area separate from event; segment builder; pipeline board."
+    },
+    {
+      "id": "org-reporting",
+      "name": "Reporting, dashboard views, export",
+      "description": "Customizable dashboard views (choose columns incl. custom fields, save views), custom reports, data export (CSV/XLSX), Insights AI analytics.",
+      "must_have": false,
+      "ui_expectations": "View/column picker on module tables; Export button producing file download; reports area."
+    },
+    {
+      "id": "org-event-team",
+      "name": "Event team and access",
+      "description": "Invite and manage event team members with roles (admin vs evaluator have different access), new-user login flow, password reset, 2FA, unlock locked users, evaluator access limited to assigned plans.",
+      "must_have": false,
+      "ui_expectations": "Team settings page with invite-by-email, role dropdown, member list."
+    },
+    {
+      "id": "org-data-import",
+      "name": "Data import and bulk edit",
+      "description": "CSV/XLSX import for contacts/sessions with mapping (common import issues documented), bulk edit fields, add existing contacts to new events, clone entire event, archive events.",
+      "must_have": false,
+      "ui_expectations": "Import wizard with file upload and column mapping; bulk edit action on selections."
+    },
+    {
+      "id": "org-publishing-embeds",
+      "name": "Public publishing: embeds and program site",
+      "description": "Embeddable public agenda/speaker widgets for external sites; hosted program site; print agendas; document generation. Hidden speakers/sessions excluded from public embeds.",
+      "must_have": false,
+      "ui_expectations": "Embed code generation; public agenda/speaker directory rendering accepted content."
+    },
+    {
+      "id": "org-ai-marketing-suite",
+      "name": "AI and marketing add-ons (surface map)",
+      "description": "Adjacent modules enumerated in KB: Studio AI agenda builder, AI content remix, Agents, Marketing suite (clips, recaps, posts, quotes, dispatch, advocacy, media library, brand kits, live transcribe, ready room, attendee view), Awards module (submission forms, paid entries, payment gateways, reviewer rounds), integrations (Cvent, Swapcard, Bizzabo, Stova, Swoogo, ON24, Grip, ExpoPlatform, Zapier, webhooks, API tokens, SSO).",
+      "must_have": false,
+      "ui_expectations": "Out of scope for core organizer rubric; presence of any is bonus."
+    }
+  ],
+  "rubric": [
+    {
+      "id": "ORG-01",
+      "feature_id": "org-event-setup",
+      "criterion": "Organizer can configure core event details (name, slug/URL, timezone, start/end dates, location, logo upload) in a settings area and changes persist",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as organizer; navigate to event Settings",
+        "Verify presence of fields: event name, slug/URL, timezone selector, start/end date-time, location, logo upload",
+        "Change event name to 'ACME Conference 2025 v2' and timezone; save",
+        "Reload page; confirm both values persisted"
+      ],
+      "pass_criteria": "All listed fields exist and edited values survive a page reload",
+      "evidence": "Screenshot of settings form before and after reload showing persisted edits"
+    },
+    {
+      "id": "ORG-02",
+      "feature_id": "org-form-builder",
+      "criterion": "Submission form builder exposes editable sections (welcome + session questions + speaker questions) and supports adding a custom field that renders on the public form",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Navigate to Sessions/Forms area; open the submission form editor",
+        "Verify welcome/session/speaker sections exist and speaker First/Last/Email fields are present",
+        "Add a new custom dropdown field 'Track preference' with 3 options to the session section; save",
+        "Open the public form URL (logged out or incognito); confirm the new dropdown renders with its options"
+      ],
+      "pass_criteria": "Custom field created in builder appears on the live public form",
+      "evidence": "Screenshot of builder with new field + screenshot of public form showing it"
+    },
+    {
+      "id": "ORG-03",
+      "feature_id": "org-form-settings",
+      "criterion": "Form close date is enforced: a form with a past close date rejects new submissions",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "In form settings, set close date to yesterday; save",
+        "Open public form URL",
+        "Confirm form shows closed/unavailable state or blocks submission",
+        "Reset close date to future; confirm form accepts input again"
+      ],
+      "pass_criteria": "Past close date blocks submission; future close date restores it",
+      "evidence": "Screenshot of closed-state public form and reopened form"
+    },
+    {
+      "id": "ORG-04",
+      "feature_id": "org-session-statuses",
+      "criterion": "Status pipeline works: session status changes via dropdown among at least Pending/Accepted/Declined (queue states are bonus), and bulk status update on multiple selected sessions works",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Open Sessions list with seeded submissions",
+        "Click status control on one Pending session; select Accepted; verify pill updates",
+        "Select 2+ sessions via checkboxes; apply bulk status change to Declined",
+        "Reload; verify all statuses persisted"
+      ],
+      "pass_criteria": "Single and bulk status changes apply and persist; no automatic email is required",
+      "evidence": "Screenshots of status dropdown, bulk action, and updated table after reload"
+    },
+    {
+      "id": "ORG-05",
+      "feature_id": "org-sessions-module",
+      "criterion": "Organizer can manually create a session and edit an existing one from the sessions table",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Click Create/Add Session; fill title and required fields; save",
+        "Verify new session row appears in table",
+        "Open edit (pencil/row action) on that session; change title; save; verify update in table"
+      ],
+      "pass_criteria": "Session created and edited without going through public form",
+      "evidence": "Screenshot of table showing created then renamed session"
+    },
+    {
+      "id": "ORG-06",
+      "feature_id": "org-evaluation-plans",
+      "criterion": "Evaluation plan can be created with name, instructions, anonymized-review toggle, a rating scale selection, and at least one custom rating question, and an evaluator can be assigned",
+      "weight": 3,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Navigate to Evaluations/Evaluation Plans; click Add Plan",
+        "Fill name + instructions; toggle anonymize speaker names; select a rating scale (e.g. 1-5)",
+        "Add a custom comment-box rating question",
+        "Filter/select sessions into the plan; assign an evaluator user; save",
+        "Verify plan appears in plan list with assigned evaluator count"
+      ],
+      "pass_criteria": "Plan persists with all settings; UNVERIFIED by agent: the evaluator's actual scoring experience and anonymization effect require logging in as the evaluator account",
+      "evidence": "Screenshots of each wizard step and the saved plan detail"
+    },
+    {
+      "id": "ORG-07",
+      "feature_id": "org-evaluation-plans",
+      "criterion": "Evaluation results are visible to admins: a summary view shows per-session scores/averages and evaluation progress",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "With seeded evaluations present (or after scoring as a second evaluator account if the harness supports it), open the evaluation summary/results view",
+        "Verify per-session aggregate score and count of completed evaluations displayed",
+        "Verify results are not exposed to speaker-facing surfaces"
+      ],
+      "pass_criteria": "Summary displays aggregates; UNVERIFIED: correctness of averaging math unless fixture scores are known; export file contents need manual check",
+      "evidence": "Screenshot of summary table with scores"
+    },
+    {
+      "id": "ORG-08",
+      "feature_id": "org-agenda-builder",
+      "criterion": "Agenda offers a list view plus at least one calendar-style view (day/week/rooms), and dragging an accepted session onto a time slot/room assigns and persists date/time/room",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Accept at least 3 sessions; open Agenda",
+        "Switch between list view and a day/rooms calendar view",
+        "Drag an unscheduled accepted session to a specific time slot and room",
+        "Reload; verify the session retains its date/time/room in both views"
+      ],
+      "pass_criteria": "View switching works; drag-drop assignment persists across reload",
+      "evidence": "Screenshots of both views and the scheduled session after reload"
+    },
+    {
+      "id": "ORG-09",
+      "feature_id": "org-conflict-detection",
+      "criterion": "Conflict detection flags overlapping sessions in the same room and/or a speaker double-booked across concurrent sessions",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Schedule two accepted sessions in the same room at overlapping times (or same speaker in two concurrent sessions)",
+        "Open the Conflicts view/tab (refresh page)",
+        "Verify both sessions are listed as conflicting and/or show a conflict indicator (e.g. red dot) in the agenda",
+        "Move one session to a free slot; refresh; verify conflict clears"
+      ],
+      "pass_criteria": "Conflict appears when overlap is created and clears when resolved",
+      "evidence": "Screenshot of conflict list/indicator, then cleared state"
+    },
+    {
+      "id": "ORG-10",
+      "feature_id": "org-email-composer",
+      "criterion": "Organizer can select contacts/sessions and compose a bulk email with subject, body, reply-to, and recipient preview, then send",
+      "weight": 3,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "In Contacts (or Sessions), check 2+ records; click Send Emails",
+        "Verify compose UI shows recipient list, reply-to, send-from, subject, body editor",
+        "Fill subject/body; if templates exist, load one; preview rendering for an individual recipient",
+        "Click Send; verify UI confirms send and message appears in email history/log"
+      ],
+      "pass_criteria": "Compose-and-send flow completes with in-app confirmation/history entry; UNVERIFIED: actual email delivery \u2014 human must check a controlled inbox for receipt and merge-field rendering",
+      "evidence": "Screenshots of compose modal, per-recipient preview, and history log entry"
+    },
+    {
+      "id": "ORG-11",
+      "feature_id": "org-speaker-mgmt",
+      "criterion": "Contact-to-speaker flow: create a contact (first/last/email), assign them to a session via a participants control, and see them appear in the Speakers area",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "In Contacts, click Add Contact; enter first name, last name, email; save",
+        "Verify contact appears in Contacts but NOT yet in Speakers list (if clone models this distinction)",
+        "Edit a session; in Participants section, search and add the contact as speaker; save",
+        "Verify contact now appears in Speakers module linked to that session"
+      ],
+      "pass_criteria": "Assignment via session participants makes the contact a speaker; core pass = contact creation + assignment + speaker listing",
+      "evidence": "Screenshots of contact creation, participants tab, and Speakers list"
+    },
+    {
+      "id": "ORG-12",
+      "feature_id": "org-portals",
+      "criterion": "Portal configuration: organizer can create/edit a portal, add a task (deadline task, file request, or form), and customize appearance (welcome message, color or logo)",
+      "weight": 3,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Open Portals module; verify default portal(s) exist; open portal settings",
+        "Create a task 'Upload headshot' as a file request with a due date; save",
+        "Set a welcome message and accent color/logo in appearance settings; save",
+        "If an admin 'view as portal user' / preview exists, open it and verify the task and branding render"
+      ],
+      "pass_criteria": "Task and appearance settings persist; full pass if admin preview shows them; UNVERIFIED without preview: real portal-user experience needs a second (speaker) account login",
+      "evidence": "Screenshots of portal settings, task list, and portal preview"
+    },
+    {
+      "id": "ORG-13",
+      "feature_id": "org-portals",
+      "criterion": "Organizer can track portal task completion status per contact (e.g. completed vs outstanding counts or per-user checkmarks)",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "With a portal task assigned to seeded contacts, open the task tracking/completion view",
+        "Verify per-contact or aggregate completion status is displayed",
+        "If supported, mark a task complete on behalf of a user; verify status updates"
+      ],
+      "pass_criteria": "Completion state visible to organizer; UNVERIFIED: end-to-end completion by an actual portal user requires second account",
+      "evidence": "Screenshot of task completion dashboard"
+    },
+    {
+      "id": "ORG-14",
+      "feature_id": "org-reporting",
+      "criterion": "Dashboard views are customizable: organizer can change visible columns on the sessions table (including a submission-form/custom field) and the view persists or is savable",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Open Sessions table; open column/view customization control",
+        "Add a custom form question as a column and remove another column",
+        "Verify table re-renders with the new columns and data populates",
+        "Reload or reopen saved view; verify configuration retained"
+      ],
+      "pass_criteria": "Column set is editable, shows custom-field data, and persists",
+      "evidence": "Screenshots of column picker and resulting table"
+    },
+    {
+      "id": "ORG-15",
+      "feature_id": "org-reporting",
+      "criterion": "Data export: exporting sessions or contacts produces a correct CSV/XLSX file containing the visible records and fields",
+      "weight": 2,
+      "testability": "manual",
+      "auto_steps": [],
+      "pass_criteria": "Human clicks Export on the sessions or contacts table, downloads the file, opens it, and confirms row count matches the table and columns include custom fields; file is valid CSV/XLSX",
+      "evidence": "The downloaded file plus a screenshot of the source table for row-count comparison"
+    },
+    {
+      "id": "ORG-16",
+      "feature_id": "org-event-team",
+      "criterion": "Event team management: organizer can invite a team member by email with a role (admin vs evaluator) and the pending invite/member appears in the team list",
+      "weight": 1,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Open event team/settings area",
+        "Invite a new user by email selecting a role",
+        "Verify the invitee appears in the team list with pending/invited state and correct role"
+      ],
+      "pass_criteria": "Invite recorded with role; UNVERIFIED: invite email receipt and the invitee's scoped access (evaluators limited to assigned plans) require a second inbox/account \u2014 human should complete signup and confirm an evaluator cannot see admin settings",
+      "evidence": "Screenshot of team list showing pending invite with role"
+    }
+  ],
+  "sample_data": "Event: \"ACME Conference 2025\" (slug acme-conference-2025, type Conference, San Francisco CA, timezone America/New_York, Dec 2-5 2025 8:00am-5:00pm, theme \"Developer tools and AI infrastructure\", 300x300 logo, 1500x500 banner). Rooms: Main Hall, Room 101, Room 102, Workshop A. Tracks: AI/ML (blue), DevOps (green), Leadership (orange), Security (red). Submission form fields: session title, abstract (textarea), format dropdown (Keynote/Talk/Panel/Workshop), track preference dropdown, AV needs checkbox with conditional follow-up text field, speaker first/last/email, bio, headshot upload, company, job title. 30 seeded submissions: 18 Pending, 4 Accepted queue, 5 Accepted, 1 Decline queue, 2 Declined; 2 draft submissions. Contacts: 25 speakers (3 unassigned), 2 moderators, 1 chairperson; 1 duplicate pair for merge testing. Evaluation plan \"Round 1 Content Review\": 1-5 numeric scale, anonymized, weighted rubric (Relevance 40/Originality 30/Speaker experience 30), 3 evaluators (eval1@example.test etc.), seeded scores on 10 sessions. Agenda: 4 accepted sessions pre-scheduled with one deliberate conflict (two sessions in Room 101 at Dec 3 10:00am; one speaker double-booked). Portal tasks: \"Upload headshot\" (file request, due Nov 1), \"Confirm bio\" (form), \"Register for event\" (general task); 12/20 completed. Email template \"Acceptance Notification\" with merge fields for first name and session title.",
+  "gaps": "Docs not fetched in depth (article titles known, contents not read): round-based evaluation advancement mechanics, AI evaluations, session-settings detail (exact room/track creation steps - room editing confirmed in Session Settings, track creation inferred), program settings custom statuses UI, embeds/program-site publishing flow, automated email triggers list, SMS specifics, importing-data wizard detail, CRM pipeline, marketing/studio/awards modules, all FAQ articles. Public agenda publishing mechanism is not detailed in the agenda article (embeds/program site are the documented outlets - inferred). Onboarding checklist is an external Google Sheet, not an in-app feature, so it is excluded from the rubric. Inferences marked \"(inferred)\" in features: pipeline as kanban board, sponsor tiers, AI evaluation behavior. Rating-scale specifics (faces/numbers 1-5, stars/hearts 1-20, immutable after creation) and the 100-recipient email cap are SessionBoard-specific quirks; rubric treats reasonable equivalents in a clone as passing since the kit is implementation-agnostic. Evaluator-side scoring UX, portal participant UX, and email deliverability are only judgeable with second accounts/inboxes - flagged in rubric as auto-partial/manual."
+}

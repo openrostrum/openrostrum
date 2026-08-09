@@ -1,16 +1,91 @@
 @import "tailwindcss" source(".");
 
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+	src: url("/fonts/plex-sans-400.woff2") format("woff2");
+}
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+	src: url("/fonts/plex-sans-500.woff2") format("woff2");
+}
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+	src: url("/fonts/plex-sans-600.woff2") format("woff2");
+}
+@font-face {
+	font-family: "IBM Plex Mono";
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+	src: url("/fonts/plex-mono-500.woff2") format("woff2");
+}
+@font-face {
+	font-family: "Bricolage Grotesque";
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+	src: url("/fonts/bricolage-600.woff2") format("woff2");
+}
+
 @theme {
 	--font-sans:
-		"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
-		"Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+		"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif,
+		"Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+		"Noto Color Emoji";
+	--font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+	--font-display: "Bricolage Grotesque", var(--font-sans);
+
+	/* The Gallery skin (docs/design-system.md) — the only place chrome colors
+	   exist. light-dark() resolves per color-scheme, so components never write
+	   dark: variants for chrome. Petrol has exactly one meaning: "you are
+	   here / this is chosen" (wayfinding, selection, focus, inline links). */
+	--color-canvas: light-dark(#fafbfa, #111413);
+	--color-surface: light-dark(#ffffff, #171b1a);
+	--color-fg: light-dark(#171a19, #edf1f0);
+	--color-fg-muted: light-dark(#5e6764, #93a09d);
+	--color-fg-faint: light-dark(#8a928f, #6b7573);
+	--color-hair: light-dark(rgba(23, 38, 36, 0.08), #252b2a);
+	--color-hair-strong: light-dark(rgba(23, 38, 36, 0.16), #364240);
+	--color-thead: light-dark(#f5f7f6, #1a201f);
+	--color-chip: light-dark(#eff2f1, #212827);
+	--color-petrol: light-dark(#0e6c66, #2fbfad);
+	--color-petrol-hover: light-dark(#0a5750, #46d6c4);
+	--color-petrol-wash: light-dark(#e4f0ee, rgba(47, 191, 173, 0.13));
+	--color-row-hover: light-dark(rgba(23, 38, 36, 0.03), rgba(255, 255, 255, 0.025));
+	--color-row-selected: light-dark(rgba(14, 108, 102, 0.06), rgba(47, 191, 173, 0.08));
+	--color-ink: light-dark(#171a19, #edf1f0);
+	--color-ink-hover: light-dark(#2a2f2e, #dbe1df);
+	--color-on-ink: light-dark(#ffffff, #171b1a);
+	--color-danger: light-dark(#d5163f, #f47c95);
+
+	--radius-control: 7px;
+	--radius-card: 10px;
+	--radius-shell: 12px;
+
+	--shadow-card:
+		0 0 0 1px light-dark(rgba(23, 38, 36, 0.1), #252b2a),
+		0 1px 2px light-dark(rgba(16, 32, 30, 0.04), rgba(0, 0, 0, 0.2)),
+		0 4px 12px light-dark(rgba(16, 32, 30, 0.04), rgba(0, 0, 0, 0.18));
+	--shadow-btn:
+		inset 0 1px 0 rgba(255, 255, 255, 0.12),
+		0 1px 2px light-dark(rgba(16, 32, 30, 0.16), rgba(0, 0, 0, 0.25));
+	--shadow-control: inset 0 0 0 1px
+		light-dark(rgba(23, 38, 36, 0.16), #364240);
 }
 
 html,
 body {
-	@apply bg-white dark:bg-gray-950;
-
-	@media (prefers-color-scheme: dark) {
-		color-scheme: dark;
-	}
+	background-color: var(--color-canvas);
+	color: var(--color-fg);
+	color-scheme: light dark;
+	-webkit-font-smoothing: antialiased;
 }

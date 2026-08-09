@@ -1,0 +1,241 @@
+{
+  "area": "ai-agenda",
+  "sources": [
+    "https://www.sessionboard.com/capabilities/ai-agenda",
+    "https://www.sessionboard.com/products/ai"
+  ],
+  "fetch_status": "Both URLs fetched OK on first attempt via WebFetch (full marketing copy, feature cards, FAQ extracted). Followed 1 internal link (/products/ai) which added the \"Scheduler Agent\" auto-scheduling detail. No fallback WebSearch needed.",
+  "summary": "SessionBoard's AI Agenda area is an organizer-facing agenda/schedule builder with an embedded \"AI Agenda Management Assistant.\" Organizers build multi-track, multi-day programs by placing sessions into time slots across rooms and tracks (calendar-style drag-and-drop implied). The AI layer continuously monitors the agenda and flags conflicts: speaker double-bookings across time slots, room capacity/booking overlaps, track sequencing issues, and content dependency conflicts, and it suggests resolutions (alternative slots, room swaps, speaker substitutions). A \"Scheduler Agent\" auto-packs sessions into rooms and tracks from configured constraints, generating a conflict-free draft schedule. Organizers define rule-based agenda logic (session sequencing, speaker constraints, track balancing), get real-time recommendations while editing, run speaker availability checks before moving sessions, and gate changes behind audit/approval flows. The agenda is connected to the speaker database, submission records, and content management, and publishes to the event website. Marketing claims 83% faster agenda launch. The eval focus is the basics: agenda grid with tracks/rooms/slots, conflict detection, and auto-scheduling.",
+  "personas": [
+    "Event organizer / admin (primary: builds and maintains agenda, runs AI scheduler, approves changes)",
+    "Speaker (availability and double-booking constraints are checked against them; receives update notifications)",
+    "Attendee (consumes published agenda on event website; out of scope for this area's rubric)"
+  ],
+  "user_journeys": [
+    {
+      "name": "Manually build a multi-track agenda",
+      "persona": "Event organizer / admin",
+      "steps": [
+        "Open the event's Agenda/Schedule builder",
+        "Configure event days, time slots, rooms, and tracks",
+        "See accepted/unscheduled sessions in a pool or sidebar",
+        "Drag (or click-assign) sessions onto specific day/time/room slots",
+        "Tag each session with a track; edit session metadata inline",
+        "Observe real-time conflict badges appear/disappear as sessions move"
+      ],
+      "filled_state": "A 2-day calendar grid with rooms as columns and 30-60 min time slots as rows; 12+ sessions placed, color-coded by 3 tracks; a small pool of unscheduled sessions remaining; one visible conflict badge on a double-booked speaker."
+    },
+    {
+      "name": "AI auto-schedule then review conflicts",
+      "persona": "Event organizer / admin",
+      "steps": [
+        "With sessions accepted but unscheduled, trigger the AI auto-schedule (Scheduler Agent)",
+        "AI packs sessions into rooms/tracks/slots per constraints (speaker availability, track balancing, sequencing rules)",
+        "Review the generated draft schedule",
+        "Any residual conflicts are flagged with resolution options (alternative slot, room swap)",
+        "Accept or reject suggested resolutions; approve schedule to go live"
+      ],
+      "filled_state": "A fully populated grid produced in one action, zero or few conflict flags, a review panel listing AI placement decisions and any flagged conflicts with one-click resolution suggestions."
+    },
+    {
+      "name": "Handle a last-minute change",
+      "persona": "Event organizer / admin",
+      "steps": [
+        "A speaker cancels or a room becomes unavailable mid-event-prep",
+        "Drag the affected session to a new slot/room",
+        "System instantly checks speaker availability and flags any new overlaps or broken dependencies",
+        "System suggests alternative slots or speaker substitutions",
+        "Change passes through approval flow before the public agenda updates"
+      ],
+      "filled_state": "Grid mid-edit with one session highlighted, a warning panel showing 'speaker unavailable at this time' plus 2-3 suggested alternative slots, and a pending-approval indicator on the change."
+    }
+  ],
+  "features": [
+    {
+      "id": "aia-agenda-builder-grid",
+      "name": "Agenda builder grid",
+      "description": "Calendar-style agenda builder for multi-track, multi-day programs; organizers place sessions into time slots across rooms/tracks, drag-and-drop with inline session metadata editing (inferred from 'agenda builder' + category norms).",
+      "must_have": true,
+      "ui_expectations": "Schedule/timeline view: time axis, rooms or tracks as columns, day switcher/tabs, session cards placed in slots, a pool/sidebar of unscheduled sessions, drag-drop or click-to-assign placement."
+    },
+    {
+      "id": "aia-tracks-rooms-slots",
+      "name": "Tracks, rooms, and time slot configuration",
+      "description": "Organizers define event days, time slots, rooms, and tracks that structure the agenda; sessions are assigned a track and a room+slot (setup UI inferred; entities explicitly named throughout copy).",
+      "must_have": true,
+      "ui_expectations": "Settings or inline controls to add/edit rooms (with capacity), tracks (with name/color), days and slot durations; new rooms/tracks immediately appear in the grid."
+    },
+    {
+      "id": "aia-conflict-detection",
+      "name": "Automatic conflict detection",
+      "description": "AI continuously monitors the agenda and flags speaker double-bookings across time slots, room capacity/booking overlaps, track sequencing issues, and content dependency conflicts as the agenda is built or edited.",
+      "must_have": true,
+      "ui_expectations": "Visible conflict indicators (badge/highlight on session cards, warning toast, or conflicts panel) that appear immediately when a conflicting placement is made and clear when resolved."
+    },
+    {
+      "id": "aia-auto-scheduling",
+      "name": "AI auto-scheduling (Scheduler Agent)",
+      "description": "A Scheduler Agent 'packs sessions into rooms and tracks without conflicts' \u2014 generates a conflict-free schedule from configured constraints in one action; double-bookings flagged, resolutions suggested.",
+      "must_have": true,
+      "ui_expectations": "An 'Auto-schedule' / AI assistant trigger in the agenda builder; after running, unscheduled sessions are placed into slots/rooms; residual conflicts surfaced for human decision."
+    },
+    {
+      "id": "aia-resolution-suggestions",
+      "name": "Conflict resolution suggestions",
+      "description": "When conflicts are flagged, the system presents actionable resolution options: alternative time slots, room swaps, speaker substitutions; organizer applies with a click.",
+      "must_have": false,
+      "ui_expectations": "Conflict detail panel/popover listing 1+ concrete suggested fixes, each applicable directly from the suggestion."
+    },
+    {
+      "id": "aia-rule-based-logic",
+      "name": "Rule-based agenda logic",
+      "description": "Organizers create rules that shape the program: session sequencing (dependencies/ordering), speaker constraints (availability windows), track balancing; rules are enforced or violations warned during scheduling.",
+      "must_have": false,
+      "ui_expectations": "A rules/constraints UI (per-session dependency field, per-speaker availability, or a rules list); violating a rule during placement produces a visible warning."
+    },
+    {
+      "id": "aia-speaker-availability",
+      "name": "Speaker availability checks",
+      "description": "Before/when moving a session, instantly see if the change impacts a speaker's ability to present or attend other sessions.",
+      "must_have": false,
+      "ui_expectations": "Warning when a session is moved to a time its speaker is unavailable or already booked; availability stored on the speaker record (inferred)."
+    },
+    {
+      "id": "aia-approval-flows",
+      "name": "Audit and approval flows",
+      "description": "Agenda changes pass through review/approval so nothing goes live without oversight; change history auditable (mechanics inferred \u2014 draft vs. published states are the category norm).",
+      "must_have": false,
+      "ui_expectations": "Draft/pending state on edits, an approve/publish action, and a change log or audit trail view."
+    },
+    {
+      "id": "aia-real-time-recommendations",
+      "name": "Real-time recommendations",
+      "description": "AI suggests schedule updates in real time as the organizer edits, embedded inside the agenda builder rather than a separate tool.",
+      "must_have": false,
+      "ui_expectations": "Suggestions appear contextually during editing (inline hints, assistant panel) without page reloads or switching tools."
+    }
+  ],
+  "rubric": [
+    {
+      "id": "AIA-01",
+      "feature_id": "aia-agenda-builder-grid",
+      "criterion": "An agenda/schedule builder view exists showing time slots against rooms and/or tracks for a multi-day event, and an unscheduled session can be placed into a specific day/time/room slot.",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Log in as organizer and open the event",
+        "Navigate to the Agenda/Schedule builder",
+        "Confirm a grid/timeline with a time axis, room or track columns, and a day switcher",
+        "Locate an unscheduled session (pool/sidebar) and place it into an empty slot via drag-drop or click-assign",
+        "Confirm the session card now renders in that slot with its title and time"
+      ],
+      "pass_criteria": "Grid renders with time slots and rooms/tracks; the placement persists in the grid (survives a page reload if checkable).",
+      "evidence": "Screenshot of the agenda grid before and after placing the session."
+    },
+    {
+      "id": "AIA-02",
+      "feature_id": "aia-tracks-rooms-slots",
+      "criterion": "Rooms and tracks are configurable by the organizer, and a newly added room/track becomes usable in the agenda grid.",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "From agenda or event settings, add a new room (e.g., 'Room B', capacity 100)",
+        "Add a new track (e.g., 'AI Engineering')",
+        "Return to the agenda builder and verify the new room appears as a schedulable column/location",
+        "Assign the new track to a session and verify the track shows on the session card or filter"
+      ],
+      "pass_criteria": "Both entities can be created and both are immediately usable for scheduling/tagging sessions.",
+      "evidence": "Screenshot of room/track creation forms and of the grid showing the new room column and track label."
+    },
+    {
+      "id": "AIA-03",
+      "feature_id": "aia-conflict-detection",
+      "criterion": "Scheduling the same speaker in two overlapping sessions produces a visible conflict warning (speaker double-booking detection).",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Ensure speaker X is assigned to sessions A and B",
+        "Place session A at Day 1 10:00 in Room A",
+        "Place session B at Day 1 10:00 in Room B",
+        "Observe the UI for a conflict badge, highlight, warning dialog, or conflicts panel entry naming the double-booked speaker or the clashing sessions"
+      ],
+      "pass_criteria": "A conflict indicator appears without manual refresh (or on save) and identifies the overlap; moving session B to a free slot clears it.",
+      "evidence": "Screenshot of the conflict indicator while both sessions overlap, and after moving one (indicator gone)."
+    },
+    {
+      "id": "AIA-04",
+      "feature_id": "aia-conflict-detection",
+      "criterion": "Placing two sessions in the same room at overlapping times is flagged or prevented (room double-booking detection).",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Place session C at Day 1 11:00 in Room A",
+        "Attempt to place session D at Day 1 11:00 in Room A",
+        "Observe whether the drop is blocked, or a room-conflict warning/badge appears"
+      ],
+      "pass_criteria": "The overlap is either prevented at placement time or visibly flagged as a room conflict.",
+      "evidence": "Screenshot of the blocked placement or the room-conflict warning."
+    },
+    {
+      "id": "AIA-05",
+      "feature_id": "aia-auto-scheduling",
+      "criterion": "An AI auto-schedule action exists that places unscheduled sessions into rooms/tracks/time slots in one operation, yielding a schedule with no flagged conflicts.",
+      "weight": 3,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Reset to a state with 5+ accepted but unscheduled sessions",
+        "Find and trigger the auto-schedule / AI scheduler control in the agenda builder",
+        "Wait for completion and verify the previously unscheduled sessions now occupy slots/rooms",
+        "Verify no conflict indicators are shown on the generated schedule (including the shared-speaker pair not overlapping)"
+      ],
+      "pass_criteria": "One action schedules the pool; result shows zero conflict flags. Unverified by agent: whether placements genuinely optimize/respect all soft constraints (track balancing, audience needs) \u2014 spot-check manually that the known constraints (speaker availability windows, dependency ordering) were honored.",
+      "evidence": "Screenshot of the grid before (empty/partial) and after auto-schedule (populated, no conflict badges)."
+    },
+    {
+      "id": "AIA-06",
+      "feature_id": "aia-resolution-suggestions",
+      "criterion": "When a conflict is flagged, the system offers at least one concrete resolution suggestion (alternative time slot, room swap, or speaker substitution) that can be applied from the UI.",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Create a speaker double-booking (as in AIA-03)",
+        "Open the conflict indicator/panel",
+        "Verify a suggested fix is listed (e.g., 'move to 14:00' or 'swap to Room C')",
+        "Apply the suggestion and verify the conflict clears and the session moved as described"
+      ],
+      "pass_criteria": "A specific, applicable suggestion is presented and applying it resolves the conflict.",
+      "evidence": "Screenshot of the suggestion UI and of the resolved grid afterward."
+    },
+    {
+      "id": "AIA-07",
+      "feature_id": "aia-rule-based-logic",
+      "criterion": "A scheduling rule/constraint can be defined (speaker availability window or session dependency/ordering) and violating it during manual placement produces a warning.",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Set speaker Y as unavailable on Day 2 (or set 'Workshop Part 2 must follow Part 1')",
+        "Place speaker Y's session on Day 2 (or place Part 2 before Part 1)",
+        "Observe for a rule-violation warning",
+        "Move the session to a compliant slot and confirm the warning clears"
+      ],
+      "pass_criteria": "The constraint is definable in the UI and its violation is flagged; compliant placement is clean.",
+      "evidence": "Screenshot of the rule definition UI and of the violation warning."
+    },
+    {
+      "id": "AIA-08",
+      "feature_id": "aia-real-time-recommendations",
+      "criterion": "Conflict state updates in real time during editing: moving a conflicting session to a free slot clears its indicator immediately, without a full page reload.",
+      "weight": 1,
+      "testability": "auto",
+      "auto_steps": [
+        "With an active conflict from AIA-03 visible, drag one conflicting session to a free slot",
+        "Without reloading, verify the conflict indicator disappears within a few seconds",
+        "Drag it back and verify the indicator reappears"
+      ],
+      "pass_criteria": "Conflict indicators react live to edits in both directions.",
+      "evidence": "Screenshots (or short capture) showing indicator present, then gone after the move, then back."
+    }
+  ],
+  "sample_data": "2-day conference (Day 1\u20132, 09:00\u201317:00, 30 and 45 min slots plus a 60-min keynote slot). Rooms: Main Hall (cap 500), Room A (cap 120), Room B (cap 80), Workshop Lab (cap 40). Tracks: AI Engineering, DevTools, Leadership (distinct colors). ~14 accepted sessions with titles/abstracts/durations, 10 speakers. Fixture traps for the rubric: (1) speaker 'Dana Kim' assigned to two different sessions \u2014 used to trigger speaker double-booking; (2) speaker 'Raj Patel' available Day 1 only \u2014 used for availability-rule violation; (3) 'Hands-on RAG Workshop Part 1' and 'Part 2' with an ordering dependency; (4) one high-demand session (expected attendance 300) to exercise room-capacity conflict if placed in Room B; (5) 5+ sessions left unscheduled to feed the auto-schedule test.",
+  "gaps": "Marketing pages contain no actual product screenshots or alt-text describing the builder UI, so the concrete layout (grid orientation, unscheduled-session sidebar, conflict badge styling, auto-schedule button placement) is inferred from category norms (Sessionize/Cvent/Grip-style agenda builders). Not learnable from sources: how speaker availability is captured (speaker-entered vs organizer-entered), the exact rules-engine UI, approval-flow mechanics (draft vs published states inferred), whether auto-scheduling is one-click batch vs conversational AI assistant, room capacity conflict thresholds, and any attendee-facing published-agenda behavior. Three of the page's benefit sections repeated identical bullet text, suggesting thin/templated copy \u2014 treated as low-signal. The 83% agenda-launch-time claim is a case-study metric, not a testable feature."
+}

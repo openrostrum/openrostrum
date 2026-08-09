@@ -1,0 +1,359 @@
+{
+  "area": "embeds-sessions-list",
+  "sources": [
+    "https://www.sessionboard.com/capabilities/sessions-list-1",
+    "https://www.sessionboard.com/embeds/sessions-list-1",
+    "https://www.sessionboard.com/embeds/speakers-list-1",
+    "https://www.sessionboard.com/embeds/agenda-example-1",
+    "https://www.sessionboard.com/embeds/embed-schedule-itinerary",
+    "https://www.sessionboard.com/embeds/embed-speaker-gallery",
+    "https://learn.sessionboard.com/en/knowledge-base/6949616-agenda-speaker-embeds",
+    "https://www.sessionboard.com/blog/sessionboard-introduces-embeddable-speaker-gallery-schedule-itinerary-for-event-websites",
+    "https://embeds.sessionboard.com/v0/sessionboard-session-embed.js (live widget script, inspected in browser)"
+  ],
+  "fetch_status": "Primary URL fetched OK but body copy is one sentence; embed pages are JS shells to WebFetch. Fallbacks that worked: (1) link extraction found the 4 sibling embed pages; (2) WebSearch found the KB article and launch blog post, both fetched OK with real functional detail; (3) opened all 5 live embed example pages in a browser and inspected the <sessionboard-embed> web component's shadow DOM directly \u2014 captured real filled-state UI, sample data, filter facets, detail views, and interactions for every widget (richest source). Widgets load from embeds.sessionboard.com/v0/sessionboard-session-embed.js with attrs embed-id + widget-type (session | speaker | agenda | schedule | speaker-gallery). Organizer-side embed builder (Deliver > Embeds) known only from KB text, not observed live.",
+  "summary": "SessionBoard's CMS/embeds area lets organizers publish live, self-updating event content into any website. From the admin (Deliver > Embeds > Add Embed) an organizer picks one of five widget types \u2014 List of Sessions, List of Speakers, Agenda, Schedule Itinerary, Speaker Gallery \u2014 chooses an output format (styled HTML delivered as a single JS script tag rendering a shadow-DOM web component; basic HTML; JSON; XML; iCal), selects which fields appear on cards, sets colors/custom CSS, and applies content filters (tracks, statuses). The public widget renders the event's approved sessions/speakers with an event-title header, keyword search, faceted filters (Format/Track/Location), truncated descriptions with Show more, and drill-down detail views (session detail with subsessions; speaker detail with bio and their sessions). Data auto-refreshes from SessionBoard roughly every 60 minutes, with manual cache refresh; no republish needed. Search scope: itinerary and session list match session titles and speaker names; speaker gallery/list match speaker names only. Personas: organizer configures and embeds; attendees browse, search, filter, and plan their day; developers consume basic HTML/JSON/XML/iCal feeds. Personal-schedule (favoriting) behavior is not visible in the live itinerary embed and is inferred from category norms.",
+  "personas": [
+    "Event organizer / marketer (creates and configures embeds, brands them, curates visible fields and filtered content)",
+    "Attendee / event-site visitor (browses sessions and speakers, searches, filters, plans a day itinerary)",
+    "Web developer / webmaster (pastes styled-HTML script tag or consumes basic HTML / JSON / XML / iCal feeds)",
+    "Speaker (indirect: verifies their public profile, bio, headshot, and session listings render correctly)"
+  ],
+  "user_journeys": [
+    {
+      "name": "Browse the session catalog",
+      "persona": "Attendee",
+      "steps": [
+        "Open event-site page containing Sessions List embed",
+        "Scan cards; note result count (e.g. '1 - 22 of 22')",
+        "Type a keyword in 'Search by speaker details or session title'",
+        "Open Filters; check Track=DEI; list narrows",
+        "Click Show more on a card to expand full description",
+        "Read date/time, room, speakers (name/title/company), Format and Track tags"
+      ],
+      "filled_state": "Header '2026 HINOMA Research Annual Conference'; 'Sessions 1 - 22 of 22'; search box + Filters button; vertical card list, each card: bold title, 2-3 line truncated abstract + Show more, 'Friday, December 15: 04:00 PM - 05:00 PM', 'Room 305', Speakers block (Joshua Abu-Shiraz / Associate Professor / Manitoba State Tech), chips 'Format: Session', 'Track: DEI'"
+    },
+    {
+      "name": "Plan the day with the Schedule Itinerary",
+      "persona": "Attendee",
+      "steps": [
+        "Open itinerary embed page",
+        "Switch day tabs (Thursday, December 14 / Friday, December 15)",
+        "Scroll chronological list grouped under time headers (09:00 AM, 10:00 AM, ...)",
+        "Search by keyword or filter by track",
+        "Click View Details on a session to expand inline subsessions (own times + speakers); toggle Hide Details",
+        "(inferred) Star/add sessions to build a personal 'my schedule' view"
+      ],
+      "filled_state": "'Itinerary' heading, search box, Filters button, two day-tab buttons; under '09:00 AM': card with track chip 'Leadership', title 'GRADFair: A Career Fair for Graduate Students and Postdocs', truncated abstract + Show more, 'Thursday, December 14: 09:00 AM - 10:00 AM', 'Room 307', 8 speakers with titles/companies, 'FORMAT: Roundtable / TRACK: Leadership', View Details button; expanded detail shows subsessions 'Icebreakers 09:00-09:15', 'Mingle and Connect', 'Closing Remarks' with sub-speakers; break item 'Lunch' with no speakers"
+    },
+    {
+      "name": "Explore speakers via the gallery",
+      "persona": "Attendee",
+      "steps": [
+        "Open Speaker Gallery embed page",
+        "Scan photo grid, alphabetical by surname",
+        "Type a name in 'Search speaker by name'",
+        "Click a speaker card",
+        "In detail modal read bio (Show more), Company Name, and 'Sessions (2)' with date/time + room per session",
+        "Click Back / Close modal to return to grid"
+      ],
+      "filled_state": "'Speakers' heading + name search; grid of 14 cards each with headshot, name, job title, company (one speaker intentionally missing photo/title to show fallback); detail view: 'Back', photo, 'Vika Nabila Bajaj Singh', 'Co-founder and CEO', truncated bio + Show more, 'Company Name: Agenea Sciences and SkinScan', 'Sessions (2)' listing titles with 'Friday, December 15: 01:00 PM - 02:00 PM / Room 306'"
+    },
+    {
+      "name": "View the room-by-time agenda grid",
+      "persona": "Attendee",
+      "steps": [
+        "Open Agenda embed page",
+        "See one day's grid: location columns x time rows",
+        "Use day nav arrow (chevron) to switch days",
+        "Click a session block",
+        "Detail view shows full time range, room, description, Format, Track, Subsessions (N) tabs",
+        "Click Back to return to grid"
+      ],
+      "filled_state": "Header + 'Thu, December 14, 2023'; columns Room 305/306/307; time gutter 8:00 AM-6:00 PM; blocks placed at their slot showing track label ('Academia'), title ('Funding Graduate Student Internships'), room, optional speaker-count badge; detail: 'Back', title, 'Thursday, December 14: 01:30 PM - 02:30 PM', 'Room 305', tabs 'Session Details / Subsessions (0)', description + Show more, 'Format: Roundtable', 'Track: Academia'"
+    },
+    {
+      "name": "Publish embeds to the event website",
+      "persona": "Event organizer",
+      "steps": [
+        "In admin go to Deliver module > Embeds",
+        "Click Add Embed; choose widget type (one of the 5) and output format (styled HTML / basic HTML / JSON / XML / iCal)",
+        "Configure display options, colors, optional custom CSS",
+        "Apply content filters (specific tracks, session statuses)",
+        "Pick fields for agenda/speaker/session cards (required fields locked, defaults preselected but editable)",
+        "Save; copy embed code (styled HTML = single JS script line); preview in new window",
+        "Paste into website; widget auto-refreshes ~every 60 min; trigger manual cache refresh for faster updates"
+      ],
+      "filled_state": "Embeds list screen with existing embeds; builder with format picker, color/CSS inputs, filter selectors, field checkboxes (grey=required, blue=preselected); code snippet output like <script src='https://embeds.sessionboard.com/v0/sessionboard-session-embed.js'> + <sessionboard-embed embed-id='...' widget-type='session'>"
+    }
+  ],
+  "features": [
+    {
+      "id": "emb-sessions-list",
+      "name": "List of Sessions embed",
+      "must_have": true,
+      "description": "Embeddable session-catalog widget showing all approved sessions with keyword search (matches session titles and speaker names), faceted Filters panel (Format, Track, Location), result count, and expandable descriptions. Positioned as the catalog view vs the date/time-focused agenda embed. Data pulls live from the event and auto-refreshes (~60 min).",
+      "ui_expectations": "Event-name header; 'Sessions' heading with range count '1 - 22 of 22'; search input placeholder like 'Search by speaker details or session title'; Filters button opening a panel with checkbox facets Format (Session, Roundtable, Lightning Talk), Track (Academia, DEI, Emerging Trends & Innovation, Leadership), Location (Room 305/306/307) and an X to close. Vertical list of cards: session title; truncated abstract with 'Show more' toggle; 'Friday, December 15: 04:00 PM - 05:00 PM'; room; Speakers block listing each speaker's name, job title, company; 'Format:' and 'Track:' tag chips. Filter/search updates list and count in place."
+    },
+    {
+      "id": "emb-speakers-list",
+      "name": "List of Speakers embed",
+      "must_have": true,
+      "description": "Embeddable speaker directory pairing each speaker with their sessions. Sorted alphabetically by surname; search narrows by speaker name (KB: name-only matching; placeholder reads 'Search speakers and sessions'). Each speaker's sessions are listed under their profile and are clickable through to session detail.",
+      "ui_expectations": "Event header; 'Speakers' heading with count '1 - 14 of 14'; search input. Per-speaker entry: circular headshot, name (clickable), job title, company, truncated bio with 'Show more'; beneath, that speaker's sessions each showing title (clickable), 'Thursday, December 14: 10:00 AM - 11:00 AM', room, and 'Roles: speaker'. Speakers with missing photo/title/company render gracefully with fallbacks."
+    },
+    {
+      "id": "emb-agenda",
+      "name": "Agenda embed (grid by location and time)",
+      "must_have": true,
+      "description": "Embeddable calendar-grid view of approved sessions organized by location (columns) and time-of-day (rows) for one day at a time, with day navigation and a per-session detail view including subsessions. This is the 'date and time focused view' alternative to the sessions list.",
+      "ui_expectations": "Event header; current day label 'Thu, December 14, 2023' with prev/next chevron nav buttons; column headers per room (Room 305/306/307); left time gutter (8:00 AM-6:00 PM); session blocks positioned at their time slot showing track label, title, room, optional speaker-count badge; non-session items like 'Lunch' appear as blocks. Clicking a block opens a detail view: 'Back' control, title, full 'Thursday, December 14: 01:30 PM - 02:30 PM' range, room, tabs/sections 'Session Details' and 'Subsessions (N)', truncated description with Show more, Format and Track values."
+    },
+    {
+      "id": "emb-schedule-itinerary",
+      "name": "Schedule Itinerary embed (day-by-day itinerary / personal schedule builder)",
+      "must_have": true,
+      "description": "Embeddable chronological itinerary: sessions listed by day in time order with day tabs, keyword search (session titles + speaker names), track/format/location filters, rich cards with full speaker lists and prominent headshot/bio content, and an inline 'View Details' expansion showing timed subsessions. Personal schedule building \u2014 starring/adding sessions to a saved 'my schedule' and exporting it \u2014 is not visible in SessionBoard's live example and is a category-norm extension (inferred, cf. Sessionize favorites/personal agenda).",
+      "ui_expectations": "'Itinerary' heading; search box; Filters button; day tab buttons ('Thursday, December 14', 'Friday, December 15'); sessions grouped under time headers (09:00 AM, 10:00 AM...). Card: track chip, title, truncated description + Show more, full date/time line, room with map-pin icon, clock icon on times, Speakers list (name/title/company for every speaker, up to 8), 'FORMAT:' and 'TRACK:' rows, 'View Details' button that expands inline subsessions (e.g. 'Icebreakers 09:00 AM - 09:15 AM' with sub-speakers) and toggles to 'Hide Details'. Breaks (Lunch) render as speaker-less entries. (inferred) star/add-to-schedule control per card plus a personal-schedule view or iCal/add-to-calendar export."
+    },
+    {
+      "id": "emb-speaker-gallery",
+      "name": "Speaker Gallery embed",
+      "must_have": true,
+      "description": "Embeddable photo-grid gallery of speakers arranged alphabetically by surname with name-only search; clicking a speaker opens a detail modal with biography, company, and the sessions they appear in. Marketed as mobile-friendly and more visual than the speaker list.",
+      "ui_expectations": "'Speakers' heading; search input 'Search speaker by name'; responsive grid of cards each with headshot photo, name, job title, company (fallback rendering when photo/title missing). Click card opens detail modal/panel: 'Back' and 'Close modal' controls, photo, name, job title, truncated bio + 'Show more', 'Company Name:' field, 'Sessions (N)' section listing each session title with full date/time and room. Closing returns to intact grid."
+    },
+    {
+      "id": "emb-generation-config",
+      "name": "Embed generation, formats and branding (organizer side)",
+      "must_have": false,
+      "description": "Admin workflow (Deliver module > Embeds > Add Embed) to create any of the five widgets: choose output format \u2014 styled HTML delivered as a single JS script line rendering an interactive web component, basic HTML for custom styling, JSON/XML feeds with expanded properties, or iCal subscription of approved sessions; configure display options, colors, optional custom CSS; apply content filters (specific tracks, statuses); pick card fields (required fields locked grey, defaults preselected blue); save to get embed code and preview. Feeds update automatically ~every 60 minutes with a manual cache-refresh option; changing widget data type requires a new embed. Live implementation detail: script embeds.sessionboard.com/v0/sessionboard-session-embed.js + <sessionboard-embed embed-id widget-type> custom element using shadow DOM with CSS custom-property theming incl. a dark theme.",
+      "ui_expectations": "Embeds manager listing created embeds; Add Embed wizard with widget-type and format pickers, color inputs/custom CSS box, filter selectors, field checkbox list; resulting copyable code snippet and 'preview in new window' action. Public side: widget inherits organizer colors; 'Powered by' SessionBoard attribution in footer."
+    }
+  ],
+  "rubric": [
+    {
+      "id": "EMB-01",
+      "feature_id": "emb-sessions-list",
+      "criterion": "Sessions List renders a card per session with title, truncated description + Show more, date/time, room, speaker names with job title and company, and Format/Track tags",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Navigate to the clone's sessions-list embed page",
+        "Wait for widget render; screenshot full list",
+        "Pick 3 cards; verify each shows title, description snippet, a date+time string, a room/location, at least one speaker with title+company, and Format and Track values",
+        "Click 'Show more' on one card and confirm the description expands"
+      ],
+      "pass_criteria": "At least 3 session cards display all listed fields; Show more expands text in place",
+      "evidence": "Screenshot of list plus screenshot of one card before/after Show more"
+    },
+    {
+      "id": "EMB-02",
+      "feature_id": "emb-sessions-list",
+      "criterion": "Sessions List keyword search matches session titles AND speaker names, narrowing the list and updating the visible result count",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Record initial result count (e.g. '1 - 22 of 22')",
+        "Type a distinctive word from one session title; verify only matching session(s) remain and count updates",
+        "Clear; type a speaker surname; verify sessions featuring that speaker remain"
+      ],
+      "pass_criteria": "Both title-term and speaker-name queries filter correctly; count text changes to match",
+      "evidence": "Screenshots after each query showing filtered cards and count"
+    },
+    {
+      "id": "EMB-03",
+      "feature_id": "emb-sessions-list",
+      "criterion": "Filters panel offers Format, Track and Location facets; applying one narrows the list to matching sessions and can be dismissed",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Click Filters button",
+        "Verify panel lists Format, Track, Location groups with the fixture's values",
+        "Select one Track value; verify every remaining card carries that track",
+        "Close panel via X; verify filter persists or clears per UI affordance"
+      ],
+      "pass_criteria": "All three facet groups present; track selection filters list correctly",
+      "evidence": "Screenshot of open Filters panel and of filtered list"
+    },
+    {
+      "id": "EMB-04",
+      "feature_id": "emb-speakers-list",
+      "criterion": "Speakers List shows entries ordered alphabetically by surname, each with headshot, name, job title, company, truncated bio + Show more, and that speaker's sessions (title, date/time, room, role) beneath",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Navigate to speakers-list embed page",
+        "Verify order is alphabetical by last name across first 5 entries",
+        "Verify one entry shows photo, name, title, company, bio snippet with Show more",
+        "Verify sessions listed under that speaker each show title, date/time, room, and a role label"
+      ],
+      "pass_criteria": "Surname A-Z ordering holds; profile fields and per-speaker session sublist all render",
+      "evidence": "Full-page screenshot plus close-up of one speaker entry"
+    },
+    {
+      "id": "EMB-05",
+      "feature_id": "emb-speakers-list",
+      "criterion": "Speakers List search narrows the directory by speaker name and updates the result count",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Record count (e.g. '1 - 14 of 14')",
+        "Type an exact speaker surname in the search box",
+        "Verify only that speaker remains and count updates"
+      ],
+      "pass_criteria": "Name query isolates the speaker; count reflects filtered total",
+      "evidence": "Screenshot of filtered state"
+    },
+    {
+      "id": "EMB-06",
+      "feature_id": "emb-agenda",
+      "criterion": "Agenda renders a per-day grid with location columns, a time-of-day gutter, and session blocks positioned in the correct room column and time row showing track and title",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Navigate to agenda embed page",
+        "Verify day label, >=2 room column headers, and time gutter rows",
+        "Cross-check one known fixture session: block appears under its room column adjacent to its start time and shows track label + title"
+      ],
+      "pass_criteria": "Grid structure present; sampled session is in the correct room/time cell",
+      "evidence": "Full-grid screenshot with the sampled block zoomed"
+    },
+    {
+      "id": "EMB-07",
+      "feature_id": "emb-agenda",
+      "criterion": "Agenda day navigation switches between event days and re-renders the grid with that day's sessions",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Click next-day chevron/nav control",
+        "Verify day label changes to day 2 and at least one day-2-only fixture session appears while a day-1 session disappears"
+      ],
+      "pass_criteria": "Day label and grid contents both change correctly",
+      "evidence": "Screenshots of both days"
+    },
+    {
+      "id": "EMB-08",
+      "feature_id": "emb-agenda",
+      "criterion": "Clicking an agenda block opens a session detail view with full time range, room, description + Show more, Format, Track, and a Subsessions (N) section, with Back returning to the grid",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Click a session block",
+        "Verify detail view fields: title, 'Day, date: start - end' string, room, description, Format, Track, 'Subsessions (N)'",
+        "Click Back; verify grid restored"
+      ],
+      "pass_criteria": "Detail view shows all fields; Back restores grid state",
+      "evidence": "Screenshot of detail view and of restored grid"
+    },
+    {
+      "id": "EMB-09",
+      "feature_id": "emb-schedule-itinerary",
+      "criterion": "Schedule Itinerary lists sessions chronologically grouped under time headers within day tabs; cards show track chip, title, description, full date/time, room, complete multi-speaker list (name/title/company), and FORMAT/TRACK rows",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Navigate to itinerary embed page",
+        "Verify day tab buttons and ascending time-group headers",
+        "On a known multi-speaker fixture session, verify all speakers render with title and company",
+        "Verify a break item (no speakers) renders with just title/time/room"
+      ],
+      "pass_criteria": "Chronological day grouping correct; card anatomy complete including full speaker roster and speaker-less breaks",
+      "evidence": "Screenshots of day list and one rich card"
+    },
+    {
+      "id": "EMB-10",
+      "feature_id": "emb-schedule-itinerary",
+      "criterion": "Itinerary supports keyword search (titles + speaker names) and a Filters control (at minimum track), and day tabs switch the listed day",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Search a title word; verify narrowing",
+        "Open Filters, apply a track; verify only that track's cards remain",
+        "Click day-2 tab; verify listed sessions change to day 2"
+      ],
+      "pass_criteria": "All three narrowing mechanisms work independently",
+      "evidence": "Screenshot after each interaction"
+    },
+    {
+      "id": "EMB-11",
+      "feature_id": "emb-schedule-itinerary",
+      "criterion": "Per-card View Details expands inline sub-sessions with their own times and speakers and toggles to Hide Details",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "On the fixture session containing subsessions, click View Details",
+        "Verify subsession rows (e.g. timed segments with sub-speakers) appear inline and button now reads Hide Details",
+        "Click Hide Details; verify collapse"
+      ],
+      "pass_criteria": "Expansion shows timed subsessions with speakers; toggle collapses",
+      "evidence": "Before/after screenshots of the card"
+    },
+    {
+      "id": "EMB-12",
+      "feature_id": "emb-schedule-itinerary",
+      "criterion": "Personal schedule building (inferred): attendee can star/add sessions to a personal schedule and view/export the selection (e.g. add-to-calendar/iCal)",
+      "weight": 1,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "Look for a star/heart/Add-to-schedule control on itinerary or session cards",
+        "If present, add 2 sessions and open the personal/my-schedule view; verify only those 2 appear",
+        "Look for add-to-calendar/iCal export affordance and click it"
+      ],
+      "pass_criteria": "Controls exist and selection persists within the session; NOT auto-verifiable: calendar file correctness and persistence across visits \u2014 human should download the .ics and confirm the 2 sessions with correct times import into a calendar app",
+      "evidence": "Screenshots of starred cards and personal-schedule view; note on export affordance"
+    },
+    {
+      "id": "EMB-13",
+      "feature_id": "emb-speaker-gallery",
+      "criterion": "Speaker Gallery renders a photo-grid of speaker cards (headshot, name, job title, company) ordered alphabetically by surname with a name-only search box",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Navigate to speaker-gallery embed page",
+        "Verify grid layout and surname A-Z ordering across first 6 cards",
+        "Verify card fields; verify the fixture speaker lacking photo/title still renders without breaking layout",
+        "Search an exact name; verify grid narrows to that speaker"
+      ],
+      "pass_criteria": "Grid, ordering, card anatomy, missing-data fallback, and name search all correct",
+      "evidence": "Grid screenshot plus filtered-search screenshot"
+    },
+    {
+      "id": "EMB-14",
+      "feature_id": "emb-speaker-gallery",
+      "criterion": "Clicking a gallery card opens a speaker detail modal with photo, name, title, bio + Show more, Company Name, and a Sessions (N) list showing each session's title, date/time and room; Back/Close returns to the grid",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Click a fixture speaker who has 2 sessions",
+        "Verify modal fields including 'Sessions (2)' with date/time + room per session",
+        "Expand bio via Show more",
+        "Close modal; verify grid intact"
+      ],
+      "pass_criteria": "All modal fields present; session count matches fixture; close restores grid",
+      "evidence": "Screenshot of open modal and restored grid"
+    },
+    {
+      "id": "EMB-15",
+      "feature_id": "emb-generation-config",
+      "criterion": "Organizer can generate each widget as an embeddable snippet in multiple formats (styled HTML single script line, basic HTML, JSON, XML, iCal) with field selection, color/custom-CSS branding, and content filters (e.g. by track/status)",
+      "weight": 2,
+      "testability": "manual",
+      "auto_steps": [],
+      "pass_criteria": "Human with an organizer/admin account: open Deliver/Embeds area, click Add Embed, confirm all 5 widget types and >=4 output formats are offered; configure colors + a track filter + deselect an optional field; save, copy the styled-HTML snippet into a blank HTML page, and confirm the widget renders reflecting the chosen colors, filter, and hidden field; confirm JSON/XML endpoints return session/speaker data and iCal imports approved sessions",
+      "evidence": "Screenshots of the embed builder, generated snippet, and rendered test page; downloaded .ics import result"
+    },
+    {
+      "id": "EMB-16",
+      "feature_id": "emb-generation-config",
+      "criterion": "Embedded widgets stay in sync with source data without republishing: automatic refresh (~60 min) plus a manual cache-refresh action for immediate updates",
+      "weight": 1,
+      "testability": "manual",
+      "auto_steps": [],
+      "pass_criteria": "Human: edit a session title in the admin, trigger the embed's manual cache refresh, reload the embedding page and confirm the new title appears; separately confirm (or verify via product docs/config) that embeds poll/refresh automatically on roughly an hourly cadence without any redeploy of the host page",
+      "evidence": "Before/after screenshots of the widget showing the edited title and the cache-refresh control"
+    }
+  ],
+  "sample_data": "One event: '2026 HINOMA Research Annual Conference', 2 days (Thu Dec 14, Fri Dec 15), 3 rooms (Room 305, Room 306, Room 307), hours 8:00 AM-6:00 PM. ~22 approved sessions with formats {Session, Roundtable, Lightning Talk} and tracks {Academia, DEI, Emerging Trends & Innovation, Leadership}; example titles: 'GRADFair: A Career Fair for Graduate Students and Postdocs' (Thu 09:00-10:00, Room 307, Roundtable/Leadership, 8 speakers, contains 3 timed subsessions: Icebreakers 09:00-09:15, Mingle and Connect 09:15-09:30, Closing Remarks 09:45-10:00), 'Funding Graduate Student Internships' (Thu 01:30-02:30 PM, Room 305, Roundtable/Academia, 0 subsessions), 'DEI Professional Development Programming and Best Practices' (Thu 12:00-01:00 PM, Lightning Talk/DEI), plus a speaker-less 'Lunch' break (Thu 12:00-01:00 PM, Room 307). 14 speakers sorted by surname (Abu-Shiraz, Bajaj Singh, Davis, Ferguson, Gaziano, MacDonald, Mohammed, Parker, Pentz, Prakash, Rzhetsky, Wojicki, Woloshyn, Wu) each with headshot URL, job title, company, 2-4 sentence bio, 1-4 session assignments with role 'speaker'; include one edge-case speaker (Tara Ferguson) with no photo/title/company and one placeholder bio ('Write a bio here.') to test fallbacks. Descriptions ~300+ chars to force truncation/Show more.",
+  "gaps": "Personal schedule builder: despite the name, SessionBoard's live Schedule Itinerary embed shows NO star/favorite/add-to-my-schedule or export control \u2014 it is a chronological day-tabbed browse view; the personal-schedule capability in feature emb-schedule-itinerary and EMB-12 is inferred from the assignment framing and category norms (Sessionize favorites, Cvent personal agendas) and weighted low. Organizer-side embed builder UI (Deliver > Embeds wizard, field pickers, formats) is documented only from KB prose, not observed \u2014 screens are inferred. JSON/XML feed schemas and iCal contents were not retrievable without an account. Auto-refresh cadence (60 min) and cache-refresh come from KB text only. Search-scope ambiguity: speakers-list placeholder says 'Search speakers and sessions' while KB says speaker-name-only matching for speaker list/gallery; rubric tests name matching only. Whether attendees can filter agenda grid or search within it was not observed (only nav arrows seen). Speaker social links, tag/level/audience custom fields, pagination beyond ~22 items, and mobile-specific layouts were not observable in the examples."
+}

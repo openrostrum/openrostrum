@@ -1,0 +1,425 @@
+{
+  "area": "call-for-papers",
+  "sources": [
+    "https://www.sessionboard.com/products/call-for-papers",
+    "https://www.sessionboard.com/products/abstract-management",
+    "https://www.sessionboard.com/capabilities/ai-evaluators",
+    "https://www.sessionboard.com/compare/sessionboard-vs-oxford-abstracts"
+  ],
+  "fetch_status": "All 4 URLs fetched OK on first attempt via WebFetch (primary CFP page + 3 internal links: abstract-management, ai-evaluators, compare/oxford-abstracts). No JS-shell issues; no WebSearch fallback needed.",
+  "summary": "SessionBoard's Call for Papers module runs the full proposal lifecycle: organizers build custom submission forms (multiple field types, required/optional flags, conditional logic that branches by track or session format) with configurable open/close dates, published on a branded public portal. Speakers submit proposals, get automated confirmation emails, and track status. Organizers assign committee reviewers (magic-link invites, caps on reviews per reviewer/submission, field-based filtering); reviewers see an isolated dashboard of only their assigned submissions and score them on customizable scorecards (numeric ratings, text, dropdowns, file uploads) with weighted criteria. Reviews support multiple independent rounds, each with its own scorecard, dates, anonymization (blind review), and reviewer pool. Optional AI Evaluators (configurable reviewer personas with weighted criteria) provide first-pass triage scores with written reasoning; humans can override. Program chairs monitor aggregate scores, reviewer completion rates, and send bulk reminders, then run accept/reject decisions with personalized notification emails. Accepted submissions flow directly into the agenda builder and activate speaker portals with no re-entry. Extras: submission fee collection, COI tracking, full scoring exports, audit trail.",
+  "personas": [
+    "Organizer/Admin (event team building the CFP, managing submissions and decisions)",
+    "Program chair (monitors review progress, aggregate scores, makes final decisions)",
+    "Reviewer/Committee member (scores assigned submissions)",
+    "Speaker/Submitter (submits proposals via public portal, tracks status)"
+  ],
+  "user_journeys": [
+    {
+      "name": "Organizer creates and publishes a CFP",
+      "persona": "Organizer/Admin",
+      "steps": [
+        "Log in to admin, create/open event, go to Call for Papers setup",
+        "Build submission form: add fields (text, long text, dropdown, file upload), mark required/optional",
+        "Define tracks and session formats; add conditional logic so fields show only for a given track/format",
+        "Set submission open and close dates",
+        "Publish and copy the public portal link; verify the live form renders"
+      ],
+      "filled_state": "Form builder shows ~8-12 fields (title required, abstract, track dropdown with 3 tracks, format dropdown, speaker bio, headshot upload); portal page branded with event name 'DevCon 2026' and a visible deadline"
+    },
+    {
+      "name": "Speaker submits a proposal",
+      "persona": "Speaker/Submitter",
+      "steps": [
+        "Open public CFP portal link",
+        "Create submitter account / sign in",
+        "Fill the form ('Tell us about your session'): title, abstract, track, format, bio",
+        "Submit; see confirmation screen and receive confirmation email",
+        "Open submitter dashboard, see submission listed with status (e.g. Submitted/Under Review), edit it before the deadline"
+      ],
+      "filled_state": "Submitter dashboard lists 1-2 proposals with title, track, and status chips; confirmation banner/email reference visible"
+    },
+    {
+      "name": "Reviewer scores assigned submissions",
+      "persona": "Reviewer/Committee member",
+      "steps": [
+        "Receive invite (magic link) or sign in as reviewer",
+        "Land on review dashboard showing only assigned submissions",
+        "Open a submission (anonymized if blind review is on), fill scorecard: numeric ratings per criterion plus comment",
+        "Submit review; dashboard shows it as completed and advances to the next assignment"
+      ],
+      "filled_state": "Review dashboard shows e.g. '6 assigned, 2 completed'; scorecard has 3 weighted criteria on a 1-5 scale with a comment box; completed items show scores like 4.2/5"
+    },
+    {
+      "name": "Chair decides and notifies",
+      "persona": "Program chair",
+      "steps": [
+        "Open progress dashboard: submissions count, reviewer completion rates, per-submission aggregate scores",
+        "Send bulk reminders to lagging reviewers",
+        "Sort by average score; mark top submissions Accepted and others Rejected",
+        "Send personalized acceptance/rejection notification emails",
+        "Verify accepted submissions became sessions in the agenda/session list and speaker portal invites triggered"
+      ],
+      "filled_state": "Submission table with ~10 rows showing avg score column (3.1-4.8), review counts (e.g. 3/3), status column mixing Accepted/Rejected/Under Review; agenda list containing the accepted session titles"
+    }
+  ],
+  "features": [
+    {
+      "id": "cfp-form-builder",
+      "name": "Custom submission form builder",
+      "description": "Organizer builds the CFP form: custom fields of multiple types (text, long text, dropdown, file upload), required/optional flags (title is the only mandatory field), custom question sets per submission type, topic/category configuration.",
+      "must_have": true,
+      "ui_expectations": "Admin form-builder screen with add-field controls, field-type picker, required toggle, drag/reorder (inferred), and a live or previewable public form that reflects saved changes."
+    },
+    {
+      "id": "cfp-conditional-logic",
+      "name": "Conditional logic and track routing",
+      "description": "Form fields branch on prior answers: track-specific routing, session-format differentiation, different question sets per submission type.",
+      "must_have": true,
+      "ui_expectations": "Builder lets a field declare a show-when condition; on the public form, changing the track/format dropdown shows/hides dependent fields without page reload (inferred)."
+    },
+    {
+      "id": "cfp-portal",
+      "name": "Public submission portal with open/close dates",
+      "description": "Branded public portal where the CFP is published; organizer configures open and close dates and the portal enforces them (closed state blocks submission).",
+      "must_have": true,
+      "ui_expectations": "Public page reachable without admin login, showing event branding, deadline, and the form; after the close date it shows a 'submissions closed' state instead of the form."
+    },
+    {
+      "id": "cfp-submitter-accounts",
+      "name": "Submitter accounts and dashboard",
+      "description": "Speakers create accounts, submit proposals, and see their own submissions with current status; can edit/withdraw before the deadline (inferred from Sessionize/EasyChair norms).",
+      "must_have": true,
+      "ui_expectations": "Sign-up/sign-in on the portal; a 'my submissions' dashboard listing the user's proposals with status labels and an edit action while the CFP is open."
+    },
+    {
+      "id": "cfp-confirmation-email",
+      "name": "Automated submission confirmation",
+      "description": "Automated confirmation email sent on submission, plus on-screen confirmation; status update notifications at each process stage.",
+      "must_have": false,
+      "ui_expectations": "Confirmation screen/banner after submit; email containing the submission title (verified via inbox or the app's email log if the clone exposes one)."
+    },
+    {
+      "id": "cfp-reviewer-assignment",
+      "name": "Reviewer assignment",
+      "description": "Organizer assigns reviewers to submissions with magic-link email invites (no admin accounts needed), configurable max reviews per submission and per reviewer, field-based filtering for targeted assignment, and preview before confirming.",
+      "must_have": true,
+      "ui_expectations": "Admin assignment screen mapping reviewers to submissions (manual pick and/or auto-distribute), showing per-reviewer load counts; invited reviewers reach their dashboard via emailed link or login."
+    },
+    {
+      "id": "cfp-review-dashboard",
+      "name": "Reviewer dashboard and scorecards",
+      "description": "Reviewers get an isolated dashboard showing only assigned submissions; scorecards support numeric ratings, text responses, dropdowns, and file uploads; submitting a review marks it complete.",
+      "must_have": true,
+      "ui_expectations": "Reviewer view lists assigned items with completed/pending state; detail view shows the proposal content plus a scorecard form; no access to unassigned submissions or admin areas."
+    },
+    {
+      "id": "cfp-weighted-rubric",
+      "name": "Weighted scoring rubrics",
+      "description": "Organizer defines evaluation criteria with relative weights; overall submission score aggregates individual criterion scores per the weights; criteria are customizable per review round.",
+      "must_have": true,
+      "ui_expectations": "Rubric config screen listing criteria with weight inputs; submission/aggregate views show per-criterion and overall (weighted) scores consistent with entered ratings."
+    },
+    {
+      "id": "cfp-blind-review",
+      "name": "Blind (anonymized) review",
+      "description": "Anonymization setting (per round) hides submitter identity from reviewers during evaluation.",
+      "must_have": false,
+      "ui_expectations": "Toggle in review-round settings; with it on, reviewer's submission view omits speaker name, email, bio, and photo."
+    },
+    {
+      "id": "cfp-multi-round",
+      "name": "Multi-round review",
+      "description": "Evaluation plans contain multiple independent rounds (e.g. Initial Review, Final Review, Committee Decision), each with its own scorecard, open/close dates, anonymization setting, and reviewer pool.",
+      "must_have": false,
+      "ui_expectations": "Admin can create a second round with a different scorecard and reviewer set; round status (open/closed) shown on a progress dashboard."
+    },
+    {
+      "id": "cfp-ai-evaluators",
+      "name": "AI Evaluators",
+      "description": "Configurable AI reviewer personas (background, tone, weighted criteria, track focus) give first-pass triage: numeric score plus written reasoning per submission, benchmarked comparisons; human reviewers can override scores.",
+      "must_have": false,
+      "ui_expectations": "Persona setup screen (name, expertise, weighted criteria); submissions display an AI score with expandable written rationale alongside human scores, with an override/adjust affordance."
+    },
+    {
+      "id": "cfp-progress-tracking",
+      "name": "Progress dashboard and bulk reminders",
+      "description": "Real-time organizer dashboard: submission counts, which rounds are open, reviewer completion rates, bottlenecks; bulk reminder emails to reviewers with outstanding assignments.",
+      "must_have": false,
+      "ui_expectations": "Dashboard with counts and per-reviewer completion (e.g. 4/6 done); a 'remind' bulk action; per-submission review-count column."
+    },
+    {
+      "id": "cfp-decision-workflow",
+      "name": "Acceptance/rejection workflow",
+      "description": "Committee selection dashboard where chairs view aggregate scores, reviewer comments, and completion rates, then mark submissions Accepted/Rejected/Waitlisted; every stage and decision logged in an audit trail.",
+      "must_have": true,
+      "ui_expectations": "Submission table sortable by average score with a status/decision control (per-row and bulk, inferred); status changes reflected in submitter's dashboard."
+    },
+    {
+      "id": "cfp-decision-notifications",
+      "name": "Personalized decision notifications",
+      "description": "Personalized acceptance and rejection emails sent from the platform; speaker portal invitations trigger automatically for accepted speakers; email automation at each stage removes manual coordination.",
+      "must_have": true,
+      "ui_expectations": "Notification compose/template step with merge fields (inferred), a send action scoped to accepted or rejected sets, and a sent/queued indicator."
+    },
+    {
+      "id": "cfp-agenda-handoff",
+      "name": "Accepted-to-agenda handoff",
+      "description": "Accepted submissions become sessions in the agenda builder with all metadata intact \u2014 no re-entry; speaker portal activation and material collection follow automatically.",
+      "must_have": false,
+      "ui_expectations": "After acceptance, the session (same title, speakers, track) appears in the sessions/agenda area ready for scheduling."
+    },
+    {
+      "id": "cfp-exports",
+      "name": "Scoring data export",
+      "description": "Full export of scoring data at every round/stage; shareable reports; natural-language report building (AI reporting).",
+      "must_have": false,
+      "ui_expectations": "Export button on review/decision views producing CSV/XLSX containing submissions, per-criterion scores, averages, and statuses."
+    },
+    {
+      "id": "cfp-submission-fees",
+      "name": "Submission fee collection",
+      "description": "Optional payment step inside the form: fee collection via payment gateways, promo codes for invited speakers, VAT config; payment status visible per submission in admin.",
+      "must_have": false,
+      "ui_expectations": "Fee amount shown on the form, a payment step at submit, promo-code input, and a paid/unpaid column in the admin submission list."
+    },
+    {
+      "id": "cfp-coi-tracking",
+      "name": "Conflict of interest tracking",
+      "description": "COI tracking in committee operations: reviewers declare conflicts and are excluded from scoring those submissions (mechanics inferred from OpenReview/EasyChair norms).",
+      "must_have": false,
+      "ui_expectations": "A COI flag/declare action on a reviewer's assigned submission that removes it from their scoring queue and marks it for reassignment."
+    }
+  ],
+  "rubric": [
+    {
+      "id": "CFP-01",
+      "feature_id": "cfp-form-builder",
+      "criterion": "Organizer can build a custom submission form: add fields of at least 3 types (text, dropdown, long text or file upload) and mark fields required/optional; changes appear on the public form",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Sign in as organizer/admin",
+        "Navigate to CFP/form settings for the event",
+        "Add a short-text field 'Key takeaway', a dropdown 'Audience level' with 3 options, mark 'Key takeaway' required; save",
+        "Open the public submission form in a fresh context",
+        "Confirm both fields render; submit with 'Key takeaway' empty and confirm a required-field validation error"
+      ],
+      "pass_criteria": "All added fields render on the public form with correct types/options; required validation blocks submission when the required field is empty",
+      "evidence": "Screenshot of builder with the new fields; screenshot of public form showing them; screenshot of validation error on empty required field"
+    },
+    {
+      "id": "CFP-02",
+      "feature_id": "cfp-conditional-logic",
+      "criterion": "Form supports conditional logic: a field configured to show only for a specific track/format appears and disappears based on the submitter's selection",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, add/find a field with a show-when condition tied to one track or session format",
+        "Open the public form",
+        "Select the triggering track/format and confirm the dependent field appears",
+        "Switch to a different track/format and confirm it disappears"
+      ],
+      "pass_criteria": "Dependent field visibility follows the controlling answer in both directions",
+      "evidence": "Two screenshots of the public form: one with the condition met (field visible), one without (field hidden)"
+    },
+    {
+      "id": "CFP-03",
+      "feature_id": "cfp-portal",
+      "criterion": "Public portal is reachable without login and enforces configured open/close dates (closed CFP blocks new submissions)",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "Copy the public portal URL from admin; open it in a logged-out context and confirm the form/event branding loads",
+        "As organizer, set the CFP close date to a past datetime; save",
+        "Reload the public portal and confirm a closed state (no submittable form)",
+        "Restore a future close date and confirm the form is available again"
+      ],
+      "pass_criteria": "Portal loads publicly; past close date yields a closed/blocked state; future date restores submission ability",
+      "evidence": "Screenshot of open portal; screenshot of closed-state message after date change"
+    },
+    {
+      "id": "CFP-04",
+      "feature_id": "cfp-submitter-accounts",
+      "criterion": "A speaker can create a submitter account, complete and submit a proposal, and the submission appears both in their own dashboard and in the organizer's submission list",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "From the public portal, register a new submitter account (test email)",
+        "Fill the form with fixture proposal 'Scaling LLM Inference on a Budget' and submit",
+        "Confirm on-screen confirmation",
+        "Open the submitter dashboard and confirm the proposal is listed with a status (e.g. Submitted/Under Review)",
+        "Sign in as organizer and confirm the same proposal appears in the submissions list with its field values"
+      ],
+      "pass_criteria": "Same submission visible on both sides with matching title and status; data round-trips without loss",
+      "evidence": "Screenshots of confirmation screen, submitter dashboard row, and organizer submission detail"
+    },
+    {
+      "id": "CFP-05",
+      "feature_id": "cfp-submitter-accounts",
+      "criterion": "Submitter can edit an existing submission while the CFP is open, and the change is reflected in the organizer view (norm inferred from Sessionize/EasyChair)",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Sign in as the submitter from CFP-04",
+        "Open the submitted proposal and edit the abstract text; save",
+        "Sign in as organizer and open the submission detail",
+        "Confirm the updated abstract text"
+      ],
+      "pass_criteria": "Edited content persists and is what the organizer sees",
+      "evidence": "Screenshot of edit form with new text; screenshot of organizer detail showing the same text"
+    },
+    {
+      "id": "CFP-06",
+      "feature_id": "cfp-confirmation-email",
+      "criterion": "Submitting a proposal triggers an automated confirmation email to the submitter",
+      "weight": 2,
+      "testability": "manual",
+      "auto_steps": [],
+      "pass_criteria": "Human check: submit a proposal using a real/inspectable inbox (or the clone's built-in email log/outbox if present); within a few minutes an email arrives referencing the event and the submitted title. Pass if received with correct submission reference; if the clone exposes an in-app email log, a screenshot of the logged message with correct recipient and title also passes",
+      "evidence": "Screenshot of the received email (or in-app email log entry) showing recipient, subject, and submission title"
+    },
+    {
+      "id": "CFP-07",
+      "feature_id": "cfp-reviewer-assignment",
+      "criterion": "Organizer can assign specific submissions to a reviewer, and that reviewer's dashboard shows only assigned submissions (isolation from unassigned ones and admin areas)",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, create/invite a reviewer account and assign it 2 of the 4+ fixture submissions",
+        "Sign in as that reviewer (or follow its access link)",
+        "Confirm the dashboard lists exactly the 2 assigned submissions",
+        "Attempt to reach an unassigned submission (via list or URL manipulation) and confirm it is not accessible"
+      ],
+      "pass_criteria": "Reviewer sees only assigned items; unassigned content and admin functions are inaccessible",
+      "evidence": "Screenshot of organizer assignment screen; screenshot of reviewer dashboard showing only the 2 items; screenshot/response of blocked access attempt"
+    },
+    {
+      "id": "CFP-08",
+      "feature_id": "cfp-review-dashboard",
+      "criterion": "Reviewer can open an assigned submission and submit a scorecard (at least numeric rating plus text comment); the review is recorded and its completion state updates",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "As the assigned reviewer, open an assigned submission",
+        "Fill the scorecard: numeric ratings per criterion and a comment; submit",
+        "Confirm the item now shows as reviewed/completed on the reviewer dashboard",
+        "As organizer, open that submission and confirm the score and comment are visible"
+      ],
+      "pass_criteria": "Scores and comment persist, completion state flips, and organizer can see the recorded review",
+      "evidence": "Screenshot of filled scorecard; screenshot of completed state; screenshot of organizer view showing score and comment"
+    },
+    {
+      "id": "CFP-09",
+      "feature_id": "cfp-weighted-rubric",
+      "criterion": "Organizer can define multiple scoring criteria with weights, and the submission's overall score reflects the weighted aggregation of entered ratings",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, configure a rubric with e.g. Relevance 50%, Originality 30%, Speaker experience 20% on a 1-5 scale",
+        "As reviewer, score one submission 5/3/1 on those criteria",
+        "As organizer, view the submission's overall score",
+        "Verify it matches the weighted expectation (5*0.5+3*0.3+1*0.2=3.6) or a documented equivalent aggregation"
+      ],
+      "pass_criteria": "Overall score is a deterministic aggregate consistent with the configured weights (exact weighted mean, or clearly labeled alternative like simple mean only if weights are absent \u2014 which fails the weighted requirement)",
+      "evidence": "Screenshot of rubric config with weights; screenshot of entered ratings; screenshot of computed overall score"
+    },
+    {
+      "id": "CFP-10",
+      "feature_id": "cfp-blind-review",
+      "criterion": "Anonymized/blind review setting hides submitter identity (name, email, bio, photo) from the reviewer's view",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, enable anonymization for the review round",
+        "As reviewer, open an assigned submission",
+        "Inspect the page for the submitter's name/email/bio/photo",
+        "Disable anonymization and confirm identity fields reappear"
+      ],
+      "pass_criteria": "With blinding on, no identifying submitter fields render anywhere in the reviewer's submission view; toggling off restores them",
+      "evidence": "Screenshot of reviewer view with identity hidden and (after toggle) visible; screenshot of the anonymization setting"
+    },
+    {
+      "id": "CFP-11",
+      "feature_id": "cfp-multi-round",
+      "criterion": "Review process supports at least two independent rounds with distinct scorecards and/or reviewer pools",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, create Round 2 ('Final Review') with a different scorecard (or different criteria) and a different reviewer set from Round 1",
+        "Advance/include at least one submission into Round 2",
+        "Sign in as the Round-2 reviewer and confirm the Round-2 scorecard (not Round 1's) is presented",
+        "As organizer, confirm both rounds' scores are stored separately"
+      ],
+      "pass_criteria": "Two rounds exist with independent configuration; scores from each round are separately visible",
+      "evidence": "Screenshot of round configuration list; screenshot of Round-2 scorecard; screenshot of per-round scores on a submission"
+    },
+    {
+      "id": "CFP-12",
+      "feature_id": "cfp-progress-tracking",
+      "criterion": "Organizer dashboard shows review progress: per-reviewer completion (e.g. 2/4 done) and per-submission review counts or aggregate scores",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Complete some but not all assigned reviews using the reviewer account",
+        "As organizer, open the review progress/monitoring view",
+        "Confirm it distinguishes completed vs outstanding reviews per reviewer and shows per-submission review counts or averages"
+      ],
+      "pass_criteria": "Displayed completion numbers match the actual reviews performed in earlier steps",
+      "evidence": "Screenshot of progress dashboard with counts matching the known review state"
+    },
+    {
+      "id": "CFP-13",
+      "feature_id": "cfp-decision-workflow",
+      "criterion": "Organizer can set accept/reject decisions on submissions; status updates in the admin list and in the submitter's own dashboard",
+      "weight": 3,
+      "testability": "auto",
+      "auto_steps": [
+        "As organizer, mark one fixture submission Accepted and another Rejected (per-row control or bulk action)",
+        "Confirm the admin list shows the new statuses",
+        "Sign in as each affected submitter and confirm their dashboard reflects Accepted/Rejected respectively"
+      ],
+      "pass_criteria": "Both decisions persist and propagate to the correct submitter accounts",
+      "evidence": "Screenshot of admin list with mixed statuses; screenshots of each submitter dashboard showing the correct status"
+    },
+    {
+      "id": "CFP-14",
+      "feature_id": "cfp-decision-notifications",
+      "criterion": "Platform sends (or queues) personalized acceptance and rejection notification emails to decided submitters",
+      "weight": 2,
+      "testability": "auto-partial",
+      "auto_steps": [
+        "As organizer, after CFP-13, invoke the notify/send-decisions action (choosing or confirming accept and reject templates if prompted)",
+        "Confirm the UI reports the messages as sent/queued (e.g. sent count, per-submission notified indicator, or email log entries)"
+      ],
+      "pass_criteria": "UI confirms decision notifications were dispatched to the right recipient sets; NOT auto-verified: actual email delivery and personalization of body content \u2014 a human should check a real inbox for one acceptance and one rejection message naming the submission",
+      "evidence": "Screenshot of the send/notify flow and the sent/queued confirmation; (manual supplement) screenshot of received accept and reject emails"
+    },
+    {
+      "id": "CFP-15",
+      "feature_id": "cfp-agenda-handoff",
+      "criterion": "Accepting a submission makes it available as a session in the agenda/session management area with its metadata (title, speaker, track) intact, without re-entry",
+      "weight": 2,
+      "testability": "auto",
+      "auto_steps": [
+        "Accept a submission (from CFP-13) and follow any 'convert to session'/'move to agenda' affordance if presented",
+        "Navigate to the sessions/agenda area of the event",
+        "Confirm a session exists with the same title, speaker, and track as the accepted submission"
+      ],
+      "pass_criteria": "Accepted submission's data appears as a session record without manual re-typing of its fields",
+      "evidence": "Screenshot of accepted submission detail; screenshot of the matching session in the agenda/session list"
+    },
+    {
+      "id": "CFP-16",
+      "feature_id": "cfp-exports",
+      "criterion": "Organizer can export scoring/submission data (CSV/XLSX) containing submissions, scores, and statuses",
+      "weight": 1,
+      "testability": "manual",
+      "auto_steps": [],
+      "pass_criteria": "Human check: click the export action on the submissions/review view, open the downloaded file, and verify it contains one row per submission with title, per-criterion or average scores, and decision status matching the on-screen data. Pass if the file opens and the known fixture rows/values are present and correct",
+      "evidence": "The downloaded file plus a screenshot of the on-screen table it should match"
+    }
+  ],
+  "sample_data": "Event: \"DevCon 2026\" (CFP open now, closes 2026-10-01). Tracks: \"AI & ML\", \"Web Platform\", \"Engineering Leadership\". Session formats: Talk (30 min), Workshop (90 min), Panel (45 min). Form fields: Session title* (text), Abstract* (long text ~150 words), Track* (dropdown), Format* (dropdown), Key takeaway (text, required \u2014 added in CFP-01), Audience level (dropdown: Beginner/Intermediate/Advanced), Speaker bio (long text), Headshot (file), conditional field \"Workshop prerequisites\" shown only when Format=Workshop. Rubric: Relevance 50%, Originality 30%, Speaker experience 20%, scale 1-5. Fixture submissions (6): \"Scaling LLM Inference on a Budget\" (AI & ML, Talk), \"Postgres as Your Message Queue\" (Web Platform, Talk), \"Hands-on WebGPU\" (Web Platform, Workshop), \"From IC to Manager and Back\" (Engineering Leadership, Talk), \"Evals That Actually Catch Regressions\" (AI & ML, Workshop), \"Panel: The Future of Frontend\" (Web Platform, Panel). Accounts: organizer admin@devcon.test; submitters alice@example.test (2 proposals), bob@example.test, carol@example.test; reviewers rev1@devcon.test, rev2@devcon.test, rev3@devcon.test. Decisions for testing: accept \"Scaling LLM Inference...\", reject \"Postgres as Your Message Queue\".",
+  "gaps": "Marketing pages do not specify: submitter draft-saving and post-submission edit rules (inferred from Sessionize/EasyChair norms \u2014 CFP-05 marked as inferred norm); co-speaker/co-author invitation flow mechanics; notification template editor details and merge fields (inferred); bulk decision actions (inferred); waitlist status existence; exact reviewer auth model for the CFP product (magic-link detail comes from the abstract-management page and may differ); COI declaration mechanics (only named on a compare page, mechanics inferred from OpenReview norms \u2014 excluded from rubric as too speculative); AI Evaluator configuration UI specifics (feature documented but left out of the rubric since clones may legitimately stub AI). No actual product screenshots were inspectable as images \u2014 UI expectations derive from captions/alt-text and category norms. Pricing/tier gating of features unknown."
+}

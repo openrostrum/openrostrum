@@ -1,0 +1,238 @@
+# Scenario suite 04 — Speaker portal (SCOPE P0 #3 + committed P1 reaches: P1 #3 Files,
+# P1 #11 per-person Confirm/Withdraw, P1 #12 forgot password, P1 #13 secondary contacts)
+#
+# Shared concrete fixtures (carried over from docs/scenarios/03-public-cfp.yaml):
+# - Priya Raman <priya@example.com> / "Priya!Speaks2026" — created in CFP-S1; owns the submitted
+#   "Evals in Production: Lessons from 40 Deployments" (Pending), the draft "Async Agents on the
+#   Edge" (CFP-S4), and the panel "Agents in Production: A Practitioners Panel" (CFP-S5, with
+#   co-speaker Dana Okafor <dana.okafor@example.com> and secondary contact Leo Martins).
+# - PORTAL_URL = the portal link recorded in CFP-S1 steps 9-10.
+# - Marcus Chen <marcus.chen@example.com> (MARCUS_PW) — seeded submitter account.
+# - SCALE FIXTURE (NORTH STAR): the event seeded to >=300 submissions across >=150 contacts,
+#   including Alex Rivera <alex.rivera@example.com> (fixture password) as speaker on 8
+#   submissions with mixed statuses, two of whose titles contain "RAG" ("RAG at the Edge",
+#   "Evaluating RAG Pipelines in CI").
+# - Email assertions run against the email outbox (DB) and the readable test inbox
+#   (VERIFICATION-CAPABILITIES #4).
+
+module: speaker-portal
+# `touches` filled by the WALKER 2026-08-09 — see docs/scenarios/walks/04-speaker-portal.walk.md
+touches:
+  tables: [events, users, authSessions, passwordResets, contacts, submissions, participants,
+           formats, forms, tasks, taskAssignments, portalForms, files, emailTemplates, emailOutbox]
+  ports: [email, clock]
+  routes: ["portals.$eventSlug.$portalId.tsx (+ home/submissions/profile/tasks — files child MISSING)",
+           login.tsx, logout.tsx, admin.submissions.tsx, admin.submissions.$id.tsx, admin.tasks.tsx,
+           submit.$eventSlug.$formId.tsx,
+           "MISSING: forgot-password.tsx, reset.$token.tsx, R2 byte-serving route(s)"]
+scenarios:
+  - id: SP-S1
+    name: Login gate with zero data leak, password-manager login, and Home status pills — queue statuses ALWAYS mask as Pending
+    persona: speaker
+    steps: |
+      1. Prereq state: Priya (CFP-S1/CFP-S4) has the submitted "Evals in Production: Lessons from
+         40 Deployments" (Pending) and the draft "Async Agents on the Edge". In a fresh incognito
+         window (logged out), open PORTAL_URL -> a login gate renders.
+      2. Data-leak probe while logged out: grep the login page's response body for "Evals in
+         Production" and "priya@example.com" — both must be ABSENT. Request the portal Home path
+         directly -> the same gate, with no flash of authenticated content.
+      3. Inspect the login form: email input with autocomplete="username" (or "email"), password
+         input type="password" with autocomplete="current-password", native form submit — the
+         browser's password manager offers to save/fill.
+      4. Log in as priya@example.com / "Priya!Speaks2026" -> portal Home.
+      5. Home shows three zones: My Submissions card ("Evals in Production..." with an orange
+         Pending pill; "Async Agents on the Edge" with a Draft pill), My Profile card (initials
+         avatar "PR", name, email, a View-more path), and a Tasks panel (tabs All / My Tasks /
+         Submissions with designed empty states — no tasks exist yet).
+      6. As admin (separate session): set "Evals in Production..." status to Accept Queue; Save.
+      7. As Priya: reload Home -> the pill STILL reads "Pending" (orange). Grep the rendered HTML
+         for "Accept Queue", "accept_queue", and "queue" — all absent from her portal.
+      8. Admin sets the same submission to Decline Queue -> Priya reloads -> STILL "Pending";
+         no "Decline" or queue wording anywhere in her portal.
+      9. Admin sets the final status Accepted -> Priya reloads -> a green "Accepted" pill.
+         Record the submission's portal detail URL for SP-S3's authorization probe. (This
+         acceptance also auto-provisions the speaker/session/onboarding tasks consumed by SP-S6.)
+    success_signals:
+      - "Step 2: zero pre-auth data — response-body grep evidence that no titles, names, or emails leak through the login gate."
+      - "Step 3 DOM: autocomplete attributes present — the portal login is password-manager-friendly."
+      - "Steps 6-8 screenshots + HTML grep: queue names NEVER reach the speaker; the pill reads Pending through BOTH queue states, then flips to Accepted only on the final status (step 9)."
+      - "With the 300+-submission scale fixture loaded, portal Home still renders in under 1 second (Priya's cards are scoped queries, not table scans)."
+      - "EXPERIENCE: 'have I been accepted?' reads at a glance — color-coded status pills on Home with no navigation needed; a plain reload reflects the latest status with no stale cache."
+
+  - id: SP-S2
+    name: Speaker updates her own bio, headshot, and links — persists, round-trips, and shows admin-side
+    persona: speaker
+    steps: |
+      1. As Priya, portal -> Profile tab.
+      2. Biography rich text: replace with "Priya Raman is an infrastructure engineer focused on
+         LLM evals." with "LLM evals" in bold, plus a 2-item bullet list ("10 years in ML infra",
+         "Speaker at 12 conferences"); the counter shows the live count out of 5,000.
+      3. Set Job Title "Principal Engineer" and Company Name "Wompler Labs".
+      4. Upload a headshot: a real 400x400 PNG (headshot-priya.png) -> a preview renders.
+      5. My Links: LinkedIn https://www.linkedin.com/in/priyaraman, X https://x.com/priyaraman,
+         Website https://priya.dev.
+      6. Unhappy probe: set Website to "not a url" -> inline validation error; the junk value is
+         not saved. Restore https://priya.dev.
+      7. Unhappy probe: attempt to upload a 12 MB .bmp as the headshot -> rejected with a clear
+         size/type message; no broken-image state, the previous preview survives.
+      8. Save -> success feedback; then hard-reload the page -> every value persisted exactly
+         (bold + bullets intact in the bio, headshot renders, all three links present).
+      9. As admin: open Priya's contact record -> the same bio, headshot, and links are visible
+         admin-side (the speaker's self-service edit is the organizer's data).
+      10. Storage probe: download the stored headshot -> its checksum matches the uploaded
+          headshot-priya.png byte-for-byte.
+    success_signals:
+      - "DB: Priya's contact row carries the new bio (with formatting), job title, company, and all three link URLs."
+      - "Object storage: the headshot round-trips — downloaded bytes equal uploaded bytes (checksum)."
+      - "Step 9 screenshot: admin sees the speaker's edits — the swyx-emphasized 'update your own bio' moment lands end-to-end."
+      - "Steps 6-7 screenshots: friendly inline validation; bad input never destroys good data."
+      - "EXPERIENCE: Save gives immediate feedback without a full-page reload; rich-text formatting round-trips exactly; the whole edit takes a non-technical speaker under a minute."
+
+  - id: SP-S3
+    name: One human on two submissions sees ONE profile — and only her own data (authorization probe)
+    persona: speaker
+    steps: |
+      1. Prereq: Dana Okafor <dana.okafor@example.com> is already co-speaker on "Agents in
+         Production: A Practitioners Panel" (CFP-S5). Now, as Marcus Chen (seeded submitter),
+         submit a NEW submission on FORM_URL titled "Guardrails Roundtable", adding Dana Okafor
+         with the SAME email dana.okafor@example.com as second speaker.
+      2. DB probe: exactly ONE contact row exists for dana.okafor@example.com, and BOTH
+         submissions' participant rows reference that same contact id (no duplicate Dana minted).
+      3. Dana enters her portal for the first time: via the added-to-submission notification in
+         the outbox (existing-contact notify is ON) or the portal link; she sets the password
+         "Dana!Okafor77" and logs in.
+      4. Dana's portal Home/Submissions lists BOTH sessions: "Agents in Production: A
+         Practitioners Panel" and "Guardrails Roundtable".
+      5. Profile tab: exactly one profile. Set Biography to "Dana Okafor builds agent tooling at
+         Ferrostar." -> Save.
+      6. As admin: Dana's single contact record shows the new bio; the participant panel on EACH
+         of the two submissions shows the SAME updated bio — edited once, reflected everywhere.
+      7. AUTHZ probe (listings): Dana's portal shows NO trace of Priya's other items — neither
+         "Evals in Production: Lessons from 40 Deployments" nor the draft "Async Agents on the
+         Edge" appears anywhere; Dana's Tasks tab contains none of Priya's task assignments.
+      8. AUTHZ probe (direct URL): in Dana's session, request the portal detail URL of Priya's
+         "Evals in Production..." (recorded in SP-S1 step 9) -> access denied (403/404-class
+         page); grep the response body — it contains neither the title nor any submission data.
+    success_signals:
+      - "DB: a single contact row for dana.okafor@example.com with two submission-participant links pointing at the same contact id."
+      - "Step 6 screenshots: one bio edit visible on both submissions AND the contact record."
+      - "Steps 7-8: zero cross-speaker leakage — listings scoped to Dana, and the direct-URL denial page carries no foreign data (body grep)."
+      - "EXPERIENCE: Dana never meets two 'Dana' profiles and never re-enters her bio per submission — the duplicate-contact mess Sessionboard's own FAQ admits to is designed out."
+
+  - id: SP-S4
+    name: Submissions tab search at real scale — scoped, instant, with a designed empty state
+    persona: speaker
+    steps: |
+      1. Load the SCALE FIXTURE: >=300 submissions across >=150 contacts, including Alex Rivera
+         <alex.rivera@example.com> as speaker on 8 submissions with mixed statuses ("RAG at the
+         Edge" and "Evaluating RAG Pipelines in CI" among them).
+      2. Log in to the portal as Alex Rivera -> Submissions tab.
+      3. The tab lists EXACTLY Alex's 8 submissions — never any of the event's other ~292 — each
+         with a status pill; initial render completes in under 1 second.
+      4. Type "RAG" in the search box -> the list filters to the 2 matching submissions as you
+         type.
+      5. Clear the search -> all 8 return.
+      6. Search "zzz-no-match" -> a designed empty state (friendly 'no submissions match' copy),
+         not a blank area, error, or endless spinner.
+      7. Open "RAG at the Edge" -> the detail view shows title, status, and its co-speakers.
+    success_signals:
+      - "Step 3 scoping proof: listed row count equals Alex's 8 participant links (screenshot + DB cross-check) — authorization holds at scale."
+      - "Search filters as-you-type with no full-page reload (perceived latency under ~300ms per keystroke)."
+      - "Screenshot at step 6: the no-results empty state exists and is product copy."
+      - "With 300+ submissions in the DB, the Submissions tab's initial load stays under 1 second — the speaker query is scoped/indexed, not a full-table scan."
+      - "EXPERIENCE: a speaker with many submissions finds any one of them in under 5 seconds; search feels instant at NORTH-STAR scale."
+
+  - id: SP-S5
+    name: Per-person acceptance — one speaker Confirms, her co-speaker Withdraws, statuses stay independent
+    persona: speaker
+    steps: |
+      1. As admin: set "Agents in Production: A Practitioners Panel" (CFP-S5; speakers Priya +
+         Dana) to Accepted; Save.
+      2. As Priya: portal -> Submissions -> the panel session shows Accepted plus per-person
+         acceptance controls (Confirm participation / Withdraw) attached to HER participation.
+      3. Priya clicks Confirm -> confirmation dialog -> confirm -> her participation state reads
+         Confirmed immediately.
+      4. As Dana (separate session): the same panel session shows HER OWN Confirm/Withdraw
+         controls; meanwhile her still-Pending "Guardrails Roundtable" shows NO Confirm/Withdraw
+         controls at all (confirmation exists only on Accepted sessions).
+      5. Dana clicks Withdraw on the panel session -> confirms -> her state reads Withdrawn.
+      6. Cross-check isolation: Priya's view still shows her own participation as Confirmed —
+         Dana's withdrawal changed nothing about Priya's state — and each portal makes it
+         unambiguous WHOSE status each control affects.
+      7. As admin: the submission's participants panel shows acceptance per person —
+         Priya = Confirmed, Dana = Withdrawn.
+    success_signals:
+      - "DB: participants acceptance status on the same submission — Priya's row confirmed, Dana's row withdrawn."
+      - "Step 4 screenshot: no Confirm/Withdraw controls on a Pending session."
+      - "Steps 6-7 screenshots: per-person independence visible in both portals and admin-side."
+      - "EXPERIENCE: Confirm/Withdraw applies instantly without a reload, with an unmistakable state change; a co-speaker cannot accidentally act on someone else's participation."
+
+  - id: SP-S6
+    name: Onboarding tasks — complete a simple task, file the hotel-stay form, admin reads the response
+    persona: speaker
+    steps: |
+      1. Prereq: the acceptances in SP-S1 step 9 / SP-S5 step 1 auto-provisioned Priya's
+         onboarding task set: required "Hotel Stay Requirements" (portal form), required
+         "Flight Reimbursement" (portal form), and the optional "Announce your participation".
+      2. As Priya: Tasks tab lists those tasks, each with name, required marker, due date, and
+         an Incomplete status.
+      3. Open "Announce your participation" -> task detail (description, status) -> Mark as
+         Complete -> its status flips to Complete in the list.
+      4. Open "Hotel Stay Requirements" -> the attached form renders: Check-in Date, Check-out
+         Date, Room Preference, Special Requests.
+      5. Unhappy probe: submit the form with Check-in Date empty -> inline required-field error;
+         nothing is saved.
+      6. Fill: Check-in 2026-10-11, Check-out 2026-10-15, Room Preference "King", Special
+         Requests "Ground floor, near elevator" -> Submit -> the task shows Complete.
+      7. DB probe: the task assignment's stored response contains 2026-10-11 and 2026-10-15.
+      8. As admin: open the task-response detail for Priya's hotel form -> the dates and
+         preferences are readable (the organizer can actually book the hotel — the form is not
+         decorative).
+      9. Portal Home: the Tasks panel reflects the completions (its outstanding count dropped).
+    success_signals:
+      - "DB: a task-assignment response row containing the exact dates; two assignments in completed state."
+      - "Step 8 screenshot: admin reads the submitted hotel-form response."
+      - "Step 5 screenshot: inline validation on the task form, nothing persisted on failure."
+      - "EXPERIENCE: completing a task updates the list instantly without a reload; name/required/due-date metadata is legible at a glance for a non-technical speaker."
+
+  - id: SP-S7
+    name: Files — organizer shares a file, the speaker downloads it, nobody unauthenticated can
+    persona: speaker
+    steps: |
+      1. As Priya: portal -> Files tab -> a designed empty state (no files shared yet), not a
+         blank page.
+      2. As admin: upload and share "speaker-kit-2026.pdf" (a real 2-page PDF, ~120 KB) to the
+         speaker portal's Files.
+      3. As Priya: reload Files -> the file is listed with its name and human metadata (size,
+         shared date).
+      4. Download it -> the received bytes' checksum matches the uploaded file exactly.
+      5. AUTHZ probe: capture the download URL; in a fresh logged-out incognito session, GET it
+         -> denied (no file bytes served); the underlying storage object is not publicly
+         reachable or guessable.
+    success_signals:
+      - "Checksum equality at step 4 — the upload-to-download round-trip is byte-exact."
+      - "Step 5: the logged-out fetch returns a denial, never the PDF (response assertion)."
+      - "Screenshot at step 1: the Files empty state is designed product copy."
+      - "EXPERIENCE: download starts in one click and completes immediately; the list shows names and sizes, not raw object keys."
+
+  - id: SP-S8
+    name: Forgot password end-to-end — reset email, token link, old password dead, token single-use
+    persona: speaker
+    steps: |
+      1. Logged out, open the portal login gate -> click "Forgot your password?".
+      2. Enter priya@example.com -> Send Reset Link -> an on-screen acknowledgment renders.
+      3. Probe: also request a reset for nonexistent.person@example.com -> the UI stays graceful
+         (no crash, no raw error); the outbox shows NO email sent to that address.
+      4. Query the outbox: a reset email to priya@example.com containing a tokened reset link.
+      5. Open the link -> a set-new-password page (input carries autocomplete="new-password").
+         Try the weak password "abc" -> rejected inline against the password rules.
+      6. Set "Priya!Reborn2026" -> success -> proceed to the login page.
+      7. Old-password probe: attempt login with "Priya!Speaks2026" -> REJECTED.
+      8. Log in with "Priya!Reborn2026" -> portal Home renders with Priya's data.
+      9. Token-reuse probe: open the same reset link again -> an invalid/expired message; it can
+         no longer set a password.
+    success_signals:
+      - "Outbox: exactly one reset email — to priya@example.com with the token link, none to nonexistent.person@example.com."
+      - "Functional proof, observed not assumed: the old password is dead (step 7) and the new one works (step 8)."
+      - "DB: the reset token is consumed after step 6; step 9 renders the invalid-token state (single-use)."
+      - "EXPERIENCE: the whole recovery loop takes under 2 minutes with zero organizer intervention; every page in the loop is password-manager-friendly and usable on a 390px mobile viewport."

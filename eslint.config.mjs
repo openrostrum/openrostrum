@@ -5,7 +5,7 @@ import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 import tseslint from "typescript-eslint";
-import { killmysaasPlugin } from "./tooling/eslint-rules/index.mjs";
+import { openrostrumPlugin } from "./tooling/eslint-rules/index.mjs";
 
 // Lint layer. Formatting is owned by Biome (its linter is disabled) — see
 // docs/tech-stack.md. Type errors are owned by `tsc` (pnpm typecheck), so we run
@@ -37,10 +37,13 @@ export default [
 	{
 		files: APP,
 		languageOptions: { globals: { ...globals.browser, ...globals.node } },
-		plugins: { killmysaas: killmysaasPlugin },
+		plugins: { openrostrum: openrostrumPlugin },
 		rules: {
-			"killmysaas/no-generic-instanceof": "error",
-			"killmysaas/prefer-error-normalizer": "error",
+			"openrostrum/no-citation-comments": "error",
+			"openrostrum/no-compat-shims": "error",
+			"openrostrum/no-deferral-comments": "error",
+			"openrostrum/no-generic-instanceof": "error",
+			"openrostrum/prefer-error-normalizer": "error",
 			"@typescript-eslint/no-unused-vars": [
 				"error",
 				{
@@ -58,6 +61,12 @@ export default [
 							name: "react-router-dom",
 							message:
 								"Import from 'react-router' (v7 framework mode), not react-router-dom.",
+						},
+						{
+							name: "react-router",
+							importNames: ["json", "defer"],
+							message:
+								"Return plain objects from loaders/actions — json()/defer() are removed in RR7.",
 						},
 					],
 					patterns: [
@@ -86,20 +95,43 @@ export default [
 	{ ...jsxA11y.flatConfigs.recommended, files: REACT },
 	{
 		files: REACT,
-		plugins: { killmysaas: killmysaasPlugin },
+		plugins: { openrostrum: openrostrumPlugin },
 		settings: { react: { version: "19.2.1" } },
 		rules: {
-			"killmysaas/no-raw-tailwind-colors": "error",
-			"killmysaas/structured-tailwind-classname": "error",
+			"openrostrum/no-raw-tailwind-colors": "error",
+			"openrostrum/structured-tailwind-classname": "error",
 			"react/react-in-jsx-scope": "off", // React 19 / RR7 — no import needed
 			"react/prop-types": "off", // TypeScript handles this
 		},
 	},
 
-	// Tests may normalize errors inline.
+	// Route modules (incl. .ts resource/API routes): an exported `action` must
+	// authenticate (or opt out with a // @public comment), and UI is composed
+	// from ~/ui primitives — no raw elements, skin classes, or inline style.
+	{
+		files: ["app/routes/**/*.{ts,tsx}"],
+		plugins: { openrostrum: openrostrumPlugin },
+		rules: {
+			"openrostrum/require-auth-in-actions": "error",
+			"openrostrum/ui-primitives-only": "error",
+		},
+	},
+
+	// Nav modules are client-bundled — pure data only (no runtime imports).
+	{
+		files: ["app/nav/*.nav.ts"],
+		plugins: { openrostrum: openrostrumPlugin },
+		rules: { "openrostrum/pure-nav-modules": "error" },
+	},
+
+	// Tests may normalize errors inline; proof-of-work test patterns are banned.
 	{
 		files: ["test/**/*.ts"],
-		rules: { "killmysaas/prefer-error-normalizer": "off" },
+		plugins: { openrostrum: openrostrumPlugin },
+		rules: {
+			"openrostrum/prefer-error-normalizer": "off",
+			"openrostrum/meaningful-tests": "error",
+		},
 	},
 
 	eslintConfigPrettier, // last: turn off stylistic rules (Biome formats)

@@ -1,0 +1,401 @@
+area: speaker-management
+title: Speaker Management
+prefix: SPK
+overview: >
+  Speaker management is the post-acceptance hub between the CFP and the published agenda.
+  This single area satisfies both of the buyer's phrasings — "speaker management" and
+  "conference speaker management" — which SessionBoard's two capability pages describe as one
+  capability set; cross-event speaker reuse lives in the optional speaker-crm area.
+  Organizers maintain a per-event speaker roster (profiles with bio, headshot, title/company,
+  status badges), add speakers manually or by CSV import, and assign general onboarding tasks
+  with due dates. Each speaker gets a personalized portal scoped to only their own
+  content, where they complete their profile (bio, social links, headshot upload), see their
+  assigned sessions, and work through their task list. Organizers track completion in a progress
+  dashboard and send general bulk email (e.g. welcome announcements) built on templates with
+  merge fields, with every send logged to a communications history. Boundary: file-request
+  tasks, file uploads, versioning, approval, the deliverables dashboard, and
+  deliverables-reminder emails are owned by the content-management spec; this area owns the
+  roster, portal, general/action tasks, and general comms.
+personas: [organizer, speaker]
+scenarios:
+  - id: SPK-S1
+    name: Organizer builds the speaker roster and assigns onboarding tasks
+    persona: organizer
+    steps: |
+      1. Navigate to the app root and find the organizer/admin area. Try obvious routes
+         (/admin, /dashboard, /organizer) and nav links (Organizer, Admin, Dashboard, Events,
+         Manage). If open signup exists, sign up as organizer Jordan Alvarez using the fixture
+         email and password; otherwise sign in with the organizer fixture credentials.
+      2. Locate or create the event "DevFlow Conf 2027" using the fixture event details
+         (dates 2027-05-12 to 2027-05-14, Moscone West SF). Fill only what the form requires.
+      3. Open the speakers area for the event. It may be called Speakers, People, Participants,
+         Contacts, or Roster. Screenshot its empty or initial state.
+      4. Add speaker Priya Raman manually using her fixture data (name, email, title
+         "Principal Engineer", company "Latticework Systems", full bio; fill Twitter/LinkedIn
+         if fields exist). Screenshot the filled form BEFORE saving, then the saved record.
+      5. Add speaker Marcus Okafor the same way with his fixture data (name, email, title,
+         company, bio).
+      6. Look for a bulk import control (Import, Upload CSV, Import speakers). If found, upload
+         the speakers.csv fixture, mapping columns if prompted. Screenshot the import flow and
+         the roster afterward showing the imported rows. If no import exists, record that
+         observation explicitly.
+      7. Use the roster search (or a filter) to find "Priya". Screenshot the narrowed list,
+         then clear it and screenshot the restored full roster.
+      8. Change Priya's status to Confirmed (statuses may be named Invited/Confirmed/Accepted/
+         Pending or similar). Reload the page and confirm the status persisted. If the roster
+         has a status filter, apply it for Confirmed and screenshot the result.
+      9. Open Priya's record and edit her bio by appending the sentinel text "SBEK-ORG-EDIT-01".
+         Save, reload, and verify the sentinel persists. Screenshot after reload.
+      10. Create or link a session titled "Taming 40-Minute CI: Incremental Builds at Monorepo
+          Scale" and assign Priya as its speaker (via her record, a Sessions area, or wherever
+          the clone allows). If room/time fields are easy to set, use Room 2A on 2027-05-12 —
+          creating the room first if the clone requires rooms to exist before they can be
+          selected (rooms are otherwise first configured in the agenda area).
+          Screenshot Priya's record or the session showing the speaker-session link.
+      11. Find the tasks area (Tasks, Checklist, To-dos). Create three GENERAL/action tasks
+          from the fixture speaker task list, each assigned to BOTH Priya and Marcus (use
+          multi-select or bulk assignment if offered):
+          a. "Confirm participation" - due 2027-04-01.
+          b. "Complete bio and profile" - due 2027-04-01.
+          c. "Sign speaker release form" - due 2027-04-15.
+          Create these as plain mark-complete tasks, NOT file-request/upload tasks — the
+          file-request pipeline is exercised and graded in the content-management area.
+          Screenshot at least one filled creation form and the resulting task list showing
+          titles, due dates, and both assignees.
+      12. Look for a portal invitation control (Invite, Send portal invite, Send welcome email)
+          on Priya's record or as a bulk action. Trigger it for Priya and screenshot the
+          success/confirmation state. Check whether the send appears in any communications
+          history or activity log and screenshot if so. If no explicit invite control exists,
+          record how speakers are expected to reach their portal (e.g. self-signup or link).
+    success_signals:
+      - Filled add-speaker form and the saved Priya record with title/company/bio
+      - Roster listing at least Priya and Marcus (plus CSV-imported speakers if import exists)
+      - Search narrowing to Priya and restoring on clear
+      - Confirmed status badge persisting after reload
+      - Sentinel "SBEK-ORG-EDIT-01" in the bio after reload
+      - Task list with three tasks, due dates, and two assignees each
+      - Portal invitation success state or an explicit observation that no invite control exists
+  - id: SPK-S2
+    name: Speaker completes onboarding in the portal
+    persona: speaker
+    steps: |
+      1. Navigate to the app root and find the speaker-facing entry point (Portal, Speaker
+         login, My account, Sign in). Try signing in as Priya Raman with the fixture speaker
+         email and password. If her account does not exist yet, sign up with her fixture email
+         and password (the organizer added her to the roster in a prior scenario; clones may
+         link the portal account by email).
+      2. Screenshot the portal home/dashboard. Verify it identifies Priya (name, initials, or
+         photo) and is a speaker-facing view, not the organizer admin UI.
+      3. Verify scoping: the portal should show only Priya's own profile, sessions, and tasks.
+         Explicitly check that Marcus Okafor's name and tasks appear nowhere in the portal
+         (nor Dana Kowalski's, if the CSV import in the earlier scenario succeeded).
+         Record this observation.
+      4. Find her assigned session "Taming 40-Minute CI: Incremental Builds at Monorepo Scale"
+         (widget or tab named My Sessions, Sessions, My Submissions, or similar). Screenshot it
+         showing the title, plus room/time if displayed.
+      5. Open profile editing. Change the bio to include the sentinel "SBEK-PORTAL-BIO-01",
+         fill Twitter/LinkedIn from the fixture if fields exist, and upload the headshot.png
+         fixture as her headshot/profile photo. Screenshot the filled form before saving, then
+         save and screenshot the profile showing the new headshot image rendered.
+      6. Reload the portal and verify the bio sentinel and headshot persist.
+      7. Open the task list. Screenshot it showing the three assigned tasks with their due
+         dates and incomplete/pending status.
+      8. Complete "Confirm participation" using its completion control (Mark as Complete,
+         Confirm, or checkbox). Screenshot the task before and after the status flips.
+      9. Complete "Complete bio and profile" the same way (the profile work was already done
+         in step 5 — this task is a mark-complete confirmation, not a file upload; the
+         headshot flows through profile editing, never through a file-request task in this
+         area). Verify the status flips. Screenshot.
+      10. Deliberately leave "Sign speaker release form" incomplete so the organizer dashboard
+          will show mixed completion in the next scenario.
+      11. Reload the task list and verify the two completed states persisted. Screenshot the
+          final task list (2 complete, 1 incomplete with its due date).
+    success_signals:
+      - Portal dashboard identifying Priya with no other speaker's data visible
+      - Her session title visible inside the portal
+      - Saved profile showing sentinel bio "SBEK-PORTAL-BIO-01" and the uploaded headshot rendering
+      - Task list with due dates; two tasks completed and persisting after reload; one left incomplete
+  - id: SPK-S3
+    name: Organizer tracks progress and sends bulk communications
+    persona: organizer
+    steps: |
+      1. Sign in as organizer Jordan Alvarez (fixture credentials from the earlier scenario)
+         and open the DevFlow Conf 2027 event.
+      2. Open Priya Raman's speaker record. Verify the portal-side edits synced to the
+         organizer view: the bio contains "SBEK-PORTAL-BIO-01" and the headshot uploaded from
+         headshot.png is displayed. Screenshot the record.
+      3. Open the task progress view (a tasks dashboard, tasks tab, or completion indicators
+         on the roster). Verify mixed statuses are visible WITHOUT opening each record: Priya
+         shows completed tasks ("Confirm participation", "Complete bio and profile") while
+         "Sign speaker release form" and all of Marcus's tasks show incomplete. Screenshot at
+         list level.
+      4. If status filters exist, filter to incomplete/pending and screenshot, then filter to
+         complete and screenshot. Record if filters are absent.
+      5. Locate the headshot file Priya uploaded via her portal profile edit, wherever the
+         clone stores speaker files (her record or a files area). Verify it is listed with
+         metadata (filename and uploader or timestamp) and that a download/view control
+         exists; click it and note whether it responds without error (do not try to open the
+         file contents). Screenshot the file listing.
+      6. Open the communications/email area and compose a general bulk email. Select ALL
+         speakers as recipients via a filter or multi-select. If templates are supported,
+         pick or create one using merge fields (for example first name, session, or
+         portal-link tokens) and open a per-recipient preview to check tokens resolve to real
+         speaker data - screenshot both the tokenized body and the resolved preview. Set
+         subject "Welcome to DevFlow Conf 2027 speakers" with a short welcome body, and
+         send (or schedule). Screenshot the recipient selection and the success state.
+         Do NOT frame this as a deliverables reminder — reminder emails to speakers with
+         outstanding tasks are exercised and graded in the content-management area (CNT-08).
+      7. Open the communications history/log and verify the send is recorded with recipients
+         and a timestamp. Screenshot the log entry.
+      8. Back on Priya's record, look for travel-preference, logistics, or custom fields. If
+         present, enter "Arrival May 11, aisle seat; dietary: Vegetarian" and save, reload,
+         and verify persistence; screenshot. If absent, look for a custom-field settings area
+         and record the observation either way.
+      9. Bonus observations (record, do not deep-test): whether a per-speaker deadline
+         extension control exists on a task assignment, and whether task/document-request
+         types include contract or certificate-of-insurance style requests.
+    success_signals:
+      - Priya's organizer-side record showing the portal sentinel bio and new headshot
+      - List-level progress view distinguishing complete vs incomplete across both speakers
+      - Filtered progress views (or explicit observation that filters are missing)
+      - Uploaded headshot file listed with metadata and a responsive download control
+      - Tokenized template plus resolved per-recipient preview
+      - Bulk send success state and a matching communications history entry
+      - Travel/custom field value persisting after reload, or observation of its absence
+rubric:
+  - id: SPK-01
+    criterion: Organizer speaker roster lists all speakers with identity info and supports search or filtering
+    weight: 3
+    testability: auto
+    scenarios: [SPK-S1]
+    pass_criteria: >-
+      A dedicated speakers area renders the added speakers with name plus at least
+      title/company, and a search or filter narrows the list to matching speakers and
+      restores it when cleared. (No headshot thumbnail is expected here - none has been
+      uploaded yet at this point in the flow.)
+    evidence: >-
+      Screenshots of the full roster, the narrowed list with the query visible, and the
+      restored list after clearing.
+  - id: SPK-02
+    criterion: Organizer can add a speaker with profile fields and organizer edits persist
+    weight: 3
+    testability: auto
+    scenarios: [SPK-S1]
+    pass_criteria: >-
+      Manual add-speaker flow accepts name, email, title, company, and bio; the saved record
+      displays them; and an organizer bio edit (sentinel SBEK-ORG-EDIT-01) survives a page
+      reload.
+    evidence: >-
+      Screenshot of the filled add form, the saved record, and the record after reload showing
+      the sentinel text.
+  - id: SPK-03
+    criterion: Speakers can be bulk-imported from a CSV file
+    weight: 2
+    testability: auto
+    scenarios: [SPK-S1]
+    pass_criteria: >-
+      An import control accepts the speakers.csv fixture (with or without a column-mapping
+      step) and the roster afterward contains the CSV speakers. The fixture CSV repeats the
+      two manually added speakers (Priya, Marcus) plus one new person (Dana Kowalski):
+      Dana appearing as a new record is the pass signal, and merging or skipping the two
+      existing rows by email (dedupe) is acceptable and must not be penalized; duplicate
+      rows for Priya/Marcus are also acceptable for this item.
+    evidence: >-
+      Screenshots of the import flow and the roster before/after showing the new Dana
+      Kowalski row; agent observation if no import control exists (fail).
+  - id: SPK-04
+    criterion: "Speakers carry a workflow status that can be changed, persists, and is filterable"
+    weight: 2
+    testability: auto
+    scenarios: [SPK-S1]
+    pass_criteria: >-
+      A status control (e.g. Invited/Confirmed/Accepted or equivalent vocabulary) changes
+      Priya's status, the new status survives reload, and a status filter (if the roster has
+      filters) correctly narrows membership. Custom-status creation is a bonus, not required.
+    evidence: >-
+      Screenshots of the status control, the updated badge after reload, and the
+      status-filtered roster.
+  - id: SPK-05
+    criterion: Organizer can create general/action tasks with due dates and assign them to multiple speakers (file-request tasks, uploads, and the deliverables pipeline are owned by content-management's CNT-01/02/07)
+    weight: 2
+    testability: auto
+    scenarios: [SPK-S1]
+    pass_criteria: >-
+      Task creation supports a title, a due date, and assignment to at least two speakers
+      (multi-select or repeated assignment both acceptable). The three fixture general tasks
+      appear in an organizer task list with due dates and assignees. No file-request/upload
+      task type is required here — that capability is graded once, by CNT-01.
+    evidence: >-
+      Screenshot of a filled task creation form and of the task list showing three general
+      tasks, due dates, and both assignees.
+  - id: SPK-06
+    criterion: Organizer can send a speaker a portal invitation or onboarding email
+    weight: 2
+    testability: auto-partial
+    scenarios: [SPK-S1]
+    pass_criteria: >-
+      An explicit invite/welcome-email control exists (per-speaker or bulk), reports success
+      when triggered, and ideally logs the send in a communications or activity history. Email
+      delivery itself is not agent-verifiable.
+    evidence: >-
+      Screenshot of the invite control and its success state; history/log entry if present.
+      Agent observation of the intended portal-access path if no invite control exists.
+    manual_instructions: >-
+      Re-run the invite against a speaker whose email is a real inbox you control. Confirm an
+      invitation email arrives containing a portal link, and that the link opens the speaker
+      portal (or a password-set page leading to it).
+  - id: SPK-07
+    criterion: Each speaker gets a personalized portal scoped to only their own content
+    weight: 3
+    testability: auto-partial
+    scenarios: [SPK-S2]
+    pass_criteria: >-
+      Logging in as Priya lands on a speaker-facing view (distinct from the organizer admin)
+      that identifies her and lists her own tasks/sessions/profile, with no other speaker's
+      name, tasks, or data visible anywhere in the portal. Any speaker-scoped access mechanism
+      passes (invite link, magic link, or password login), but the agent can only exercise
+      password sign-in/sign-up; if the clone's only portal access is a link delivered by
+      email, the agent cannot reach the portal and this item falls to the manual half.
+    evidence: >-
+      Screenshot of the portal home showing Priya's identity and content, plus the agent's
+      recorded observation that Marcus's (and, if imported, Dana's) data is absent. If the
+      portal was unreachable without an emailed link, the agent's observation of that access
+      path.
+    manual_instructions: >-
+      Only needed if the agent could not reach the portal because access requires an emailed
+      link: re-run the portal invite for a speaker whose email is a real inbox you control,
+      follow the emailed link, and confirm it opens a speaker-scoped portal identifying that
+      speaker, with no other speaker's name, tasks, or data visible anywhere.
+  - id: SPK-08
+    criterion: "Speaker can update bio, social links, and headshot from the portal, and the changes appear on the organizer's record"
+    weight: 3
+    testability: auto
+    scenarios: [SPK-S2, SPK-S3]
+    pass_criteria: >-
+      Portal profile editing saves the sentinel bio SBEK-PORTAL-BIO-01 and the uploaded
+      headshot.png (image renders after save and survives reload), and the organizer's view of
+      Priya's record later shows the same bio text and headshot without manual re-entry.
+    evidence: >-
+      Screenshots of the portal profile after save and reload (sentinel plus rendered
+      headshot) and of the organizer-side record in SPK-S3 showing the same data.
+  - id: SPK-09
+    criterion: Assigned general tasks appear in the speaker portal with due dates and can be marked complete with persistent status (the file-request upload flow is graded by content-management's CNT-02)
+    weight: 2
+    testability: auto
+    scenarios: [SPK-S2]
+    pass_criteria: >-
+      All three organizer-assigned general tasks show in Priya's portal with due dates and an
+      incomplete state; marking two of them complete flips each to a completed state that
+      survives a reload, while the untouched task stays incomplete. No upload-against-task
+      flow is required here — that capability is graded once, by CNT-02.
+    evidence: >-
+      Screenshots of the task list with due dates before completion, individual tasks before/
+      after their status flips, and the reloaded list showing 2 complete / 1 incomplete.
+  - id: SPK-10
+    criterion: Organizer can see and download a speaker-uploaded deliverable with metadata
+    weight: 2
+    testability: auto-partial
+    scenarios: [SPK-S3]
+    pass_criteria: >-
+      The headshot file Priya uploaded via her portal profile edit is listed organizer-side
+      (on her record or a files area) with its filename plus uploader and/or timestamp, and a
+      download/view control responds without error. File content integrity is not
+      agent-verifiable.
+    evidence: >-
+      Screenshot of the file listing with metadata and the download control; agent note on the
+      click outcome (no error page).
+    manual_instructions: >-
+      As the organizer, download the uploaded file and open it locally; confirm it is a valid
+      image matching the headshot.png fixture rather than a corrupted or empty file.
+  - id: SPK-11
+    criterion: Session assignments are visible on the organizer's speaker record and in the speaker's portal
+    weight: 2
+    testability: auto
+    scenarios: [SPK-S1, SPK-S2]
+    pass_criteria: >-
+      After the organizer links the "Taming 40-Minute CI" session to Priya, the speaker-session
+      link shows on her organizer-side record (or the session shows her as speaker), and the
+      same session title is visible inside her portal. Room/time display is a bonus; full
+      scheduling and conflict detection belong to the agenda area.
+    evidence: >-
+      Screenshot of the organizer-side speaker-session link and of the session appearing in
+      Priya's portal.
+  - id: SPK-12
+    criterion: A progress view shows per-speaker completion of general tasks at list level and reflects portal completions (the deliverables dashboard tracking uploads with filtering depth is graded by content-management's CNT-07)
+    weight: 2
+    testability: auto
+    scenarios: [SPK-S3]
+    pass_criteria: >-
+      Without opening each record, the organizer can see which speakers completed which
+      general tasks: Priya's two portal completions from SPK-S2 ("Confirm participation",
+      "Complete bio and profile") show complete while her release form and all of Marcus's
+      tasks show incomplete; a complete/incomplete filter (if present) narrows correctly. A
+      roster-level completion indicator or a tasks dashboard both qualify. Upload/deliverables
+      tracking depth is graded once, by CNT-07.
+    evidence: >-
+      Screenshot of the list-level progress view showing mixed statuses across both speakers,
+      plus each filtered state if filters exist.
+  - id: SPK-13
+    criterion: Organizer can send a general bulk email (e.g. a welcome/announcement to all speakers) to a selected or filtered speaker group and the send is logged (deliverables-reminder emails to speakers with outstanding tasks are owned by content-management's CNT-08)
+    weight: 3
+    testability: auto-partial
+    scenarios: [SPK-S3]
+    pass_criteria: >-
+      A compose flow lets the organizer choose recipients from the speaker list (filter or
+      multi-select), accepts the fixture welcome subject ("Welcome to DevFlow Conf 2027
+      speakers") and a body, reports a successful send (or schedule), and a communications
+      history records the message with recipients and timestamp. Inbox delivery is not
+      agent-verifiable.
+    evidence: >-
+      Screenshots of recipient selection, the compose form, the send success state, and the
+      history/log entry.
+    manual_instructions: >-
+      Include a speaker whose email is a real inbox you control in the recipient group, resend,
+      and confirm the email arrives with the composed subject ("Welcome to DevFlow Conf 2027
+      speakers") and body.
+  - id: SPK-14
+    criterion: Email templates with merge fields personalize content per recipient
+    weight: 2
+    testability: auto
+    scenarios: [SPK-S3]
+    pass_criteria: >-
+      The compose flow offers saved or pre-built templates whose bodies contain
+      personalization tokens (name, session, or portal link), and a preview or
+      rendered output demonstrably resolves tokens to a real speaker's data (e.g. "Priya").
+    evidence: >-
+      Screenshot of the template body showing tokens and of a per-recipient preview showing
+      resolved values.
+  - id: SPK-15
+    criterion: Speaker records can store travel-preference or custom logistics fields that persist
+    weight: 1
+    testability: auto
+    scenarios: [SPK-S3]
+    pass_criteria: >-
+      A travel/logistics field or a generic custom field on the speaker record accepts the
+      sample logistics text, and the value survives save and reload. No flight or hotel
+      booking UI is expected; SessionBoard itself scopes travel booking out (inferred CRM data
+      fields only).
+    evidence: >-
+      Screenshot of the saved profile after reload showing the travel/custom field value, or
+      the agent's observation that no such field or custom-field settings exist (fail).
+  - id: SPK-16
+    criterion: Automated reminder emails go to speakers with incomplete tasks based on due dates
+    weight: 2
+    testability: manual
+    pass_criteria: >-
+      Without any organizer manually sending a message, a speaker with an incomplete task due
+      soon (or overdue) receives a reminder email referencing the task and its due date within
+      the expected reminder window; the automated send also appears in the communications
+      history if the clone has one.
+    evidence: >-
+      Copy or screenshot of the received reminder email showing task name and due date, plus
+      the history/log entry if available.
+    manual_instructions: >-
+      Create or edit a speaker so their email is a real inbox you control. Assign them a task
+      due within 24-48 hours (or set the due date in the past) and leave it incomplete. Wait
+      through the reminder cycle (up to 24 hours past the due date). Confirm a reminder email
+      arrives referencing the task name and due date, and check the app's communications
+      history for the automated send. Note: in SessionBoard, after an organizer extends a
+      deadline the speaker may keep seeing (and reminders may keep referencing) the original
+      due date while late work is still accepted - do not penalize a clone for either
+      behavior.

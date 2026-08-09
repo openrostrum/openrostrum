@@ -1,0 +1,180 @@
+module: tasks-portal-forms
+# `touches` is filled by the WALKER (design-side), not the author:
+# (walked 2026-08-09 → docs/scenarios/walks/07-tasks-portal-forms.walk.md)
+touches:
+  tables:
+    [
+      tasks,
+      taskAssignments,
+      portalForms,
+      files,
+      contacts,
+      participants,
+      submissions,
+      users,
+      authSessions,
+      events,
+    ]
+  ports: [] # uploads use the R2 BLOBS binding (thin wrapper, not a port per tech-stack)
+  routes:
+    [
+      admin.submissions.tsx,
+      admin.submissions.$id.tsx,
+      admin.tasks.tsx,
+      admin.portals.tsx,
+      admin.portal-forms.tsx,
+      admin.file-requests.tsx,
+      portals.$eventSlug.$portalId.tsx,
+      submit.$eventSlug.$formId.tsx, # TK-S1 fixture path (Priya not seeded)
+      login.tsx,
+    ]
+  # UNASSIGNED in docs/ROUTE-MAP.md but required by these scenarios (see walk):
+  # admin response-detail view (SCOPE P0 #7), task CRUD, file download route.
+scenarios:
+  - id: TK-S1
+    name: Accepting a submission auto-assigns the onboarding task set (with due dates)
+    persona: admin
+    steps: |
+      1. Log in as admin. Open the submissions list and locate the pending submission
+         "Scaling Vector Search at the Edge" by Priya Sharma (priya.sharma@example.com)
+         (seeded, or submitted via the public CFP form first).
+      2. Accept it (status flip to Accepted, or accept-queue -> send accept -> finalize —
+         whichever path the product ships; the acceptance transition is what's under test).
+      3. Verify auto-provisioning: a Session record and a Speaker/participant record for
+         Priya now exist, AND a task-assignment set was created for her — query the DB:
+         Priya must carry at least (a) "Hotel Stay Requirements" (portal-form task),
+         (b) "Flight Reimbursement" (portal-form task), (c) a slides upload task
+         (file-request type, e.g. "Upload Presentation Slides").
+      4. Log in as priya.sharma@example.com and open the speaker portal Tasks tab.
+      5. Confirm all three tasks are listed as incomplete, and that each task's due date
+         is visible to the speaker on the task card/detail (e.g. hotel form due
+         2026-09-30 — whatever the seeded assignment carries, it must render).
+      6. Unhappy: accept the SAME submission again (re-save Accepted status / replay the
+         accept action). Query taskAssignments: Priya still has exactly ONE assignment
+         per onboarding task — no duplicate task set.
+    success_signals:
+      - Accepting creates speaker + session + task assignments in one transition — DB shows all three artifacts linked to the accepted submission, with no manual admin assignment step in between.
+      - Speaker portal Tasks tab lists Hotel Stay Requirements, Flight Reimbursement, and the slides upload task, each showing its due date and an incomplete state.
+      - Replaying the acceptance does not duplicate task assignments (count per task per speaker stays 1).
+      - "EXPERIENCE: the speaker sees the tasks on their next portal load with no re-login or admin intervention; the Tasks tab renders in under 1s."
+
+  - id: TK-S2
+    name: Speaker completes the hotel-stay portal form; organizer reads the response
+    persona: speaker
+    steps: |
+      1. Depends on TK-S1 (Priya accepted, tasks assigned). Log in as
+         priya.sharma@example.com, open Tasks, click "Hotel Stay Requirements".
+      2. The task opens the attached PORTAL FORM (not a bare mark-done checkbox).
+      3. Unhappy first: leave the check-in date empty and submit — inline validation
+         error on the required field; nothing saved (DB response row absent/unchanged).
+      4. Fill the form with concrete values: hotel "Marriott Marquis", check-in
+         2026-10-11, check-out 2026-10-14, then submit.
+      5. Watch the task flip to complete in the portal.
+      6. Switch to admin: open the task / response view for this assignment (the
+         committed admin response-viewing surface from P0 #7).
+      7. Read the submitted answers: "Marriott Marquis" and 2026-10-11 must be visible
+         verbatim on screen — this is the arrival-dates-to-book-hotels moment.
+      8. Cross-check the DB: the assignment's stored response contains the hotel name
+         and both dates; the assignment status is complete.
+    success_signals:
+      - Submitting the portal form marks the task assignment complete — portal shows the completed state and the DB status agrees.
+      - Empty required check-in date is rejected with a field-level error; no partial response row is written.
+      - Admin response view displays "Marriott Marquis" and check-in 2026-10-11 without any export/CSV detour — readable on screen.
+      - "EXPERIENCE: the task flips to complete in the portal without a full-page reload; the admin reads the response in ≤2 clicks from the task or the speaker's row."
+
+  - id: TK-S3
+    name: Slides file request — upload, admin deny, re-upload, admin approve
+    persona: speaker
+    steps: |
+      1. Depends on TK-S1. As priya.sharma@example.com, open the slides upload task
+         (file-request type) in the portal.
+      2. Upload a concrete file: "vector-search-keynote-v1.pdf" (a real PDF, ~1–3 MB).
+      3. Observe the task move to a pending-review state (not complete, not incomplete —
+         the upload awaits admin feedback).
+      4. Switch to admin: open the submission "Scaling Vector Search at the Edge" — the
+         uploaded file must be listed against the submission/speaker, downloadable, with
+         the filename "vector-search-keynote-v1.pdf" visible.
+      5. Admin DENIES the upload via the approve/deny core.
+      6. As Priya, reload the portal: the task is back to an incomplete/pending state
+         and clearly allows a new upload (denied ≠ silently stuck).
+      7. Re-upload "vector-search-keynote-v2.pdf".
+      8. Admin approves the new upload.
+      9. As Priya, the task now shows complete. DB check: both file versions are
+         retained with their statuses (v1 denied, v2 approved); the assignment is
+         complete only after the approval.
+    success_signals:
+      - The upload is visible to the admin listed on the submission, with the exact filename, and downloadable (downloaded bytes match the uploaded file).
+      - Deny returns the task to an incomplete/pending state in the speaker portal and re-enables upload; approve (and only approve) completes the task.
+      - DB retains the version history — the denied v1 row is not overwritten by v2.
+      - "EXPERIENCE: upload gives visible progress/confirmation feedback; after admin deny/approve the speaker's portal reflects the new state on next load with no stale 'complete' badge."
+
+  - id: TK-S4
+    name: Admin creates a new contact task with a portal form attached and assigns it
+    persona: admin
+    steps: |
+      1. As admin, open the Tasks admin area and create a NEW task: name
+         "AV Requirements Check", type Contact, description "Tell us your microphone
+         and display needs so the crew can prep your room."
+      2. Attach a portal form to it (create or pick one, e.g. "AV Requirements" with a
+         required dropdown "Microphone" [Handheld/Lavalier/Podium] and a text field
+         "Display notes").
+      3. Assign the task to accepted speakers (at minimum to Priya from TK-S1) with due
+         date 2026-10-01.
+      4. Unhappy: attempt to create a task with an empty name — validation error, no row.
+      5. As priya.sharma@example.com, open the portal Tasks tab: "AV Requirements Check"
+         appears with its description and the 2026-10-01 due date.
+      6. Open it, pick "Lavalier", submit — task completes; as admin, open the response
+         view and read "Lavalier".
+    success_signals:
+      - The new task exists with name/type/description as entered and the portal form attached; DB row matches the form inputs.
+      - The assigned speaker sees the task (name, description, due date 2026-10-01) in the portal and can complete it through the attached form; the admin can read "Lavalier" in the response view.
+      - Empty task name is rejected with a clear field error; no orphan task row is created.
+      - "EXPERIENCE: the whole create→attach→assign flow is doable by a non-technical organizer without docs; the newly assigned task shows up in the speaker portal without any cache-clearing or re-login."
+
+  - id: TK-S5
+    name: Outstanding-tasks dashboard matches reality at ~100 speakers
+    persona: admin
+    steps: |
+      1. Bring the event to real scale: seed or bulk-accept until ~100 accepted speakers
+         each carry the onboarding task set (the seed/scale script may be used — the
+         mechanism is the implementation's choice, the state is not).
+      2. Ensure a known fixture inside that crowd: Priya (TK-S1/S2) has completed the
+         hotel form but NOT flight reimbursement and NOT slides — i.e. exactly 2
+         incomplete tasks.
+      3. Open the outstanding-tasks dashboard (the firm req-6 view).
+      4. Verify Priya's row shows exactly 2 outstanding tasks, and the headline counts
+         (speakers with outstanding tasks / total outstanding) equal an independent SQL
+         aggregation over task assignments run at the same moment.
+      5. As Priya, complete the flight-reimbursement portal form (airline "United",
+         amount "$412.50", or the form's actual fields — concrete values).
+      6. As admin, revisit/refresh the dashboard: Priya now shows 1 outstanding; the
+         totals dropped accordingly and still match a fresh SQL aggregation.
+      7. Use the dashboard's search/filter to find "Priya" among ~100 speakers.
+    success_signals:
+      - Dashboard counts are truth, not cache — both before and after Priya's completion they equal independent DB aggregation (speaker with 2 incomplete shows 2, then 1).
+      - The per-speaker list names each speaker with outstanding work and which tasks are outstanding (or at minimum the count with a drill-in).
+      - Searching "Priya" narrows the ~100-row list to her.
+      - "EXPERIENCE: at ~100 speakers the dashboard loads in under 1s, search/filter feels instant, and the list is paginated or scannable — no unbounded wall of rows, no skeleton-screen theater."
+
+  - id: TK-S6
+    name: Authorization probe — a speaker cannot touch another speaker's task
+    persona: speaker
+    steps: |
+      1. Depends on TK-S1 (Priya's assignments exist). Create/log in as a second
+         accepted speaker, mallory@example.com (accept a second submission, e.g.
+         "Prompt Injection Field Notes", so Mallory has her own portal and tasks).
+      2. As Mallory, note that Priya's tasks are nowhere in Mallory's portal UI.
+      3. Probe directly: take the URL/identifier of Priya's flight-reimbursement task
+         assignment (known from TK-S1's DB check) and, authenticated as Mallory,
+         (a) GET the task detail/form URL, and (b) POST a forged completion/form
+         submission against that assignment id.
+      4. Both must be refused (403 or 404 — either is fine, leaking existence is not
+         required to fail, completing is). DB check: Priya's assignment status and
+         response are byte-for-byte unchanged.
+      5. Log out. Repeat the GET on Priya's task URL logged-out: redirected to login,
+         never the task content.
+    success_signals:
+      - Forged POST against another speaker's task assignment does not mutate it — status and response unchanged in the DB.
+      - Direct GET of another speaker's task returns 403/404 rendered as a real error page (no stack trace, no raw JSON error leak); logged-out access redirects to login.
+      - Mallory's own portal shows only Mallory's tasks.
+      - "EXPERIENCE: the refusal is a clean, styled error page a real user could hit without embarrassment — not a crash screen."

@@ -1,0 +1,339 @@
+area: speaker-crm
+title: Speaker CRM (Cross-Event Speaker Database)
+prefix: CRM
+optional: true
+overview: >
+  Speaker CRM is an organization-level, cross-event speaker database that sits above
+  individual events: a persistent, searchable directory of every speaker/contact the
+  org has worked with, carrying bios, headshots, notes, tags/custom fields, and
+  event/session history so returning speakers never re-key their data. Organizers
+  populate it via bulk CSV import or manual entry, slice it with multi-criteria
+  filters and saved segments, and merge near-duplicate records. A kanban sourcing
+  pipeline tracks prospects from research through confirmed/declined, with per-card
+  notes and stage history, and contacts can be pushed from the database into a
+  specific event's speaker workflow without re-entry. Bulk email outreach with
+  personalization and a CRM dashboard with org-wide analytics round out the area.
+  This is an OPTIONAL extra-credit area — clones may omit it entirely.
+personas: [organizer]
+scenarios:
+  - id: CRM-S1
+    name: Build and organize the speaker database
+    persona: organizer
+    steps: |
+      1. Navigate to the clone's base URL. Sign in as organizer Jordan Alvarez
+         (jordan.organizer@sbek-test.example.com, fixture password); if no account
+         exists yet, sign up with the organizer fixture identity. Try obvious
+         organizer routes: /admin, /dashboard, /organizer, or nav links.
+      2. Look for an ORGANIZATION-LEVEL speaker database area that lives outside any
+         single event — it may be called "CRM", "Speaker CRM", "Directory",
+         "Contacts", "People", "Speaker Database", or "Speakers" in a top-level nav.
+         Screenshot the navigation showing where it lives. If no such cross-event
+         area exists anywhere (only per-event speaker lists), record that
+         observation explicitly, screenshot the full navigation, and still attempt
+         steps 3-10 against the closest equivalent (e.g. an event-level speaker
+         list), noting the difference.
+      3. Look for a bulk import entry point ("Import", "Upload CSV", "Import
+         contacts"...). CHAINED-RUN NOTE: area 03 imports the same speakers.csv at
+         event level — if the contacts from speakers.csv already appear in this
+         directory from that earlier import, skip re-importing; or, if you do
+         re-import, record whether the import deduplicated or duplicated them
+         (either observation is useful evidence for CRM-06). Otherwise, if an
+         import UI exists, upload the speakers.csv fixture file.
+         Screenshot any column-mapping or validation step (including any rows
+         flagged with issues), then complete the import. If no import UI exists,
+         record that, and instead manually create the 3 contacts from the
+         speakers.csv fixture data (Priya Raman, Marcus Okafor, Dana Kowalski —
+         each row carries name, email, job title, company, bio).
+      4. Screenshot the populated directory table showing multiple contacts with at
+         least name and email visible. Record roughly how many rows are listed.
+      5. Type an imported contact's name (e.g. "Priya") into the directory search
+         box. Screenshot the narrowed result, then clear the search and confirm the
+         full list returns.
+      6. Open the filter control if one exists (a "Filter" button or panel near the
+         search bar). Apply one attribute filter (company, job title, or tag) and
+         screenshot the filtered result with the active criteria visible. If the UI
+         supports it, add a second filter and screenshot the further-narrowed set,
+         then clear all filters.
+      7. With a filter applied (or a subset selected), look for a way to save the
+         result as a reusable segment or list ("Save Segment", "Save List",
+         "Create Segment"...). Save it as "AI Experts", choosing a dynamic /
+         auto-updating type if the dialog offers a choice. Open the segments/lists
+         area and screenshot the saved segment with its member list. If no segment
+         feature exists, record that.
+      8. Open a contact's profile (row click or edit/pencil icon). Screenshot the
+         profile view. Add an internal note reading "Met at DevFlow 2026 - strong
+         on CI topics; shortlist for keynote." and save it. Reload the page and
+         screenshot the persisted note. Also look for (a) a section listing events
+         and/or sessions this contact is connected to and (b) an activity/history
+         feed of communications or record changes — screenshot whatever exists.
+      9. Look for custom field or tag management (e.g. Settings/Library > Fields,
+         or a tags input on the profile). If a field-creation UI exists, create a
+         dropdown field named "Speaker Type" with options "Internal" and
+         "External", set it to "External" on the open contact, save, reload, and
+         screenshot the persisted value. If only free-form tags exist, add the tag
+         "AI" to the contact instead and screenshot it. If neither exists, record
+         that.
+      10. Manually create one new contact with the SAME name as an existing contact
+          but a different email (e.g. "Priya Raman" / priya.raman.alt@sbek-test.example.com).
+          Look for a duplicate warning or a "Merge Duplicates" / "Merge" action on
+          the profile or in the directory. If found, run the merge: select both
+          records, designate the original as primary, choose field values if a
+          side-by-side comparison is offered, and confirm (note any
+          cannot-be-undone warning). Screenshot the comparison step and the single
+          surviving record; note the directory row count before and after. If no
+          duplicate detection or merge exists, record that.
+      11. Take a final screenshot of the directory table as left at the end of the
+          run.
+    success_signals:
+      - Screenshot of org-level navigation showing a cross-event CRM/directory entry (or explicit observation that none exists)
+      - Screenshot of import upload/mapping step and the directory populated from speakers.csv
+      - Screenshot of search narrowing to one contact and of filtered results with visible criteria
+      - Screenshot of saved "AI Experts" segment and its member list
+      - Screenshot of a contact profile with a persisted internal note after reload
+      - Screenshot of custom field "Speaker Type" (or an "AI" tag) persisted on a profile
+      - Screenshot of duplicate merge comparison and the post-merge single record (or observation that merge is absent)
+  - id: CRM-S2
+    name: Source a speaker through the pipeline and reuse across events
+    persona: organizer
+    steps: |
+      1. Sign in as organizer Jordan Alvarez (jordan.organizer@sbek-test.example.com,
+         fixture password) — the same account used in CRM-S1. If the directory from
+         CRM-S1 is empty or missing, first create the 3 contacts from the
+         speakers.csv fixture data (Priya Raman, Marcus Okafor, Dana Kowalski) so
+         the pipeline and outreach steps have material to work with.
+      2. Make sure the event "DevFlow Conf 2027" (2027-05-12 to 2027-05-14, Moscone
+         West SF) exists; create it from the fixture data if it does not.
+      3. Look for a speaker sourcing pipeline in the CRM area — it may be called
+         "Pipeline", "Sourcing", "Prospects", or appear as a kanban board.
+         Screenshot the full board and record the stage/column names you see (the
+         target has open stages like Researching/Identified/Contacted/Interested
+         plus terminal Confirmed and Declined; renamed equivalents are fine). If no
+         pipeline exists anywhere, record that explicitly and skip to step 7.
+      4. Enroll a directory contact (use Marcus Okafor) into the pipeline via
+         "+ Enroll" / "Add prospect" / "Add card", choosing a starting stage
+         (Identified or the first open stage). If the dialog offers a score and
+         rationale, enter score 85 and rationale "Strong platform-engineering track
+         record; ideal for Platform & Infra track." Screenshot the enroll dialog
+         and the new card on the board.
+      5. Move the card forward two stages (drag-and-drop or a Move-to menu), e.g.
+         to Contacted and then Interested. Screenshot the board after the moves,
+         then RELOAD the page and screenshot again to confirm the card stayed in
+         its new stage.
+      6. Open the card's detail view. Add an internal note reading "Left voicemail
+         2027-01-15; follow up next week." and save. Look for a timestamped stage
+         history or activity log showing the stage transitions from step 5.
+         Screenshot the detail with the note and any stage history visible. Then
+         RELOAD the page, reopen the card detail, and screenshot again to confirm
+         the note (and history) persisted.
+      7. Reuse across events: from the pipeline card (an "Assign to event" action)
+         or from the directory (select the contact's checkbox and look for
+         "+ Add To Event" / "Invite to Event" / "Add to..."), add Marcus Okafor to
+         "DevFlow Conf 2027". Screenshot the event-picker or confirmation dialog.
+         Then navigate into DevFlow Conf 2027's speakers/contacts area and
+         screenshot the contact listed there — note whether name, email, company,
+         and bio carried over without re-entry.
+      8. Bulk outreach: back in the org directory, select 2 or more contacts via
+         checkboxes and look for a "Communicate" / "Send Email" / "Message" action.
+         Compose subject "Speak at DevFlow Conf 2027?" and a short body inviting
+         them to submit; if a template picker or merge tags (e.g. {{first_name}})
+         are offered, use them, and screenshot any preview showing personalization
+         resolved to real contact values. Screenshot the composer, then send and
+         screenshot the success/confirmation state. If a history/log of sent
+         communications exists (campaign list or per-recipient rows), open it and
+         screenshot the logged send. If no bulk email exists, record that.
+      9. Dashboard: look for a CRM dashboard/overview page with org-wide numbers
+         (total contacts, events, returning speakers) and analytics widgets (top
+         companies, speaker source, region, areas of focus). Screenshot it, record
+         the total-contacts KPI value, and note whether it is consistent with the
+         number of rows currently visible in the directory. If a widget element is
+         clickable (e.g. a company name), click it and screenshot where it leads.
+         If no dashboard exists, record that.
+    success_signals:
+      - Screenshot of the kanban pipeline board with named stage columns
+      - Screenshot of the enroll dialog (with score/rationale if offered) and the new card
+      - Screenshots of the card in its new stage before and after a page reload
+      - Screenshots of card detail with the note and timestamped stage history, before and after a page reload
+      - Screenshot of the add-to-event dialog and the contact inside DevFlow Conf 2027's speaker list with data carried over
+      - Screenshot of the bulk email composer, personalization preview, and post-send state
+      - Screenshot of the CRM dashboard KPIs/widgets (or explicit observation of absence)
+rubric:
+  - id: CRM-01
+    criterion: An organization-level speaker directory exists outside any single event, listing contacts across events in a searchable table.
+    weight: 3
+    testability: auto
+    scenarios: [CRM-S1]
+    pass_criteria: >-
+      A cross-event contacts/speakers area is reachable at organization level (not
+      nested inside one event's menu); it renders a table or list of contacts with
+      at least name and email; typing a contact's name in a search box narrows the
+      list to matches and clearing it restores the full list.
+    evidence: >-
+      Navigation screenshot showing where the CRM/directory lives relative to
+      events; screenshot of the populated directory table; screenshot of search
+      narrowed to the queried contact. If the agent observed that speaker data only
+      exists per-event with no cross-event view, this item fails.
+  - id: CRM-02
+    criterion: A multi-criteria filter narrows the directory by attribute values such as company, job title, or tags, and filters are clearable.
+    weight: 2
+    testability: auto
+    scenarios: [CRM-S1]
+    pass_criteria: >-
+      A filter control beyond plain text search exists; applying an attribute
+      filter visibly narrows the result set consistently with the criterion;
+      filters can be cleared to restore the full list. Combining two filters
+      (AND-style narrowing) is stronger evidence but a single working attribute
+      filter passes.
+    evidence: >-
+      Screenshot of the open filter panel/control, filtered results with the
+      active criteria visible (chips, labels, or panel state), and the restored
+      unfiltered list.
+  - id: CRM-03
+    criterion: Contact profiles show identity fields plus persistent internal notes and some form of cross-event history (linked events/sessions and/or an activity log).
+    weight: 2
+    testability: auto
+    scenarios: [CRM-S1]
+    pass_criteria: >-
+      Opening a contact shows identity data (name, email, company/title, and a
+      bio or headshot area); an internal note can be added and still renders after
+      a page reload; the profile exposes at least one history surface — a list of
+      connected events/sessions or an activity/communications feed. Tab names need
+      not match SessionBoard's Profile/Notes/Connections/Files/Activity.
+    evidence: >-
+      Screenshot of the profile main view; screenshot of the saved note after
+      reload; screenshot of the events/sessions connections section or activity
+      feed. Notes-only with no history surface earns at most partial credit.
+  - id: CRM-04
+    criterion: Contacts can be enriched with organizer-defined metadata — custom fields (e.g. a dropdown) or tags — that persist on the profile.
+    weight: 1
+    testability: auto
+    scenarios: [CRM-S1]
+    pass_criteria: >-
+      Either (a) a field-management UI creates a new field (e.g. dropdown "Speaker
+      Type" with Internal/External) that then appears and holds a value on a
+      contact profile after reload, or (b) tags can be added to a contact and
+      persist. Full custom-field creation is stronger evidence than tags alone.
+    evidence: >-
+      Screenshot of the field-creation dialog or tag input, and of the profile
+      showing the saved value/tag after reload; bonus if the field/tag also
+      surfaces as a directory column or filter.
+  - id: CRM-05
+    criterion: Contacts can be bulk-imported from a CSV file, with the imported rows appearing in the directory afterward.
+    weight: 2
+    testability: auto
+    scenarios: [CRM-S1]
+    pass_criteria: >-
+      An import entry point accepts the speakers.csv fixture upload and completes;
+      the imported contacts subsequently appear as directory rows with correct
+      name/email data. A column-mapping or validation step that flags problem rows
+      is stronger evidence; silent-but-correct import still passes. No import UI
+      at all fails this item.
+    evidence: >-
+      Screenshots of the upload and any mapping/validation step (including flagged
+      issues if shown), and of the directory listing the imported contacts from
+      speakers.csv.
+  - id: CRM-06
+    criterion: Near-duplicate contacts (same name, different email) are surfaced and can be merged into a single chosen primary record.
+    weight: 1
+    testability: auto
+    scenarios: [CRM-S1]
+    pass_criteria: >-
+      After a same-name/different-email contact is created, the system exposes a
+      duplicate indicator or merge action; the merge flow lets the organizer pick
+      a primary (field-level value selection is stronger evidence); afterward only
+      one record remains in the directory carrying the merged data.
+    evidence: >-
+      Screenshot of the duplicate indicator or merge entry point, the
+      comparison/primary-selection step, and the single surviving record; the
+      agent's before/after directory row-count observation.
+  - id: CRM-07
+    criterion: A kanban sourcing pipeline with staged columns covering an open-to-won/lost lifecycle lets contacts be enrolled and moved between stages, with moves persisting across reload.
+    weight: 2
+    testability: auto
+    scenarios: [CRM-S2]
+    pass_criteria: >-
+      A board with at least 4-5 named stage columns exists, including terminal
+      confirmed/declined-style stages (renamed equivalents acceptable); a directory
+      contact can be enrolled via an add/enroll action; the card can be moved to
+      another stage and remains there after a page reload. Score/rationale fields
+      at enrollment are bonus evidence, not required.
+    evidence: >-
+      Screenshots of the full board with column names, the enroll dialog, and the
+      card in its new column both before and after reload.
+  - id: CRM-08
+    criterion: Pipeline cards open to a detail view with internal notes and a timestamped record of stage transitions.
+    weight: 1
+    testability: auto
+    scenarios: [CRM-S2]
+    pass_criteria: >-
+      The card detail exposes a notes composer whose note persists (still renders
+      after a page reload), and a stage history or activity log listing the stage
+      moves from the scenario with timestamps (a general activity feed that
+      includes the moves is acceptable).
+    evidence: >-
+      Screenshots of the card detail showing the saved note and transition entries
+      with timestamps matching the moves performed in CRM-S2 step 5, including the
+      after-reload screenshot confirming persistence.
+  - id: CRM-09
+    criterion: A filtered directory view can be saved as a named, reusable segment or list that reopens with its members.
+    weight: 1
+    testability: auto
+    scenarios: [CRM-S1]
+    pass_criteria: >-
+      A save-segment/save-list action exists after filtering; the saved "AI
+      Experts" segment appears in a segments/lists area and reopens showing the
+      matching contacts. Offering a dynamic (auto-updating) vs curated (static)
+      type choice at creation is bonus evidence.
+    evidence: >-
+      Screenshots of the save dialog (note whether a dynamic/curated type choice
+      is offered) and of the reopened segment's member list.
+  - id: CRM-10
+    criterion: A contact can be pushed from the org-level database into a specific event, appearing in that event's speakers/contacts module with profile data intact.
+    weight: 2
+    testability: auto
+    scenarios: [CRM-S2]
+    pass_criteria: >-
+      An add-to-event or assign-to-event action exists from the directory or a
+      pipeline card; an event picker targets "DevFlow Conf 2027"; the contact then
+      appears inside that event's speaker/contact list with name and email (and
+      ideally company/bio) carried over without re-entry.
+    evidence: >-
+      Screenshot of the event-picker/confirmation dialog and of the contact listed
+      inside DevFlow Conf 2027's speaker area; the agent's observation on which
+      profile fields carried over.
+  - id: CRM-11
+    criterion: Bulk email can be composed to multiple selected contacts from the directory, ideally with template/merge-tag personalization and a preview, and the send is confirmed or logged in-app.
+    weight: 1
+    testability: auto-partial
+    scenarios: [CRM-S2]
+    pass_criteria: >-
+      AUTO half — selecting 2+ contacts reveals a communicate/send-email action;
+      a composer accepts subject and body; the send completes with an in-app
+      success state or an entry in a sent-history log. Merge-tag resolution shown
+      in a preview and campaign/per-recipient history rows are stronger evidence.
+      The judge cannot verify real delivery from browser evidence alone.
+    evidence: >-
+      Screenshots of the selection revealing the action, the composer (with
+      template/merge tags if offered), any preview with resolved personalization,
+      the post-send state, and any history/log entry for the send.
+    manual_instructions: >-
+      Add a mailbox you control (e.g. a mailinator-style address) as a contact
+      before the bulk send, include it in the recipient selection, then check that
+      inbox: confirm the email arrived, the subject matches "Speak at DevFlow Conf
+      2027?", and any merge tags resolved to the contact's actual first name
+      rather than rendering literally (no visible "{{first_name}}").
+  - id: CRM-12
+    criterion: A CRM dashboard or overview page shows org-wide speaker-database metrics and at least one populated analytics widget.
+    weight: 1
+    testability: auto
+    scenarios: [CRM-S2]
+    pass_criteria: >-
+      A dashboard/landing view at CRM or org level displays KPI counts (total
+      contacts plus at least one other, e.g. events or returning speakers) that
+      are plausibly consistent with the directory contents, and at least one
+      analytics widget (top companies, speaker source, region, areas of focus)
+      renders with data. Widget click-through to a filtered contact list is bonus
+      evidence.
+    evidence: >-
+      Screenshot of the dashboard with KPI counters and widget(s); the agent's
+      noted comparison between the dashboard contact count and the directory row
+      count; screenshot of any drill-through destination.

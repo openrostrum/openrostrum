@@ -1,0 +1,9 @@
+# Copy to `.dev.vars` for local development. `wrangler dev` / `react-router dev`
+# merge these OVER wrangler.json vars, so local runs use the development env
+# (APP_ENV=development → the local D1 `email_outbox` sink instead of Resend).
+# Prod ships APP_ENV=production from wrangler.json and never reads this file.
+APP_ENV=development
+
+# Only needed to exercise the real provider locally (normally leave unset):
+# RESEND_API_KEY=re_...
+# TURNSTILE_SECRET=...

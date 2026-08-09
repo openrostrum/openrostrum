@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "killmysaas",
+	"name": "openrostrum",
 	"main": "./workers/app.ts",
 	"compatibility_date": "2025-10-08",
 	"compatibility_flags": ["nodejs_compat"],
@@ -11,7 +11,7 @@
 	"d1_databases": [
 		{
 			"binding": "DB",
-			"database_name": "killmysaas",
+			"database_name": "openrostrum",
 			"database_id": "local-dev-placeholder-replaced-in-prod",
 			"migrations_dir": "drizzle/migrations"
 		}
@@ -19,9 +19,12 @@
 	"r2_buckets": [
 		{
 			"binding": "BLOBS",
-			"bucket_name": "killmysaas-files"
+			"bucket_name": "openrostrum-files"
 		}
 	],
+	"triggers": {
+		"crons": ["0 9 * * *"]
+	},
 	"vars": {
 		"APP_ENV": "development"
 	}
