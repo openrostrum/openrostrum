@@ -23,7 +23,7 @@ Open-source clone of Sessionboard (conference speaker/session/program management
 | Tests (in workerd, real D1) | `pnpm test` |
 | **Full check before you commit** | `pnpm verify` |
 
-`pnpm verify` = typecheck + conventions guard + lint + tests. It must pass. The guard (`scripts/check-conventions.sh`) hard-fails on the import/transaction/`node:` mistakes the type-checker can't catch.
+`pnpm verify` = typecheck + lint (ESLint) + tests. It must pass. ESLint carries the ported custom rules plus `no-restricted-*` seams that hard-fail on mistakes the type-checker can't catch — `react-router-dom`/`@remix-run` imports and `db.transaction()` (use `db.batch()`). Formatting is Biome (`pnpm format`); a lefthook pre-commit runs both.
 
 ## Migration protocol (parallel-agent safety)
 Schema lives in `app/db/schema.ts`. **Schema changes are authored on the integration branch and consumed by worktrees** — do NOT each mint migrations, or `0000_*.sql` files collide. If your feature needs a column/table, request it on the integration branch.

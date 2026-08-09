@@ -1,0 +1,9 @@
+pre-commit:
+  parallel: false
+  jobs:
+    - name: format
+      glob: "*.{js,jsx,ts,tsx,mjs,mts,cjs,cts,json,jsonc,md}"
+      run: pnpm exec biome format --write {staged_files}
+      stage_fixed: true
+    - name: lint
+      run: pnpm lint

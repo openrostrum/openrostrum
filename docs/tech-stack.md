@@ -32,7 +32,8 @@ The definitive stack for the Sessionboard clone. Cloudflare-native, TypeScript e
 | Auth | ownable session module in D1; hashing via **WebCrypto PBKDF2** (or native `node:crypto.scrypt`) | — |
 | Compat API (P2) | **Hono** sub-app mounted on splat route `/api/v1/*` (one deployable, shared Drizzle/Zod) | — |
 | Package manager / bundler | **pnpm** / **Vite** | — |
-| Lint + format | **Biome** | 2.x |
+| Lint | **ESLint** (flat) + typescript-eslint + react/hooks/jsx-a11y + custom AST rules in `tooling/eslint-rules/` + `no-restricted-*` seams. Custom rules ported from the `cloudflare-agent-exercise` repo; skipped its CF-Workflow/AI-agent/monorepo-specific rules. | 9.x |
+| Format | **Biome** — formatter only; its linter is disabled (ESLint owns linting). | 2.x |
 | Tests | **Vitest** + **@cloudflare/vitest-pool-workers** (runs in workerd against real local D1) | — |
 | Observability | Cloudflare Workers Logs (+ Logpush); `@sentry/cloudflare` optional | — |
 
