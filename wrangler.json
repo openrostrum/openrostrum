@@ -23,7 +23,6 @@
 		}
 	],
 	"vars": {
-		"APP_ENV": "development",
-		"VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare"
+		"APP_ENV": "development"
 	}
 }

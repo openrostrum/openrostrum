@@ -1,66 +1,72 @@
 {
-  "name": "killmysaas",
-  "private": true,
-  "description": "Kill My SaaS — open-source Sessionboard clone.",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "sharp",
-      "workerd"
-    ]
-  },
-  "type": "module",
-  "scripts": {
-    "build": "react-router build",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "wrangler d1 migrations apply killmysaas --local",
-    "db:migrate:remote": "wrangler d1 migrations apply killmysaas --remote",
-    "db:seed": "wrangler d1 execute killmysaas --local --file=./drizzle/seed.sql",
-    "db:reset": "rm -rf .wrangler/state && pnpm db:migrate && pnpm db:seed",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "typegen": "wrangler types && react-router typegen",
-    "check": "tsc && react-router build && wrangler deploy --dry-run",
-    "deploy": "wrangler deploy",
-    "dev": "react-router dev",
-    "preview": "pnpm build && vite preview",
-    "typecheck": "pnpm typegen && tsc -b"
-  },
-  "dependencies": {
-    "drizzle-orm": "^0.45.2",
-    "drizzle-zod": "^0.8.3",
-    "isbot": "5.1.32",
-    "react": "19.2.1",
-    "react-dom": "19.2.1",
-    "react-router": "7.9.6",
-    "zod": "^4.4.3"
-  },
-  "devDependencies": {
-    "@cloudflare/vite-plugin": "1.15.3",
-    "@cloudflare/vitest-pool-workers": "^0.20.3",
-    "@react-router/dev": "7.9.6",
-    "@tailwindcss/vite": "4.1.17",
-    "@types/node": "24.10.1",
-    "@types/react": "19.2.7",
-    "@types/react-dom": "19.2.3",
-    "drizzle-kit": "^0.31.10",
-    "tailwindcss": "4.1.17",
-    "typescript": "5.9.3",
-    "vite": "^7.0.0",
-    "vite-tsconfig-paths": "5.1.4",
-    "vitest": "^4.1.10",
-    "wrangler": "4.88.0"
-  },
-  "cloudflare": {
-    "label": "React Router Framework Starter",
-    "products": [
-      "Workers"
-    ],
-    "categories": [
-      "storage"
-    ],
-    "preview_icon_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/36a99c4a-8919-4e6e-ac9e-e55974407200/public",
-    "preview_image_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/65455e96-7992-425f-44e4-30f3e7d7f900/preview",
-    "publish": true
-  }
+	"name": "killmysaas",
+	"private": true,
+	"description": "Kill My SaaS — open-source Sessionboard clone.",
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild",
+			"sharp",
+			"workerd"
+		]
+	},
+	"type": "module",
+	"scripts": {
+		"build": "react-router build",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "wrangler d1 migrations apply killmysaas --local",
+		"db:migrate:remote": "wrangler d1 migrations apply killmysaas --remote",
+		"db:seed": "wrangler d1 execute killmysaas --local --file=./drizzle/seed.sql",
+		"db:reset": "rm -rf .wrangler/state && pnpm db:migrate && pnpm db:seed",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "biome check .",
+		"format": "biome check --write .",
+		"guard": "bash scripts/check-conventions.sh",
+		"verify": "pnpm typecheck && pnpm guard && pnpm lint && pnpm test",
+		"dev:worktree": "bash scripts/worktree-dev.sh",
+		"typegen": "wrangler types && react-router typegen",
+		"check": "tsc && react-router build && wrangler deploy --dry-run",
+		"deploy": "wrangler deploy",
+		"dev": "react-router dev",
+		"preview": "pnpm build && vite preview",
+		"typecheck": "pnpm typegen && tsc -b"
+	},
+	"dependencies": {
+		"drizzle-orm": "^0.45.2",
+		"drizzle-zod": "^0.8.3",
+		"isbot": "5.1.32",
+		"react": "19.2.1",
+		"react-dom": "19.2.1",
+		"react-router": "7.9.6",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.7",
+		"@cloudflare/vite-plugin": "1.15.3",
+		"@cloudflare/vitest-pool-workers": "^0.20.3",
+		"@react-router/dev": "7.9.6",
+		"@tailwindcss/vite": "4.1.17",
+		"@types/node": "24.10.1",
+		"@types/react": "19.2.7",
+		"@types/react-dom": "19.2.3",
+		"drizzle-kit": "^0.31.10",
+		"tailwindcss": "4.1.17",
+		"typescript": "5.9.3",
+		"vite": "^7.0.0",
+		"vite-tsconfig-paths": "5.1.4",
+		"vitest": "^4.1.10",
+		"wrangler": "4.88.0"
+	},
+	"cloudflare": {
+		"label": "React Router Framework Starter",
+		"products": [
+			"Workers"
+		],
+		"categories": [
+			"storage"
+		],
+		"preview_icon_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/36a99c4a-8919-4e6e-ac9e-e55974407200/public",
+		"preview_image_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/65455e96-7992-425f-44e4-30f3e7d7f900/preview",
+		"publish": true
+	}
 }
