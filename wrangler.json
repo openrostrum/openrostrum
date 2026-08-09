@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "react-router-starter-template",
+	"name": "killmysaas",
 	"main": "./workers/app.ts",
 	"compatibility_date": "2025-10-08",
 	"compatibility_flags": ["nodejs_compat"],
@@ -8,7 +8,22 @@
 		"enabled": true
 	},
 	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "killmysaas",
+			"database_id": "local-dev-placeholder-replaced-in-prod",
+			"migrations_dir": "drizzle/migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "BLOBS",
+			"bucket_name": "killmysaas-files"
+		}
+	],
 	"vars": {
+		"APP_ENV": "development",
 		"VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare"
 	}
 }
