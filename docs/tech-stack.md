@@ -1,0 +1,97 @@
+# Tech Stack
+
+The definitive stack for the Sessionboard clone. Cloudflare-native, TypeScript end-to-end, designed to run as N isolated local instances across parallel git worktrees. This document is the single source of truth; if something here conflicts with another doc, this wins.
+
+## Platform (Cloudflare)
+
+| Concern | Choice |
+|---|---|
+| Runtime & deploy | Cloudflare Workers/Pages — one Worker exports `fetch` + `scheduled` + `queue` |
+| Database | Cloudflare **D1** (SQLite) — embedded file gives trivial per-worktree isolation |
+| Object storage | Cloudflare **R2** |
+| Async jobs | Cloudflare **Queues** (email/sync) + **Cron Triggers** (5-day / 1-day reminders) |
+| Outbound email | **Resend** |
+| Bot protection | Cloudflare **Turnstile** (public CFP form) |
+| Local dev | `wrangler dev` |
+
+## Language & libraries
+
+| Layer | Choice | Pin |
+|---|---|---|
+| Language | TypeScript, `strict` + `noUncheckedIndexedAccess` | — |
+| Framework | React + **React Router v7** (framework mode) | **7.x exact — never 8.x** |
+| ORM | **Drizzle** (on D1) | 0.44.x, exact |
+| Contracts/validation | **Zod** + **drizzle-zod** (DB schema is the single source for row + form + API types) | Zod 4 |
+| Styling | **Tailwind v4** (CSS-first config) | 4.x |
+| Components | **shadcn/ui** (Radix), copy-in, pre-installed in-repo | — |
+| Rich text | **Tiptap** behind a shared `<RichText/>` component (`immediatelyRender:false`) | — |
+| Data tables | **TanStack Table** (headless) | v8 |
+| Drag-and-drop | **dnd-kit** (agenda builder) | — |
+| Forms | **React Hook Form** + Zod resolver (pin resolver + zod together) | — |
+| Calendar files | **`ics`** (plain utility, not a port) | — |
+| Auth | ownable session module in D1; hashing via **WebCrypto PBKDF2** (or native `node:crypto.scrypt`) | — |
+| Compat API (P2) | **Hono** sub-app mounted on splat route `/api/v1/*` (one deployable, shared Drizzle/Zod) | — |
+| Package manager / bundler | **pnpm** / **Vite** | — |
+| Lint + format | **Biome** | 2.x |
+| Tests | **Vitest** + **@cloudflare/vitest-pool-workers** (runs in workerd against real local D1) | — |
+| Observability | Cloudflare Workers Logs (+ Logpush); `@sentry/cloudflare` optional | — |
+
+Exact patch versions are frozen in `package.json` when the starter template is built (see "Local development").
+
+## Ports (the only swappable seams)
+
+Everything that differs between local and cloud sits behind a typed interface with a local and a prod adapter. Nothing else gets a port.
+
+| Port | Prod adapter | Local / test adapter |
+|---|---|---|
+| `EmailSender` | Resend | D1 `email_outbox` table (agent-queryable) |
+| `AirtableSync` | real Airtable base (serial integration lane) | local fake table |
+| `Turnstile` | Cloudflare Turnstile verify | no-op pass |
+| `Clock` | real `now()` | injectable fixed time |
+
+**Not ports:** Calendar (`ics` is a pure function — identical everywhere) and Storage (R2 emulates locally via Miniflare — use a thin wrapper only, not a swappable adapter).
+
+## Platform rules (mandatory)
+
+- **D1 has no interactive transactions.** Use `db.batch()` for atomic multi-writes. Never `db.transaction()` — it throws at runtime.
+- **`nodejs_compat`** is enabled globally.
+- **Passwords:** WebCrypto PBKDF2 or native `node:crypto.scrypt`. Never native bcrypt (won't run on Workers) or pure-JS scrypt (blows the CPU budget).
+- **File uploads:** browser PUTs directly to R2 via a presigned URL. Never stream large bodies through the Worker (100 MB request cap).
+- **Email:** outbound only — no inbound `email()` handler. Deduplicate with a D1 `email_sends` table (unique key: template + recipient + occurrence) plus Resend idempotency keys; failed sends go to a Queue DLQ. Do not use the rate-limit binding for idempotency.
+- **React Router imports:** import from `react-router` only — never `react-router-dom` or `@remix-run/*`, and never the `json()` helper (return plain objects). A CI grep-guard fails the build on violations; `react-router typegen` is wired into the typecheck script.
+- **Client bundle:** public and schedule pages render SSR and stay light; Tiptap and dnd-kit are lazy-loaded / code-split so they never ship to public visitors. (They don't count against the 10 MB Worker script cap — they're static assets — but they hurt public-page load if shipped everywhere, and load speed is judged.)
+- **Tailwind v4:** CSS-first config (`@import "tailwindcss"` + `@theme`). No `tailwind.config.js`.
+- **shadcn:** the component set is pre-installed and committed; agents do not run `npx shadcn add`.
+
+## Local development & worktree isolation
+
+The stack runs as N concurrent, fully isolated local instances — one per git worktree — with zero cross-instance overlap. Everything is keyed to a single instance id and is ephemeral.
+
+- **Per instance:** unique worker `name` (`killmysaas-<instanceId>`), unique `--port` (base + offset), omit `--inspector-port` (auto-assigned), no service bindings, and per-worktree `.wrangler/state`. All persistent state (D1 file, R2 blobs, `email_outbox`) lives inside the worktree.
+- **Reset:** wipe `.wrangler/state` → apply migrations to local D1 → run seed. A `db:reset` and `db:seed` script provide this; the seed recreates a realistic conference (event, CFP forms, submissions across every status, an evaluation plan, scheduled + unscheduled sessions, onboarding tasks).
+- **Migrations:** authored on a single integration branch and consumed by worktrees — agents do not each mint migrations. One apply-path: **`drizzle-kit generate` (flat SQL into `migrations/`) → `wrangler d1 migrations apply`**, and the same `migrations/` directory feeds `@cloudflare/vitest-pool-workers` (`applyD1Migrations`) so dev, tests, and prod share one mechanism.
+- **Secrets:** `.dev.vars` locally (with a committed `.dev.vars.example`); `wrangler secret put` for prod.
+- **Binding-touching code is exercised under `wrangler dev`, not `vite dev`** (service/binding behavior differs between them; `wrangler dev` matches prod).
+
+## Not using (and why)
+
+| Rejected | Use instead | Why not |
+|---|---|---|
+| Postgres | D1 (SQLite) | on Cloudflare it needs an external managed DB + Hyperdrive — a network seam that also breaks per-worktree isolation |
+| Next.js · TanStack Start · SvelteKit · SPA + separate API | React Router v7 | Next-on-CF adapter is rough; TanStack Start still RC; Svelte drops the React component ecosystem; SPA+API adds a client/server seam |
+| React Router v8 | React Router v7 (pinned) | v8 (Jun 2026) is ESM-only and removed `react-router-dom`; the training corpus is v6/v7 |
+| Vercel `portless` | deterministic `--port` offsets | adds a shared `:443` proxy + local CA + sudo — a shared singleton against the isolation model; agents verify by port, not browser URL |
+| Mailpit / SMTP local sink | D1 `email_outbox` | Resend is HTTPS not SMTP; a D1 table needs no extra process/port and is agent-queryable + auto-isolated per worktree |
+| native bcrypt · pure-JS `@noble` scrypt | WebCrypto PBKDF2 / `node:crypto.scrypt` | bcrypt won't run on Workers; pure-JS scrypt intermittently blows the CPU budget |
+| Lucia | ownable session module (`better-auth` only if OAuth/2FA is added) | Lucia is no longer maintained as a library |
+| TanStack Query / Zustand wholesale | RR7 loaders/actions; add either narrowly only where a widget needs it | duplicates the loader cache and adds a seam |
+| `vite dev` for binding-touching code | `wrangler dev` | binding / service-binding behavior differs from prod under `vite dev` |
+
+## Platform facts (verified Aug 2026)
+
+- **D1:** 10 GB max · single-writer · 2 MB max row · 1000 queries/invocation · 30 s/query · no interactive transactions. All comfortably clear for a single-conference app (use `db.batch()` for bulk).
+- **Workers:** 10 MB gzip *script* cap (client JS ships as static assets, excluded) · CPU 30 s default, 5 min max, I/O wait free.
+- **Queues** are on the Cloudflare free plan.
+- **React Router** is GA on Cloudflare with the 1.0 Vite plugin; **v8 exists (Jun 2026) and is deliberately not used**.
+
+_Stack validated by independent multi-agent review, Aug 2026._

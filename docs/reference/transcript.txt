@@ -1,0 +1,226 @@
+[00:00:00] Okay. Hi, [cough] thanks [clears throat]
+[00:00:02] for signing up for this crazy
+[00:00:03] experiment. Um, we are being uh I I I
+[00:00:08] think a lot of us are interested in
+[00:00:11] building software that people want to
+[00:00:14] pay money for, but also
+[00:00:16] uh don't really know the extent to which
+[00:00:20] uh they can build. And I think a time
+[00:00:23] scope thing like this exercise or this
+[00:00:25] game or this competition would be really
+[00:00:27] interesting. and we are a real customer.
+[00:00:30] Um, the reason I'm not being public is
+[00:00:32] to honestly just preserve their um their
+[00:00:36] privacy. Uh, but I think this will be a
+[00:00:38] fun exercise and uh, genuinely we are
+[00:00:41] looking at paying $40,000 for this
+[00:00:43] software which uh, I'll show you. Um,
+[00:00:46] you can go to sessionboard.com.
+[00:00:48] Uh, uh, this is the the rough spec which
+[00:00:51] you which I'm going to send to you guys
+[00:00:52] uh, of what we are actually using. So it
+[00:00:55] is not all the features that we're
+[00:00:56] looking to clone. Um we want the sort of
+[00:01:00] program submission you know I run a
+[00:01:02] conference and we uh get a lot of
+[00:01:05] submissions for uh for speakers and uh
+[00:01:09] you know people want to apply and we
+[00:01:11] have to evaluate them and put them on
+[00:01:12] the schedule and communicate them and
+[00:01:14] make them show up and all these things.
+[00:01:17] So session board is a type of software
+[00:01:19] in the industry uh which people pay
+[00:01:23] anywhere between $500 to $200,000 uh a
+[00:01:26] year to or you know potentially per
+[00:01:29] event uh to do these things. Um session
+[00:01:33] board seems very comprehensive. Uh there
+[00:01:35] are other competitor platforms like
+[00:01:36] session eyes uh they only do the program
+[00:01:39] but session board also does CRM also
+[00:01:41] does marketing also does CMS uh which
+[00:01:45] delivers content to your thing. So you
+[00:01:46] can also check this yourself. Um and
+[00:01:50] also you see uh what's what's nice here
+[00:01:52] is also you get to see a lot of
+[00:01:53] screenshots. You cannot do a self um
+[00:01:58] guided tour. You have to request a demo
+[00:02:00] uh which is part of the enterprise sales
+[00:02:02] tactics I don't really want. You can see
+[00:02:04] all the session boards competitors here.
+[00:02:06] Uh I think the main message is we are
+[00:02:08] probably only going to use the program
+[00:02:11] side of these things and we're probably
+[00:02:15] not really using the marketing side, not
+[00:02:17] really using uh the CRM side. Um but you
+[00:02:21] know, I'll I'll clone as much of of it
+[00:02:24] as you want uh for your exercise. Um
+[00:02:28] we're just going to pay attention to the
+[00:02:29] program side. Um
+[00:02:33] the the [clears throat] main idea um the
+[00:02:36] thing that you should set up with it
+[00:02:38] should look roughly like this. Um you
+[00:02:40] should probably have some settings where
+[00:02:42] you can set up the event details. Some
+[00:02:44] basic stuff here. Um I assume that you
+[00:02:47] can pause if you want uh to manage uh
+[00:02:50] this kind of thing. Uh all all good,
+[00:02:53] right? Um, and we'll we'll give you a
+[00:02:56] walk through if you want, but uh it
+[00:02:58] doesn't really matter as long as you
+[00:02:59] fulfill the uh the main core
+[00:03:03] um functionality that we describe in the
+[00:03:07] Google doc. Okay. Um so let's talk about
+[00:03:11] the Google doc.
+[00:03:13] Um we're looking at the program. Um and
+[00:03:17] here this is like a little dashboard
+[00:03:18] thing. Uh the main thing that the main
+[00:03:21] uh life cycle is that you have
+[00:03:23] submissions um uh which can either be
+[00:03:26] abstracts or uh videos which are sort of
+[00:03:28] applications to speak and sessions which
+[00:03:30] are people who are pretty much
+[00:03:32] guaranteed to speak uh let's say because
+[00:03:33] they're a sponsor
+[00:03:35] um uh and you can sort of set up some
+[00:03:38] kind of abstract session here. Um so I
+[00:03:41] have already set up um this kinds this
+[00:03:43] this series of abstracts. So, let me
+[00:03:47] just kind of part of this I also don't
+[00:03:50] love is that it's kind of slow.
+[00:03:53] [clears throat] Um, here you can enter
+[00:03:54] in manually or you can also um look for
+[00:03:58] the submission functionality. Uh, which
+[00:04:01] I can't really tell where it is. Let me
+[00:04:03] just
+[00:04:09] part this is this slowness is part of
+[00:04:11] why uh I think you guys can probably do
+[00:04:13] a better job than um
+[00:04:17] than session board.
+[00:04:21] Um
+[00:04:23] yeah, I don't know where this the sort
+[00:04:24] of form thing is. Let me just Oh yeah,
+[00:04:27] let's copy the form here. So uh in order
+[00:04:29] to create an abstract uh some
+[00:04:31] application page you create a form that
+[00:04:33] looks like this. Um you [clears throat]
+[00:04:35] want you want abstracts or you want
+[00:04:37] sessions you can choose down down here.
+[00:04:39] Uh you have a welcome screen blah blah
+[00:04:42] blah all the sort of messaging and
+[00:04:44] customization. Uh let's just go ahead
+[00:04:46] and select all these things. So you have
+[00:04:49] like a form builder is what you're being
+[00:04:50] asked to build here. This is just a very
+[00:04:52] fancy form builder. That's all it is. Um
+[00:04:55] you have some limits in terms of the
+[00:04:57] number of speakers and sponsors uh
+[00:04:59] speakers and biography and all these
+[00:05:01] things. Um all of which uh has very
+[00:05:04] standard validation rules and all these
+[00:05:06] things. Um
+[00:05:08] and looks like it doesn't even have full
+[00:05:12] validation. Very nice. Okay, great.
+[00:05:15] [clears throat] Um we don't really care
+[00:05:16] about payment, so you can skip this one
+[00:05:18] if you're cloning it. Um and then you
+[00:05:21] have a close date. Let's just call it, I
+[00:05:23] don't know, September 15th. Doesn't
+[00:05:26] matter. You can send a reminder email.
+[00:05:28] Set a submission limit. Um, multiple
+[00:05:32] draft submissions. Thank you email. Uh,
+[00:05:36] multi- language. We only care about
+[00:05:37] English. Um, you should be able to enter
+[00:05:41] in admins. Um, this one also optional,
+[00:05:44] you know, uh, just show us the the rough
+[00:05:48] format. Again, the higher fidelity, the
+[00:05:49] more usefulness. You are allowed to use
+[00:05:52] your own judgment as to what this is.
+[00:05:54] So, we created a form here, uh, form
+[00:05:56] three, and let's just go and see it
+[00:05:58] publicly. So, this is this would be the
+[00:06:00] public link. Um, I'm going to show you
+[00:06:02] how in incognito we can access this. Um,
+[00:06:05] and you can submit that form. Um, so
+[00:06:07] this is the uh, it looks like it's
+[00:06:12] asking me to to use a password. Uh, I
+[00:06:15] probably have a password stored, so good
+[00:06:18] enough. Fill in some blanks. It has some
+[00:06:20] required fields. Um,
+[00:06:24] and let's see if uh we can get a quick
+[00:06:27] submission down here. Excellent.
+[00:06:32] Excellent. Okay.
+[00:06:43] Okay. Excellent. Submit.
+[00:06:46] Um, that was stupid. Obviously, I should
+[00:06:50] not have a minimum of two speakers.
+[00:06:52] That's not something that we do. Uh, so
+[00:06:54] now once you have a login, you can
+[00:06:56] actually see um your login with the your
+[00:06:59] speakers and your your tasks. Uh, and
+[00:07:01] this is this is an important part of it
+[00:07:03] whether or not you have been accepted or
+[00:07:05] not. Um, I think that's that's a that's
+[00:07:07] a key part as well as once you've been
+[00:07:09] accepted, what tasks do you have to
+[00:07:11] complete?
+[00:07:12] That also is kind of optional, but it is
+[00:07:15] it is very very handy for for people
+[00:07:16] using this. Um, [snorts] so, oh my god,
+[00:07:20] this is so slow. Okay. Um, you can see
+[00:07:23] the the session we just submitted down
+[00:07:25] here with the two speakers. Uh, as well
+[00:07:27] as you being able to update your own
+[00:07:29] biography. Uh, this is a very important
+[00:07:31] part of the the overall submissions and
+[00:07:34] obviously being able to send email is
+[00:07:35] great. Okay, so [clears throat] that is
+[00:07:38] the bulk of it. Um I think there will be
+[00:07:42] others. So for example if we go over to
+[00:07:43] evaluations uh we can create evaluation
+[00:07:46] plans on the admin side on the uh
+[00:07:49] conference committee side and we can
+[00:07:52] assign sessions to be evaluated by
+[00:07:54] conference committees. So here we can
+[00:07:56] say all right this team is evaluating uh
+[00:07:59] whatever numbers of submissions
+[00:08:02] and uh as a submitter as a as an
+[00:08:05] evaluator I can um look at look through
+[00:08:08] all these all these things uh so I think
+[00:08:10] that's really helpful um once things
+[00:08:12] have been evaluated accepted and and
+[00:08:14] information is put out there then we can
+[00:08:17] um add these um add this add the
+[00:08:20] accepted sessions in here for the agenda
+[00:08:22] on putting out publicly uh as well as
+[00:08:25] obviously um showing them or embedding
+[00:08:28] them in uh some external environment uh
+[00:08:32] where you can get the code for example.
+[00:08:33] Um and here it's roughly how it should
+[00:08:37] look. Um it's a very standard sort of uh
+[00:08:41] event display with uh all every
+[00:08:43] everything all linked uh and what have
+[00:08:45] you. So that [cough and clears throat]
+[00:08:48] is the rough idea. Um there's a lot in
+[00:08:51] here that I'm I'm skimming over uh that
+[00:08:53] I think we'll have to scope out what the
+[00:08:56] requirements are. I think there's a lot
+[00:08:58] uh in in this video itself that can get
+[00:09:01] you started. I think as long as you
+[00:09:03] roughly get the idea that we that we
+[00:09:05] have uh in here uh with this basis you
+[00:09:09] can also use the session board website
+[00:09:11] where you can say you can look at the
+[00:09:13] individual screens. Um you don't it's
+[00:09:16] not about the fidelity to session board.
+[00:09:18] It's about filling the job to be done uh
+[00:09:21] that that fits it. I don't care about
+[00:09:23] the AI workflow thing. I just care that
+[00:09:26] uh we have an accepted industry standard
+[00:09:29] tool that we have open source and we can
+[00:09:32] clone it in a weekend. Um I think it is
+[00:09:35] very doable if you're focused on on it.
+[00:09:38] Um and I think having all these public
+[00:09:42] uh bullet points gives you some idea of
+[00:09:44] what that can be. I will be available to
+[00:09:46] you in the Discord um in order to answer
+[00:09:48] any questions and probably record a more
+[00:09:51] professional demo of this.

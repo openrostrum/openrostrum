@@ -1,0 +1,217 @@
+﻿High Level Brief
+
+
+Thanks for joining this last min remote hackathon organized out of real frustration[a]!
+
+
+We are looking to replace Sessionboard, which costs >$40k a year:
+  
+
+
+
+We do NOT expect to use everything... Which makes it easier for you to clone and makes less sense for us to pay. 
+
+
+Primary features we are looking for from an open source clone that YOU make (and keep):
+1. Custom call-for-speakers submission forms with conditional logic and category-based routing
+2. Self-service speaker portal for bios, headshots, slides, and supporting documents
+3. Automated, templated speaker communications, including reminders and calendar invites delivered directly to each speaker's own calendar (Gmail, Outlook, iCal)
+4. Submission evaluation and scoring workflows, including optional AI-assisted review across multiple rounds[b]
+5. Drag-and-drop schedule and agenda building, with automatic conflict detection across rooms and tracks, viewable by list, day, week, track, or room
+6. Real-time dashboard showing which speakers still have outstanding onboarding tasks
+7. Native, one-way integration with Accelevents (our existing registration platform) to eliminate manual data re-entry
+8. Resource and wiki pages within the speaker portal, including HTML embed support for existing reference material
+9. Embeddable, mobile-friendly speaker gallery and schedule itinerary we can post to our website[c]
+
+
+Cloning the exact design is not a requirement; the point is to make a good-enough open source alternative that we never have to pay for this closed source SaaS if we can help it.[d]
+
+
+(IMPORTANT) Video Walkthrough: platform & requirements
+
+
+https://youtu.be/vUuK4Knl7oc 
+
+
+This is a very hastily recorded walkthrough going thru the requirements in detail with visual references for your clanker (UPDATE: SEE BELOW FOR SCREENSHOTS) - we will do a more polished one on Saturday and one on Sunday morning clarifying requirements based on your feedback, after which we will FREEZE adding any requirements so that you can have some certainty/polish.
+
+
+Discord
+
+
+https://discord.gg/XYXaapF4q <- all updates and questions and communication here
+Competition rules
+
+
+* Timeline: aim to be done in a weekend, but you may need more time esp because we are starting late, so:
+   * you have until Wednesday Aug 12 10PM PT to submit!
+* Submission involves:
+   * Fill out our form we will send out
+   * Open source repo with your code[e]
+      * so that you walk away with something regardless
+   * Deployed site we can test out with the walkthrough shown 
+* Because so many people signed up, I can’t proactively cover tokens, but people who SUBMIT valid attempts can ask for reimbursement for up to $500 in token cost (will ask for proof, and will subjectively judge if there was a real attempt made)
+   * This includes people just using their codex pro/claude max subscriptions[f]
+* The winning submission will:
+   * Pass AIE team (not swyx) independent evaluation[g]
+   * Tiebreaker will go to whoever has made subjective judgment calls[h] for the product that we would actually use/buy
+   * Get $10,000 cash
+   * Get on a call to do a walkthrough/interview for writeup on latent.space
+* Tech stack:
+   * Choose whatever coding agents you want
+   * Choose whatever language/tools/frameworks you want
+      * Mild bonus points for deploy to Cloudflare infra[i]
+      * Bonus points for persistence/DB using Airtable
+         * (Because those are what we use on our team)
+      * Very teeny bonus points for hosting source code/site on Forge instead of GitHub
+         * (because this is my side project)
+   * Bonus points for speed/performance
+      * we do not want slow SaaS pls
+   * Bonus points for API
+      * https://sessionboard.mintlify.app/introduction 
+
+
+Questions welcome in Discord! https://discord.gg/XYXaapF4q 
+
+
+
+
+
+
+
+
+SCREENSHOTS
+
+
+Basic event config
+  
+
+
+
+  
+
+  
+
+
+
+Program > Submission Forms > Create
+  
+
+
+
+  
+
+  
+
+  
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+
+
+Public CFP Page looks like this
+https://appv2.sessionboard.com/submit/ai-engineer-sandbox-event/b7d4d7cd-3012-45c2-9c08-a8ee9185182f 
+  
+
+Speaker portal after submission
+  
+
+
+
+  
+
+Program > Abstracts
+  
+
+  
+
+
+
+  
+
+  
+
+  
+
+
+
+Program > Agenda
+  
+
+
+
+Portal > Tasks 
+For speakers to complete after admisssion
+  
+
+
+
+Portal > Forms
+For speakers to fill out a form in a Task
+  
+
+  
+
+  
+
+  
+
+
+
+  
+
+  
+
+CMS > Embeds (OPTIONAL)
+  
+
+  
+
+
+
+
+
+
+
+Dashboard (optional but nice to have, best efforts)
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+[a]1 total reaction
+Alex Lazar reacted with 🤣 at 2026-08-08 7:16 AM UTC
+[b]very optional, do if u feel like it
+[c]example https://wf2025.ai.engineer/schedule
+[d]if nobody wins, then actually that's also very interesting too and more power to Sessionboard, i'm obviously biased enough to try to do this competition but we might very well fail.
+5 total reactions
+Conor Bronsdon reacted with 💯 at 2026-08-08 8:26 AM UTC
+Alex Lazar reacted with 💯 at 2026-08-08 11:24 AM UTC
+Ali Zaid reacted with 👍 at 2026-08-08 11:53 AM UTC
+Ksenia Se reacted with 👍 at 2026-08-08 4:05 PM UTC
+Deb Mukherjee reacted with 💯 at 2026-08-08 7:02 PM UTC
+[e]open source is not a HARD requirement, but we'd of course like to use your code if you win, and anyway it'd be cool to compare results
+[f]will be even more impressive if you can stay within subscription limits and still have a good submission
+[g]they are skeptical that we (the engineers/vibecoders) can do this in a weekend, seriously, lets prove them wrong
+[h]our 6 requirements above are pretty firm but the rest is negotiable / up to you / best efforts
+[i]Cloudflare has workflows for scheduling, the email part also but you are welcome to use Resend or something else if you prefer that.
