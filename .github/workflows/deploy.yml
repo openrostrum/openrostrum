@@ -25,7 +25,7 @@ jobs:
       - name: Skip notice
         if: steps.creds.outputs.have != 'true'
         run: echo "::warning::CLOUDFLARE_API_TOKEN not set — skipping deploy (provision Cloudflare first)."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.creds.outputs.have == 'true'
       - uses: pnpm/action-setup@v4
         if: steps.creds.outputs.have == 'true'
