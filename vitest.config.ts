@@ -3,6 +3,7 @@ import {
 	cloudflareTest,
 	readD1Migrations,
 } from "@cloudflare/vitest-pool-workers";
+import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 
 // Runs tests INSIDE workerd against a real (local, isolated) D1 — the same
@@ -14,6 +15,7 @@ export default defineConfig(async () => {
 	);
 	return {
 		plugins: [
+			tsconfigPaths(),
 			cloudflareTest({
 				singleWorker: true,
 				wrangler: { configPath: "./wrangler.json" },
