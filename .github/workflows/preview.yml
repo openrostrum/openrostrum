@@ -27,7 +27,7 @@ jobs:
         if: steps.creds.outputs.have == 'true'
       - uses: pnpm/action-setup@v4
         if: steps.creds.outputs.have == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.creds.outputs.have == 'true'
         with:
           node-version: 24
