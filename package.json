@@ -17,6 +17,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply killmysaas --remote",
     "db:seed": "wrangler d1 execute killmysaas --local --file=./drizzle/seed.sql",
     "db:reset": "rm -rf .wrangler/state && pnpm db:migrate && pnpm db:seed",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typegen": "wrangler types && react-router typegen",
     "check": "tsc && react-router build && wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
@@ -35,6 +37,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.15.3",
+    "@cloudflare/vitest-pool-workers": "^0.20.3",
     "@react-router/dev": "7.9.6",
     "@tailwindcss/vite": "4.1.17",
     "@types/node": "24.10.1",
@@ -45,6 +48,7 @@
     "typescript": "5.9.3",
     "vite": "^7.0.0",
     "vite-tsconfig-paths": "5.1.4",
+    "vitest": "^4.1.10",
     "wrangler": "4.88.0"
   },
   "cloudflare": {
