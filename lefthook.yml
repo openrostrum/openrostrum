@@ -1,3 +1,4 @@
+# Git hooks. Installed via `pnpm prepare` (lefthook install).
 pre-commit:
   parallel: false
   jobs:
@@ -7,3 +8,13 @@ pre-commit:
       stage_fixed: true
     - name: lint
       run: pnpm lint
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}
+
+pre-push:
+  jobs:
+    - name: verify
+      run: pnpm verify
