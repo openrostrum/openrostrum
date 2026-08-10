@@ -26,8 +26,11 @@ jobs:
       - name: Exercise both providers through the app
         run: bash tooling/ai-review-e2e/run.sh
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ai-review-e2e-laneG2
-          path: ai-review-e2e-results.json
+          path: |
+            ai-review-e2e-results.json
+            /tmp/ai-review-*
           if-no-files-found: error
           retention-days: 7

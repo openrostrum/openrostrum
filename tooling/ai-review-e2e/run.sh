@@ -6,12 +6,18 @@ cd "$ROOT"
 
 server_pid=""
 app_url=""
+stage="init"
 cleanup() {
+	local code=$?
+	printf '{"stage":"%s","exitCode":%d}\n' "$stage" "$code" \
+		>/tmp/ai-review-e2e-stage.json
 	if [ -n "$server_pid" ]; then
 		kill "$server_pid" 2>/dev/null || true
 		wait "$server_pid" 2>/dev/null || true
 	fi
 	rm -f .dev.vars
+	trap - EXIT
+	exit "$code"
 }
 trap cleanup EXIT
 
@@ -54,36 +60,45 @@ run_case() {
 		printf 'APP_ENV=development\nAI_REVIEW_WORKERS_MODEL=@cf/openai/gpt-oss-120b\n' >.dev.vars
 	fi
 
+	stage="${provider}:db-reset"
 	pnpm db:reset >/tmp/ai-review-db-reset.log
 	local url
+	stage="${provider}:app-start"
 	start_app "$log_file"
 	url=$app_url
 	local jar
 	jar=$(mktemp)
+	stage="${provider}:login"
 	curl --fail-with-body -sS -c "$jar" \
 		-d 'email=admin@example.com&password=password' \
 		"$url/login" >/tmp/ai-review-login-response.txt
+	stage="${provider}:inference-action"
 	curl --fail-with-body -sS --max-time 70 -b "$jar" \
 		-d 'intent=ai-run&submissionId=s_pending&knownRunStamp=0' \
 		"$url/admin/evaluation?tab=ai&sub=s_pending" \
 		>/tmp/ai-review-action-response.txt
 
 	local detail_before=/tmp/ai-review-detail-before.html
+	stage="${provider}:reload-detail"
 	curl --fail-with-body -sS -b "$jar" \
 		"$url/admin/evaluation?tab=ai&sub=s_pending" >"$detail_before"
+	stage="${provider}:assert-detail"
 	grep -Fq "$expected_model" "$detail_before"
 	grep -Fq 'AI first-pass' "$detail_before"
 
+	stage="${provider}:override-action"
 	curl --fail-with-body -sS -b "$jar" \
 		-d 'intent=ai-override&submissionId=s_pending&score=3.2' \
 		"$url/admin/evaluation?tab=ai&sub=s_pending" \
 		>/tmp/ai-review-override-response.txt
 	local detail_after=/tmp/ai-review-detail-after.html
+	stage="${provider}:reload-override"
 	curl --fail-with-body -sS -b "$jar" \
 		"$url/admin/evaluation?tab=ai&sub=s_pending" >"$detail_after"
 	grep -Fq 'Overridden to 3.20' "$detail_after"
 	grep -Fq "$expected_model" "$detail_after"
 
+	stage="${provider}:query-persistence"
 	pnpm exec wrangler d1 execute openrostrum --local --json \
 		--command "SELECT score, rationale, model, override_score FROM ai_reviews WHERE submission_id = 's_pending'" \
 		>"/tmp/ai-review-${provider}-query.json"
