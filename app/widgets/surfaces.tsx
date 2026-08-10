@@ -24,16 +24,14 @@ import {
 import { FilterBar } from "./filter-bar";
 import { useMySchedule } from "./my-schedule";
 import { SessionCard, SpeakerRow } from "./session-card";
-import { minutesToLabel } from "./time";
 import type {
 	AgendaSurfaceData,
-	GallerySurfaceData,
 	HideableField,
 	ItinerarySurfaceData,
 	PublicSession,
 	PublicSpeakerProfile,
 	SessionsSurfaceData,
-	SpeakersSurfaceData,
+	SpeakerDirectoryData,
 } from "./types";
 
 /**
@@ -62,8 +60,8 @@ export function SessionsSurface({
 			/>
 		);
 	}
-	const first = (data.page - 1) * 24 + 1;
-	const last = Math.min(data.page * 24, data.total);
+	const first = (data.page - 1) * data.pageSize + 1;
+	const last = first + data.sessions.length - 1;
 	return (
 		<section className="flex flex-col gap-4">
 			<FilterBar
@@ -157,7 +155,7 @@ export function SpeakersSurface({
 	data,
 	base,
 }: {
-	data: SpeakersSurfaceData;
+	data: SpeakerDirectoryData;
 	base: string;
 }) {
 	if (data.detail) {
@@ -340,14 +338,6 @@ export function AgendaSurface({
 	const prevDay = data.days[dayIndex - 1];
 	const nextDay = data.days[dayIndex + 1];
 	const height = (data.windowEndMin - data.windowStartMin) * PX_PER_MIN;
-	const hours: number[] = [];
-	for (
-		let min = Math.ceil(data.windowStartMin / 60) * 60;
-		min <= data.windowEndMin;
-		min += 60
-	) {
-		hours.push(min);
-	}
 	return (
 		<section className="flex flex-col gap-4">
 			<div className="flex flex-wrap items-center gap-3">
@@ -394,13 +384,13 @@ export function AgendaSurface({
 					<div className="w-14 shrink-0">
 						<div className="h-9 border-b border-hair" />
 						<div className="relative" style={{ height }}>
-							{hours.map((min) => (
+							{data.hourMarks.map((mark) => (
 								<span
-									key={min}
+									key={mark.min}
 									className="absolute right-2 -translate-y-1/2 font-mono text-[10.5px] tabular-nums text-fg-faint"
-									style={{ top: (min - data.windowStartMin) * PX_PER_MIN }}
+									style={{ top: (mark.min - data.windowStartMin) * PX_PER_MIN }}
 								>
-									{minutesToLabel(min)}
+									{mark.label}
 								</span>
 							))}
 						</div>
@@ -414,12 +404,14 @@ export function AgendaSurface({
 								{room.name}
 							</div>
 							<div className="relative" style={{ height }}>
-								{hours.map((min) => (
+								{data.hourMarks.map((mark) => (
 									<div
-										key={min}
+										key={mark.min}
 										aria-hidden="true"
 										className="absolute inset-x-0 border-t border-hair"
-										style={{ top: (min - data.windowStartMin) * PX_PER_MIN }}
+										style={{
+											top: (mark.min - data.windowStartMin) * PX_PER_MIN,
+										}}
 									/>
 								))}
 								{room.blocks.map((block) => (
@@ -679,7 +671,7 @@ export function GallerySurface({
 	data,
 	base,
 }: {
-	data: GallerySurfaceData;
+	data: SpeakerDirectoryData;
 	base: string;
 }) {
 	if (data.detail) {

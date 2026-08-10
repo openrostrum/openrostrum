@@ -9,7 +9,7 @@ import type {
 	ItinerarySurfaceData,
 	ProgramEvent,
 	SessionsSurfaceData,
-	SpeakersSurfaceData,
+	SpeakerDirectoryData,
 } from "../app/widgets/types";
 import { CONTEXT, seedProgram, thrownStatus, unwrap } from "./program.fixtures";
 
@@ -19,7 +19,7 @@ import { CONTEXT, seedProgram, thrownStatus, unwrap } from "./program.fixtures";
 // structure; publish gate).
 
 type SessionsData = { event: ProgramEvent; surface: SessionsSurfaceData };
-type SpeakersData = { event: ProgramEvent; surface: SpeakersSurfaceData };
+type SpeakersData = { event: ProgramEvent; surface: SpeakerDirectoryData };
 type AgendaData = { event: ProgramEvent; surface: AgendaSurfaceData | null };
 type ItineraryData = {
 	event: ProgramEvent;

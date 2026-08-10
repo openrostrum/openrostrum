@@ -44,20 +44,20 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Compose bulk email to speakers | `admin.contacts.compose.tsx` | `/admin/contacts/compose` (merge fields + preview) | 1 | todo |
 | Evaluation plan editor | `admin.evaluation.$planId.tsx` | `/admin/evaluation/:planId` (rounds/scorecards/pools/assignments) | 3 | todo |
 | Evaluation results export | `admin.evaluation.export[.csv].tsx` | `/admin/evaluation/export.csv` | 3 | todo |
-| Embeds admin | `admin.embeds.tsx` · `admin.embeds.$id.tsx` | `/admin/embeds` (P1 #16, EMB-15) | 2 | todo |
+| Embeds admin | `admin.embeds.tsx` · `admin.embeds_.$id.tsx` (trailing `_`: the editor renders standalone, not nested under the list) | `/admin/embeds` · `/admin/embeds/:id` (P1 #16, EMB-15) | 2 | done |
 | Files ZIP bundle (resource) | `admin.files.export[.zip].tsx` | `/admin/files/export.zip` (latest versions, grouped) | 2 | todo |
 | Team admins (org members) | `admin.settings.team.tsx` | `/admin/settings/team` (org-member invite + remove w/ last-member guard, P1 #21/#22 Wave D) | 1 | todo |
 | Organizer sign-up | `signup.tsx` | `/signup` (`// @public`; existing-email → decided sign-in message; P1 #22 Wave C) | 2 | todo |
 | Org onboarding | `onboarding.tsx` | `/onboarding` (one form: org name + first event; auth'd, membership-less users only; P1 #22 Wave C) | 2 | todo |
-| Public sessions list | `sessions.$eventSlug.tsx` | `/sessions/:eventSlug` (P1 #16a) | 2 | todo |
-| Public speakers directory | `speakers.$eventSlug.tsx` | `/speakers/:eventSlug` (P1 #16b — promoted from P2) | 2 | todo |
-| Public agenda grid | `schedule.$eventSlug.tsx` | `/schedule/:eventSlug` (P1 #16c — promoted from P2) | 2 | todo |
-| Public itinerary + personal schedule | `itinerary.$eventSlug.tsx` | `/itinerary/:eventSlug` (P1 #16d) | 2 | todo |
-| Public speaker gallery | `gallery.$eventSlug.tsx` | `/gallery/:eventSlug` (P1 #16e) | 2 | todo |
-| Public feeds (JSON/XML/iCal) | `feeds.$eventSlug.$kind[.$format].tsx` | `/feeds/:eventSlug/sessions.json` · `.xml` · `/feeds/:eventSlug/agenda.ics` (`// @public`) | 2 | todo |
-| Configured embed render | `embed.$publicId.tsx` | `/embed/:publicId` (snippet target; `// @public`) | 2 | todo |
+| Public sessions list | `sessions.$eventSlug.tsx` | `/sessions/:eventSlug` (P1 #16a) | 2 | done |
+| Public speakers directory | `speakers.$eventSlug.tsx` | `/speakers/:eventSlug` (P1 #16b — promoted from P2) | 2 | done |
+| Public agenda grid | `schedule.$eventSlug.tsx` | `/schedule/:eventSlug` (P1 #16c — promoted from P2) | 2 | done |
+| Public itinerary + personal schedule | `itinerary.$eventSlug.tsx` | `/itinerary/:eventSlug` (P1 #16d) | 2 | done |
+| Public speaker gallery | `gallery.$eventSlug.tsx` | `/gallery/:eventSlug` (P1 #16e) | 2 | done |
+| Public feeds (JSON/XML/iCal/basic HTML + widget.js) | `feeds.$eventSlug.$kind.tsx` (the segment carries the extension — flat-routes can't put a param after an escaped dot) | `/feeds/:eventSlug/sessions.json` · `.xml` · `.html` · `speakers.*` · `agenda.ics` · `widget.js` (`// @public`) | 2 | done |
+| Configured embed render | `embed.$publicId.tsx` | `/embed/:publicId` (snippet target; `// @public`) | 2 | done |
 | Compat API (Hono splat) | `api.v1.$.tsx` | `/api/v1/*` (x-access-token; read-only; P1 #20) | 3 | todo |
-| Harness aliases (redirects) | `dashboard.tsx` · `organizer.tsx` · `sessions._index.tsx` · `speakers._index.tsx` · `schedule._index.tsx` · `agenda.tsx` | `/dashboard` `/organizer` → `/admin`; bare `/sessions` `/speakers` `/schedule` `/agenda` → default event's public page (`// @public`) | 2 | todo |
+| Harness aliases (redirects) | `dashboard.tsx` · `organizer.tsx` · `sessions._index.tsx` · `speakers._index.tsx` · `schedule._index.tsx` · `agenda.tsx` · `itinerary._index.tsx` · `gallery._index.tsx` | `/dashboard` `/organizer` → `/admin`; bare `/sessions` `/speakers` `/schedule` `/agenda` `/itinerary` `/gallery` → the default event's public page (default = oldest event by createdAt; `/agenda` and `/schedule` both land on the grid) (`// @public`) | 2 | done |
 | Airtable webhook receiver | `hooks.airtable.tsx` | `/hooks/airtable` (POST; HMAC-verified via `X-Airtable-Content-MAC`, no session auth — `// @public`; P1 #15) | 2 | todo |
 
 If you need a route not listed here, add the row on the integration branch first

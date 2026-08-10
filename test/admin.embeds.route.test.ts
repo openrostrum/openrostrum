@@ -104,10 +104,10 @@ describe("embeds admin", () => {
 
 	it("toggle flips enabled; delete removes the row", async () => {
 		await seedProgram();
-		const toggleReq = await adminRequest("http://localhost/admin/embeds", {
-			method: "POST",
-			body: new URLSearchParams({ intent: "toggle", id: "emb1" }),
-		});
+		const toggleReq = await adminRequest(
+			"http://localhost/admin/embeds?id=emb1",
+			{ method: "POST", body: new URLSearchParams({ intent: "toggle" }) },
+		);
 		await listAction({
 			context: CONTEXT,
 			request: toggleReq,
@@ -117,9 +117,9 @@ describe("embeds admin", () => {
 		let rows = await db.select().from(embeds);
 		expect(rows.find((r) => r.id === "emb1")?.enabled).toBe(false);
 
-		const deleteReq = new Request("http://localhost/admin/embeds", {
+		const deleteReq = new Request("http://localhost/admin/embeds?id=emb1", {
 			method: "POST",
-			body: new URLSearchParams({ intent: "delete", id: "emb1" }),
+			body: new URLSearchParams({ intent: "delete" }),
 			headers: { Cookie: toggleReq.headers.get("Cookie") ?? "" },
 		});
 		await listAction({

@@ -12,9 +12,6 @@ export type IcsEvent = {
 	title: string;
 	description?: string;
 	location?: string;
-	url?: string;
-	/** Bump when a scheduled event changes so calendar clients update in place. */
-	sequence?: number;
 };
 
 function escapeText(value: string): string {
@@ -48,9 +45,8 @@ function fold(line: string): string {
 export function buildIcs(options: {
 	calendarName: string;
 	events: IcsEvent[];
-	now?: Date;
 }): string {
-	const dtstamp = utcStamp(options.now ?? new Date());
+	const dtstamp = utcStamp(new Date());
 	const lines: string[] = [
 		"BEGIN:VCALENDAR",
 		"VERSION:2.0",
@@ -66,12 +62,11 @@ export function buildIcs(options: {
 			`DTSTART:${utcStamp(event.start)}`,
 			`DTEND:${utcStamp(event.end)}`,
 			`SUMMARY:${escapeText(event.title)}`,
-			`SEQUENCE:${event.sequence ?? 0}`,
+			"SEQUENCE:0",
 		);
 		if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
 		if (event.description)
 			lines.push(`DESCRIPTION:${escapeText(event.description)}`);
-		if (event.url) lines.push(`URL:${escapeText(event.url)}`);
 		lines.push("END:VEVENT");
 	}
 	lines.push("END:VCALENDAR");

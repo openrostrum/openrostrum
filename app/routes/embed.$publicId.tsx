@@ -3,10 +3,9 @@ import { getDb } from "~/db";
 import {
 	applyEmbedConfig,
 	buildAgendaData,
-	buildGalleryData,
 	buildItineraryData,
 	buildSessionsData,
-	buildSpeakersData,
+	buildSpeakerDirectory,
 	loadPublicSessions,
 	toProgramEvent,
 } from "~/lib/program";
@@ -24,11 +23,10 @@ import {
 } from "~/widgets";
 import type {
 	AgendaSurfaceData,
-	GallerySurfaceData,
 	HideableField,
 	ItinerarySurfaceData,
 	SessionsSurfaceData,
-	SpeakersSurfaceData,
+	SpeakerDirectoryData,
 } from "~/widgets/types";
 import type { Route } from "./+types/embed.$publicId";
 
@@ -48,8 +46,8 @@ export function meta({ data: loaderData }: Route.MetaArgs) {
 
 type Surface =
 	| { type: "sessions"; data: SessionsSurfaceData }
-	| { type: "speakers"; data: SpeakersSurfaceData }
-	| { type: "gallery"; data: GallerySurfaceData }
+	| { type: "speakers"; data: SpeakerDirectoryData }
+	| { type: "gallery"; data: SpeakerDirectoryData }
 	| { type: "agenda"; data: AgendaSurfaceData | null }
 	| { type: "itinerary"; data: ItinerarySurfaceData | null };
 
@@ -85,10 +83,16 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 			surface = { type: "sessions", data: buildSessionsData(sessions, url) };
 			break;
 		case "speakers":
-			surface = { type: "speakers", data: buildSpeakersData(sessions, url) };
+			surface = {
+				type: "speakers",
+				data: buildSpeakerDirectory(sessions, url, 30),
+			};
 			break;
 		case "gallery":
-			surface = { type: "gallery", data: buildGalleryData(sessions, url) };
+			surface = {
+				type: "gallery",
+				data: buildSpeakerDirectory(sessions, url, 36),
+			};
 			break;
 		case "agenda":
 			surface = {

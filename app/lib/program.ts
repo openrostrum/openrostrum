@@ -5,7 +5,6 @@ import type {
 	AgendaBlock,
 	AgendaSurfaceData,
 	EmbedConfig,
-	GallerySurfaceData,
 	ItineraryDay,
 	ItinerarySurfaceData,
 	ProgramEvent,
@@ -15,7 +14,7 @@ import type {
 	PublicSpeaker,
 	PublicSpeakerProfile,
 	SessionsSurfaceData,
-	SpeakersSurfaceData,
+	SpeakerDirectoryData,
 } from "~/widgets/types";
 
 /**
@@ -96,6 +95,16 @@ function longDayLabel(date: Date, timeZone: string): string {
 	}).format(date);
 }
 
+function minutesToLabel(min: number): string {
+	const h24 = Math.floor(min / 60) % 24;
+	const m = min % 60;
+	const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+	const suffix = h24 < 12 ? "AM" : "PM";
+	return m === 0
+		? `${h12} ${suffix}`
+		: `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
 /** Event start/end are date-only boundaries stored at UTC midnight — format
  * them in UTC so the range doesn't slip a day in western timezones. */
 function eventDateRange(event: EventRow): string | null {
@@ -120,7 +129,6 @@ export function toProgramEvent(event: EventRow): ProgramEvent {
 		timezone: event.timezone,
 		location: event.location,
 		dateRange: eventDateRange(event),
-		agendaPublished: event.agendaPublishedAt !== null,
 	};
 }
 
@@ -394,30 +402,33 @@ function paginate<T>(items: T[], url: URL, pageSize: number) {
 	};
 }
 
+const SESSIONS_PAGE_SIZE = 24;
+
 export function buildSessionsData(
 	all: PublicSession[],
 	url: URL,
-	pageSize = 24,
 ): SessionsSurfaceData {
 	const filters = parseFilters(url);
 	const filtered = filterSessions(all, filters);
-	const { page, pages, slice } = paginate(filtered, url, pageSize);
+	const { page, pages, slice } = paginate(filtered, url, SESSIONS_PAGE_SIZE);
 	return {
 		sessions: slice,
 		total: filtered.length,
 		page,
 		pages,
+		pageSize: SESSIONS_PAGE_SIZE,
 		facets: facetsFrom(all),
 		filters,
 		hasAnySessions: all.length > 0,
 	};
 }
 
-function buildSpeakerDirectory(
+/** One builder serves both people surfaces; only the page size differs. */
+export function buildSpeakerDirectory(
 	all: PublicSession[],
 	url: URL,
 	pageSize: number,
-) {
+): SpeakerDirectoryData {
 	const q = (url.searchParams.get("q") ?? "").trim();
 	const speakers = speakersFromSessions(all);
 	const filtered = q
@@ -429,20 +440,6 @@ function buildSpeakerDirectory(
 		? (speakers.find((sp) => sp.id === detailId) ?? null)
 		: null;
 	return { speakers: slice, total: filtered.length, page, pages, q, detail };
-}
-
-export function buildSpeakersData(
-	all: PublicSession[],
-	url: URL,
-): SpeakersSurfaceData {
-	return buildSpeakerDirectory(all, url, 30);
-}
-
-export function buildGalleryData(
-	all: PublicSession[],
-	url: URL,
-): GallerySurfaceData {
-	return buildSpeakerDirectory(all, url, 36);
 }
 
 function scheduledDays(sessions: PublicSession[]) {
@@ -498,6 +495,15 @@ export function buildAgendaData(
 			),
 		}));
 
+	const hourMarks: Array<{ min: number; label: string }> = [];
+	for (
+		let min = Math.ceil(windowStartMin / 60) * 60;
+		min <= windowEndMin;
+		min += 60
+	) {
+		hourMarks.push({ min, label: minutesToLabel(min) });
+	}
+
 	const detailId = url.searchParams.get("session");
 	const detail = detailId ? (all.find((s) => s.id === detailId) ?? null) : null;
 	const active = days.find((d) => d.key === activeDay);
@@ -509,6 +515,7 @@ export function buildAgendaData(
 		rooms,
 		windowStartMin,
 		windowEndMin,
+		hourMarks,
 		detail,
 	};
 }

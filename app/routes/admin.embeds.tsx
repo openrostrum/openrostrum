@@ -1,9 +1,10 @@
 import { and, eq } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
 import { useState } from "react";
 import { data, Form, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
-import { EMBED_TYPE, embeds } from "~/db/schema";
+import { embeds } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
@@ -25,18 +26,15 @@ import {
 	THead,
 	Tr,
 } from "~/ui";
-import { CopyFieldButton, HiddenField } from "~/widgets";
-import { EMBED_TYPE_LABELS, type EmbedType } from "~/widgets/types";
+import { CopyFieldButton } from "~/widgets";
+import { EMBED_TYPE_LABELS } from "~/widgets/types";
 import type { Route } from "./+types/admin.embeds";
 
-// Type-parity guard: the DB enum and the client-safe label map must cover the
-// same widget types, or a new type would silently miss its admin label.
-const EMBED_TYPES = EMBED_TYPE satisfies readonly EmbedType[];
-
-const NewEmbed = z.object({
-	name: z.string().min(1, "Name is required"),
-	type: z.enum(EMBED_TYPES),
-});
+// DB-derived contract (drizzle-zod maps notNull text to z.string(), which
+// accepts "" — the .min(1) refinement is required).
+const NewEmbed = createInsertSchema(embeds)
+	.pick({ name: true, type: true })
+	.extend({ name: z.string().min(1, "Name is required") });
 
 const RowIntent = z.object({
 	id: z.string().min(1),
@@ -113,7 +111,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 			return redirect(`/admin/embeds/${id}`);
 		}
 
-		const parsed = RowIntent.safeParse({ id: form.get("id"), intent });
+		const parsed = RowIntent.safeParse({
+			id: new URL(request.url).searchParams.get("id"),
+			intent,
+		});
 		if (!parsed.success) {
 			return { fieldErrors: undefined, formError: "Unknown action." };
 		}
@@ -160,10 +161,13 @@ function DeleteButton({ id, name }: { id: string; name: string }) {
 	}
 	return (
 		<span className="inline-flex items-center gap-2">
-			<Form method="post">
-				<HiddenField name="intent" value="delete" />
-				<HiddenField name="id" value={id} />
-				<Button type="submit" aria-label={`Confirm deleting ${name}`}>
+			<Form method="post" action={`/admin/embeds?id=${id}`}>
+				<Button
+					type="submit"
+					name="intent"
+					value="delete"
+					aria-label={`Confirm deleting ${name}`}
+				>
 					Confirm delete
 				</Button>
 			</Form>
@@ -189,7 +193,6 @@ export default function AdminEmbeds({
 
 			<Panel>
 				<Form method="post" className="flex flex-wrap items-end gap-3">
-					<HiddenField name="intent" value="create" />
 					<Field label="Name" error={actionData?.fieldErrors?.name?.[0]}>
 						<Input
 							name="name"
@@ -206,7 +209,7 @@ export default function AdminEmbeds({
 							))}
 						</Select>
 					</Field>
-					<Button type="submit" icon="plus">
+					<Button type="submit" name="intent" value="create" icon="plus">
 						Add embed
 					</Button>
 					{actionData?.formError && (
@@ -245,10 +248,13 @@ export default function AdminEmbeds({
 								</Td>
 								<Td>
 									<span className="inline-flex items-center gap-2">
-										<Form method="post">
-											<HiddenField name="intent" value="toggle" />
-											<HiddenField name="id" value={row.id} />
-											<Button type="submit" variant="ghost">
+										<Form method="post" action={`/admin/embeds?id=${row.id}`}>
+											<Button
+												type="submit"
+												name="intent"
+												value="toggle"
+												variant="ghost"
+											>
 												{row.enabled ? "Disable" : "Enable"}
 											</Button>
 										</Form>

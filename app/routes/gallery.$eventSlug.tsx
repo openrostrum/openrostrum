@@ -1,7 +1,7 @@
 import { data } from "react-router";
 import { getDb } from "~/db";
 import {
-	buildGalleryData,
+	buildSpeakerDirectory,
 	getEventBySlug,
 	loadPublicSessions,
 	toProgramEvent,
@@ -40,7 +40,7 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 	return data(
 		{
 			event: toProgramEvent(event),
-			surface: buildGalleryData(sessions, new URL(request.url)),
+			surface: buildSpeakerDirectory(sessions, new URL(request.url), 36),
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);

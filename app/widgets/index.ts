@@ -2,7 +2,6 @@ export {
 	CheckboxOption,
 	CopyFieldButton,
 	DetailPanel,
-	HiddenField,
 	makeHref,
 	MetaRow,
 	Pagination,
@@ -31,5 +30,4 @@ export {
 	SessionsSurface,
 	SpeakersSurface,
 } from "./surfaces";
-export { minutesToLabel } from "./time";
 export * from "./types";

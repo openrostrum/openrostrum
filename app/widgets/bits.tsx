@@ -2,7 +2,6 @@ import { type ReactNode, useState } from "react";
 import { Avatar, Button, ButtonLink, Icon } from "~/ui";
 import { cn } from "~/ui/cn";
 
-/** Build an href from a base path + query params, dropping empty values. */
 export function makeHref(
 	base: string,
 	params: Record<string, string | number | null | undefined>,
@@ -233,11 +232,6 @@ export function StarButton({
 			<Icon name="star" size={16} />
 		</button>
 	);
-}
-
-/** Hidden form value — routes compose this instead of a raw input element. */
-export function HiddenField({ name, value }: { name: string; value: string }) {
-	return <input type="hidden" name={name} value={value} />;
 }
 
 /** Labeled checkbox for multi-pick config groups (tracks, formats, fields). */

@@ -63,7 +63,6 @@ export type ProgramEvent = {
 	timezone: string;
 	location: string | null;
 	dateRange: string | null;
-	agendaPublished: boolean;
 };
 
 export type ProgramFacets = {
@@ -84,12 +83,14 @@ export type SessionsSurfaceData = {
 	total: number;
 	page: number;
 	pages: number;
+	pageSize: number;
 	facets: ProgramFacets;
 	filters: ProgramFilters;
 	hasAnySessions: boolean;
 };
 
-export type SpeakersSurfaceData = {
+/** One shape serves the speakers directory AND the gallery — same pipeline. */
+export type SpeakerDirectoryData = {
 	speakers: PublicSpeakerProfile[];
 	total: number;
 	page: number;
@@ -117,6 +118,8 @@ export type AgendaSurfaceData = {
 	rooms: Array<{ id: string; name: string; blocks: AgendaBlock[] }>;
 	windowStartMin: number;
 	windowEndMin: number;
+	/** Pre-formatted gutter labels — time rendering has one home, server-side. */
+	hourMarks: Array<{ min: number; label: string }>;
 	detail: PublicSession | null;
 };
 
@@ -133,15 +136,6 @@ export type ItinerarySurfaceData = {
 	filters: ProgramFilters;
 	facets: ProgramFacets;
 	view: "day" | "mine";
-};
-
-export type GallerySurfaceData = {
-	speakers: PublicSpeakerProfile[];
-	total: number;
-	page: number;
-	pages: number;
-	q: string;
-	detail: PublicSpeakerProfile | null;
 };
 
 export type EmbedConfig = {
