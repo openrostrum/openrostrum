@@ -1059,6 +1059,12 @@ export const taskAssignments = sqliteTable(
 		index("task_assignments_task_idx").on(t.taskId),
 		index("task_assignments_contact_status_idx").on(t.contactId, t.status),
 		index("task_assignments_submission_idx").on(t.submissionId),
+		// Idempotency for the accept spine (walk-07 gap #1): replaying an accept
+		// (or re-running a bulk assign) must not double-assign a task to the same
+		// contact. NULL contactIds stay distinct under SQLite semantics, so
+		// submission-type assignments MUST always carry contactId (the seed and
+		// the spine INSERT both do).
+		unique("task_assignments_task_contact_uq").on(t.taskId, t.contactId),
 	],
 );
 

@@ -180,6 +180,115 @@ INSERT INTO task_assignments (id, task_id, contact_id, submission_id, status, du
  ('ta_2', 'task_flight', 'c_sam', NULL,         'incomplete', unixepoch('2026-10-01'), unixepoch()),
  ('ta_3', 'task_slides', 'c_sam', 's_accepted', 'complete',   unixepoch('2026-10-05'), unixepoch());
 
+-- ---------------------------------------------------------------------------
+-- Agenda walkthrough baseline (scenario 06 header / walk-06 gap H1).
+-- Adds the scenario-named rooms/formats/tracks and a real 3-day program:
+-- scheduled sessions across the event days (Oct 12-14, all inside the
+-- 08:00-18:00 event-TZ agenda window; PDT = UTC-7, so SQL literals below are
+-- UTC = wall clock + 7h), the five named UNSCHEDULED accepted fixtures, and
+-- the two non-schedulable negative fixtures. Existing rows above are
+-- untouched (ids AND values) — this section only ADDS rows.
+-- Deliberate free slots: no room/day is close to full, and Main Hall +
+-- Room 305 are kept FREE on Oct 12 between 9:00 AM and 2:00 PM PDT
+-- (16:00-21:00 UTC) — the scenario's drag targets.
+-- ---------------------------------------------------------------------------
+
+INSERT INTO tracks (id, event_id, name, color, created_at) VALUES
+ ('t_devex',   'e_demo', 'Developer Experience', '#f59e0b', unixepoch()),
+ ('t_aiinfra', 'e_demo', 'AI Infrastructure',    '#0ea5e9', unixepoch());
+
+-- Scenario format set: Featured Keynote 45 (seeded above) · Talk 30 · Panel 60
+-- · Workshop 90. The legacy 'Breakout' (30) stays — rows are never removed.
+INSERT INTO formats (id, event_id, name, default_duration_mins, position, created_at) VALUES
+ ('fmt_talk',     'e_demo', 'Talk',     30, 2, unixepoch()),
+ ('fmt_panel',    'e_demo', 'Panel',    60, 3, unixepoch()),
+ ('fmt_workshop', 'e_demo', 'Workshop', 90, 4, unixepoch());
+
+INSERT INTO rooms (id, event_id, name, capacity, display_order, created_at) VALUES
+ ('room_main', 'e_demo', 'Main Hall',       500, 2, unixepoch()),
+ ('room_wsb',  'e_demo', 'Workshop Room B',  80, 3, unixepoch()),
+ ('room_305',  'e_demo', 'Room 305',         60, 4, unixepoch());
+
+-- Speakers for the named fixtures. Marco Silva speaks in TWO sessions — the
+-- speaker double-book fixture (AG-S4). No portal logins (user_id NULL).
+INSERT INTO contacts (id, event_id, user_id, email, first_name, last_name, bio, created_at) VALUES
+ ('c_noor',  'e_demo', NULL, 'noor.haddad@example.com',  'Noor',  'Haddad', 'Closing keynotes on the post-SaaS stack.', unixepoch()),
+ ('c_marco', 'e_demo', NULL, 'marco.silva@example.com',  'Marco', 'Silva',  'Agent swarms and D1 performance.',         unixepoch()),
+ ('c_dana',  'e_demo', NULL, 'dana.fields@example.com',  'Dana',  'Fields', 'Panel moderator and CFP skeptic.',         unixepoch()),
+ ('c_lena',  'e_demo', NULL, 'lena.ortiz@example.com',   'Lena',  'Ortiz',  'Email deliverability practitioner.',       unixepoch());
+
+-- SCHEDULED accepted sessions (starts_at/ends_at/room set; durations match the
+-- session's format default). Oct 13 is the densest day.
+INSERT INTO submissions (id, event_id, form_id, type, title, description, status, submitter_id, format_id, level_id, starts_at, ends_at, room_id, created_at, updated_at) VALUES
+ -- Mon Oct 12 (Main Hall + Room 305 free 9:00 AM-2:00 PM PDT)
+ ('s_open_keynote',     'e_demo', 'form_sessions', 'session', 'Opening Keynote: The State of AI Engineering', 'Where the field actually is.',            'accepted', 'u_speaker', 'fmt_keynote',  'lvl_intro', unixepoch('2026-10-12 15:00'), unixepoch('2026-10-12 15:45'), 'room_main', unixepoch(), unixepoch()),
+ ('s_open_models',      'e_demo', 'form_sessions', 'session', 'Panel: Open Models in Production',             'Four teams, four stacks.',                'accepted', 'u_speaker', 'fmt_panel',    'lvl_inter', unixepoch('2026-10-12 21:30'), unixepoch('2026-10-12 22:30'), 'room_main', unixepoch(), unixepoch()),
+ ('s_prompt_injection', 'e_demo', 'form_sessions', 'session', 'Prompt Injection Deep Dive',                   'Attacks and mitigations in the wild.',    'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', unixepoch('2026-10-12 16:30'), unixepoch('2026-10-12 17:00'), 'room_wsb',  unixepoch(), unixepoch()),
+ ('s_finetune_ws',      'e_demo', 'form_sessions', 'session', 'Hands-on: Fine-tuning Small Models',           'Bring a laptop, leave with a model.',     'accepted', 'u_speaker', 'fmt_workshop', 'lvl_inter', unixepoch('2026-10-12 18:00'), unixepoch('2026-10-12 19:30'), 'room_wsb',  unixepoch(), unixepoch()),
+ ('s_retrieval',        'e_demo', 'form_sessions', 'session', 'Retrieval Beyond Vectors',                     'Hybrid search that actually ships.',      'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', unixepoch('2026-10-12 20:00'), unixepoch('2026-10-12 20:30'), 'room_a',    unixepoch(), unixepoch()),
+ ('s_budget_llms',      'e_demo', 'form_sessions', 'session', 'Serving LLMs on a Budget',                     'Tokens per dollar, maximized.',           'accepted', 'u_speaker', 'fmt_talk',     'lvl_intro', unixepoch('2026-10-12 17:00'), unixepoch('2026-10-12 17:30'), 'room_b',    unixepoch(), unixepoch()),
+ ('s_evals_ws',         'e_demo', 'form_sessions', 'session', 'Hands-on: Evals from Scratch',                 'Build an eval harness in 90 minutes.',    'accepted', 'u_speaker', 'fmt_workshop', 'lvl_inter', unixepoch('2026-10-12 21:30'), unixepoch('2026-10-12 23:00'), 'room_305',  unixepoch(), unixepoch()),
+ -- Tue Oct 13 (densest day)
+ ('s_postcloud',        'e_demo', 'form_sessions', 'session', 'Keynote: The Post-Cloud Developer',            'What comes after the console.',           'accepted', 'u_speaker', 'fmt_keynote',  'lvl_intro', unixepoch('2026-10-13 16:00'), unixepoch('2026-10-13 16:45'), 'room_main', unixepoch(), unixepoch()),
+ ('s_inference_econ',   'e_demo', 'form_sessions', 'session', 'Panel: The Economics of Inference',            'Margins, moats, and GPUs.',               'accepted', 'u_speaker', 'fmt_panel',    'lvl_inter', unixepoch('2026-10-13 18:00'), unixepoch('2026-10-13 19:00'), 'room_main', unixepoch(), unixepoch()),
+ ('s_agents_ship',      'e_demo', 'form_sessions', 'session', 'Agents that Ship: Case Studies',               'Three production post-mortems.',          'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', unixepoch('2026-10-13 21:00'), unixepoch('2026-10-13 21:30'), 'room_main', unixepoch(), unixepoch()),
+ ('s_llm_obs_ws',       'e_demo', 'form_sessions', 'session', 'Hands-on: Observability for LLM Apps',         'Traces, evals, and dashboards.',          'accepted', 'u_speaker', 'fmt_workshop', 'lvl_inter', unixepoch('2026-10-13 16:30'), unixepoch('2026-10-13 18:00'), 'room_wsb',  unixepoch(), unixepoch()),
+ ('s_structured_out',   'e_demo', 'form_sessions', 'session', 'Structured Output at Scale',                   'Schemas beat regexes.',                   'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', unixepoch('2026-10-13 20:00'), unixepoch('2026-10-13 20:30'), 'room_wsb',  unixepoch(), unixepoch()),
+ ('s_localfirst',       'e_demo', 'form_sessions', 'session', 'Local-first AI Apps',                          'Offline inference patterns.',             'accepted', 'u_speaker', 'fmt_talk',     'lvl_intro', unixepoch('2026-10-13 17:00'), unixepoch('2026-10-13 17:30'), 'room_305',  unixepoch(), unixepoch()),
+ ('s_build_buy',        'e_demo', 'form_sessions', 'session', 'Panel: Build vs Buy for AI Platforms',         'The eternal question, 2026 edition.',     'accepted', 'u_speaker', 'fmt_panel',    'lvl_intro', unixepoch('2026-10-13 22:00'), unixepoch('2026-10-13 23:00'), 'room_305',  unixepoch(), unixepoch()),
+ ('s_llm_caching',      'e_demo', 'form_sessions', 'session', 'Caching Strategies for LLM APIs',              'Semantic caches without the foot-guns.',  'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', unixepoch('2026-10-13 18:30'), unixepoch('2026-10-13 19:00'), 'room_a',    unixepoch(), unixepoch()),
+ ('s_multimodal',       'e_demo', 'form_sessions', 'session', 'Multimodal Pipelines in Practice',             'Vision + text, end to end.',              'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', unixepoch('2026-10-13 23:00'), unixepoch('2026-10-13 23:30'), 'room_b',    unixepoch(), unixepoch()),
+ -- Wed Oct 14
+ ('s_cfp_design',       'e_demo', 'form_sessions', 'session', 'Designing Speaker-first CFPs',                 'Forms speakers do not hate.',             'accepted', 'u_speaker', 'fmt_talk',     'lvl_intro', unixepoch('2026-10-14 16:00'), unixepoch('2026-10-14 16:30'), 'room_main', unixepoch(), unixepoch()),
+ ('s_closing_panel',    'e_demo', 'form_sessions', 'session', 'Closing Panel: Where Do We Go From Here?',     'The wrap-up.',                            'accepted', 'u_speaker', 'fmt_panel',    'lvl_intro', unixepoch('2026-10-14 23:00'), unixepoch('2026-10-15 00:00'), 'room_main', unixepoch(), unixepoch()),
+ ('s_confsite_ws',      'e_demo', 'form_sessions', 'session', 'Hands-on: Shipping a Conference Site in a Day','From repo to live program page.',         'accepted', 'u_speaker', 'fmt_workshop', 'lvl_inter', unixepoch('2026-10-14 17:00'), unixepoch('2026-10-14 18:30'), 'room_wsb',  unixepoch(), unixepoch()),
+ ('s_post_transformer', 'e_demo', 'form_sessions', 'session', 'The Post-Transformer Landscape',               'Architectures on the horizon.',           'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', unixepoch('2026-10-14 18:00'), unixepoch('2026-10-14 18:30'), 'room_305',  unixepoch(), unixepoch()),
+ ('s_d1_migrations',    'e_demo', 'form_sessions', 'session', 'Zero-downtime Migrations on D1',               'Schema evolution without the outage.',    'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', unixepoch('2026-10-14 21:00'), unixepoch('2026-10-14 21:30'), 'room_a',    unixepoch(), unixepoch());
+
+-- UNSCHEDULED accepted sessions — the five scenario-named drag fixtures
+-- (no starts_at/ends_at/room; they live in the Unscheduled panel).
+INSERT INTO submissions (id, event_id, form_id, type, title, description, status, submitter_id, format_id, level_id, starts_at, ends_at, room_id, created_at, updated_at) VALUES
+ ('s_closing_keynote', 'e_demo', 'form_sessions', 'session', 'Closing Keynote: The Post-SaaS Stack',      'What replaces the subscription wall.',   'accepted', 'u_speaker', 'fmt_keynote',  'lvl_intro', NULL, NULL, NULL, unixepoch(), unixepoch()),
+ ('s_live_demo',       'e_demo', 'form_sessions', 'session', 'Live Demo: Agent Swarms in Production',     'No slides, just terminals.',             'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', NULL, NULL, NULL, unixepoch(), unixepoch()),
+ ('s_office_hours',    'e_demo', 'form_sessions', 'session', 'Office Hours: D1 Performance Clinic',       'Bring your slow queries.',               'accepted', 'u_speaker', 'fmt_talk',     'lvl_inter', NULL, NULL, NULL, unixepoch(), unixepoch()),
+ ('s_panel_cfp',       'e_demo', 'form_sessions', 'session', 'Panel: Is the CFP Dead?',                   'Curation vs open calls.',                'accepted', 'u_speaker', 'fmt_panel',    'lvl_intro', NULL, NULL, NULL, unixepoch(), unixepoch()),
+ ('s_workshop_email',  'e_demo', 'form_sessions', 'session', 'Workshop: Own Your Email Deliverability',   'SPF, DKIM, DMARC, hands-on.',            'accepted', 'u_speaker', 'fmt_workshop', 'lvl_inter', NULL, NULL, NULL, unixepoch(), unixepoch());
+
+-- Non-schedulable negative fixtures (AG-S1.4 / AG-S5.3): neither may appear in
+-- the Unscheduled panel while schedulable statuses = ['accepted'].
+INSERT INTO submissions (id, event_id, form_id, type, title, description, status, submitter_id, format_id, level_id, starts_at, ends_at, room_id, created_at, updated_at) VALUES
+ ('s_soc2',        'e_demo', 'form_sessions', 'session', 'SOC 2 for Startups: A War Story', 'Compliance on a shoestring.',        'pending',      'u_speaker', 'fmt_talk', 'lvl_intro', NULL, NULL, NULL, unixepoch(), unixepoch()),
+ ('s_gpu_pricing', 'e_demo', 'form_sessions', 'session', 'GPU Pricing Deep Dive',           'Spot markets and reserved fleets.',  'accept_queue', 'u_speaker', 'fmt_talk', 'lvl_inter', NULL, NULL, NULL, unixepoch(), unixepoch());
+
+-- Track pills/colors on the agenda blocks. The three Developer Experience rows
+-- feed AG-S4's negative probe (same track + time is NOT a conflict).
+INSERT INTO submission_tracks (submission_id, track_id) VALUES
+ ('s_live_demo',        't_devex'),
+ ('s_panel_cfp',        't_devex'),
+ ('s_workshop_email',   't_devex'),
+ ('s_cfp_design',       't_devex'),
+ ('s_open_keynote',     't_aiinfra'),
+ ('s_prompt_injection', 't_aiinfra'),
+ ('s_inference_econ',   't_aiinfra'),
+ ('s_gpu_pricing',      't_aiinfra'),
+ ('s_finetune_ws',      't_practice'),
+ ('s_agents_ship',      't_practice'),
+ ('s_retrieval',        't_innovation'),
+ ('s_localfirst',       't_innovation');
+
+-- Marco Silva on BOTH s_live_demo and s_office_hours = the cross-room speaker
+-- double-book fixture; the panel/workshop deliberately share no speakers.
+INSERT INTO participants (id, submission_id, contact_id, role, is_primary, position, created_at) VALUES
+ ('p_noor_ck',    's_closing_keynote', 'c_noor',  'speaker', 1, 0, unixepoch()),
+ ('p_marco_demo', 's_live_demo',       'c_marco', 'speaker', 1, 0, unixepoch()),
+ ('p_marco_oh',   's_office_hours',    'c_marco', 'speaker', 1, 0, unixepoch()),
+ ('p_dana_panel', 's_panel_cfp',       'c_dana',  'speaker', 1, 0, unixepoch()),
+ ('p_lena_ws',    's_workshop_email',  'c_lena',  'speaker', 1, 0, unixepoch());
+
+-- Agenda-Settings baseline = [Accepted], written explicitly (walk-06 H2: the
+-- schema's $defaultFn covers Drizzle inserts, not this raw-SQL seed).
+UPDATE events SET schedulable_statuses = '["accepted"]' WHERE id = 'e_demo';
+
 -- Accepted sessions ship content-approved so the public widgets render out of
 -- the box; new submissions default to 'draft'.
 UPDATE submissions SET content_status = 'approved' WHERE status = 'accepted';

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `task_assignments_task_contact_uq` ON `task_assignments` (`task_id`,`contact_id`);
