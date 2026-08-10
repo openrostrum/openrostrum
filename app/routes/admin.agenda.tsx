@@ -45,8 +45,13 @@ import {
 import { getDb } from "~/db";
 import { SUBMISSION_STATUS } from "~/db/constants";
 import { events, formats, rooms as roomsTable, submissions } from "~/db/schema";
+import {
+	computeScheduleChanges,
+	sendScheduleUpdates,
+} from "~/domain/schedule-update";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { isPubliclyVisible } from "~/lib/program";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -121,6 +126,7 @@ type SessionRowWith = {
 	id: string;
 	title: string;
 	status: string;
+	contentStatus: string;
 	startsAt: Date | null;
 	endsAt: Date | null;
 	roomId: string | null;
@@ -187,6 +193,7 @@ async function loadSessions(
 			id: true,
 			title: true,
 			status: true,
+			contentStatus: true,
 			startsAt: true,
 			endsAt: true,
 			roomId: true,
@@ -236,9 +243,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		...new Set<SubmissionStatus>([...schedulable, "accepted", "draft"]),
 	];
 
-	const [roomRows, trackRows, formatRows, sessionRows] = await timings.time(
-		"db",
-		() =>
+	const [roomRows, trackRows, formatRows, sessionRows, scheduleChanges] =
+		await timings.time("db", () =>
 			Promise.all([
 				db.query.rooms.findMany({
 					where: (r, { eq: eqW }) => eqW(r.eventId, event.id),
@@ -253,23 +259,32 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					orderBy: (f, { asc }) => [asc(f.position), asc(f.name)],
 				}),
 				loadSessions(db, event.id, loadStatuses),
+				computeScheduleChanges(db, event),
 			]),
-	);
+		);
 
 	const sessions = sessionRows.map((s) => toAgendaSession(s, schedulable));
 	const days = daysFor(event, sessions);
+	// What the published page will withhold: rows sitting on this grid that the
+	// public projection rejects (status ≠ accepted, or content not approved).
+	const hiddenFromPublic = sessionRows.filter(
+		(s) => s.startsAt != null && !isPubliclyVisible(s),
+	).length;
 
 	return data(
 		{
 			event: {
 				id: event.id,
 				name: event.name,
+				slug: event.slug,
 				timezone: event.timezone,
 				dayStartMin: event.agendaDayStartMin,
 				dayEndMin: event.agendaDayEndMin,
 				schedulableStatuses: schedulable,
 				publishedAt: event.agendaPublishedAt?.getTime() ?? null,
 				days,
+				hiddenFromPublic,
+				scheduleChanges: scheduleChanges.length,
 			},
 			rooms: roomRows.map((r) => ({
 				id: r.id,
@@ -324,6 +339,12 @@ type ActionResult = {
 	placed?: number;
 	unplaced?: number;
 	saved?: "settings";
+	updates?: {
+		sent: number;
+		deduped: number;
+		failed: number;
+		remaining: number;
+	};
 };
 
 const fail = (formError: string): ActionResult => ({ ok: false, formError });
@@ -388,6 +409,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			const days = eventDayList(
 				event.startsAt?.getTime() ?? null,
 				event.endsAt?.getTime() ?? null,
+				event.timezone,
 			);
 			if (days.length > 0 && !days.includes(p.day)) {
 				return fail("That day is outside the event.");
@@ -524,6 +546,25 @@ export async function action({ context, request }: Route.ActionArgs) {
 				ok({ placed: placements.length, unplaced: unplacedIds.length }),
 				{ headers: { "Server-Timing": timings.header() } },
 			);
+		}
+
+		if (intent === "schedule-updates") {
+			const changes = await timings.time("db", () =>
+				computeScheduleChanges(db, event),
+			);
+			const outcome = await timings.time("send", () =>
+				sendScheduleUpdates(db, env, event, changes),
+			);
+			track("agenda.schedule_updates_sent", {
+				eventId: event.id,
+				sent: outcome.sent,
+				deduped: outcome.deduped,
+				failed: outcome.failed,
+				remaining: outcome.remaining,
+			});
+			return data(ok({ updates: outcome }), {
+				headers: { "Server-Timing": timings.header() },
+			});
 		}
 
 		if (intent === "publish" || intent === "unpublish") {
@@ -742,6 +783,7 @@ export default function Agenda({
 	const navigation = useNavigation();
 	const placeFetcher = useFetcher<ActionResult>();
 	const publishFetcher = useFetcher<ActionResult>();
+	const updatesFetcher = useFetcher<ActionResult>();
 	// Search stays local state (not a URL param): a param write per keystroke
 	// would spam history with navigations for a filter nobody deep-links.
 	const [q, setQ] = useState("");
@@ -839,6 +881,11 @@ export default function Agenda({
 						<StatusBadge tone={event.publishedAt ? "success" : "neutral"}>
 							{event.publishedAt ? "Published" : "Unpublished"}
 						</StatusBadge>
+						{event.publishedAt != null && (
+							<TextLink to={`/schedule/${event.slug}`}>
+								View public schedule
+							</TextLink>
+						)}
 						<publishFetcher.Form method="post">
 							<Button
 								type="submit"
@@ -876,6 +923,65 @@ export default function Agenda({
 					{needsSlot === 1 ? "needs" : "need"} a time slot.
 				</InfoBar>
 			)}
+			{event.publishedAt != null && event.hiddenFromPublic > 0 && (
+				<InfoBar>
+					<Strong>{event.hiddenFromPublic}</Strong> scheduled{" "}
+					{event.hiddenFromPublic === 1 ? "session isn't" : "sessions aren't"}{" "}
+					on the public schedule — a session shows there once its status is
+					accepted AND its content is approved.{" "}
+					<TextLink to="/admin/sessions">Approve content in Sessions</TextLink>
+				</InfoBar>
+			)}
+			{event.scheduleChanges > 0 && (
+				<InfoBar>
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<span>
+							<Strong>{event.scheduleChanges}</Strong>{" "}
+							{event.scheduleChanges === 1 ? "session" : "sessions"} changed
+							time or room since speakers last received a calendar invite —
+							their calendars are out of date.
+						</span>
+						<updatesFetcher.Form method="post">
+							<Button
+								type="submit"
+								variant="ghost"
+								name="intent"
+								value="schedule-updates"
+								disabled={updatesFetcher.state !== "idle"}
+							>
+								{updatesFetcher.state === "idle"
+									? "Send schedule updates"
+									: "Sending…"}
+							</Button>
+						</updatesFetcher.Form>
+					</div>
+				</InfoBar>
+			)}
+			{updatesFetcher.data?.updates && updatesFetcher.state === "idle" && (
+				<InfoBar>
+					Sent <Strong>{updatesFetcher.data.updates.sent}</Strong> schedule{" "}
+					{updatesFetcher.data.updates.sent === 1 ? "update" : "updates"}
+					{updatesFetcher.data.updates.deduped > 0 && (
+						<> — {updatesFetcher.data.updates.deduped} already delivered</>
+					)}
+					{updatesFetcher.data.updates.failed > 0 && (
+						<>
+							{" "}
+							— <Strong>{updatesFetcher.data.updates.failed}</Strong> failed
+							(see <TextLink to="/admin/emails/history">Email history</TextLink>{" "}
+							and retry)
+						</>
+					)}
+					{updatesFetcher.data.updates.remaining > 0 && (
+						<>
+							{" "}
+							— <Strong>{updatesFetcher.data.updates.remaining}</Strong> more to
+							send, click again
+						</>
+					)}
+					.
+				</InfoBar>
+			)}
 			{placeFetcher.data?.placed !== undefined &&
 				placeFetcher.state === "idle" && (
 					<InfoBar>
@@ -893,11 +999,13 @@ export default function Agenda({
 				)}
 			{(mutationError ??
 				placeFetcher.data?.formError ??
-				publishFetcher.data?.formError) && (
+				publishFetcher.data?.formError ??
+				updatesFetcher.data?.formError) && (
 				<ErrorText>
 					{mutationError ??
 						placeFetcher.data?.formError ??
-						publishFetcher.data?.formError}
+						publishFetcher.data?.formError ??
+						updatesFetcher.data?.formError}
 				</ErrorText>
 			)}
 

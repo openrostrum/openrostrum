@@ -104,12 +104,13 @@ function minutesToLabel(min: number): string {
 		: `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
-/** Event start/end are date-only boundaries stored at UTC midnight — format
- * them in UTC so the range doesn't slip a day in western timezones. */
+/** Event start/end are real instants (the organizer's wall-clock datetimes)
+ * — format their calendar dates in the EVENT's timezone, never UTC, or the
+ * range slips a day at date boundaries. */
 function eventDateRange(event: EventRow): string | null {
 	if (!event.startsAt) return null;
 	const fmt = new Intl.DateTimeFormat("en-US", {
-		timeZone: "UTC",
+		timeZone: event.timezone,
 		month: "long",
 		day: "numeric",
 		year: "numeric",
@@ -156,6 +157,18 @@ export function stripHtml(html: string): string {
 /* -------------------------------------------------------------- sessions --- */
 
 const PUBLIC_ROLES = new Set(["speaker", "chairperson", "moderator"]);
+
+/**
+ * The public-visibility rule as a predicate — MUST stay the mirror of the
+ * loadPublicSessions WHERE clause below. The agenda builder counts scheduled
+ * rows this rejects to warn organizers what the published page withholds.
+ */
+export function isPubliclyVisible(s: {
+	status: string;
+	contentStatus: string;
+}): boolean {
+	return s.status === "accepted" && s.contentStatus === "approved";
+}
 
 export async function loadPublicSessions(
 	db: Db,

@@ -1,10 +1,12 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
+import { createEvent } from "ics";
 import { describe, expect, it } from "vitest";
 import { detectConflicts } from "../app/agenda/lib";
 import { getDb } from "../app/db";
 import {
 	contacts,
+	emailOutbox,
 	events,
 	formats,
 	organizationMembers,
@@ -15,6 +17,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
+import { parseIcsAttachment } from "../app/lib/ics";
 import { action, loader } from "../app/routes/admin.agenda";
 
 // A 3-day event in America/Los_Angeles with named rooms/formats and one
@@ -46,8 +49,9 @@ async function seedBaseline() {
 		name: "AI.Engineer Sandbox Event",
 		slug: "sandbox",
 		timezone: "America/Los_Angeles",
-		startsAt: utc(2026, 10, 12, 0),
-		endsAt: utc(2026, 10, 14, 0),
+		// Oct 12 8:00 AM → Oct 14 6:00 PM PDT, as the settings form stores them.
+		startsAt: utc(2026, 10, 12, 15),
+		endsAt: utc(2026, 10, 15, 1),
 	});
 	await db.insert(rooms).values([
 		{ id: "room_main", eventId: "e1", name: "Main Hall", displayOrder: 0 },
@@ -132,6 +136,12 @@ type ActionData = {
 	fieldErrors?: Record<string, string[] | undefined>;
 	placed?: number;
 	unplaced?: number;
+	updates?: {
+		sent: number;
+		deduped: number;
+		failed: number;
+		remaining: number;
+	};
 };
 
 function unwrap<T>(result: unknown): T {
@@ -156,6 +166,8 @@ type LoaderData = {
 		dayStartMin: number;
 		dayEndMin: number;
 		publishedAt: number | null;
+		hiddenFromPublic: number;
+		scheduleChanges: number;
 	} | null;
 	sessions: {
 		id: string;
@@ -182,6 +194,8 @@ describe("agenda loader", () => {
 	it("serves the event days and only schedulable (+draft) sessions at the accepted-only baseline", async () => {
 		await seedBaseline();
 		const data = await callLoader();
+		// Exactly the 3 event-TZ calendar days — the stored end instant crosses
+		// UTC midnight, and reading UTC dates rendered a phantom 4th column.
 		expect(data.event?.days).toEqual([
 			"2026-10-12",
 			"2026-10-13",
@@ -413,6 +427,205 @@ describe("auto-place", () => {
 			where: (s, { eq }) => eq(s.id, "s_pending"),
 		});
 		expect(pending?.startsAt).toBeNull();
+	});
+});
+
+describe("published-but-hidden affordance", () => {
+	it("counts scheduled rows the public schedule withholds, per the public projection rule", async () => {
+		const db = await seedBaseline();
+		await db
+			.update(events)
+			.set({ schedulableStatuses: ["accepted", "accept_queue"] });
+		// s_keynote: accepted but content unapproved; s_queue: content approved
+		// later but status never accepted — both must stay off the public page.
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_queue",
+			roomId: "room_305",
+			day: "2026-10-13",
+			startMinutes: "570",
+		});
+		let data = await callLoader();
+		expect(data.event?.hiddenFromPublic).toBe(2);
+		await db
+			.update(submissions)
+			.set({ contentStatus: "approved" })
+			.where(eq(submissions.id, "s_keynote"));
+		await db
+			.update(submissions)
+			.set({ contentStatus: "approved" })
+			.where(eq(submissions.id, "s_queue"));
+		data = await callLoader();
+		// Approval clears the accepted row; the accept-queue row stays hidden on
+		// status alone.
+		expect(data.event?.hiddenFromPublic).toBe(1);
+	});
+});
+
+/**
+ * On top of seedBaseline: the keynote was ACCEPTED AND NOTIFIED before any
+ * slot existed — the outbox ledger holds the npm-ics save-the-date invite the
+ * accept spine attached (prod rows are in that format), and Marco is its
+ * speaker so the update email has a recipient.
+ */
+async function invitedBaseline() {
+	const db = await seedBaseline();
+	const { error, value } = createEvent({
+		title:
+			"AI.Engineer Sandbox Event (save the date): Closing Keynote: The Post-SaaS Stack",
+		start: [2026, 10, 12, 15, 0],
+		end: [2026, 10, 15, 1, 0],
+		startInputType: "utc",
+		endInputType: "utc",
+		uid: "submission-s_keynote@openrostrum",
+		sequence: 0,
+		status: "CONFIRMED",
+	});
+	if (error || !value) throw new Error("baseline ics build failed");
+	await db.insert(emailOutbox).values({
+		eventId: "e1",
+		to: "marco@test.co",
+		subject: "Your session was accepted",
+		html: "<p>you're in</p>",
+		icsAttachment: value,
+		status: "sent",
+		sentAt: new Date(),
+	});
+	await db
+		.update(submissions)
+		.set({ notifiedAt: new Date() })
+		.where(eq(submissions.id, "s_keynote"));
+	await db.insert(participants).values({
+		id: "p_keynote",
+		submissionId: "s_keynote",
+		contactId: "c_marco",
+	});
+	return db;
+}
+
+async function latestUpdateInvite(
+	db: ReturnType<typeof getDb>,
+	dedupeKey: string,
+) {
+	const [row] = await db
+		.select()
+		.from(emailOutbox)
+		.where(eq(emailOutbox.dedupeKey, dedupeKey))
+		.limit(1);
+	return { row, vevent: parseIcsAttachment(row?.icsAttachment ?? "")[0] };
+}
+
+describe("schedule-update emails (stale speaker calendars)", () => {
+	it("accept-then-schedule-later: flags the change, sends the same UID with a higher SEQUENCE, then goes quiet", async () => {
+		const db = await invitedBaseline();
+		// The save-the-date hold still matches the event dates — nothing stale.
+		expect((await callLoader()).event?.scheduleChanges).toBe(0);
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		expect((await callLoader()).event?.scheduleChanges).toBe(1);
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.ok).toBe(true);
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0, remaining: 0 });
+		const { row, vevent } = await latestUpdateInvite(
+			db,
+			"schedule-update:s_keynote:1",
+		);
+		expect(row?.to).toBe("marco@test.co");
+		expect(vevent).toMatchObject({
+			uid: "submission-s_keynote@openrostrum",
+			start: utc(2026, 10, 12, 16, 30), // 9:30 AM PDT
+			end: utc(2026, 10, 12, 17, 15),
+			location: "Main Hall",
+			sequence: 1, // higher than the invite's 0 → clients replace in place
+		});
+		// The ledger advanced: nothing is flagged and a repeat click sends nothing.
+		expect((await callLoader()).event?.scheduleChanges).toBe(0);
+		const repeat = await callAction({ intent: "schedule-updates" });
+		expect(repeat.updates).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+	});
+
+	it("SEQUENCE increases monotonically across successive moves", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		await callAction({ intent: "schedule-updates" });
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_305",
+			day: "2026-10-13",
+			startMinutes: "840",
+		});
+		const second = await callAction({ intent: "schedule-updates" });
+		expect(second.updates?.sent).toBe(1);
+		const { vevent } = await latestUpdateInvite(
+			db,
+			"schedule-update:s_keynote:2",
+		);
+		expect(vevent).toMatchObject({
+			uid: "submission-s_keynote@openrostrum",
+			sequence: 2,
+			start: utc(2026, 10, 13, 21, 0), // 2:00 PM PDT next day
+			location: "Room 305",
+		});
+	});
+
+	it("unscheduling an invited session reverts the calendar to the save-the-date hold", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		await callAction({ intent: "schedule-updates" });
+		await callAction({ intent: "unschedule", submissionId: "s_keynote" });
+		expect((await callLoader()).event?.scheduleChanges).toBe(1);
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates?.sent).toBe(1);
+		const { vevent } = await latestUpdateInvite(
+			db,
+			"schedule-update:s_keynote:2",
+		);
+		// Same UID, still a higher revision — back to the event-wide hold.
+		expect(vevent).toMatchObject({
+			uid: "submission-s_keynote@openrostrum",
+			sequence: 2,
+			start: utc(2026, 10, 12, 15, 0),
+			end: utc(2026, 10, 15, 1, 0),
+		});
+	});
+
+	it("sessions that never received an invite are not flagged — their decision email will carry the slot", async () => {
+		await seedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_live",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "600",
+		});
+		expect((await callLoader()).event?.scheduleChanges).toBe(0);
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 0, failed: 0 });
 	});
 });
 

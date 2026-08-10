@@ -11,6 +11,7 @@ import { createTimings, track } from "~/lib/track";
 import {
 	isSlugTakenError,
 	SLUG_TAKEN_MESSAGE,
+	zonedInputToDate,
 } from "~/settings/event-details.server";
 import {
 	Button,
@@ -151,8 +152,16 @@ export async function action({
 					name: parsed.data.eventName,
 					slug: parsed.data.slug,
 					timezone: parsed.data.timezone,
-					startsAt: new Date(`${parsed.data.startsAt}T00:00:00Z`),
-					endsAt: new Date(`${parsed.data.endsAt}T00:00:00Z`),
+					// Date-only picks mean midnight IN THE EVENT'S ZONE — storing UTC
+					// midnight shifted every non-UTC event's day math by one day.
+					startsAt: zonedInputToDate(
+						`${parsed.data.startsAt}T00:00`,
+						parsed.data.timezone,
+					),
+					endsAt: zonedInputToDate(
+						`${parsed.data.endsAt}T00:00`,
+						parsed.data.timezone,
+					),
 				}),
 				...provisionEventDefaults(db, eventId),
 				db

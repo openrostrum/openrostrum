@@ -58,12 +58,37 @@ describe("wall-clock conversion", () => {
 });
 
 describe("event day list", () => {
-	it("derives inclusive calendar days from date-at-UTC-midnight bounds", () => {
-		expect(eventDayList(utc(2026, 10, 12, 0), utc(2026, 10, 14, 0))).toEqual([
-			"2026-10-12",
-			"2026-10-13",
-			"2026-10-14",
-		]);
+	it("a 3-day LA event renders exactly 3 days (judge repro: May 12–14 showed May 12–15)", () => {
+		// Settings "May 12 09:00 → May 14 17:00" in LA store 16:00Z / next-day
+		// 00:00Z (PDT = UTC-7); reading UTC dates leaked a phantom 4th day.
+		expect(eventDayList(utc(2027, 5, 12, 16), utc(2027, 5, 15, 0), TZ)).toEqual(
+			["2027-05-12", "2027-05-13", "2027-05-14"],
+		);
+	});
+
+	it("an east-of-UTC event does not start a day early", () => {
+		// May 12 00:00 → May 14 23:00 in Tokyo (UTC+9) = May 11 15:00Z → May 14
+		// 14:00Z; the UTC read began the strip on May 11.
+		expect(
+			eventDayList(utc(2027, 5, 11, 15), utc(2027, 5, 14, 14), "Asia/Tokyo"),
+		).toEqual(["2027-05-12", "2027-05-13", "2027-05-14"]);
+	});
+
+	it("spans the spring-forward DST transition without skipping or repeating a day", () => {
+		// Mar 12 09:00 PST (UTC-8) → Mar 15 17:00 PDT (UTC-7), 2027; US DST
+		// starts Mar 14 — the 23-hour day must still be one column.
+		expect(eventDayList(utc(2027, 3, 12, 17), utc(2027, 3, 16, 0), TZ)).toEqual(
+			["2027-03-12", "2027-03-13", "2027-03-14", "2027-03-15"],
+		);
+	});
+
+	it("degrades an inverted range to one day and caps a runaway range", () => {
+		expect(
+			eventDayList(utc(2027, 5, 14, 16), utc(2027, 5, 12, 16), TZ),
+		).toEqual(["2027-05-14"]);
+		expect(
+			eventDayList(utc(2027, 1, 1, 8), utc(2027, 12, 31, 8), TZ),
+		).toHaveLength(30);
 	});
 
 	it("falls back to session days, then today, when the event has no dates", () => {

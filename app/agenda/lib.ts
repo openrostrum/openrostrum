@@ -183,31 +183,38 @@ export function wallToUtc(
 
 /* ------------------------------------------------------------ event days --- */
 
-function utcDay(ms: number): string {
-	return new Date(ms).toISOString().slice(0, 10);
+/** Next "YYYY-MM-DD" — pure calendar arithmetic on the day string, so DST
+ * (23/25-hour days) can never skip or duplicate a column. */
+function nextDay(day: string): string {
+	const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
+	return new Date(Date.UTC(y, m - 1, d) + 86_400_000)
+		.toISOString()
+		.slice(0, 10);
 }
 
 /**
- * The event's calendar days. Start/end are stored as date-at-UTC-midnight
- * epochs, so the day list reads the UTC date; each day is then treated as an
- * event-TZ calendar day by the grid. Capped so a bad date range can't render
- * an unbounded day strip.
+ * The event's calendar days, inclusive of both bounds' EVENT-TZ dates.
+ * Start/end are real instants (the settings form stores the organizer's
+ * wall-clock datetimes), so a 3-day event must yield 3 columns in its own
+ * timezone — reading UTC dates here shifted the strip by a day. Capped so a
+ * bad date range can't render an unbounded day strip.
  */
 export function eventDayList(
 	startMs: number | null,
 	endMs: number | null,
+	timeZone: string,
 	cap = 30,
 ): string[] {
 	if (startMs == null) return [];
+	const first = utcToWall(startMs, timeZone).day;
 	const last =
-		endMs != null && endMs >= startMs ? utcDay(endMs) : utcDay(startMs);
+		endMs != null && endMs >= startMs ? utcToWall(endMs, timeZone).day : first;
 	const days: string[] = [];
-	let cursor = startMs;
+	let cursor = first;
 	for (let i = 0; i < cap; i += 1) {
-		const day = utcDay(cursor);
-		days.push(day);
-		if (day === last) break;
-		cursor += 86_400_000;
+		days.push(cursor);
+		if (cursor >= last) break;
+		cursor = nextDay(cursor);
 	}
 	return days;
 }
@@ -223,7 +230,7 @@ export function resolveEventDays(
 	scheduledStartsMs: readonly number[],
 	timezone: string,
 ): string[] {
-	const fromEvent = eventDayList(startMs, endMs);
+	const fromEvent = eventDayList(startMs, endMs, timezone);
 	if (fromEvent.length > 0) return fromEvent;
 	const fromSessions = [
 		...new Set(scheduledStartsMs.map((ms) => utcToWall(ms, timezone).day)),

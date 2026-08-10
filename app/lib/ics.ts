@@ -11,6 +11,12 @@ export type IcsEvent = {
 	title: string;
 	description?: string;
 	location?: string;
+	/**
+	 * RFC 5545 revision counter. Calendar clients match on UID and REPLACE the
+	 * stored entry when a later payload carries a HIGHER sequence — this is what
+	 * makes a schedule-update email move the invite instead of duplicating it.
+	 */
+	sequence?: number;
 };
 
 function escapeText(value: string): string {
@@ -55,6 +61,8 @@ function fold(line: string): string {
 export function buildIcs(options: {
 	calendarName: string;
 	events: IcsEvent[];
+	/** iTIP method — invite/update emails send PUBLISH; feeds omit it. */
+	method?: "PUBLISH";
 }): string {
 	const dtstamp = utcStamp(new Date());
 	const lines: string[] = [
@@ -62,8 +70,9 @@ export function buildIcs(options: {
 		"VERSION:2.0",
 		"PRODID:-//OpenRostrum//Program//EN",
 		"CALSCALE:GREGORIAN",
-		`X-WR-CALNAME:${escapeText(options.calendarName)}`,
 	];
+	if (options.method) lines.push(`METHOD:${options.method}`);
+	lines.push(`X-WR-CALNAME:${escapeText(options.calendarName)}`);
 	for (const event of options.events) {
 		lines.push(
 			"BEGIN:VEVENT",
@@ -72,7 +81,7 @@ export function buildIcs(options: {
 			`DTSTART:${utcStamp(event.start)}`,
 			`DTEND:${utcStamp(event.end)}`,
 			`SUMMARY:${escapeText(event.title)}`,
-			"SEQUENCE:0",
+			`SEQUENCE:${event.sequence ?? 0}`,
 		);
 		if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
 		if (event.description)
@@ -81,4 +90,75 @@ export function buildIcs(options: {
 	}
 	lines.push("END:VCALENDAR");
 	return `${lines.map(fold).join("\r\n")}\r\n`;
+}
+
+/* ------------------------------------------------------- sent-invite reads --- */
+
+export type ParsedIcsEvent = {
+	uid: string;
+	start: Date;
+	end: Date;
+	location: string | null;
+	sequence: number;
+};
+
+function unescapeText(value: string): string {
+	return value
+		.replace(/\\n/gi, "\n")
+		.replace(/\\,/g, ",")
+		.replace(/\\;/g, ";")
+		.replace(/\\\\/g, "\\");
+}
+
+function parseStamp(value: string): Date | null {
+	const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(value.trim());
+	if (!m) return null;
+	return new Date(
+		Date.UTC(
+			Number(m[1]),
+			Number(m[2]) - 1,
+			Number(m[3]),
+			Number(m[4]),
+			Number(m[5]),
+			Number(m[6]),
+		),
+	);
+}
+
+/**
+ * Read back the VEVENTs of an invite WE sent (the `email_outbox` ledger) —
+ * both this serializer's output and the npm `ics` payloads earlier accept
+ * emails attached. UTC-stamped events only (all our invites are); anything
+ * unparseable is skipped, never thrown, so one malformed historic row can't
+ * take down schedule-change detection.
+ */
+export function parseIcsAttachment(ics: string): ParsedIcsEvent[] {
+	// Unfold RFC 5545 §3.1 continuations, tolerating bare-LF payloads.
+	const unfolded = ics.replace(/\r?\n[ \t]/g, "");
+	const events: ParsedIcsEvent[] = [];
+	for (const block of unfolded.split(/BEGIN:VEVENT/).slice(1)) {
+		const body = block.split(/END:VEVENT/)[0] ?? "";
+		const prop = (name: string): string | null => {
+			// Properties may carry parameters (e.g. "DTSTART;TZID=…:") — match the
+			// name at line start up to the first colon. Strip only the CR: TEXT
+			// values keep their exact content (a trimmed value would break the
+			// sent-vs-current equality the ledger exists for).
+			const m = new RegExp(`^${name}[^:\\r\\n]*:(.*?)\\r?$`, "m").exec(body);
+			return m?.[1] ?? null;
+		};
+		const uid = prop("UID");
+		const start = parseStamp(prop("DTSTART") ?? "");
+		const end = parseStamp(prop("DTEND") ?? "");
+		if (!uid || !start || !end) continue;
+		const location = prop("LOCATION");
+		const sequence = Number(prop("SEQUENCE") ?? "0");
+		events.push({
+			uid: unescapeText(uid),
+			start,
+			end,
+			location: location ? unescapeText(location) : null,
+			sequence: Number.isFinite(sequence) ? sequence : 0,
+		});
+	}
+	return events;
 }

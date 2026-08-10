@@ -49,8 +49,10 @@ async function seed(activeEventId: string | null): Promise<void> {
 			name: "A2",
 			slug: "a2",
 			type: "Meetup",
-			startsAt: new Date("2026-10-12T00:00:00Z"),
-			endsAt: new Date("2026-10-14T00:00:00Z"),
+			// Oct 12 8:00 AM → Oct 14 6:00 PM in the default LA zone (PDT = UTC-7);
+			// the end instant crosses UTC midnight on purpose.
+			startsAt: new Date("2026-10-12T15:00:00Z"),
+			endsAt: new Date("2026-10-15T01:00:00Z"),
 			createdAt: new Date("2026-02-01T00:00:00Z"),
 		},
 		{ id: "e_b1", organizationId: "org_b", name: "B1", slug: "b1" },
@@ -86,13 +88,14 @@ describe("admin shell loader (event switcher data)", () => {
 		]);
 	});
 
-	it("renders each entry's dates as a UTC calendar range, falling back to the event type", async () => {
+	it("renders each entry's dates as event-timezone calendar dates, falling back to the event type", async () => {
 		await seed("e_a2");
 		const result = await runLoader("u_a");
 		const [a1, a2] = result.events;
 		// No dates set → the menu's second line falls back to the type.
 		expect(a1).toMatchObject({ dates: null, type: "Conference" });
-		// UTC rendering — an event-timezone render could shift the calendar date.
+		// Event-zone rendering — a UTC read of the midnight-crossing end instant
+		// would label this Oct 12 – Oct 15.
 		expect(a2?.dates).toBe("Oct 12, 2026 – Oct 14, 2026");
 	});
 
