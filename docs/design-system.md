@@ -4,7 +4,7 @@ The locked OpenRostrum skin (owner-approved 2026-08-09; visual spec + live demo 
 
 ## The one law: petrol means "you are here / this is chosen"
 
-Petrol appears in exactly five jobs — wayfinding (active nav icon, active tab underline + count), selection (checked controls, selected-row leading rule + wash), focus (the outline), inline prose links (`TextLink` — table titles stay ink), and the wordmark's "Open". It never fills a large surface and never touches data: **the status pills are the only color in a table**. A sixth use of petrol is a design regression.
+Petrol appears in exactly five jobs — wayfinding (active nav icon, active tab underline + count), selection (checked controls, selected-row leading rule + wash), focus (the outline), inline prose links (`TextLink` — table titles stay ink), and the brand (the mark's platform bar + the wordmark's "Open"). It never fills a large surface and never touches data: **the status pills are the only color in a table**. A sixth use of petrol is a design regression.
 
 ## Tokens (`app/app.css`)
 
@@ -32,6 +32,14 @@ All chrome colors resolve via `light-dark()` — components never write `dark:` 
 - **Grid**: 34px controls · 46px table rows · 8px spacing steps.
 - Fonts self-hosted in `public/fonts/` (woff2 + OFL license texts); preloaded in `root.tsx`. No font CDN, ever.
 
+## Brand mark
+
+An ink letter **O standing on a petrol platform** — the name drawn literally: *Open*, raised on the *rostrum*. Two flat fills, no gradients; the O is `currentColor` (theme-follows-text), the platform is petrol.
+
+- **Source of truth**: `Mark` in `app/ui/shell.tsx` (24×24 viewBox). `Wordmark` composes it; routes never draw the mark themselves.
+- **Static copies**: `public/favicon.svg` (theme-aware via internal media query) · `favicon.ico` (16/32/48) · `apple-touch-icon.png`. If the geometry ever changes, regenerate all three — they are the same shape or they are wrong.
+- **Do not restyle casually**: this geometry survived a 12-reader blind-read gauntlet (adversarial review, 2026-08-09); the tangent ring-on-bar contact and the bar's inset width are deliberate, tested decisions — overlap and flush-width variants tested measurably worse.
+
 ## States
 
 - **Focus**: `outline: 2px petrol, offset 2px` on every interactive primitive — the offset keeps the ring against the page ground where it passes 3:1 in both themes.
@@ -43,7 +51,7 @@ All chrome colors resolve via `light-dark()` — components never write `dark:` 
 
 ## Primitive inventory (`app/ui`)
 
-`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` · `SearchInput` · `TextLink` · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState` · `Skeleton`/`SkeletonRows` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Wordmark`. New primitive = integration-owner request, like a schema column.
+`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` · `SearchInput` · `TextLink` · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState` · `Skeleton`/`SkeletonRows` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Mark`/`Wordmark`. New primitive = integration-owner request, like a schema column.
 
 ## Motion law
 
