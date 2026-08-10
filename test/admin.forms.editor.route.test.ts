@@ -116,14 +116,23 @@ type ActionResult = {
 	formError?: string;
 };
 
+// Non-redirect action results come wrapped by `data()` (Server-Timing rides
+// on the wrapper) — unwrap to the payload the UI sees.
+function unwrap(result: unknown): ActionResult {
+	if (result && typeof result === "object" && "data" in result) {
+		return (result as { data: ActionResult }).data;
+	}
+	return result as ActionResult;
+}
+
 async function runAction(
 	formId: string,
 	body: Record<string, string>,
 	cookie: string,
 ): Promise<ActionResult> {
-	return (await action(
-		actionArgs(formId, new URLSearchParams(body), cookie),
-	)) as ActionResult;
+	return unwrap(
+		await action(actionArgs(formId, new URLSearchParams(body), cookie)),
+	);
 }
 
 /** All SaveForm keys with scenario-shaped defaults; override per test. */
@@ -236,7 +245,7 @@ describe("editor loader", () => {
 		expect(status).toBe(404);
 	});
 
-	it("materializes built-in placements once for pre-builder forms, keeping custom order after them", async () => {
+	it("keeps GETs read-only for pre-builder forms; the explicit initialize action places built-ins with customs after them", async () => {
 		const { db, cookie } = await seedBase();
 		// Shape of the seeded demo forms: custom placements only, positions 0/1.
 		await db
@@ -270,7 +279,21 @@ describe("editor loader", () => {
 			},
 		]);
 
+		// A page load must never write — upgrading is an explicit action.
 		await loader(loaderArgs("f_legacy", cookie));
+		const afterLoad = await db
+			.select()
+			.from(formFields)
+			.where(eq(formFields.formId, "f_legacy"));
+		expect(afterLoad).toHaveLength(2);
+		expect(afterLoad.every((p) => p.builtinRef === null)).toBe(true);
+
+		const result = await runAction(
+			"f_legacy",
+			{ intent: "initialize-builtins" },
+			cookie,
+		);
+		expect(result.ok).toBe("initialize-builtins");
 		const after = await db
 			.select()
 			.from(formFields)
@@ -289,8 +312,8 @@ describe("editor loader", () => {
 			"fld_b",
 		]);
 
-		// Idempotent: a second load adds nothing and moves nothing.
-		await loader(loaderArgs("f_legacy", cookie));
+		// Idempotent: running it again adds nothing and moves nothing.
+		await runAction("f_legacy", { intent: "initialize-builtins" }, cookie);
 		const again = await db
 			.select()
 			.from(formFields)
@@ -370,16 +393,18 @@ describe("save-form", () => {
 	it("persists settings incl. an event-timezone close date and the notify config", async () => {
 		const { db, cookie } = await seedBase();
 		const formId = await createForm(cookie);
-		const result = (await action(
-			actionArgs(
-				formId,
-				saveFormBody({}, [
-					["notifyNew", "u_admin"],
-					["notifyUpdated", "u_admin"],
-				]),
-				cookie,
+		const result = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({}, [
+						["notifyNew", "u_admin"],
+						["notifyUpdated", "u_admin"],
+					]),
+					cookie,
+				),
 			),
-		)) as ActionResult;
+		);
 		expect(result.ok).toBe("save-form");
 
 		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
@@ -389,7 +414,7 @@ describe("save-form", () => {
 		expect(form?.welcomeHtml).toContain(
 			'href="https://devopsdays-lyon.example.com"',
 		);
-		// 2027-04-30 23:59 Europe/Paris = 21:59 UTC (scenario walk's oracle).
+		// 2027-04-30 23:59 wall-clock in Europe/Paris (CEST, UTC+2) is 21:59 UTC.
 		expect(form?.closeAt?.getTime()).toBe(1809122340 * 1000);
 		expect(form?.submissionLimit).toBe(3);
 		expect(form?.allowMultipleDrafts).toBe(true);
@@ -403,13 +428,15 @@ describe("save-form", () => {
 	it("rejects a 16-character page heading and persists nothing", async () => {
 		const { db, cookie } = await seedBase();
 		const formId = await createForm(cookie);
-		const result = (await action(
-			actionArgs(
-				formId,
-				saveFormBody({ pageHeading: "Call for Papers!" }),
-				cookie,
+		const result = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({ pageHeading: "Call for Papers!" }),
+					cookie,
+				),
 			),
-		)) as ActionResult;
+		);
 		expect(result.fieldErrors?.pageHeading?.[0]).toContain("15");
 		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
 		expect(form?.pageHeading).toBe("");
@@ -419,13 +446,15 @@ describe("save-form", () => {
 	it("rejects speaker min > max inline and saves nothing", async () => {
 		const { db, cookie } = await seedBase();
 		const formId = await createForm(cookie);
-		const result = (await action(
-			actionArgs(
-				formId,
-				saveFormBody({ roleSpeakerMin: "5", roleSpeakerMax: "4" }),
-				cookie,
+		const result = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({ roleSpeakerMin: "5", roleSpeakerMax: "4" }),
+					cookie,
+				),
 			),
-		)) as ActionResult;
+		);
 		expect(result.fieldErrors?.roleSpeakerMin?.[0]).toMatch(/maximum/i);
 		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
 		expect(form?.roleSpeakerMin).toBe(1);
@@ -435,13 +464,15 @@ describe("save-form", () => {
 	it("accepts a PAST close date (the harness closes forms by backdating)", async () => {
 		const { db, cookie } = await seedBase();
 		const formId = await createForm(cookie);
-		const result = (await action(
-			actionArgs(
-				formId,
-				saveFormBody({ closeDate: "2020-01-01", closeTime: "00:00" }),
-				cookie,
+		const result = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({ closeDate: "2020-01-01", closeTime: "00:00" }),
+					cookie,
+				),
 			),
-		)) as ActionResult;
+		);
 		expect(result.ok).toBe("save-form");
 		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
 		expect(form?.closeAt?.getTime()).toBeLessThan(Date.now());
@@ -462,13 +493,15 @@ describe("save-form", () => {
 			userId: "u_other_admin",
 		});
 		const formId = await createForm(cookie);
-		const result = (await action(
-			actionArgs(
-				formId,
-				saveFormBody({}, [["notifyNew", "u_other_admin"]]),
-				cookie,
+		const result = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({}, [["notifyNew", "u_other_admin"]]),
+					cookie,
+				),
 			),
-		)) as ActionResult;
+		);
 		expect(result.formError).toMatch(/members of this organization/i);
 		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
 		expect(form?.config).toBeNull();
@@ -1092,7 +1125,7 @@ describe("publish / duplicate / delete", () => {
 
 describe("event-timezone close dates", () => {
 	it("round-trips a wall-clock entry through the event timezone", () => {
-		// Oracle from the scenario walk: 2027-04-30 23:59 Europe/Paris = 21:59Z.
+		// 2027-04-30 23:59 in Europe/Paris (CEST, UTC+2) is 21:59:00Z.
 		const utc = zonedTimeToUtc("2027-04-30", "23:59", "Europe/Paris");
 		expect(utc.getTime()).toBe(1809122340 * 1000);
 		expect(utcToZonedInputs(utc, "Europe/Paris")).toEqual({

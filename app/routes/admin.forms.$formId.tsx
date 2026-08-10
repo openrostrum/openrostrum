@@ -19,6 +19,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { and, asc, desc, eq, isNull, like, ne, or, sql } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { getDb, type Db } from "~/db";
 import {
@@ -26,6 +27,7 @@ import {
 	formats,
 	formFields,
 	forms,
+	insertFormSchema,
 	languages,
 	levels,
 	organizationMembers,
@@ -55,6 +57,7 @@ import {
 	SUBMISSION_STATUS_TONE,
 	Tab,
 	Table,
+	TableFooter,
 	Tabs,
 	TBody,
 	Td,
@@ -402,9 +405,38 @@ const optionalInt = (min: number, max: number) =>
 		z.coerce.number().int().min(min).max(max).nullable(),
 	);
 
-const SaveForm = z
-	.object({
-		type: z.enum(["abstract", "session"]),
+// Derived from the drizzle-zod schema (the golden-path SSOT); the extends
+// exist because FormData is all strings — Selects post "true"/"false", numbers
+// arrive as text — and because the text columns carry no length caps.
+const SaveForm = insertFormSchema
+	.pick({
+		type: true,
+		participantsStep: true,
+		internalName: true,
+		externalTitle: true,
+		pageHeading: true,
+		welcomeHtml: true,
+		showWelcome: true,
+		sessionSectionTitle: true,
+		sessionSectionHtml: true,
+		participantSectionTitle: true,
+		participantSectionHtml: true,
+		roleSpeakerMin: true,
+		roleSpeakerMax: true,
+		allowChairperson: true,
+		roleChairpersonMin: true,
+		roleChairpersonMax: true,
+		allowModerator: true,
+		roleModeratorMin: true,
+		roleModeratorMax: true,
+		sendReminders: true,
+		submissionLimit: true,
+		allowMultipleDrafts: true,
+		autoRedirect: true,
+		successHtml: true,
+		sendConfirmationEmail: true,
+	})
+	.extend({
 		participantsStep: boolish,
 		internalName: z
 			.string()
@@ -430,7 +462,8 @@ const SaveForm = z
 		allowModerator: boolish,
 		roleModeratorMin: z.coerce.number().int().min(0).max(50),
 		roleModeratorMax: optionalInt(1, 50),
-		// Past dates are deliberately legal — backdating is how a form is closed.
+		// Not columns: the close instant is entered as date + time in the EVENT
+		// timezone. Past dates are deliberately legal — backdating closes a form.
 		closeDate: z.preprocess(
 			emptyToNull,
 			z
@@ -469,16 +502,19 @@ const SaveForm = z
 		}
 	});
 
-const CreateField = z.object({
-	name: z.string().trim().min(1, "Name is required").max(255),
-	type: z.enum(CREATE_FIELD_TYPES),
-	description: z.string().trim().max(1000),
-	maxLength: optionalInt(1, 5000),
-	options: z.string().trim().max(5000),
-	scope: z.enum(["event", "org"]),
-	section: z.enum(["session", "participant"]),
-	required: boolish,
-});
+const CreateField = createInsertSchema(fields)
+	.pick({ name: true, type: true, description: true, maxLength: true })
+	.extend({
+		name: z.string().trim().min(1, "Name is required").max(255),
+		// Narrower than the column enum: layout elements have their own tab.
+		type: z.enum(CREATE_FIELD_TYPES),
+		description: z.string().trim().max(1000),
+		maxLength: optionalInt(1, 5000),
+		options: z.string().trim().max(5000),
+		scope: z.enum(["event", "org"]),
+		section: z.enum(["session", "participant"]),
+		required: boolish,
+	});
 
 type ActionResult = {
 	ok?: string;
@@ -493,10 +529,10 @@ function zodErrors(error: z.ZodError): ActionResult {
 
 /* ---------------------------------------------------------------- loader --- */
 
-// Without this export, RR7 drops loader headers from DOCUMENT responses —
-// Server-Timing would silently vanish on full page loads.
-export function headers({ loaderHeaders }: Route.HeadersArgs) {
-	return loaderHeaders;
+// Without this export, RR7 drops loader/action headers from DOCUMENT
+// responses — Server-Timing would silently vanish on full page loads.
+export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
+	return actionHeaders.has("Server-Timing") ? actionHeaders : loaderHeaders;
 }
 
 function fieldScopePredicate(eventId: string, organizationId: string) {
@@ -515,6 +551,55 @@ async function loadPlacements(db: Db, formId: string) {
 		orderBy: [asc(formFields.position), asc(formFields.createdAt)],
 	});
 }
+
+type RuleOptionMap = Record<string, Array<{ value: string; label: string }>>;
+
+// Rule `value` stores exactly what the public form control submits for the
+// trigger: taxonomy row ids for Format/Tags/Track/Level, the language NAME
+// for Language (submissions.language is a name column). The loader (value
+// pickers) and set-rule validation both read THIS map — one source of truth.
+async function loadRuleOptions(
+	db: Db,
+	eventId: string,
+): Promise<RuleOptionMap> {
+	const [formatRows, trackRows, tagRows, levelRows, languageRows] =
+		await Promise.all([
+			db
+				.select({ id: formats.id, name: formats.name })
+				.from(formats)
+				.where(eq(formats.eventId, eventId))
+				.orderBy(asc(formats.position)),
+			db
+				.select({ id: tracks.id, name: tracks.name })
+				.from(tracks)
+				.where(eq(tracks.eventId, eventId))
+				.orderBy(asc(tracks.name)),
+			db
+				.select({ id: tags.id, name: tags.name })
+				.from(tags)
+				.where(eq(tags.eventId, eventId))
+				.orderBy(asc(tags.name)),
+			db
+				.select({ id: levels.id, name: levels.name })
+				.from(levels)
+				.where(eq(levels.eventId, eventId))
+				.orderBy(asc(levels.position)),
+			db
+				.select({ id: languages.id, name: languages.name })
+				.from(languages)
+				.where(eq(languages.eventId, eventId))
+				.orderBy(asc(languages.position)),
+		]);
+	return {
+		format: formatRows.map((r) => ({ value: r.id, label: r.name })),
+		tags: tagRows.map((r) => ({ value: r.id, label: r.name })),
+		track: trackRows.map((r) => ({ value: r.id, label: r.name })),
+		level: levelRows.map((r) => ({ value: r.id, label: r.name })),
+		language: languageRows.map((r) => ({ value: r.name, label: r.name })),
+	};
+}
+
+const VIEW_PAGE_SIZE = 50;
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
@@ -535,34 +620,13 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	);
 	if (!form) throw data({ message: "Form not found" }, { status: 404 });
 
-	let placements = await timings.time("placements", () =>
+	const placements = await timings.time("placements", () =>
 		loadPlacements(db, form.id),
 	);
 	// Forms minted before the builder existed (e.g. seed rows) have no built-in
-	// placements — materialize the defaults once so locked/required/order state
-	// has a home. Deterministic positions keep this idempotent under races.
-	if (!placements.some((p) => p.builtinRef !== null)) {
-		const defaults = defaultBuiltinPlacements(form.id);
-		const offsets: Record<SectionId, number> = {
-			session: defaults.filter((d) => d.section === "session").length,
-			participant: defaults.filter((d) => d.section === "participant").length,
-		};
-		const shifts = (["session", "participant"] as const).flatMap((section) =>
-			placements
-				.filter((p) => p.section === section)
-				.map((p, i) =>
-					db
-						.update(formFields)
-						.set({ position: offsets[section] + i })
-						.where(eq(formFields.id, p.id)),
-				),
-		);
-		const [firstChunk, ...restChunks] = chunk(defaults, 8).map((rows) =>
-			db.insert(formFields).values(rows).onConflictDoNothing(),
-		);
-		if (firstChunk) await db.batch([firstChunk, ...restChunks, ...shifts]);
-		placements = await loadPlacements(db, form.id);
-	}
+	// placements. The loader stays read-only: the builder surfaces an explicit
+	// one-click "initialize-builtins" action instead of writing on GET.
+	const needsBuiltins = !placements.some((p) => p.builtinRef !== null);
 
 	const url = new URL(request.url);
 	const pickerQ = url.searchParams.get("pickerQ")?.trim() ?? "";
@@ -586,55 +650,19 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			.limit(50),
 	);
 
-	const [formatRows, trackRows, tagRows, levelRows, languageRows, members] =
-		await timings.time("options", () =>
-			Promise.all([
-				db
-					.select({ id: formats.id, name: formats.name })
-					.from(formats)
-					.where(eq(formats.eventId, event.id))
-					.orderBy(asc(formats.position)),
-				db
-					.select({ id: tracks.id, name: tracks.name })
-					.from(tracks)
-					.where(eq(tracks.eventId, event.id))
-					.orderBy(asc(tracks.name)),
-				db
-					.select({ id: tags.id, name: tags.name })
-					.from(tags)
-					.where(eq(tags.eventId, event.id))
-					.orderBy(asc(tags.name)),
-				db
-					.select({ id: levels.id, name: levels.name })
-					.from(levels)
-					.where(eq(levels.eventId, event.id))
-					.orderBy(asc(levels.position)),
-				db
-					.select({ id: languages.id, name: languages.name })
-					.from(languages)
-					.where(eq(languages.eventId, event.id))
-					.orderBy(asc(languages.position)),
-				// The notify pickers list the event's ORG MEMBERS — never a global
-				// `users.role = 'admin'` query, which would leak other tenants' admins.
-				db
-					.select({ id: users.id, name: users.name, email: users.email })
-					.from(organizationMembers)
-					.innerJoin(users, eq(users.id, organizationMembers.userId))
-					.where(eq(organizationMembers.organizationId, event.organizationId))
-					.orderBy(asc(users.name)),
-			]),
-		);
-
-	// Rule `value` stores exactly what the public form control submits for the
-	// trigger: taxonomy row ids for Format/Tags/Track/Level, the language NAME
-	// for Language (submissions.language is a name column).
-	const ruleOptions: Record<string, Array<{ value: string; label: string }>> = {
-		format: formatRows.map((r) => ({ value: r.id, label: r.name })),
-		tags: tagRows.map((r) => ({ value: r.id, label: r.name })),
-		track: trackRows.map((r) => ({ value: r.id, label: r.name })),
-		level: levelRows.map((r) => ({ value: r.id, label: r.name })),
-		language: languageRows.map((r) => ({ value: r.name, label: r.name })),
-	};
+	const [ruleOptions, members] = await timings.time("options", () =>
+		Promise.all([
+			loadRuleOptions(db, event.id),
+			// The notify pickers list the event's ORG MEMBERS — never a global
+			// `users.role = 'admin'` query, which would leak other tenants' admins.
+			db
+				.select({ id: users.id, name: users.name, email: users.email })
+				.from(organizationMembers)
+				.innerJoin(users, eq(users.id, organizationMembers.userId))
+				.where(eq(organizationMembers.organizationId, event.organizationId))
+				.orderBy(asc(users.name)),
+		]),
+	);
 
 	const [subCounts] = await timings.time("counts", () =>
 		db
@@ -651,12 +679,23 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		dateStyle: "medium",
 		timeStyle: "short",
 	});
+	const counts = {
+		submissions: (subCounts?.total ?? 0) - (subCounts?.drafts ?? 0),
+		drafts: subCounts?.drafts ?? 0,
+	};
+
 	let viewRows: Array<{
 		id: string;
 		title: string;
 		status: (typeof submissions.$inferSelect)["status"];
 		createdLabel: string;
 	}> | null = null;
+	const viewTotal = view === "drafts" ? counts.drafts : counts.submissions;
+	const viewPages = Math.max(1, Math.ceil(viewTotal / VIEW_PAGE_SIZE));
+	const viewPage = Math.min(
+		viewPages,
+		Math.max(1, Number(url.searchParams.get("page")) || 1),
+	);
 	if (view) {
 		const subs = await timings.time("view", () =>
 			db
@@ -676,7 +715,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					),
 				)
 				.orderBy(desc(submissions.createdAt))
-				.limit(200),
+				.limit(VIEW_PAGE_SIZE)
+				.offset((viewPage - 1) * VIEW_PAGE_SIZE),
 		);
 		viewRows = subs.map((s) => ({
 			id: s.id,
@@ -764,12 +804,13 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				newSubmission: config.notify?.newSubmission ?? [],
 				updatedSubmission: config.notify?.updatedSubmission ?? [],
 			},
-			counts: {
-				submissions: (subCounts?.total ?? 0) - (subCounts?.drafts ?? 0),
-				drafts: subCounts?.drafts ?? 0,
-			},
+			counts,
+			needsBuiltins,
 			view,
 			viewRows,
+			viewPage,
+			viewPages,
+			viewTotal,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -906,47 +947,9 @@ async function handleSetRule(
 			};
 		if (operator !== "equals" && operator !== "not_equals")
 			return { formError: "Dropdown triggers support is / is not only." };
-		const valueChecks: Record<string, () => Promise<boolean>> = {
-			format: async () =>
-				(
-					await db
-						.select({ id: formats.id })
-						.from(formats)
-						.where(and(eq(formats.id, value), eq(formats.eventId, event.id)))
-				).length > 0,
-			tags: async () =>
-				(
-					await db
-						.select({ id: tags.id })
-						.from(tags)
-						.where(and(eq(tags.id, value), eq(tags.eventId, event.id)))
-				).length > 0,
-			track: async () =>
-				(
-					await db
-						.select({ id: tracks.id })
-						.from(tracks)
-						.where(and(eq(tracks.id, value), eq(tracks.eventId, event.id)))
-				).length > 0,
-			level: async () =>
-				(
-					await db
-						.select({ id: levels.id })
-						.from(levels)
-						.where(and(eq(levels.id, value), eq(levels.eventId, event.id)))
-				).length > 0,
-			language: async () =>
-				(
-					await db
-						.select({ id: languages.id })
-						.from(languages)
-						.where(
-							and(eq(languages.name, value), eq(languages.eventId, event.id)),
-						)
-				).length > 0,
-		};
-		const check = valueChecks[ref];
-		if (!check || !(await check()))
+		// Same options the builder's value picker offered — one source of truth.
+		const options = await loadRuleOptions(db, event.id);
+		if (!(options[ref] ?? []).some((o) => o.value === value))
 			return { formError: "Pick a value from the trigger’s options." };
 		rule = { trigger: { kind: "builtin", ref }, operator, value };
 	} else if (trigger.startsWith("field:")) {
@@ -999,8 +1002,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	// Actions MUST self-authenticate — a POST does not run parent loaders.
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
+	// Widened to ActionResult so useFetcher<typeof action> sees ONE data shape.
 	if (!event)
-		return { formError: "No event is configured yet." } satisfies ActionResult;
+		return { formError: "No event is configured yet." } as ActionResult;
 	const db = getDb(env);
 	const fd = await request.formData();
 	const intent = String(fd.get("intent") ?? "");
@@ -1031,95 +1035,135 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		.limit(1);
 	if (!form) throw data({ message: "Form not found" }, { status: 404 });
 
+	const timings = createTimings();
 	try {
-		switch (intent) {
-			case "save-form":
-				return await handleSaveForm(db, form, event, fd);
+		const result = await timings.time("db", async (): Promise<ActionResult> => {
+			switch (intent) {
+				case "save-form":
+					return await handleSaveForm(db, form, event, fd);
 
-			case "publish": {
-				await db
-					.update(forms)
-					.set({ status: "open" })
-					.where(eq(forms.id, form.id));
-				track("form.published", { formId: form.id, eventId: event.id });
-				return { ok: "publish" } satisfies ActionResult;
-			}
+				case "publish": {
+					await db
+						.update(forms)
+						.set({ status: "open" })
+						.where(eq(forms.id, form.id));
+					track("form.published", { formId: form.id, eventId: event.id });
+					return { ok: "publish" } satisfies ActionResult;
+				}
 
-			case "duplicate": {
-				const placements = await db
-					.select()
-					.from(formFields)
-					.where(eq(formFields.formId, form.id))
-					.orderBy(asc(formFields.position));
-				const copyId = crypto.randomUUID();
-				await db.batch([
-					db.insert(forms).values({
-						id: copyId,
-						eventId: form.eventId,
-						type: form.type,
-						status: "draft",
-						internalName: `Copy of ${form.internalName}`,
-						externalTitle: form.externalTitle,
-						pageHeading: form.pageHeading,
-						welcomeHtml: form.welcomeHtml,
-						showWelcome: form.showWelcome,
-						participantsStep: form.participantsStep,
-						sessionSectionTitle: form.sessionSectionTitle,
-						sessionSectionHtml: form.sessionSectionHtml,
-						participantSectionTitle: form.participantSectionTitle,
-						participantSectionHtml: form.participantSectionHtml,
-						roleSpeakerMin: form.roleSpeakerMin,
-						roleSpeakerMax: form.roleSpeakerMax,
-						allowChairperson: form.allowChairperson,
-						roleChairpersonMin: form.roleChairpersonMin,
-						roleChairpersonMax: form.roleChairpersonMax,
-						allowModerator: form.allowModerator,
-						roleModeratorMin: form.roleModeratorMin,
-						roleModeratorMax: form.roleModeratorMax,
-						closeAt: form.closeAt,
-						sendReminders: form.sendReminders,
-						submissionLimit: form.submissionLimit,
-						allowMultipleDrafts: form.allowMultipleDrafts,
-						autoRedirect: form.autoRedirect,
-						successHtml: form.successHtml,
-						sendConfirmationEmail: form.sendConfirmationEmail,
-						config: form.config,
-					}),
-					...chunk(placements, 8).map((rows) =>
-						db.insert(formFields).values(
-							rows.map((p) => ({
-								formId: copyId,
-								fieldId: p.fieldId,
-								builtinRef: p.builtinRef,
-								section: p.section,
-								position: p.position,
-								required: p.required,
-								locked: p.locked,
-								questionRule: p.questionRule,
-							})),
+				// One-click upgrade for forms minted before the builder (seed rows):
+				// places the default built-ins and shifts existing custom questions
+				// after them. Deterministic positions keep it idempotent.
+				case "initialize-builtins": {
+					const placements = await db
+						.select()
+						.from(formFields)
+						.where(eq(formFields.formId, form.id))
+						.orderBy(asc(formFields.position));
+					if (placements.some((p) => p.builtinRef !== null))
+						return { ok: "initialize-builtins" } satisfies ActionResult;
+					const defaults = defaultBuiltinPlacements(form.id);
+					const offsets: Record<SectionId, number> = {
+						session: defaults.filter((d) => d.section === "session").length,
+						participant: defaults.filter((d) => d.section === "participant")
+							.length,
+					};
+					const shifts = (["session", "participant"] as const).flatMap(
+						(section) =>
+							placements
+								.filter((p) => p.section === section)
+								.map((p, i) =>
+									db
+										.update(formFields)
+										.set({ position: offsets[section] + i })
+										.where(eq(formFields.id, p.id)),
+								),
+					);
+					const [firstChunk, ...restChunks] = chunk(defaults, 8).map((rows) =>
+						db.insert(formFields).values(rows).onConflictDoNothing(),
+					);
+					if (firstChunk)
+						await db.batch([firstChunk, ...restChunks, ...shifts]);
+					track("form.builtins_initialized", { formId: form.id });
+					return { ok: "initialize-builtins" } satisfies ActionResult;
+				}
+
+				case "duplicate": {
+					const placements = await db
+						.select()
+						.from(formFields)
+						.where(eq(formFields.formId, form.id))
+						.orderBy(asc(formFields.position));
+					const copyId = crypto.randomUUID();
+					// Spread the row so columns added later are copied automatically;
+					// only identity/lifecycle columns are overridden (publicId omitted →
+					// a fresh one is minted).
+					const {
+						id: _id,
+						publicId: _publicId,
+						status: _status,
+						internalName,
+						createdAt: _createdAt,
+						updatedAt: _updatedAt,
+						...carried
+					} = form;
+					await db.batch([
+						db.insert(forms).values({
+							...carried,
+							id: copyId,
+							status: "draft",
+							internalName: `Copy of ${internalName}`,
+						}),
+						...chunk(placements, 8).map((rows) =>
+							db.insert(formFields).values(
+								rows.map((p) => ({
+									formId: copyId,
+									fieldId: p.fieldId,
+									builtinRef: p.builtinRef,
+									section: p.section,
+									position: p.position,
+									required: p.required,
+									locked: p.locked,
+									questionRule: p.questionRule,
+								})),
+							),
 						),
-					),
-				]);
-				track("form.duplicated", { formId: form.id, copyId });
-				throw redirect("/admin/forms");
-			}
+					]);
+					track("form.duplicated", { formId: form.id, copyId });
+					throw redirect("/admin/forms");
+				}
 
-			case "delete": {
-				// Placements cascade; submissions keep their rows (form_id nulls out).
-				await db.delete(forms).where(eq(forms.id, form.id));
-				track("form.deleted", { formId: form.id, eventId: event.id });
-				throw redirect("/admin/forms");
-			}
+				case "delete": {
+					// Placements cascade; submissions keep their rows (form_id nulls out).
+					await db.delete(forms).where(eq(forms.id, form.id));
+					track("form.deleted", { formId: form.id, eventId: event.id });
+					throw redirect("/admin/forms");
+				}
 
-			case "add-builtin": {
-				const ref = String(fd.get("ref") ?? "") as BuiltinRef;
-				const meta = BUILTIN_META[ref];
-				if (!meta)
-					return {
-						formError: "Unknown built-in question.",
-					} satisfies ActionResult;
-				const position = await nextPosition(db, form.id, meta.section);
-				try {
+				case "add-builtin": {
+					const ref = String(fd.get("ref") ?? "") as BuiltinRef;
+					const meta = BUILTIN_META[ref];
+					if (!meta)
+						return {
+							formError: "Unknown built-in question.",
+						} satisfies ActionResult;
+					// Explicit duplicate check — a catch-all around the insert would
+					// report transient DB failures as "already on this form".
+					const [placed] = await db
+						.select({ id: formFields.id })
+						.from(formFields)
+						.where(
+							and(
+								eq(formFields.formId, form.id),
+								eq(formFields.builtinRef, ref),
+							),
+						)
+						.limit(1);
+					if (placed)
+						return {
+							formError: "That question is already on this form.",
+						} satisfies ActionResult;
+					const position = await nextPosition(db, form.id, meta.section);
 					await db.insert(formFields).values({
 						formId: form.id,
 						builtinRef: ref,
@@ -1128,278 +1172,294 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 						required: meta.defaultRequired,
 						locked: meta.locked,
 					});
-				} catch {
-					return {
-						formError: "That question is already on this form.",
-					} satisfies ActionResult;
+					track("form.question_added", { formId: form.id, builtin: ref });
+					return { ok: "add-builtin" } satisfies ActionResult;
 				}
-				track("form.question_added", { formId: form.id, builtin: ref });
-				return { ok: "add-builtin" } satisfies ActionResult;
-			}
 
-			case "add-library": {
-				const fieldId = String(fd.get("fieldId") ?? "");
-				const section =
-					fd.get("section") === "participant" ? "participant" : "session";
-				// The picked id must pass the SAME scope predicate the picker uses —
-				// never trust the client with a raw fields.id.
-				const [field] = await db
-					.select()
-					.from(fields)
-					.where(
-						and(
-							eq(fields.id, fieldId),
-							fieldScopePredicate(event.id, event.organizationId),
-						),
-					)
-					.limit(1);
-				if (!field)
-					return { formError: "Unknown field." } satisfies ActionResult;
-				if (field.type === "section_header" || field.type === "divider")
-					return {
-						formError: "Layout elements are added from the Layout tab.",
-					} satisfies ActionResult;
-				const position = await nextPosition(db, form.id, section);
-				try {
+				case "add-library": {
+					const fieldId = String(fd.get("fieldId") ?? "");
+					const section =
+						fd.get("section") === "participant" ? "participant" : "session";
+					// The picked id must pass the SAME scope predicate the picker uses —
+					// never trust the client with a raw fields.id.
+					const [field] = await db
+						.select()
+						.from(fields)
+						.where(
+							and(
+								eq(fields.id, fieldId),
+								fieldScopePredicate(event.id, event.organizationId),
+							),
+						)
+						.limit(1);
+					if (!field)
+						return { formError: "Unknown field." } satisfies ActionResult;
+					if (field.type === "section_header" || field.type === "divider")
+						return {
+							formError: "Layout elements are added from the Layout tab.",
+						} satisfies ActionResult;
+					const [placed] = await db
+						.select({ id: formFields.id })
+						.from(formFields)
+						.where(
+							and(
+								eq(formFields.formId, form.id),
+								eq(formFields.fieldId, fieldId),
+							),
+						)
+						.limit(1);
+					if (placed)
+						return {
+							formError: "That field is already on this form.",
+						} satisfies ActionResult;
+					const position = await nextPosition(db, form.id, section);
 					await db.insert(formFields).values({
 						formId: form.id,
 						fieldId,
 						section,
 						position,
 					});
-				} catch {
-					return {
-						formError: "That field is already on this form.",
-					} satisfies ActionResult;
+					track("form.question_added", { formId: form.id, fieldId });
+					return { ok: "add-library" } satisfies ActionResult;
 				}
-				track("form.question_added", { formId: form.id, fieldId });
-				return { ok: "add-library" } satisfies ActionResult;
-			}
 
-			case "create-field": {
-				const parsed = CreateField.safeParse(Object.fromEntries(fd));
-				if (!parsed.success) return zodErrors(parsed.error);
-				const d = parsed.data;
-				const options =
-					d.type === "dropdown"
-						? d.options
-								.split(",")
-								.map((o) => o.trim())
-								.filter(Boolean)
-						: null;
-				if (d.type === "dropdown" && (options?.length ?? 0) === 0) {
-					return {
-						fieldErrors: {
-							options: ["Add at least one option (comma-separated)"],
-						},
-					} satisfies ActionResult;
-				}
-				const hasLength =
-					d.type === "text" || d.type === "textarea" || d.type === "wysiwyg";
-				// Scope XOR: an event field sets eventId (organizationId NULL); an
-				// org-wide field sets organizationId (eventId NULL). Never both.
-				const scopeCols =
-					d.scope === "event"
-						? { eventId: event.id, organizationId: null }
-						: { eventId: null, organizationId: event.organizationId };
-				const fieldId = crypto.randomUUID();
-				const position = await nextPosition(db, form.id, d.section);
-				await db.batch([
-					db.insert(fields).values({
-						id: fieldId,
-						...scopeCols,
-						name: d.name,
+				case "create-field": {
+					const parsed = CreateField.safeParse(Object.fromEntries(fd));
+					if (!parsed.success) return zodErrors(parsed.error);
+					const d = parsed.data;
+					const options =
+						d.type === "dropdown"
+							? d.options
+									.split(",")
+									.map((o) => o.trim())
+									.filter(Boolean)
+							: null;
+					if (d.type === "dropdown" && (options?.length ?? 0) === 0) {
+						return {
+							fieldErrors: {
+								options: ["Add at least one option (comma-separated)"],
+							},
+						} satisfies ActionResult;
+					}
+					const hasLength =
+						d.type === "text" || d.type === "textarea" || d.type === "wysiwyg";
+					// Scope XOR: an event field sets eventId (organizationId NULL); an
+					// org-wide field sets organizationId (eventId NULL). Never both.
+					const scopeCols =
+						d.scope === "event"
+							? { eventId: event.id, organizationId: null }
+							: { eventId: null, organizationId: event.organizationId };
+					const fieldId = crypto.randomUUID();
+					const position = await nextPosition(db, form.id, d.section);
+					await db.batch([
+						db.insert(fields).values({
+							id: fieldId,
+							...scopeCols,
+							name: d.name,
+							type: d.type,
+							description: d.description || null,
+							maxLength: hasLength ? d.maxLength : null,
+							options,
+						}),
+						db.insert(formFields).values({
+							formId: form.id,
+							fieldId,
+							section: d.section,
+							position,
+							required: d.required,
+						}),
+					]);
+					track("form.field_created", {
+						formId: form.id,
+						fieldId,
+						scope: d.scope,
 						type: d.type,
-						description: d.description || null,
-						maxLength: hasLength ? d.maxLength : null,
-						options,
-					}),
-					db.insert(formFields).values({
-						formId: form.id,
-						fieldId,
-						section: d.section,
-						position,
-						required: d.required,
-					}),
-				]);
-				track("form.field_created", {
-					formId: form.id,
-					fieldId,
-					scope: d.scope,
-					type: d.type,
-				});
-				return { ok: "create-field", created: fieldId } satisfies ActionResult;
-			}
+					});
+					return {
+						ok: "create-field",
+						created: fieldId,
+					} satisfies ActionResult;
+				}
 
-			case "add-layout": {
-				const kind = String(fd.get("kind") ?? "");
-				if (kind !== "section_header" && kind !== "divider")
-					return {
-						formError: "Unknown layout element.",
-					} satisfies ActionResult;
-				const section =
-					fd.get("section") === "participant" ? "participant" : "session";
-				const label = String(fd.get("label") ?? "").trim();
-				if (kind === "section_header" && !label)
-					return {
-						fieldErrors: { label: ["Give the section header a label"] },
-					} satisfies ActionResult;
-				if (label.length > 255)
-					return {
-						fieldErrors: { label: ["Keep the label under 255 characters"] },
-					} satisfies ActionResult;
-				const fieldId = crypto.randomUUID();
-				const position = await nextPosition(db, form.id, section);
-				await db.batch([
-					db.insert(fields).values({
-						id: fieldId,
-						eventId: event.id,
-						organizationId: null,
-						name: kind === "divider" ? "Divider" : label,
-						type: kind,
-					}),
-					db.insert(formFields).values({
-						formId: form.id,
-						fieldId,
-						section,
-						position,
-					}),
-				]);
-				track("form.layout_added", { formId: form.id, kind });
-				return { ok: "add-layout", created: fieldId } satisfies ActionResult;
-			}
+				case "add-layout": {
+					const kind = String(fd.get("kind") ?? "");
+					if (kind !== "section_header" && kind !== "divider")
+						return {
+							formError: "Unknown layout element.",
+						} satisfies ActionResult;
+					const section =
+						fd.get("section") === "participant" ? "participant" : "session";
+					const label = String(fd.get("label") ?? "").trim();
+					if (kind === "section_header" && !label)
+						return {
+							fieldErrors: { label: ["Give the section header a label"] },
+						} satisfies ActionResult;
+					if (label.length > 255)
+						return {
+							fieldErrors: { label: ["Keep the label under 255 characters"] },
+						} satisfies ActionResult;
+					const fieldId = crypto.randomUUID();
+					const position = await nextPosition(db, form.id, section);
+					await db.batch([
+						db.insert(fields).values({
+							id: fieldId,
+							eventId: event.id,
+							organizationId: null,
+							name: kind === "divider" ? "Divider" : label,
+							type: kind,
+						}),
+						db.insert(formFields).values({
+							formId: form.id,
+							fieldId,
+							section,
+							position,
+						}),
+					]);
+					track("form.layout_added", { formId: form.id, kind });
+					return { ok: "add-layout", created: fieldId } satisfies ActionResult;
+				}
 
-			case "remove-field": {
-				const id = String(fd.get("formFieldId") ?? "");
-				const siblings = await db.query.formFields.findMany({
-					where: eq(formFields.formId, form.id),
-					with: { field: true },
-				});
-				const row = siblings.find((s) => s.id === id);
-				if (!row)
-					return { formError: "Question not found." } satisfies ActionResult;
-				if (row.locked)
-					return {
-						formError: "This question is locked and can’t be removed.",
-					} satisfies ActionResult;
-				// Rules that trigger on the removed question would silently never
-				// fire — clear them in the same batch.
-				const dependents = siblings.filter((s) => {
-					const r = s.questionRule;
-					if (!r) return false;
-					return (
-						(r.trigger.kind === "field" &&
-							row.fieldId !== null &&
-							r.trigger.fieldId === row.fieldId) ||
-						(r.trigger.kind === "builtin" &&
-							row.builtinRef !== null &&
-							r.trigger.ref === row.builtinRef)
-					);
-				});
-				const isLayout =
-					row.field?.type === "section_header" || row.field?.type === "divider";
-				// Layout rows are per-use: deleting the placement also deletes the
-				// backing fields row (cascade removes the placement).
-				const first = isLayout
-					? db.delete(fields).where(eq(fields.id, row.field?.id ?? ""))
-					: db.delete(formFields).where(eq(formFields.id, row.id));
-				await db.batch([
-					first,
-					...dependents.map((s) =>
+				case "remove-field": {
+					const id = String(fd.get("formFieldId") ?? "");
+					const siblings = await db.query.formFields.findMany({
+						where: eq(formFields.formId, form.id),
+						with: { field: true },
+					});
+					const row = siblings.find((s) => s.id === id);
+					if (!row)
+						return { formError: "Question not found." } satisfies ActionResult;
+					if (row.locked)
+						return {
+							formError: "This question is locked and can’t be removed.",
+						} satisfies ActionResult;
+					// Rules that trigger on the removed question would silently never
+					// fire — clear them in the same batch.
+					const dependents = siblings.filter((s) => {
+						const r = s.questionRule;
+						if (!r) return false;
+						return (
+							(r.trigger.kind === "field" &&
+								row.fieldId !== null &&
+								r.trigger.fieldId === row.fieldId) ||
+							(r.trigger.kind === "builtin" &&
+								row.builtinRef !== null &&
+								r.trigger.ref === row.builtinRef)
+						);
+					});
+					const isLayout =
+						row.field?.type === "section_header" ||
+						row.field?.type === "divider";
+					// Layout rows are per-use: deleting the placement also deletes the
+					// backing fields row (cascade removes the placement).
+					const first = isLayout
+						? db.delete(fields).where(eq(fields.id, row.field?.id ?? ""))
+						: db.delete(formFields).where(eq(formFields.id, row.id));
+					await db.batch([
+						first,
+						...dependents.map((s) =>
+							db
+								.update(formFields)
+								.set({ questionRule: null })
+								.where(eq(formFields.id, s.id)),
+						),
+					]);
+					track("form.question_removed", { formId: form.id, formFieldId: id });
+					return { ok: "remove-field" } satisfies ActionResult;
+				}
+
+				case "set-required": {
+					const id = String(fd.get("formFieldId") ?? "");
+					const required = fd.get("required") === "true";
+					const [row] = await db
+						.select()
+						.from(formFields)
+						.where(and(eq(formFields.id, id), eq(formFields.formId, form.id)))
+						.limit(1);
+					if (!row)
+						return { formError: "Question not found." } satisfies ActionResult;
+					if (
+						!required &&
+						row.builtinRef &&
+						BUILTIN_META[row.builtinRef].requiredLocked
+					) {
+						return {
+							formError: "This question is always required.",
+						} satisfies ActionResult;
+					}
+					await db
+						.update(formFields)
+						.set({ required })
+						.where(eq(formFields.id, row.id));
+					track("form.required_toggled", {
+						formId: form.id,
+						formFieldId: row.id,
+						required,
+					});
+					return { ok: "set-required" } satisfies ActionResult;
+				}
+
+				case "reorder": {
+					const section =
+						fd.get("section") === "participant" ? "participant" : "session";
+					const order = String(fd.get("order") ?? "")
+						.split(",")
+						.filter(Boolean);
+					const rows = await db
+						.select({ id: formFields.id })
+						.from(formFields)
+						.where(
+							and(
+								eq(formFields.formId, form.id),
+								eq(formFields.section, section),
+							),
+						);
+					const known = new Set(rows.map((r) => r.id));
+					if (
+						order.length !== rows.length ||
+						order.some((id) => !known.has(id))
+					) {
+						return {
+							formError: "The order didn’t match this form — reload and retry.",
+						} satisfies ActionResult;
+					}
+					const [head, ...tail] = order.map((id, i) =>
 						db
 							.update(formFields)
-							.set({ questionRule: null })
-							.where(eq(formFields.id, s.id)),
-					),
-				]);
-				track("form.question_removed", { formId: form.id, formFieldId: id });
-				return { ok: "remove-field" } satisfies ActionResult;
-			}
-
-			case "set-required": {
-				const id = String(fd.get("formFieldId") ?? "");
-				const required = fd.get("required") === "true";
-				const [row] = await db
-					.select()
-					.from(formFields)
-					.where(and(eq(formFields.id, id), eq(formFields.formId, form.id)))
-					.limit(1);
-				if (!row)
-					return { formError: "Question not found." } satisfies ActionResult;
-				if (
-					!required &&
-					row.builtinRef &&
-					BUILTIN_META[row.builtinRef].requiredLocked
-				) {
-					return {
-						formError: "This question is always required.",
-					} satisfies ActionResult;
-				}
-				await db
-					.update(formFields)
-					.set({ required })
-					.where(eq(formFields.id, row.id));
-				return { ok: "set-required" } satisfies ActionResult;
-			}
-
-			case "reorder": {
-				const section =
-					fd.get("section") === "participant" ? "participant" : "session";
-				const order = String(fd.get("order") ?? "")
-					.split(",")
-					.filter(Boolean);
-				const rows = await db
-					.select({ id: formFields.id })
-					.from(formFields)
-					.where(
-						and(
-							eq(formFields.formId, form.id),
-							eq(formFields.section, section),
-						),
+							.set({ position: i })
+							.where(eq(formFields.id, id)),
 					);
-				const known = new Set(rows.map((r) => r.id));
-				if (
-					order.length !== rows.length ||
-					order.some((id) => !known.has(id))
-				) {
-					return {
-						formError: "The order didn’t match this form — reload and retry.",
-					} satisfies ActionResult;
+					if (head) await db.batch([head, ...tail]);
+					track("form.reordered", { formId: form.id, section });
+					return { ok: "reorder" } satisfies ActionResult;
 				}
-				const [head, ...tail] = order.map((id, i) =>
-					db
+
+				case "set-rule":
+					return await handleSetRule(db, form, event, fd);
+
+				case "clear-rule": {
+					const id = String(fd.get("formFieldId") ?? "");
+					const [row] = await db
+						.select()
+						.from(formFields)
+						.where(and(eq(formFields.id, id), eq(formFields.formId, form.id)))
+						.limit(1);
+					if (!row)
+						return { formError: "Question not found." } satisfies ActionResult;
+					await db
 						.update(formFields)
-						.set({ position: i })
-						.where(eq(formFields.id, id)),
-				);
-				if (head) await db.batch([head, ...tail]);
-				track("form.reordered", { formId: form.id, section });
-				return { ok: "reorder" } satisfies ActionResult;
+						.set({ questionRule: null })
+						.where(eq(formFields.id, row.id));
+					track("form.rule_cleared", { formId: form.id, formFieldId: id });
+					return { ok: "clear-rule" } satisfies ActionResult;
+				}
+
+				default:
+					return { formError: "Unknown action." } satisfies ActionResult;
 			}
-
-			case "set-rule":
-				return await handleSetRule(db, form, event, fd);
-
-			case "clear-rule": {
-				const id = String(fd.get("formFieldId") ?? "");
-				const [row] = await db
-					.select()
-					.from(formFields)
-					.where(and(eq(formFields.id, id), eq(formFields.formId, form.id)))
-					.limit(1);
-				if (!row)
-					return { formError: "Question not found." } satisfies ActionResult;
-				await db
-					.update(formFields)
-					.set({ questionRule: null })
-					.where(eq(formFields.id, row.id));
-				track("form.rule_cleared", { formId: form.id, formFieldId: id });
-				return { ok: "clear-rule" } satisfies ActionResult;
-			}
-
-			default:
-				return { formError: "Unknown action." } satisfies ActionResult;
-		}
+		});
+		return data(result, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	} catch (error) {
 		if (error instanceof Response) throw error;
 		track("form.action_failed", {
@@ -1594,12 +1654,12 @@ function ruleSummary(
 }
 
 function CopyLinkButton({ url }: { url: string }) {
-	const [copied, setCopied] = useState(false);
+	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
 	useEffect(() => {
-		if (!copied) return;
-		const t = setTimeout(() => setCopied(false), 2000);
+		if (state === "idle") return;
+		const t = setTimeout(() => setState("idle"), 2500);
 		return () => clearTimeout(t);
-	}, [copied]);
+	}, [state]);
 	return (
 		<Button
 			type="button"
@@ -1608,12 +1668,48 @@ function CopyLinkButton({ url }: { url: string }) {
 			onClick={() => {
 				navigator.clipboard
 					?.writeText(url)
-					.then(() => setCopied(true))
-					.catch(() => {});
+					.then(() => setState("copied"))
+					.catch(() => setState("failed"));
 			}}
 		>
-			{copied ? "Copied!" : "Copy link"}
+			{state === "copied"
+				? "Copied!"
+				: state === "failed"
+					? "Copy failed — select the link"
+					: "Copy link"}
 		</Button>
+	);
+}
+
+function FormTabs({
+	formId,
+	active,
+	counts,
+}: {
+	formId: string;
+	active: "builder" | "results" | "drafts";
+	counts: { submissions: number; drafts: number };
+}) {
+	return (
+		<Tabs>
+			<Tab to={`/admin/forms/${formId}`} active={active === "builder"}>
+				Builder
+			</Tab>
+			<Tab
+				to={`/admin/forms/${formId}?view=results`}
+				active={active === "results"}
+				count={counts.submissions}
+			>
+				Results
+			</Tab>
+			<Tab
+				to={`/admin/forms/${formId}?view=drafts`}
+				active={active === "drafts"}
+				count={counts.drafts}
+			>
+				Draft submissions
+			</Tab>
+		</Tabs>
 	);
 }
 
@@ -1845,24 +1941,16 @@ function FieldRow({
 }) {
 	const view = placementView(placement);
 	const fetcher = useFetcher<typeof action>();
-	const {
-		attributes,
-		listeners,
-		setNodeRef,
-		transform,
-		transition,
-		isDragging,
-	} = useSortable({ id: placement.id });
-	// dnd-kit needs live transforms on the row DOM node; applied imperatively
-	// because inline `style` is reserved for primitives.
+	const { attributes, listeners, setNodeRef, transform, transition } =
+		useSortable({ id: placement.id });
+	// Drag GEOMETRY only (transform/transition) — dnd-kit cannot move the row
+	// without it. Visual drag styling (dim/elevate) is a skin decision that
+	// waits on a SortableRow primitive; routes must not make it.
 	const rowRef = (node: HTMLDivElement | null) => {
 		setNodeRef(node);
 		if (node) {
 			node.style.transform = CSS.Transform.toString(transform) ?? "";
 			node.style.transition = transition ?? "";
-			node.style.opacity = isDragging ? "0.55" : "";
-			node.style.position = "relative";
-			node.style.zIndex = isDragging ? "10" : "";
 		}
 	};
 	const pendingRequired = fetcher.formData?.get("required");
@@ -2577,32 +2665,18 @@ function SubmissionsView({ data: d }: { data: LoaderData }) {
 			</div>
 			<PageHeader
 				title={d.form.internalName}
-				count={`${rows.length} ${drafts ? "drafts" : "results"}`}
+				count={`${d.viewTotal} ${drafts ? "drafts" : "results"}`}
 				subtitle={
 					drafts
 						? "Draft submissions saved against this form but not yet submitted."
 						: "Submissions received through this form."
 				}
 			/>
-			<Tabs>
-				<Tab to={`/admin/forms/${d.form.id}`} active={false}>
-					Builder
-				</Tab>
-				<Tab
-					to={`/admin/forms/${d.form.id}?view=results`}
-					active={d.view === "results"}
-					count={d.counts.submissions}
-				>
-					Results
-				</Tab>
-				<Tab
-					to={`/admin/forms/${d.form.id}?view=drafts`}
-					active={d.view === "drafts"}
-					count={d.counts.drafts}
-				>
-					Draft submissions
-				</Tab>
-			</Tabs>
+			<FormTabs
+				formId={d.form.id}
+				active={drafts ? "drafts" : "results"}
+				counts={d.counts}
+			/>
 			<Table>
 				<THead>
 					<Th>Title</Th>
@@ -2630,6 +2704,31 @@ function SubmissionsView({ data: d }: { data: LoaderData }) {
 					)}
 				</TBody>
 			</Table>
+			{d.viewPages > 1 && (
+				<div className="flex items-center gap-2">
+					<TableFooter>
+						Page {d.viewPage} of {d.viewPages} · {d.viewTotal} total
+					</TableFooter>
+					<div className="ml-auto flex gap-2">
+						{d.viewPage > 1 && (
+							<ButtonLink
+								variant="ghost"
+								to={`/admin/forms/${d.form.id}?view=${d.view}&page=${d.viewPage - 1}`}
+							>
+								← Previous
+							</ButtonLink>
+						)}
+						{d.viewPage < d.viewPages && (
+							<ButtonLink
+								variant="ghost"
+								to={`/admin/forms/${d.form.id}?view=${d.view}&page=${d.viewPage + 1}`}
+							>
+								Next →
+							</ButtonLink>
+						)}
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }
@@ -2747,31 +2846,38 @@ function Builder({
 				</div>
 			</Panel>
 
-			<Tabs>
-				<Tab to={formPath} active>
-					Builder
-				</Tab>
-				<Tab
-					to={`${formPath}?view=results`}
-					active={false}
-					count={d.counts.submissions}
-				>
-					Results
-				</Tab>
-				<Tab
-					to={`${formPath}?view=drafts`}
-					active={false}
-					count={d.counts.drafts}
-				>
-					Draft submissions
-				</Tab>
-			</Tabs>
+			<FormTabs formId={d.form.id} active="builder" counts={d.counts} />
 
 			<Form method="post" id="builder-form">
 				<Input type="hidden" name="intent" value="save-form" readOnly />
 				<Input type="hidden" name="type" value={formType} readOnly />
 			</Form>
 			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
+
+			{d.needsBuiltins && (
+				<Panel>
+					<div className="flex flex-wrap items-center gap-4">
+						<div className="min-w-0 flex-1">
+							<strong>Set up the built-in questions</strong>
+							<p>
+								This form predates the builder, so Title, Description, the
+								session dropdowns and the participant identity fields aren’t
+								configurable yet. One click places them — existing custom
+								questions keep their order right after.
+							</p>
+						</div>
+						<Form method="post">
+							<Input
+								type="hidden"
+								name="intent"
+								value="initialize-builtins"
+								readOnly
+							/>
+							<Button type="submit">Set up built-in questions</Button>
+						</Form>
+					</div>
+				</Panel>
+			)}
 
 			<div className="flex flex-col gap-6 md:flex-row">
 				<nav

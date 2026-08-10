@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { data, Form, useOutlet } from "react-router";
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, like, lte, or, sql } from "drizzle-orm";
 import { getDb } from "~/db";
 import { forms, submissions } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
@@ -17,9 +17,12 @@ import {
 	SearchInput,
 	StatusBadge,
 	Tab,
+	TableFooter,
 	Tabs,
 } from "~/ui";
 import type { Route } from "./+types/admin.forms";
+
+const PAGE_SIZE = 50;
 
 type FormRow = {
 	id: string;
@@ -65,28 +68,79 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		tabCounts: { all: 0, open: 0, closed: 0, draft: 0 },
 		q,
 		tab,
+		page: 1,
+		pages: 1,
+		total: 0,
 	};
+	// Flat routes also make this file the layout for the $formId editor — when
+	// a child route is rendering, the list data would be thrown away unseen.
+	if (url.pathname.replace(/\/+$/, "") !== "/admin/forms") return data(empty);
 	if (!event) return data(empty);
 
 	const db = getDb(env);
 	const timings = createTimings();
+	const now = new Date();
+	const base = and(
+		eq(forms.eventId, event.id),
+		q
+			? or(
+					like(forms.internalName, `%${q}%`),
+					like(forms.externalTitle, `%${q}%`),
+				)
+			: undefined,
+	);
+	// Effective-status predicates: a backdated close date closes an OPEN form
+	// without any status flip (see effectiveFormStatus).
+	const statusPredicate = {
+		draft: eq(forms.status, "draft"),
+		open: and(
+			eq(forms.status, "open"),
+			or(isNull(forms.closeAt), gt(forms.closeAt, now)),
+		),
+		closed: or(
+			eq(forms.status, "closed"),
+			and(eq(forms.status, "open"), lte(forms.closeAt, now)),
+		),
+	} as const;
+	const tabbed =
+		tab === "open" || tab === "closed" || tab === "draft"
+			? and(base, statusPredicate[tab])
+			: base;
+
+	const countWhere = async (predicate: typeof base) => {
+		const [row] = await db
+			.select({ n: sql<number>`count(*)` })
+			.from(forms)
+			.where(predicate);
+		return row?.n ?? 0;
+	};
+	const [all, open, closed, draft] = await timings.time("tabs", () =>
+		Promise.all([
+			countWhere(base),
+			countWhere(and(base, statusPredicate.open)),
+			countWhere(and(base, statusPredicate.closed)),
+			countWhere(and(base, statusPredicate.draft)),
+		]),
+	);
+	const tabCounts = { all, open, closed, draft };
+	const total =
+		tab === "open" || tab === "closed" || tab === "draft"
+			? tabCounts[tab]
+			: all;
+	const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+	const page = Math.min(
+		pages,
+		Math.max(1, Number(url.searchParams.get("page")) || 1),
+	);
+
 	const rows = await timings.time("db", () =>
 		db
 			.select()
 			.from(forms)
-			.where(
-				and(
-					eq(forms.eventId, event.id),
-					q
-						? or(
-								like(forms.internalName, `%${q}%`),
-								like(forms.externalTitle, `%${q}%`),
-							)
-						: undefined,
-				),
-			)
+			.where(tabbed)
 			.orderBy(desc(forms.createdAt))
-			.limit(100),
+			.limit(PAGE_SIZE)
+			.offset((page - 1) * PAGE_SIZE),
 	);
 	const subCounts = await timings.time("counts", () =>
 		db
@@ -101,7 +155,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	);
 	const countsByForm = new Map(subCounts.map((c) => [c.formId, c]));
 
-	const now = Date.now();
 	const dateFmt = new Intl.DateTimeFormat("en-US", {
 		timeZone: event.timezone,
 		dateStyle: "medium",
@@ -115,24 +168,16 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				(f.type === "abstract" ? "Abstracts" : "Sessions") +
 				(f.participantsStep ? " & Participants" : ""),
 			rawStatus: f.status,
-			status: effectiveFormStatus(f.status, f.closeAt, now),
+			status: effectiveFormStatus(f.status, f.closeAt, now.getTime()),
 			submissionsCount: (c?.total ?? 0) - (c?.drafts ?? 0),
 			draftsCount: c?.drafts ?? 0,
 			closesLabel: f.closeAt ? dateFmt.format(f.closeAt) : null,
 			createdLabel: dateFmt.format(f.createdAt),
 		};
 	});
-	const tabCounts = {
-		all: decorated.length,
-		open: decorated.filter((f) => f.status === "open").length,
-		closed: decorated.filter((f) => f.status === "closed").length,
-		draft: decorated.filter((f) => f.status === "draft").length,
-	};
-	const visible =
-		tab === "all" ? decorated : decorated.filter((f) => f.status === tab);
 
 	return data(
-		{ forms: visible, tabCounts, q, tab },
+		{ forms: decorated, tabCounts, q, tab, page, pages, total },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
@@ -143,10 +188,11 @@ const STATUS_TONE: Record<string, BadgeTone> = {
 	draft: "faint",
 };
 
-function tabHref(tab: string, q: string): string {
+function listHref(tab: string, q: string, page = 1): string {
 	const params = new URLSearchParams();
 	if (tab !== "all") params.set("tab", tab);
 	if (q) params.set("q", q);
+	if (page > 1) params.set("page", String(page));
 	const qs = params.toString();
 	return qs ? `/admin/forms?${qs}` : "/admin/forms";
 }
@@ -266,7 +312,7 @@ function DeleteFormDialog({
 }
 
 export default function FormsList({ loaderData }: Route.ComponentProps) {
-	const { forms: rows, tabCounts, q, tab } = loaderData;
+	const { forms: rows, tabCounts, q, tab, page, pages, total } = loaderData;
 	const [deleteId, setDeleteId] = useState<string | null>(null);
 	const deleteTarget = rows.find((f) => f.id === deleteId) ?? null;
 	// Flat routes make this file the LAYOUT for admin.forms.$formId — when the
@@ -295,28 +341,28 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 
 			<Tabs>
 				<Tab
-					to={tabHref("all", q)}
+					to={listHref("all", q)}
 					active={tab === "all"}
 					count={tabCounts.all}
 				>
 					All
 				</Tab>
 				<Tab
-					to={tabHref("open", q)}
+					to={listHref("open", q)}
 					active={tab === "open"}
 					count={tabCounts.open}
 				>
 					Open
 				</Tab>
 				<Tab
-					to={tabHref("closed", q)}
+					to={listHref("closed", q)}
 					active={tab === "closed"}
 					count={tabCounts.closed}
 				>
 					Closed
 				</Tab>
 				<Tab
-					to={tabHref("draft", q)}
+					to={listHref("draft", q)}
 					active={tab === "draft"}
 					count={tabCounts.draft}
 				>
@@ -369,6 +415,26 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 							</div>
 						</Panel>
 					))}
+				</div>
+			)}
+
+			{pages > 1 && (
+				<div className="flex items-center gap-2">
+					<TableFooter>
+						Page {page} of {pages} · {total} total
+					</TableFooter>
+					<div className="ml-auto flex gap-2">
+						{page > 1 && (
+							<ButtonLink variant="ghost" to={listHref(tab, q, page - 1)}>
+								← Previous
+							</ButtonLink>
+						)}
+						{page < pages && (
+							<ButtonLink variant="ghost" to={listHref(tab, q, page + 1)}>
+								Next →
+							</ButtonLink>
+						)}
+					</div>
 				</div>
 			)}
 
