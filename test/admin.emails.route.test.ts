@@ -2,7 +2,13 @@ import { env } from "cloudflare:test";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
-import { emailTemplates, events, organizations, users } from "../app/db/schema";
+import {
+	emailTemplates,
+	events,
+	organizationMembers,
+	organizations,
+	users,
+} from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
 import {
 	action as editorAction,
@@ -26,6 +32,10 @@ async function seedAdminAndEvents() {
 		role: "admin",
 		activeEventId: "e1",
 	});
+	// Admin access resolves through org membership, not the role alone.
+	await db
+		.insert(organizationMembers)
+		.values({ id: "om_admin", organizationId: "org1", userId: "u_admin" });
 	await db.insert(emailTemplates).values([
 		{
 			id: "et1",

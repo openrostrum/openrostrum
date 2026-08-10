@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
 	type AnySQLiteColumn,
 	index,
@@ -8,6 +8,7 @@ import {
 	sqliteTable,
 	text,
 	unique,
+	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { SUBMISSION_STATUS, SUBMISSION_TYPE } from "./constants";
@@ -1059,12 +1060,17 @@ export const taskAssignments = sqliteTable(
 		index("task_assignments_task_idx").on(t.taskId),
 		index("task_assignments_contact_status_idx").on(t.contactId, t.status),
 		index("task_assignments_submission_idx").on(t.submissionId),
-		// Idempotency for the accept spine (walk-07 gap #1): replaying an accept
-		// (or re-running a bulk assign) must not double-assign a task to the same
-		// contact. NULL contactIds stay distinct under SQLite semantics, so
-		// submission-type assignments MUST always carry contactId (the seed and
-		// the spine INSERT both do).
-		unique("task_assignments_task_contact_uq").on(t.taskId, t.contactId),
+		// Idempotency for the accept spine: replaying an accept or bulk assign
+		// must not double-assign — but a multi-talk speaker legitimately holds
+		// one assignment PER submission for submission-scoped tasks, so the
+		// uniqueness key splits on that scope. Submission-type assignments MUST
+		// always carry contactId (NULLs are distinct under SQLite semantics).
+		uniqueIndex("task_assignments_contact_scope_uq")
+			.on(t.taskId, t.contactId)
+			.where(sql`submission_id IS NULL`),
+		uniqueIndex("task_assignments_submission_scope_uq")
+			.on(t.taskId, t.contactId, t.submissionId)
+			.where(sql`submission_id IS NOT NULL`),
 	],
 );
 

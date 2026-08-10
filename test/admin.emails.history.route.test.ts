@@ -5,6 +5,7 @@ import {
 	emailOutbox,
 	emailTemplates,
 	events,
+	organizationMembers,
 	organizations,
 	users,
 } from "../app/db/schema";
@@ -27,6 +28,10 @@ async function seed() {
 		role: "admin",
 		activeEventId: "e1",
 	});
+	// Admin access resolves through org membership, not the role alone.
+	await db
+		.insert(organizationMembers)
+		.values({ id: "om_admin", organizationId: "org1", userId: "u_admin" });
 	await db.insert(emailTemplates).values({
 		id: "et_accept",
 		eventId: "e1",
