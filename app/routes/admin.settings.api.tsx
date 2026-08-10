@@ -6,6 +6,7 @@ import { apiTokens, events } from "~/db/schema";
 import { bytesToHex, sha256Hex } from "~/lib/api-token";
 import { requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { formatDateUTC } from "~/lib/format";
 import { resolveOrg } from "~/lib/org.server";
 import { createTimings, track } from "~/lib/track";
 import {
@@ -43,12 +44,6 @@ function mintRawToken(): string {
 	return `or_${bytesToHex(crypto.getRandomValues(new Uint8Array(16)))}`;
 }
 
-const dateFormat = new Intl.DateTimeFormat("en-US", {
-	month: "short",
-	day: "numeric",
-	year: "numeric",
-});
-
 export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
 	return actionHeaders.has("Server-Timing") ? actionHeaders : loaderHeaders;
 }
@@ -63,25 +58,27 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 
 	const db = getDb(env);
 	const timings = createTimings();
-	const { tokens, orgEvents } = await timings.time("db", async () => ({
-		tokens: await db
-			.select({
-				id: apiTokens.id,
-				name: apiTokens.name,
-				eventName: events.name,
-				createdAt: apiTokens.createdAt,
-				lastUsedAt: apiTokens.lastUsedAt,
-			})
-			.from(apiTokens)
-			.leftJoin(events, eq(events.id, apiTokens.eventId))
-			.where(eq(apiTokens.organizationId, org.id))
-			.orderBy(desc(apiTokens.createdAt), desc(apiTokens.id)),
-		orgEvents: await db
-			.select({ id: events.id, name: events.name })
-			.from(events)
-			.where(eq(events.organizationId, org.id))
-			.orderBy(asc(events.createdAt)),
-	}));
+	const [tokens, orgEvents] = await timings.time("db", () =>
+		Promise.all([
+			db
+				.select({
+					id: apiTokens.id,
+					name: apiTokens.name,
+					eventName: events.name,
+					createdAt: apiTokens.createdAt,
+					lastUsedAt: apiTokens.lastUsedAt,
+				})
+				.from(apiTokens)
+				.leftJoin(events, eq(events.id, apiTokens.eventId))
+				.where(eq(apiTokens.organizationId, org.id))
+				.orderBy(desc(apiTokens.createdAt), desc(apiTokens.id)),
+			db
+				.select({ id: events.id, name: events.name })
+				.from(events)
+				.where(eq(events.organizationId, org.id))
+				.orderBy(asc(events.createdAt)),
+		]),
+	);
 	return data(
 		{
 			org: { id: org.id, name: org.name },
@@ -89,8 +86,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				id: t.id,
 				name: t.name,
 				scope: t.eventName ?? "All events",
-				createdAt: dateFormat.format(t.createdAt),
-				lastUsedAt: t.lastUsedAt ? dateFormat.format(t.lastUsedAt) : null,
+				createdAt: formatDateUTC(t.createdAt),
+				lastUsedAt: t.lastUsedAt ? formatDateUTC(t.lastUsedAt) : null,
 			})),
 			events: orgEvents,
 			revoked,

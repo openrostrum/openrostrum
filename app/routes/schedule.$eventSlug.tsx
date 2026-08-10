@@ -4,6 +4,7 @@ import {
 	buildAgendaData,
 	getEventBySlug,
 	loadPublicSessions,
+	sessionCalendarHref,
 	toProgramEvent,
 } from "~/lib/program";
 import { AddToCalendar } from "~/components/add-to-calendar";
@@ -47,11 +48,7 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 		loadPublicSessions(db, event),
 	);
 	const surface = buildAgendaData(sessions, event, new URL(request.url));
-	// Unscheduled sessions have no times to put on a calendar; the agenda is
-	// already published on this branch (the unpublished gate returned above).
-	const calendarHref = surface.detail?.scheduled
-		? `/feeds/${event.slug}/agenda.ics?ids=${surface.detail.id}`
-		: null;
+	const calendarHref = sessionCalendarHref(event, surface.detail);
 	return data(
 		{ event: toProgramEvent(event), surface, calendarHref },
 		{ headers: { "Server-Timing": timings.header() } },
@@ -64,7 +61,9 @@ export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
 		<ProgramShell event={event} active="schedule">
 			{surface ? (
 				<div className="flex flex-col gap-4">
-					{calendarHref && <AddToCalendar href={calendarHref} />}
+					{calendarHref && (
+						<AddToCalendar key={calendarHref} href={calendarHref} />
+					)}
 					<AgendaSurface data={surface} base={`/schedule/${event.slug}`} />
 				</div>
 			) : (

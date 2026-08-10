@@ -4,7 +4,8 @@ import { organizationMembers, organizations, type users } from "~/db/schema";
 import { getActiveEvent } from "~/lib/auth";
 
 type AppUser = typeof users.$inferSelect;
-export type Org = typeof organizations.$inferSelect;
+/** Only what org-level settings surfaces render — never the full row. */
+export type Org = { id: string; name: string };
 
 /**
  * The org an admin manages: the active event's org (getActiveEvent is the
@@ -17,14 +18,14 @@ export async function resolveOrg(env: Env, user: AppUser): Promise<Org | null> {
 	const event = await getActiveEvent(env, user);
 	if (event) {
 		const [org] = await db
-			.select()
+			.select({ id: organizations.id, name: organizations.name })
 			.from(organizations)
 			.where(eq(organizations.id, event.organizationId))
 			.limit(1);
 		if (org) return org;
 	}
 	const [first] = await db
-		.select({ org: organizations })
+		.select({ org: { id: organizations.id, name: organizations.name } })
 		.from(organizationMembers)
 		.innerJoin(
 			organizations,

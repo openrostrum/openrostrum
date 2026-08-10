@@ -104,18 +104,7 @@ export async function loadSubmissionList(
 				with: {
 					format: { columns: { name: true } },
 					room: { columns: { name: true } },
-					participants: {
-						columns: { contactId: true, position: true },
-						with: {
-							contact: {
-								columns: {
-									firstName: true,
-									lastName: true,
-									publicVisible: true,
-								},
-							},
-						},
-					},
+					participants: { columns: { id: true } },
 					submissionTracks: {
 						with: { track: { columns: { name: true, color: true } } },
 					},
@@ -124,6 +113,38 @@ export async function loadSubmissionList(
 				limit: PAGE_SIZE,
 				offset: (page - 1) * PAGE_SIZE,
 			});
+
+			// The sessions tab renders per-speaker eye toggles; abstracts render only
+			// a count, so the contact columns are fetched for sessions alone (bounded
+			// loaders: never haul columns a projection drops). Keyed on THIS page's
+			// submission ids — at most PAGE_SIZE bind params.
+			const speakersBySubmission = new Map<
+				string,
+				Array<{ contactId: string; name: string; publicVisible: boolean }>
+			>();
+			if (type === "session" && rows.length > 0) {
+				const pageIds = rows.map((r) => r.id);
+				const speakerRows = await db.query.participants.findMany({
+					columns: { submissionId: true, contactId: true, position: true },
+					where: (p, { inArray: inArrayOp }) =>
+						inArrayOp(p.submissionId, pageIds),
+					with: {
+						contact: {
+							columns: { firstName: true, lastName: true, publicVisible: true },
+						},
+					},
+					orderBy: (p, { asc: ascOp }) => [ascOp(p.position)],
+				});
+				for (const p of speakerRows) {
+					const list = speakersBySubmission.get(p.submissionId) ?? [];
+					list.push({
+						contactId: p.contactId,
+						name: `${p.contact.firstName} ${p.contact.lastName}`.trim(),
+						publicVisible: p.contact.publicVisible,
+					});
+					speakersBySubmission.set(p.submissionId, list);
+				}
+			}
 
 			// Fetch one past the cap so truncation is detectable, never silent.
 			const contactCap = 1000;
@@ -172,17 +193,7 @@ export async function loadSubmissionList(
 					schedule: formatScheduleRange(r.startsAt, r.endsAt, event.timezone),
 					roomName: r.room?.name ?? null,
 					speakerCount: r.participants.length,
-					speakers:
-						type === "session"
-							? r.participants
-									.slice()
-									.sort((a, b) => a.position - b.position)
-									.map((p) => ({
-										contactId: p.contactId,
-										name: `${p.contact.firstName} ${p.contact.lastName}`.trim(),
-										publicVisible: p.contact.publicVisible,
-									}))
-							: [],
+					speakers: speakersBySubmission.get(r.id) ?? [],
 					formatName: r.format?.name ?? null,
 					tracks: r.submissionTracks.map((st) => ({
 						id: st.trackId,
