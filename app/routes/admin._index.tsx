@@ -1,19 +1,28 @@
 import { and, count, countDistinct, eq, isNotNull, ne, sql } from "drizzle-orm";
-import { data } from "react-router";
+import { data, redirect } from "react-router";
 import { AlertLink } from "~/components/alert-link";
+import { GettingStartedCard } from "~/components/getting-started";
 import { SectionHeading } from "~/components/section-heading";
 import { StatCard, StatCell } from "~/components/stat-card";
 import { getDb } from "~/db";
 import { SUBMISSION_STATUS } from "~/db/constants";
 import {
+	formats,
 	forms,
 	participants,
 	submissions,
 	taskAssignments,
 	tasks,
+	tracks,
 } from "~/db/schema";
-import { formIsOpen } from "~/domain/forms";
-import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { formIsOpen, submitPath } from "~/domain/forms";
+import { deriveGettingStarted } from "~/domain/getting-started";
+import { getActiveEvent, isSecureRequest, requireAdmin } from "~/lib/auth";
+import {
+	dismissGettingStartedCookie,
+	isGettingStartedDismissed,
+} from "~/lib/getting-started-dismissal";
+import { countEventReviewers } from "~/lib/reviewers";
 import {
 	calendarDaysUntil,
 	eventCountdown,
@@ -22,7 +31,7 @@ import {
 	zonedHour,
 } from "~/lib/event-time";
 import { formatDateLine, formatDateUTC, formatInTz } from "~/lib/format";
-import { createTimings } from "~/lib/track";
+import { createTimings, track } from "~/lib/track";
 import {
 	ButtonLink,
 	EmptyRow,
@@ -96,6 +105,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		formRows,
 		formCounts,
 		recentRows,
+		trackAgg,
+		formatAgg,
+		reviewerAgg,
 	] = await timings.time("db", () =>
 		db.batch([
 			db
@@ -132,6 +144,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			db
 				.select({
 					id: forms.id,
+					publicId: forms.publicId,
 					internalName: forms.internalName,
 					status: forms.status,
 					closeAt: forms.closeAt,
@@ -166,6 +179,15 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				orderBy: (s, { desc }) => [desc(s.createdAt), desc(s.id)],
 				limit: RECENT_LIMIT,
 			}),
+			db
+				.select({ n: count() })
+				.from(tracks)
+				.where(eq(tracks.eventId, event.id)),
+			db
+				.select({ n: count() })
+				.from(formats)
+				.where(eq(formats.eventId, event.id)),
+			countEventReviewers(db, event.id),
 		]),
 	);
 
@@ -226,6 +248,29 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		(f) => f.state === "open" && f.closesInDays !== null && f.closesInDays <= 7,
 	);
 
+	// The shareable CFP link points at the open form closing soonest — the
+	// same form the sorted table shows first, so the two never disagree.
+	const firstOpenCard = formCards.find((f) => f.state === "open");
+	const firstOpenForm = firstOpenCard
+		? formRows.find((f) => f.id === firstOpenCard.id)
+		: undefined;
+	const gettingStarted = {
+		...deriveGettingStarted({
+			hasDates: event.startsAt !== null && event.endsAt !== null,
+			hasLocation: (event.location ?? "").trim().length > 0,
+			trackCount: trackAgg[0]?.n ?? 0,
+			formatCount: formatAgg[0]?.n ?? 0,
+			publishedFormCount: formRows.filter((f) => f.status !== "draft").length,
+			reviewerCount: reviewerAgg[0]?.n ?? 0,
+			submissionCount: submissionsTotal,
+		}),
+		dismissed: await isGettingStartedDismissed(request, user.id, event.id),
+		cfpUrl: firstOpenForm
+			? new URL(request.url).origin +
+				submitPath(event.slug, firstOpenForm.publicId)
+			: null,
+	};
+
 	const recent = recentRows.map((r) => ({
 		id: r.id,
 		title: r.title,
@@ -270,9 +315,34 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			},
 			recent,
 			forms: formCards,
+			gettingStarted,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
+}
+
+export async function action({ context, request }: Route.ActionArgs) {
+	const env = context.cloudflare.env;
+	// Self-authenticate — actions never inherit the layout loader's auth.
+	const user = await requireAdmin(env, request);
+	const event = await getActiveEvent(env, user);
+	const form = await request.formData();
+	if (form.get("intent") !== "dismiss-getting-started" || !event) {
+		return redirect("/admin");
+	}
+	track("getting_started.dismissed", { userId: user.id, eventId: event.id });
+	// The dismissal is server-derived (session user + active event) — a client
+	// can't hide the checklist for someone else's event.
+	return redirect("/admin", {
+		headers: {
+			"Set-Cookie": await dismissGettingStartedCookie(
+				request,
+				user.id,
+				event.id,
+				isSecureRequest(request),
+			),
+		},
+	});
 }
 
 function greet(now: Date, tz: string, firstName: string | null): string {
@@ -297,6 +367,9 @@ export default function AdminDashboard({ loaderData }: Route.ComponentProps) {
 						icon="calendar"
 						title="No event yet"
 						body="Your organization has no events. Create one and the dashboard will track its submissions, speakers, and tasks."
+						action={
+							<ButtonLink to="/admin/events/new">Create an event</ButtonLink>
+						}
 					/>
 				</Panel>
 			</div>
@@ -313,7 +386,9 @@ export default function AdminDashboard({ loaderData }: Route.ComponentProps) {
 		alerts,
 		recent,
 		forms: formCards,
+		gettingStarted,
 	} = loaderData;
+	const showChecklist = !gettingStarted.complete && !gettingStarted.dismissed;
 
 	const daysChip =
 		countdown.phase === "upcoming"
@@ -386,6 +461,13 @@ export default function AdminDashboard({ loaderData }: Route.ComponentProps) {
 		<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
 			<PageHeader title={greeting} count={daysChip} subtitle={subtitle} />
 
+			{showChecklist && (
+				<GettingStartedCard
+					state={gettingStarted}
+					cfpUrl={gettingStarted.cfpUrl}
+				/>
+			)}
+
 			<div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
 				<StatCard
 					label="Submissions"
@@ -393,13 +475,19 @@ export default function AdminDashboard({ loaderData }: Route.ComponentProps) {
 					hint={
 						stats.drafts > 0
 							? `+ ${stats.drafts} ${plural(stats.drafts, "draft")} in progress`
-							: undefined
+							: stats.submissions === 0
+								? "None yet — publish your form and share its public link"
+								: undefined
 					}
 				/>
 				<StatCard
 					label="Accepted speakers"
 					value={stats.acceptedSpeakers}
-					hint={`on ${stats.acceptedSessions} accepted ${plural(stats.acceptedSessions, "session")}`}
+					hint={
+						stats.acceptedSpeakers === 0
+							? "Speakers appear here when you accept submissions"
+							: `on ${stats.acceptedSessions} accepted ${plural(stats.acceptedSessions, "session")}`
+					}
 				/>
 				<div className="lg:col-span-2">
 					<Panel>
@@ -499,10 +587,10 @@ export default function AdminDashboard({ loaderData }: Route.ComponentProps) {
 								<EmptyState
 									icon="inbox"
 									title="No forms yet"
-									body="Create a call-for-speakers form to start collecting submissions for this event."
+									body="Build and publish your submission form — speakers send proposals through its public link."
 									action={
 										<ButtonLink to="/admin/forms" variant="ghost">
-											Go to forms
+											Open forms
 										</ButtonLink>
 									}
 								/>
@@ -548,8 +636,9 @@ export default function AdminDashboard({ loaderData }: Route.ComponentProps) {
 						))}
 						{recent.length === 0 && (
 							<EmptyRow colSpan={5}>
-								No submissions yet — share your call for papers and new
-								proposals will land here.
+								No submissions yet — publish your form, share its public link,
+								and the first proposals land here.{" "}
+								<TextLink to="/admin/forms">Open forms →</TextLink>
 							</EmptyRow>
 						)}
 					</TBody>

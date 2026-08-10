@@ -1,5 +1,6 @@
 import { Outlet, data } from "react-router";
 import { EventSwitcher } from "~/components/event-switcher";
+import { ThemeToggle } from "~/components/theme-toggle";
 import { getActiveEvent, listMyEvents, requireAdmin } from "~/lib/auth";
 import { toSwitcherEvents } from "~/lib/event-switcher.server";
 import { createTimings } from "~/lib/track";
@@ -40,7 +41,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 export default function AdminShell({ loaderData }: Route.ComponentProps) {
 	return (
 		<div className="flex min-h-screen">
-			<Sidebar user={loaderData.user}>
+			<Sidebar user={loaderData.user} themeControl={<ThemeToggle />}>
 				<EventSwitcher events={loaderData.events} />
 				{navBySection().map(([section, items]) => (
 					<SidebarSection key={section} label={section}>

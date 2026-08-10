@@ -1,6 +1,7 @@
 import { meaningfulTests } from "./meaningful-tests.mjs";
 import { noCitationComments } from "./no-citation-comments.mjs";
 import { noCompatShims } from "./no-compat-shims.mjs";
+import { noDarkVariants } from "./no-dark-variants.mjs";
 import { noDeferralComments } from "./no-deferral-comments.mjs";
 import { noGenericInstanceof } from "./no-generic-instanceof.mjs";
 import { noRawTailwindColors } from "./no-raw-tailwind-colors.mjs";
@@ -19,6 +20,7 @@ export const openrostrumPlugin = {
 		"meaningful-tests": meaningfulTests,
 		"no-citation-comments": noCitationComments,
 		"no-compat-shims": noCompatShims,
+		"no-dark-variants": noDarkVariants,
 		"no-deferral-comments": noDeferralComments,
 		"no-generic-instanceof": noGenericInstanceof,
 		"no-raw-tailwind-colors": noRawTailwindColors,
