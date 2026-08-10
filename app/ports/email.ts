@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "~/db";
 import { emailOutbox, emailSuppressions } from "~/db/schema";
+import { errorMessage } from "~/lib/errors";
+import { track } from "~/lib/track";
 
 /** Callers depend on this interface, never on Resend directly. */
 export interface EmailMessage {
@@ -120,7 +122,17 @@ function base64Utf8(s: string): string {
 	return btoa(binary);
 }
 
-/** Prod adapter: real mail via Resend from the verified openrostrum.com domain. */
+/**
+ * Prod adapter: real mail via Resend from the verified openrostrum.com domain.
+ *
+ * Every attempt is recorded in `email_outbox` BEFORE the provider call and
+ * resolved to `sent` (with the provider id) or `failed` (with the reason)
+ * after it — `/admin/emails/history` is the delivery evidence in prod exactly
+ * as it is locally (docs/observability.md), and a provider rejection is a
+ * queryable `failed` row, never a vanished send. The outbox row is also the
+ * dedupe ledger: a retry of a `sent` dedupeKey short-circuits without calling
+ * the provider, while a `failed` row stays retryable in place.
+ */
 export function createResendEmailSender(env: Env): EmailSender {
 	// The verified sender, e.g. "OpenRostrum <noreply@yourdomain.com>". Set per
 	// deployment (wrangler var / self-host config) — never hardcode a domain, so
@@ -131,46 +143,118 @@ export function createResendEmailSender(env: Env): EmailSender {
 			"EMAIL_FROM is not configured — set it to your verified Resend sender address.",
 		);
 	}
+	const db = getDb(env);
 	return {
 		async send(msg) {
-			const body: Record<string, unknown> = {
-				from,
-				to: [msg.to],
-				subject: msg.subject,
-				html: msg.html,
-			};
-			if (msg.replyTo) body.reply_to = msg.replyTo;
-			if (msg.ics) {
-				body.attachments = [
-					{
-						filename: "invite.ics",
-						content: base64Utf8(msg.ics),
-						content_type: "text/calendar; method=REQUEST",
-					},
-				];
-			}
-			const headers: Record<string, string> = {
-				Authorization: `Bearer ${env.RESEND_API_KEY}`,
-				"Content-Type": "application/json",
-			};
-			// Resend dedupes server-side on this key for 24h, so a retried send
-			// (cron re-run, double-submit) never delivers twice.
-			if (msg.dedupeKey) headers["Idempotency-Key"] = msg.dedupeKey;
+			// 1. Claim the outbox row. A dedupeKey conflict means a prior attempt
+			// exists: already sent/bounced → done (idempotent), failed/queued →
+			// retry on the SAME row so history shows one attempt per key.
+			const [inserted] = await db
+				.insert(emailOutbox)
+				.values({
+					dedupeKey: msg.dedupeKey ?? null,
+					to: msg.to,
+					replyTo: msg.replyTo ?? null,
+					subject: msg.subject,
+					html: msg.html,
+					icsAttachment: msg.ics ?? null,
+					eventId: msg.eventId ?? null,
+					templateId: msg.templateId ?? null,
+					status: "queued",
+				})
+				.onConflictDoNothing({ target: emailOutbox.dedupeKey })
+				.returning({ id: emailOutbox.id });
 
-			const res = await fetch(RESEND_ENDPOINT, {
-				method: "POST",
-				headers,
-				body: JSON.stringify(body),
-			});
-			if (!res.ok) {
-				// Surface for the caller's catch (which logs + shows a generic
-				// message); never leak provider detail into the UI.
-				throw new Error(
-					`Resend send failed (${res.status}): ${await res.text()}`,
-				);
+			let outboxId = inserted?.id;
+			if (!outboxId) {
+				const [existing] = msg.dedupeKey
+					? await db
+							.select({
+								id: emailOutbox.id,
+								status: emailOutbox.status,
+								providerId: emailOutbox.providerId,
+							})
+							.from(emailOutbox)
+							.where(eq(emailOutbox.dedupeKey, msg.dedupeKey))
+							.limit(1)
+					: [];
+				if (!existing) {
+					throw new Error("email_outbox insert returned no row");
+				}
+				if (existing.status === "sent" || existing.status === "bounced") {
+					return {
+						id: existing.providerId ?? existing.id,
+						deduped: true,
+						suppressed: false,
+					};
+				}
+				outboxId = existing.id;
 			}
-			const data = (await res.json()) as { id: string };
-			return { id: data.id, deduped: false, suppressed: false };
+
+			// 2. The provider call — success and failure both land on the row.
+			try {
+				const body: Record<string, unknown> = {
+					from,
+					to: [msg.to],
+					subject: msg.subject,
+					html: msg.html,
+				};
+				if (msg.replyTo) body.reply_to = msg.replyTo;
+				if (msg.ics) {
+					body.attachments = [
+						{
+							filename: "invite.ics",
+							content: base64Utf8(msg.ics),
+							content_type: "text/calendar; method=REQUEST",
+						},
+					];
+				}
+				const headers: Record<string, string> = {
+					Authorization: `Bearer ${env.RESEND_API_KEY}`,
+					"Content-Type": "application/json",
+				};
+				// Resend also dedupes server-side on this key for 24h — belt and
+				// braces under the outbox ledger above.
+				if (msg.dedupeKey) headers["Idempotency-Key"] = msg.dedupeKey;
+
+				const res = await fetch(RESEND_ENDPOINT, {
+					method: "POST",
+					headers,
+					body: JSON.stringify(body),
+				});
+				if (!res.ok) {
+					// Surface for the caller's catch (which logs + shows a generic
+					// message); never leak provider detail into the UI. The full
+					// reason lives on the failed outbox row for the admin.
+					throw new Error(
+						`Resend send failed (${res.status}): ${await res.text()}`,
+					);
+				}
+				const data = (await res.json()) as { id: string };
+				await db
+					.update(emailOutbox)
+					.set({
+						status: "sent",
+						providerId: data.id,
+						sentAt: new Date(),
+						error: null,
+					})
+					.where(eq(emailOutbox.id, outboxId));
+				return { id: data.id, deduped: false, suppressed: false };
+			} catch (error) {
+				const reason = errorMessage(error);
+				await db
+					.update(emailOutbox)
+					.set({ status: "failed", error: reason })
+					.where(eq(emailOutbox.id, outboxId));
+				track("email.send_failed", {
+					outboxId,
+					eventId: msg.eventId,
+					templateId: msg.templateId,
+					error: reason,
+				});
+				throw error;
+			}
 		},
 	};
 }

@@ -16,9 +16,10 @@ import {
 	users,
 } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
+import { errorMessage } from "~/lib/errors";
 import { formatScheduleRange } from "~/lib/format-date";
 import { track } from "~/lib/track";
-import { getEmailSender } from "~/ports/email";
+import { type EmailResult, getEmailSender } from "~/ports/email";
 
 /**
  * The accept/decline spine — the ONE code path for every submission decision
@@ -524,20 +525,43 @@ export async function sendDecisionEmails(
 			continue;
 		}
 		const room = row.roomId ? roomName.get(row.roomId) : undefined;
-		const result = await sender.send({
-			to,
-			replyTo: template.replyTo ?? undefined,
-			subject: template.subject,
-			html: template.bodyHtml + decisionDetailsHtml(row, event, decision, room),
-			ics:
-				decision === "accept" ? buildDecisionIcs(row, event, room) : undefined,
-			// The decision is part of the identity: an accept then a corrective
-			// decline on the SAME untouched selection must both deliver.
-			dedupeKey: `decision:${decision}:${idempotencyKey}:${row.id}`,
-			eventId: event.id,
-			templateId: template.id,
-			kind: "transactional",
-		});
+		let result: EmailResult;
+		try {
+			result = await sender.send({
+				to,
+				replyTo: template.replyTo ?? undefined,
+				subject: template.subject,
+				html:
+					template.bodyHtml + decisionDetailsHtml(row, event, decision, room),
+				ics:
+					decision === "accept"
+						? buildDecisionIcs(row, event, room)
+						: undefined,
+				// The decision is part of the identity: an accept then a corrective
+				// decline on the SAME untouched selection must both deliver.
+				dedupeKey: `decision:${decision}:${idempotencyKey}:${row.id}`,
+				eventId: event.id,
+				templateId: template.id,
+				kind: "transactional",
+			});
+		} catch (error) {
+			// One undeliverable recipient must not sink the batch: the rest still
+			// send and finalize, this row stays un-finalized and is reported
+			// per-row (provider detail stays in Email history, not the UI).
+			track("email.decision_send_failed", {
+				submissionId: row.id,
+				eventId: event.id,
+				decision,
+				error: errorMessage(error),
+			});
+			results.push({
+				submissionId: row.id,
+				ok: false,
+				to,
+				reason: `Sending to ${to} failed — see Email history for the reason, then retry.`,
+			});
+			continue;
+		}
 		(result.deduped ? dedupedIds : newlySent).push(row.id);
 		track("email.decision_sent", {
 			submissionId: row.id,
