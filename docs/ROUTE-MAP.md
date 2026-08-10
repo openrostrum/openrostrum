@@ -20,7 +20,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Form builder (editor) | `admin.forms.$formId.tsx` | `/admin/forms/:formId` | 1 | todo |
 | Evaluation | `admin.evaluation.tsx` | `/admin/evaluation` | 3 | todo |
 | Agenda | `admin.agenda.tsx` | `/admin/agenda` | 3 | todo |
-| Tasks dashboard | `admin.tasks.tsx` | `/admin/tasks` | 3 | todo |
+| Tasks dashboard | `admin.tasks.tsx` | `/admin/tasks` | 3 | done |
 | Email templates | `admin.emails.tsx` · `admin.emails.$key.tsx` | `/admin/emails` | 1 | todo |
 | Event settings | `admin.settings.tsx` | `/admin/settings` | 1 | todo |
 | Library (taxonomies) | `admin.settings.library.tsx` | `/admin/settings/library` | 0/1 | todo |
@@ -35,7 +35,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Forgot password (request) | `forgot-password.tsx` | `/forgot-password` (`// @public`) | 1 | todo |
 | Unsubscribe | `unsubscribe.$token.tsx` | `/unsubscribe/:token` (signed token; `// @public`) | 1 | todo |
 | Email history log | `admin.emails.history.tsx` | `/admin/emails/history` | 1 | todo |
-| Task response view (admin) | `admin.tasks.$assignmentId.tsx` | `/admin/tasks/:assignmentId` | 1 | todo |
+| Task response view (admin) | `admin.tasks_.$assignmentId.tsx` | `/admin/tasks/:assignmentId` (trailing `_` opts out of nesting under the dashboard) | 1 | done |
 | File upload (presign/mediate) + download | `files.upload.tsx` · `files.$id.tsx` | `/files/upload` (POST) · `/files/:id` (GET bytes, authz-checked) | 1 | todo |
 | Contact record (admin) | `admin.contacts.$id.tsx` | `/admin/contacts/:id` | 1 | todo |
 | CSV export (resource route) | `admin.submissions.export[.csv].tsx` | `/admin/submissions/export.csv` (COMMITTED, P2 #3) | 2 | todo |
