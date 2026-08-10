@@ -24,7 +24,7 @@ import {
 	type EmbedConfig,
 	type HideableField,
 } from "~/widgets/types";
-import type { Route } from "./+types/admin.embeds.$id";
+import type { Route } from "./+types/admin.embeds_.$id";
 
 const UpdateEmbed = z.object({
 	name: z.string().min(1, "Name is required"),

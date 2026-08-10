@@ -30,6 +30,8 @@ export type PublicSession = {
 	language: string;
 	room: string | null;
 	roomId: string | null;
+	/** Rooms sort by their configured order, ties alphabetical. */
+	roomOrder: number | null;
 	tracks: PublicTrack[];
 	speakers: PublicSpeaker[];
 	scheduled: boolean;

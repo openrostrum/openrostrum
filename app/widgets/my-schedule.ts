@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from "react";
  * Personal schedule = starred session ids in localStorage, keyed per event.
  * No account required to browse or star; `ready` stays false until after
  * hydration so the server and first client render agree (nothing starred).
+ * Persistence happens in an effect on the COMMITTED state — a state updater
+ * must stay pure (React may defer or replay it), so writing storage inside
+ * one silently loses stars.
  */
 const storageKey = (eventId: string) => `openrostrum.my-schedule.${eventId}`;
 
@@ -28,25 +31,26 @@ export function useMySchedule(eventId: string) {
 		setReady(true);
 	}, [eventId]);
 
-	const toggle = useCallback(
-		(sessionId: string) => {
-			setIds((current) => {
-				const next = new Set(current);
-				if (next.has(sessionId)) next.delete(sessionId);
-				else next.add(sessionId);
-				try {
-					window.localStorage.setItem(
-						storageKey(eventId),
-						JSON.stringify([...next]),
-					);
-				} catch {
-					// Storage full/blocked: the in-memory set still works this visit.
-				}
-				return next;
-			});
-		},
-		[eventId],
-	);
+	useEffect(() => {
+		if (!ready) return;
+		try {
+			window.localStorage.setItem(
+				storageKey(eventId),
+				JSON.stringify([...ids]),
+			);
+		} catch {
+			// Storage full/blocked: the in-memory set still works this visit.
+		}
+	}, [ids, ready, eventId]);
+
+	const toggle = useCallback((sessionId: string) => {
+		setIds((current) => {
+			const next = new Set(current);
+			if (next.has(sessionId)) next.delete(sessionId);
+			else next.add(sessionId);
+			return next;
+		});
+	}, []);
 
 	return { ready, ids, toggle };
 }

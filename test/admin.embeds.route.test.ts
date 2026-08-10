@@ -6,7 +6,7 @@ import { createSession, hashPassword } from "../app/lib/auth";
 import {
 	action as detailAction,
 	loader as detailLoader,
-} from "../app/routes/admin.embeds.$id";
+} from "../app/routes/admin.embeds_.$id";
 import { action as listAction } from "../app/routes/admin.embeds";
 import { CONTEXT, seedProgram, thrownStatus } from "./program.fixtures";
 

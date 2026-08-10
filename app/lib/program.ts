@@ -96,29 +96,20 @@ function longDayLabel(date: Date, timeZone: string): string {
 	}).format(date);
 }
 
+/** Event start/end are date-only boundaries stored at UTC midnight — format
+ * them in UTC so the range doesn't slip a day in western timezones. */
 function eventDateRange(event: EventRow): string | null {
 	if (!event.startsAt) return null;
-	const tz = event.timezone;
-	const start = new Intl.DateTimeFormat("en-US", {
-		timeZone: tz,
+	const fmt = new Intl.DateTimeFormat("en-US", {
+		timeZone: "UTC",
 		month: "long",
 		day: "numeric",
-	}).format(event.startsAt);
-	if (!event.endsAt) return start;
-	const sameMonth =
-		new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "long" }).format(
-			event.startsAt,
-		) ===
-		new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "long" }).format(
-			event.endsAt,
-		);
-	const end = new Intl.DateTimeFormat("en-US", {
-		timeZone: tz,
-		month: sameMonth ? undefined : "long",
-		day: "numeric",
 		year: "numeric",
-	}).format(event.endsAt);
-	return `${start} – ${end}`;
+	});
+	if (!event.endsAt || event.endsAt.getTime() === event.startsAt.getTime()) {
+		return fmt.format(event.startsAt);
+	}
+	return fmt.formatRange(event.startsAt, event.endsAt);
 }
 
 export function toProgramEvent(event: EventRow): ProgramEvent {
@@ -205,6 +196,7 @@ export async function loadPublicSessions(
 			language: r.language,
 			room: r.room?.name ?? null,
 			roomId: r.roomId,
+			roomOrder: r.room?.displayOrder ?? null,
 			tracks: r.submissionTracks.map((st) => ({
 				id: st.track.id,
 				name: st.track.name,
@@ -488,13 +480,15 @@ export function buildAgendaData(
 			windowEndMin = Math.max(windowEndMin, Math.ceil(s.endMin / 60) * 60);
 	}
 
-	const roomIds = new Map<string, string>();
+	const roomIds = new Map<string, { name: string; order: number }>();
 	for (const s of daySessions) {
-		if (s.roomId && s.room) roomIds.set(s.roomId, s.room);
+		if (s.roomId && s.room) {
+			roomIds.set(s.roomId, { name: s.room, order: s.roomOrder ?? 0 });
+		}
 	}
 	const rooms = [...roomIds.entries()]
-		.sort(([, a], [, b]) => a.localeCompare(b))
-		.map(([id, name]) => ({
+		.sort(([, a], [, b]) => a.order - b.order || a.name.localeCompare(b.name))
+		.map(([id, { name }]) => ({
 			id,
 			name,
 			blocks: layoutLanes(
