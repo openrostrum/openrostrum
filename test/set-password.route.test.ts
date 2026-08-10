@@ -13,10 +13,9 @@ import {
 import { createSession, hashPassword, verifyPassword } from "../app/lib/auth";
 import { action, loader } from "../app/routes/set-password.$token";
 
-// Pins the invite-token intent rule (docs/multi-tenancy-design.md): what a
-// token grants derives from its mint-time organizationId column — set means
-// org-member invite (accept creates the membership), NULL means speaker /
-// reviewer / plain reset and must NEVER create one. The NULL case is the
+// What a token grants derives from its mint-time organizationId column — set
+// means org-member invite (accept creates the membership), NULL means speaker
+// / reviewer / plain reset and must NEVER create one. The NULL case is the
 // admin-escalation regression this suite exists for.
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };

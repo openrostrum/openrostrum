@@ -14,9 +14,9 @@ import {
 import { createSession, hashPassword } from "../app/lib/auth";
 import { action, loader } from "../app/routes/admin.settings.team";
 
-// Pins the org-team contracts from docs/multi-tenancy-design.md: invites mint
-// org-intent tokens (organizationId set at mint time), the last member can
-// never be removed, and a member of org A can never see or mutate org B.
+// Invites mint org-intent tokens (organizationId set at mint time, never a
+// membership), the last member can never be removed, and a member of org A
+// can never see or mutate org B.
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 const URL_ = "http://localhost/admin/settings/team";
@@ -294,6 +294,40 @@ describe("team invites", () => {
 		)) as ActionResult;
 		expect(stale.formError).toBeTruthy();
 	});
+
+	// A revoked invite must not orphan the sentinel account it minted, or the
+	// email reads as "an existing account" and can never be invited again.
+	it("a revoked invite leaves the email invitable again", async () => {
+		const db = await seedOrgA();
+		const invite = (await runAction(
+			await authedRequest(post({ name: "Newbie", email: "newbie@test.co" })),
+		)) as Response;
+		expect(invite.status).toBe(302);
+		const [reset] = await db
+			.select()
+			.from(passwordResets)
+			.where(eq(passwordResets.organizationId, "orgA"));
+
+		const revoke = (await runAction(
+			await authedRequest(post({ revoke: reset?.id ?? "" })),
+		)) as Response;
+		expect(revoke.status).toBe(302);
+		// The sentinel account is garbage-collected with its invite...
+		expect(
+			await db.select().from(users).where(eq(users.email, "newbie@test.co")),
+		).toHaveLength(0);
+
+		// ...so the same email can be invited again.
+		const reinvite = (await runAction(
+			await authedRequest(post({ name: "Newbie", email: "newbie@test.co" })),
+		)) as Response;
+		expect(reinvite.status).toBe(302);
+		const resets = await db
+			.select()
+			.from(passwordResets)
+			.where(eq(passwordResets.organizationId, "orgA"));
+		expect(resets).toHaveLength(1);
+	});
 });
 
 describe("team member removal", () => {
@@ -407,9 +441,7 @@ describe("cross-org isolation", () => {
 			.where(eq(users.id, "u_admin"));
 
 		const response = (await runAction(
-			await authedRequest(
-				post({ intent: "invite", name: "New", email: "new@test.co" }),
-			),
+			await authedRequest(post({ name: "New", email: "new@test.co" })),
 		)) as Response;
 
 		expect(response.status).toBe(302);

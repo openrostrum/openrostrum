@@ -441,13 +441,29 @@ async function revokeInvite(db: Db, org: Org, inviteId: string) {
 				isNull(passwordResets.usedAt),
 			),
 		)
-		.returning({ id: passwordResets.id });
-	if (deleted.length === 0) {
+		.returning({ id: passwordResets.id, userId: passwordResets.userId });
+	const revoked = deleted[0];
+	if (!revoked) {
 		return {
 			fieldErrors: undefined,
 			formError: "That invite no longer exists — it may have been accepted.",
 		};
 	}
+	// Garbage-collect the sentinel account the invite minted once nothing
+	// references it (no membership, session, or other token) — an orphaned row
+	// would read as "an existing account" and permanently refuse re-inviting
+	// this email. The NOT EXISTS guards make it a no-op for any account that
+	// ever became real.
+	await db
+		.delete(users)
+		.where(
+			and(
+				eq(users.id, revoked.userId),
+				sql`NOT EXISTS (SELECT 1 FROM organization_members om WHERE om.user_id = users.id)`,
+				sql`NOT EXISTS (SELECT 1 FROM auth_sessions s WHERE s.user_id = users.id)`,
+				sql`NOT EXISTS (SELECT 1 FROM password_resets pr WHERE pr.user_id = users.id)`,
+			),
+		);
 	track("team.invite_revoked", { orgId: org.id, inviteId });
 	return redirect("/admin/settings/team");
 }
