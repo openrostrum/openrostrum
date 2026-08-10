@@ -38,11 +38,11 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Email history log | `admin.emails.history.tsx` | `/admin/emails/history` | 1 | todo |
 | Task response view (admin) | `admin.tasks_.$assignmentId.tsx` | `/admin/tasks/:assignmentId` (trailing `_` opts out of nesting under the dashboard) | 1 | done |
 | File upload (presign/mediate) + download | `files.upload.tsx` · `files.$id.tsx` | `/files/upload` (POST) · `/files/:id` (GET bytes, authz-checked) | 1 | todo |
-| Contact record (admin) | `admin.contacts.$id.tsx` | `/admin/contacts/:id` | 1 | todo |
+| Contact record (admin) | `admin.contacts_.$id.tsx` | `/admin/contacts/:id` | 1 | done |
 | CSV export (resource route) | `admin.submissions.export[.csv].tsx` | `/admin/submissions/export.csv` (COMMITTED, P2 #3) | 2 | todo |
-| Contacts / speaker roster (list) | `admin.contacts.tsx` | `/admin/contacts` (search, status filter, + Add) — P1 #17 | 1 | todo |
-| Speaker CSV import | `admin.contacts.import.tsx` | `/admin/contacts/import` (upload → map → dedupe) | 1 | todo |
-| Compose bulk email to speakers | `admin.contacts.compose.tsx` | `/admin/contacts/compose` (merge fields + preview) | 1 | todo |
+| Contacts / speaker roster (list) | `admin.contacts.tsx` | `/admin/contacts` (search, status filter, + Add) — P1 #17 | 1 | done |
+| Speaker CSV import | `admin.contacts_.import.tsx` | `/admin/contacts/import` (upload → map → dedupe) | 1 | done |
+| Compose bulk email to speakers | `admin.contacts_.compose.tsx` | `/admin/contacts/compose` (merge fields + preview) | 1 | done |
 | Evaluation plan editor | `admin.evaluation.$planId.tsx` | `/admin/evaluation/:planId` (rounds/scorecards/pools/assignments) | 3 | todo |
 | Evaluation results export | `admin.evaluation.export[.csv].tsx` | `/admin/evaluation/export.csv` | 3 | todo |
 | Embeds admin | `admin.embeds.tsx` · `admin.embeds_.$id.tsx` (trailing `_`: the editor renders standalone, not nested under the list) | `/admin/embeds` · `/admin/embeds/:id` (P1 #16, EMB-15) | 2 | done |
