@@ -7,6 +7,7 @@ import {
 	emailOutbox,
 	emailTemplates,
 	events,
+	organizationMembers,
 	organizations,
 	participants,
 	submissions,
@@ -47,6 +48,12 @@ async function seedWorld() {
 		passwordHash: await hashPassword("pw"),
 		role: "admin",
 		activeEventId: "e1",
+	});
+	// Membership gates event resolution — the admin belongs to org1 only, so
+	// org2's event "e2" stays out of reach (the cross-event denial fixtures).
+	await db.insert(organizationMembers).values({
+		organizationId: "org1",
+		userId: "u_admin",
 	});
 	await db.insert(emailTemplates).values([
 		{
