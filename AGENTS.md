@@ -16,7 +16,7 @@ One row per topic below, pointing to where the depth lives; an agent reads only 
 | Definition of done — scenarios + binding decisions (GAP-REGISTER) | before AND after building | `docs/scenarios/` |
 | Judges' rubric → owning feature | your feature owns rubric IDs | `docs/eval-crosswalk.md` |
 | Platform rules (mandatory: D1, imports, R2, email, routing) | writing any code | `docs/rules/tech-stack.md` |
-| House conventions — golden path, design system, auth, current-event, comments, tests | writing any code or tests | `docs/rules/engineering.md` |
+| House conventions — golden path, design system, auth, current-event, bounded loaders, comments, tests | writing any code or tests | `docs/rules/engineering.md` |
 | Process — migrations, worktrees, git workflow, design-time gate, build waves | schema/deps/git/sequencing questions | `docs/rules/process.md` |
 | Route/file ownership | adding a route | `docs/ROUTE-MAP.md` |
 | Screens → reference screenshots | building UI | `docs/BUILD-SCREENS.md` |

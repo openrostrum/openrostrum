@@ -89,12 +89,25 @@ export async function loadSubmissionList(
 			const page = Math.min(requestedPage, pageCount);
 
 			const rows = await db.query.submissions.findMany({
+				// Columns match the row projection below (docs/rules/engineering.md
+				// "Bounded loaders") — full rows haul multi-KB descriptions per page.
+				columns: {
+					id: true,
+					title: true,
+					status: true,
+					contentStatus: true,
+					startsAt: true,
+					endsAt: true,
+					createdAt: true,
+				},
 				where,
 				with: {
-					format: true,
-					room: true,
+					format: { columns: { name: true } },
+					room: { columns: { name: true } },
 					participants: { columns: { id: true } },
-					submissionTracks: { with: { track: true } },
+					submissionTracks: {
+						with: { track: { columns: { name: true, color: true } } },
+					},
 				},
 				orderBy: (s, { desc }) => [desc(s.createdAt), desc(s.id)],
 				limit: PAGE_SIZE,
