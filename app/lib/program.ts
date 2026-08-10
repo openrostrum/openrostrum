@@ -161,7 +161,20 @@ export async function loadPublicSessions(
 	db: Db,
 	event: EventRow,
 ): Promise<PublicSession[]> {
+	// Narrow columns: hauling full rows made this query's cost scale with
+	// content size, and full contact rows would carry emails/phones into the
+	// Worker — the projection below must stay the only shape that exists here.
 	const rows = await db.query.submissions.findMany({
+		columns: {
+			id: true,
+			title: true,
+			description: true,
+			formatId: true,
+			language: true,
+			roomId: true,
+			startsAt: true,
+			endsAt: true,
+		},
 		where: (s, { and: andOp, eq: eqOp, isNull }) =>
 			andOp(
 				eqOp(s.eventId, event.id),
@@ -170,11 +183,29 @@ export async function loadPublicSessions(
 				isNull(s.parentId),
 			),
 		with: {
-			format: true,
-			level: true,
-			room: true,
-			submissionTracks: { with: { track: true } },
-			participants: { with: { contact: true } },
+			format: { columns: { name: true } },
+			level: { columns: { name: true } },
+			room: { columns: { name: true, displayOrder: true } },
+			submissionTracks: {
+				columns: {},
+				with: { track: { columns: { id: true, name: true, color: true } } },
+			},
+			participants: {
+				columns: { contactId: true, role: true, position: true },
+				with: {
+					contact: {
+						columns: {
+							id: true,
+							firstName: true,
+							lastName: true,
+							jobTitle: true,
+							companyName: true,
+							bio: true,
+							publicVisible: true,
+						},
+					},
+				},
+			},
 		},
 	});
 
@@ -273,6 +304,7 @@ async function latestHeadshots(
 ): Promise<Map<string, string>> {
 	if (contactIds.size === 0) return new Map();
 	const rows = await db.query.files.findMany({
+		columns: { id: true, contactId: true },
 		where: (f, { and: andOp, eq: eqOp }) =>
 			andOp(eqOp(f.eventId, eventId), eqOp(f.kind, "headshot")),
 		orderBy: (f, { desc }) => [desc(f.version), desc(f.createdAt)],
