@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import { emailSuppressions } from "../app/db/schema";
 import {
-	appendUnsubscribeFooter,
 	mintUnsubscribeToken,
 	verifyUnsubscribeToken,
 } from "../app/lib/unsubscribe";
@@ -47,20 +46,6 @@ describe("unsubscribe token", () => {
 		await expect(
 			mintUnsubscribeToken(prodish, "leo@example.com"),
 		).rejects.toThrow(/UNSUBSCRIBE_SECRET/);
-	});
-
-	it("footer carries a working unsubscribe link for that recipient", async () => {
-		const html = await appendUnsubscribeFooter(
-			env,
-			"<p>News</p>",
-			"http://localhost",
-			"leo@example.com",
-		);
-		const url = html.match(/href="([^"]+)"/)?.[1];
-		expect(url).toContain("http://localhost/unsubscribe/");
-		const token = url?.split("/unsubscribe/")[1] ?? "";
-		expect(await verifyUnsubscribeToken(env, token)).toBe("leo@example.com");
-		expect(html).toContain("your own submissions");
 	});
 });
 

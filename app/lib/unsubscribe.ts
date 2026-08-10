@@ -1,12 +1,17 @@
 /**
- * Signed unsubscribe tokens + the announcement footer. The token embeds the
- * address and an HMAC so the footer link works logged-out without letting
+ * Signed unsubscribe tokens + the announcement send path. The token embeds
+ * the address and an HMAC so the footer link works logged-out without letting
  * anyone unsubscribe an arbitrary address. Tokens never expire — links in
  * already-sent emails must keep resolving.
  *
- * Suppression is person-global by recorded decision (docs/scenarios/walks/
- * 08-emails.walk.md T2): one address, one list, across organizations.
+ * Suppression is deliberately person-global: one address, one list, across
+ * organizations — over-suppressing is the safe failure mode.
  */
+import {
+	type EmailMessage,
+	type EmailResult,
+	getEmailSender,
+} from "~/ports/email";
 
 // Local-only fallback: with no real mail provider configured, tokens never
 // leave the machine. When RESEND_API_KEY is set, a real secret is REQUIRED —
@@ -97,12 +102,7 @@ export async function unsubscribeUrl(
 	return `${origin}/unsubscribe/${await mintUnsubscribeToken(env, email)}`;
 }
 
-/**
- * Append the unsubscribe footer to an announcement body. Every
- * `kind: "bulk"` send must go out with this footer — transactional
- * emails never carry it (unsubscribing can't hide an acceptance).
- */
-export async function appendUnsubscribeFooter(
+async function appendUnsubscribeFooter(
 	env: Env,
 	html: string,
 	origin: string,
@@ -110,4 +110,20 @@ export async function appendUnsubscribeFooter(
 ): Promise<string> {
 	const url = await unsubscribeUrl(env, origin, email);
 	return `${html}<hr style="margin-top:24px;border:none;border-top:1px solid #ddd" /><p style="font-size:12px;color:#777">You received this announcement from an event organizer. <a href="${url}">Unsubscribe</a> from announcements — you'll still receive emails about your own submissions.</p>`;
+}
+
+/**
+ * THE way to send an announcement. Couples the two halves no bulk send may
+ * separate — the unsubscribe footer and `kind: "bulk"` (suppression check) —
+ * into one call, so a compliant send is the only send a caller can write.
+ * Transactional mail (about the recipient's own submissions/account) goes
+ * through the EmailSender port directly and never carries the footer.
+ */
+export async function sendAnnouncement(
+	env: Env,
+	origin: string,
+	msg: Omit<EmailMessage, "kind">,
+): Promise<EmailResult> {
+	const html = await appendUnsubscribeFooter(env, msg.html, origin, msg.to);
+	return getEmailSender(env).send({ ...msg, html, kind: "bulk" });
 }

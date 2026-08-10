@@ -4,6 +4,7 @@ import { getDb } from "~/db";
 import { EMAIL_STATUS, emailOutbox, emailTemplates } from "~/db/schema";
 import { HistoryDetail } from "~/emails/history-detail";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { formatInTimeZone } from "~/lib/dates";
 import { createTimings } from "~/lib/track";
 import {
 	type BadgeTone,
@@ -38,18 +39,6 @@ const STATUS_TONE: Record<string, BadgeTone> = {
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
-}
-
-function formatInTz(date: Date | null, timeZone: string): string {
-	if (!date) return "—";
-	return new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-		hour: "numeric",
-		minute: "2-digit",
-	}).format(date);
 }
 
 function kindOf(category: string | null): string {
@@ -162,7 +151,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				status: r.status,
 				kind: kindOf(r.templateCategory),
 				templateName: r.templateName ?? "—",
-				sentAtLabel: formatInTz(r.sentAt ?? r.createdAt, tz),
+				sentAtLabel: formatInTimeZone(r.sentAt ?? r.createdAt, tz),
 			})),
 			total: totalRow?.n ?? 0,
 			page,
@@ -176,7 +165,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 						replyTo: open.replyTo,
 						subject: open.subject,
 						statusLabel: open.status,
-						sentAtLabel: formatInTz(open.sentAt, tz),
+						sentAtLabel: formatInTimeZone(open.sentAt, tz),
 						templateName: open.templateName,
 						error: open.error,
 						hasIcs: Boolean(open.icsAttachment),

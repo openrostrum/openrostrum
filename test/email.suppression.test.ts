@@ -3,12 +3,17 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import { emailOutbox, emailSuppressions } from "../app/db/schema";
+import {
+	sendAnnouncement,
+	verifyUnsubscribeToken,
+} from "../app/lib/unsubscribe";
 import { getEmailSender } from "../app/ports/email";
 
-// Oracle: SCOPE K13 — suppression applies to announcements ("bulk") ONLY;
-// everything that follows from the recipient's own submission/account is
-// "transactional" and ALWAYS delivers. Runs the real port against real D1.
-describe("suppression gate (K13 matrix)", () => {
+// Oracle: the suppression contract — unsubscribing silences announcements
+// ("bulk") ONLY; everything that follows from the recipient's own
+// submission/account is "transactional" and ALWAYS delivers (an unsubscribe
+// must never hide an acceptance). Runs the real port against real D1.
+describe("suppression gate", () => {
 	async function suppress(email: string) {
 		await getDb(env)
 			.insert(emailSuppressions)
@@ -68,6 +73,37 @@ describe("suppression gate (K13 matrix)", () => {
 		expect(explicit.suppressed).toBe(false);
 		expect(defaulted.suppressed).toBe(false);
 		expect(await getDb(env).select().from(emailOutbox)).toHaveLength(2);
+	});
+});
+
+describe("sendAnnouncement (the one bulk-send path)", () => {
+	it("delivers with an unsubscribe footer whose link verifies for that recipient", async () => {
+		const res = await sendAnnouncement(env, "http://localhost", {
+			to: "priya@example.com",
+			subject: "Speaker news",
+			html: "<p>News</p>",
+		});
+		expect(res.suppressed).toBe(false);
+		const [row] = await getDb(env).select().from(emailOutbox);
+		expect(row?.html).toContain("<p>News</p>");
+		const url = row?.html.match(/href="([^"]+)"/)?.[1];
+		expect(url).toContain("http://localhost/unsubscribe/");
+		const token = url?.split("/unsubscribe/")[1] ?? "";
+		expect(await verifyUnsubscribeToken(env, token)).toBe("priya@example.com");
+		expect(row?.html).toContain("your own submissions");
+	});
+
+	it("skips suppressed recipients before any outbox row", async () => {
+		await getDb(env)
+			.insert(emailSuppressions)
+			.values({ email: "leo@example.com", reason: "unsubscribe_link" });
+		const res = await sendAnnouncement(env, "http://localhost", {
+			to: "leo@example.com",
+			subject: "Speaker news",
+			html: "<p>News</p>",
+		});
+		expect(res.suppressed).toBe(true);
+		expect(await getDb(env).select().from(emailOutbox)).toHaveLength(0);
 	});
 });
 

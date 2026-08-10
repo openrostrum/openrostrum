@@ -22,7 +22,11 @@ export const MERGE_TAGS = [
 	{ tag: "form_close_date", label: "Submission form close date" },
 ] as const;
 
-export type MergeContext = Partial<Record<string, string | null>>;
+export type MergeTag = (typeof MERGE_TAGS)[number]["tag"];
+
+/** Keyed on the published tag union so a typo'd key at a send site is a
+ * compile error instead of silently-deleted content in a delivered email. */
+export type MergeContext = Partial<Record<MergeTag, string | null>>;
 
 const TAG_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 
@@ -40,8 +44,9 @@ function substitute(
 	ctx: MergeContext,
 	transform: (value: string) => string,
 ): string {
+	const values = ctx as Partial<Record<string, string | null>>;
 	return template.replace(TAG_RE, (_match, tag: string) => {
-		const value = ctx[tag.toLowerCase()];
+		const value = values[tag.toLowerCase()];
 		return value ? transform(value) : "";
 	});
 }

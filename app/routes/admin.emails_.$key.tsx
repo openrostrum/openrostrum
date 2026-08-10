@@ -5,9 +5,11 @@ import { data, useFetcher } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { emailTemplates, forms, portals } from "~/db/schema";
+import { Hint } from "~/emails/hint";
 import { RichText } from "~/emails/rich-text";
-import { Hint, TemplatePreview } from "~/emails/template-preview";
+import { TemplatePreview } from "~/emails/template-preview";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { formatInTimeZone } from "~/lib/dates";
 import type { MergeContext } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
@@ -26,8 +28,8 @@ const EditTemplate = createInsertSchema(emailTemplates)
 	.pick({ name: true, subject: true, bodyHtml: true, replyTo: true })
 	.extend({
 		name: z.string().min(1, "Name is required").max(255),
-		// drizzle-zod maps the notNull-with-default column to a string that
-		// accepts "" — the refine is what makes EM-S1's blank-subject save fail.
+		// drizzle-zod maps the notNull-with-default column to a z.string() that
+		// accepts "" — without the refine, a blank subject silently saves.
 		subject: z.string().min(1, "Subject is required").max(500),
 		bodyHtml: z.string().max(100_000),
 		replyTo: z
@@ -39,16 +41,6 @@ const EditTemplate = createInsertSchema(emailTemplates)
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
-}
-
-function formatInTz(date: Date, timeZone: string, withTime: boolean): string {
-	return new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-		...(withTime ? { hour: "numeric", minute: "2-digit" } : {}),
-	}).format(date);
 }
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
@@ -110,7 +102,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		event_name: event.name,
 		session_title: sample.submission?.title ?? "Sample session title",
 		session_date_time: sample.submission?.startsAt
-			? formatInTz(sample.submission.startsAt, tz, true)
+			? formatInTimeZone(sample.submission.startsAt, tz)
 			: null,
 		session_room: sample.submission?.room?.name ?? null,
 		portal_link: sample.portal
@@ -118,7 +110,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			: null,
 		form_title: sample.form?.externalTitle ?? null,
 		form_close_date: sample.form?.closeAt
-			? formatInTz(sample.form.closeAt, tz, true)
+			? formatInTimeZone(sample.form.closeAt, tz)
 			: null,
 	};
 

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { renderBody, renderSubject } from "../app/lib/email-render";
 
-// Oracle: scenario 08 (EM-S1/S3) — delivered bodies show recipient values and
-// "zero unresolved merge-tag tokens"; merge values are data, never markup.
+// Oracle: the renderer's delivery contract — recipient values resolve, zero
+// unresolved {{...}} tokens ever reach a delivered email, and merge values
+// are data, never markup.
 describe("merge-tag renderer", () => {
 	const ctx = {
 		first_name: "Priya",

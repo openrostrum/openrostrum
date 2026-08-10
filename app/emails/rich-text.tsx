@@ -5,11 +5,8 @@ import { cn } from "~/ui/cn";
 
 /**
  * The shared rich-text editor (Tiptap, `immediatelyRender: false` for SSR).
- * Lives here pending adoption into `app/ui` (integration-owner request filed
- * with the emails PR) — swapping it in later is an import-path change only.
- *
- * Form integration: keeps a hidden input in sync so a plain <Form method=post>
- * submits the HTML under `name` with no client JS beyond the editor itself.
+ * Form integration: submits the HTML under `name` through a hidden input, so
+ * it works inside any plain <Form method=post>.
  */
 export function RichText({
 	name,
@@ -28,9 +25,7 @@ export function RichText({
 		content: defaultValue,
 		immediatelyRender: false,
 		onUpdate({ editor: e }) {
-			const next = e.getHTML();
-			if (inputRef.current) inputRef.current.value = next;
-			onChange?.(next);
+			onChange?.(e.getHTML());
 		},
 		editorProps: {
 			attributes: {
