@@ -1,16 +1,12 @@
 import { asc, count, eq, sql } from "drizzle-orm";
-import { data, Form, redirect, useFetcher } from "react-router";
+import { data, Form, redirect, useFetcher, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { PIPELINE_STAGE } from "~/db/constants";
 import { pipelineCards } from "~/db/schema";
 import { PipelineCardTile, PipelineColumn } from "~/components/pipeline-card";
-import {
-	enrollInPipeline,
-	movePipelineCard,
-	resolveCrmOrg,
-} from "~/domain/crm";
-import { normalizeEmail, requireAdmin } from "~/lib/auth";
+import { enrollInPipeline, movePipelineCard } from "~/domain/crm";
+import { normalizeEmail, requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import {
 	isPipelineStage,
 	PIPELINE_STAGE_LABEL,
@@ -64,7 +60,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
 	const timings = createTimings();
-	const org = await timings.time("org", () => resolveCrmOrg(env, db, user));
+	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	if (!org) throw redirect("/admin/crm");
 	// Bounded board: the oldest PER_COLUMN cards per stage (row_number over a
 	// stage partition), with true per-stage totals for the honest "+N more" note.
@@ -130,7 +126,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	// Actions MUST self-authenticate — a POST does not re-run the layout loader.
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
-	const org = await resolveCrmOrg(env, db, user);
+	const org = await resolveActiveOrg(env, user);
 	if (!org) {
 		return { formError: "No organization is configured yet." };
 	}
@@ -253,6 +249,7 @@ export default function CrmPipeline({
 	actionData,
 }: Route.ComponentProps) {
 	const { columns, total } = loaderData;
+	const busy = useNavigation().state !== "idle";
 	const fieldErrors =
 		actionData && "fieldErrors" in actionData
 			? actionData.fieldErrors
@@ -298,7 +295,13 @@ export default function CrmPipeline({
 							placeholder="Why this prospect (optional)"
 						/>
 					</Field>
-					<Button type="submit" name="intent" value="enroll" icon="plus">
+					<Button
+						type="submit"
+						name="intent"
+						value="enroll"
+						icon="plus"
+						disabled={busy}
+					>
 						Enroll
 					</Button>
 					{formError && <ErrorText>{formError}</ErrorText>}

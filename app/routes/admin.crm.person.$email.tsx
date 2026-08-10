@@ -1,23 +1,22 @@
 import { and, asc, eq } from "drizzle-orm";
-import { data, Form, redirect } from "react-router";
+import { data, Form, redirect, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { PIPELINE_STAGE } from "~/db/constants";
-import { crmNotes, events, pipelineCards } from "~/db/schema";
+import { events, pipelineCards } from "~/db/schema";
 import { CONTACT_STATUS_TONE } from "~/components/contact-status";
 import { IdentityPanel } from "~/components/crm-identity";
 import { CrmNotesPanel } from "~/components/crm-notes";
 import { RichHtml } from "~/components/rich-html";
 import { SectionHeading } from "~/components/section-heading";
 import {
-	addPersonToEvent,
+	addCrmNote,
+	addPersonToEventNotice,
 	enrollInPipeline,
-	findOrgEvent,
 	queryNotes,
 	queryPerson,
-	resolveCrmOrg,
 } from "~/domain/crm";
-import { normalizeEmail, requireAdmin } from "~/lib/auth";
+import { normalizeEmail, requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { PIPELINE_STAGE_LABEL, PIPELINE_STAGE_TONE } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
@@ -42,13 +41,6 @@ import type { Route } from "./+types/admin.crm.person.$email";
 
 const NOTES_SHOWN = 50;
 
-const AddNote = z.object({
-	body: z
-		.string()
-		.trim()
-		.min(1, "Write the note before saving.")
-		.max(4000, "Keep notes under 4,000 characters."),
-});
 const AddToEvent = z.object({
 	targetEventId: z.string().min(1, "Pick an event."),
 });
@@ -63,7 +55,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
 	const timings = createTimings();
-	const org = await timings.time("org", () => resolveCrmOrg(env, db, user));
+	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	if (!org) throw redirect("/admin/crm");
 	const email = normalizeEmail(params.email);
 	const [person, noteThread, card, orgEvents] = await timings.time("db", () =>
@@ -116,7 +108,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	// Actions MUST self-authenticate — a POST does not re-run the layout loader.
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
-	const org = await resolveCrmOrg(env, db, user);
+	const org = await resolveActiveOrg(env, user);
 	if (!org) return { formError: "No organization is configured yet." };
 	const email = normalizeEmail(params.email);
 	const actor = { id: user.id, name: user.name ?? user.email };
@@ -125,24 +117,16 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const timings = createTimings();
 
 	if (intent === "add-note") {
-		const parsed = AddNote.safeParse({ body: form.get("body") });
-		if (!parsed.success) {
-			return { noteError: parsed.error.issues[0]?.message ?? "Invalid note." };
-		}
+		let result: Awaited<ReturnType<typeof addCrmNote>>;
 		try {
-			await timings.time("db", () =>
-				db.insert(crmNotes).values({
-					organizationId: org.id,
-					email,
-					authorId: actor.id,
-					authorName: actor.name,
-					body: parsed.data.body,
-				}),
+			result = await timings.time("db", () =>
+				addCrmNote(db, org.id, email, actor, String(form.get("body") ?? "")),
 			);
 		} catch (error) {
 			track("crm.note_failed", { orgId: org.id, error: errorMessage(error) });
 			return { noteError: "Could not save the note — please try again." };
 		}
+		if (!result.ok) return { noteError: result.reason };
 		track("crm.note_added", { orgId: org.id });
 		return data(
 			{ notice: "Note saved." },
@@ -157,30 +141,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		if (!parsed.success) {
 			return { formError: parsed.error.issues[0]?.message ?? "Pick an event." };
 		}
-		const result = await timings.time("db", async () => {
-			// Name lookup doubles as the org check; addPersonToEvent re-verifies
-			// internally, so a forged event id can never be written into.
-			const target = await findOrgEvent(db, org.id, parsed.data.targetEventId);
-			if (!target) {
-				return {
-					formError: "That event does not belong to your organization.",
-				};
-			}
-			const outcome = await addPersonToEvent(db, org.id, email, target.id);
-			track("crm.added_to_event", {
-				orgId: org.id,
-				eventId: target.id,
-				outcome,
-			});
-			if (outcome === "missing" || outcome === "foreign") {
-				return { formError: "This person is no longer in the directory." };
-			}
-			return {
-				notice:
-					outcome === "added"
-						? `Added to ${target.name} — profile fields carried over, workflow status starts at pending.`
-						: `Already a contact in ${target.name}.`,
-			};
+		const { outcome, ...result } = await timings.time("db", () =>
+			addPersonToEventNotice(db, org.id, email, parsed.data.targetEventId),
+		);
+		track("crm.added_to_event", {
+			orgId: org.id,
+			eventId: parsed.data.targetEventId,
+			outcome,
 		});
 		return data(result, { headers: { "Server-Timing": timings.header() } });
 	}
@@ -215,6 +182,7 @@ export default function CrmPerson({
 }: Route.ComponentProps) {
 	const { person, email, notes, noteCount, card, addableEvents } = loaderData;
 	const name = `${person.firstName} ${person.lastName}`.trim();
+	const busy = useNavigation().state !== "idle";
 	const formError =
 		actionData && "formError" in actionData ? actionData.formError : undefined;
 	const noteError =
@@ -303,7 +271,13 @@ export default function CrmPerson({
 										))}
 									</Select>
 								</Field>
-								<Button type="submit" name="intent" value="enroll" icon="plus">
+								<Button
+									type="submit"
+									name="intent"
+									value="enroll"
+									icon="plus"
+									disabled={busy}
+								>
 									Enroll
 								</Button>
 							</Form>
@@ -327,6 +301,7 @@ export default function CrmPerson({
 									name="intent"
 									value="add-to-event"
 									icon="plus"
+									disabled={busy}
 								>
 									Add to event
 								</Button>
@@ -361,7 +336,12 @@ export default function CrmPerson({
 				</Table>
 			</div>
 
-			<CrmNotesPanel notes={notes} total={noteCount} error={noteError} />
+			<CrmNotesPanel
+				notes={notes}
+				total={noteCount}
+				error={noteError}
+				busy={busy}
+			/>
 		</div>
 	);
 }

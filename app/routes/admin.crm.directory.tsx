@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { useState } from "react";
-import { data, Form, Link, redirect } from "react-router";
+import { data, Form, Link, redirect, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { CONTACT_STATUS, PIPELINE_STAGE } from "~/db/constants";
@@ -10,14 +10,11 @@ import {
 	addPersonToEvent,
 	countDirectory,
 	enrollInPipeline,
-	findOrgEvent,
 	queryDirectoryPage,
-	resolveCrmOrg,
 } from "~/domain/crm";
-import { normalizeEmail, requireAdmin } from "~/lib/auth";
+import { normalizeEmail, requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import {
 	directoryFiltersFromParams,
-	directoryFiltersToStored,
 	directoryUrl,
 	hasDirectoryFilters,
 } from "~/lib/crm-filters";
@@ -78,7 +75,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
 	const timings = createTimings();
-	const org = await timings.time("org", () => resolveCrmOrg(env, db, user));
+	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	if (!org) throw redirect("/admin/crm");
 	const url = new URL(request.url);
 	const filters = directoryFiltersFromParams(url.searchParams);
@@ -144,7 +141,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	// Actions MUST self-authenticate — a POST does not re-run the layout loader.
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
-	const org = await resolveCrmOrg(env, db, user);
+	const org = await resolveActiveOrg(env, user);
 	if (!org) {
 		return { formError: "No organization is configured yet." };
 	}
@@ -176,24 +173,35 @@ async function addToEventAction(
 	}
 	const timings = createTimings();
 	const result = await timings.time("db", async () => {
-		// Name lookup doubles as the org check; addPersonToEvent re-verifies
-		// internally, so a forged event id can never be written into.
-		const target = await findOrgEvent(db, orgId, parsed.data.targetEventId);
-		if (!target) {
-			return { formError: "That event does not belong to your organization." };
-		}
 		let added = 0;
 		let already = 0;
 		let missing = 0;
+		let eventName = "";
 		for (const raw of new Set(parsed.data.emails.map(normalizeEmail))) {
-			const outcome = await addPersonToEvent(db, orgId, raw, target.id);
-			if (outcome === "added") added += 1;
-			else if (outcome === "already") already += 1;
+			const outcome = await addPersonToEvent(
+				db,
+				orgId,
+				raw,
+				parsed.data.targetEventId,
+			);
+			if (outcome.outcome === "foreign") {
+				return {
+					formError: "That event does not belong to your organization.",
+				};
+			}
+			eventName = outcome.eventName;
+			if (outcome.outcome === "added") added += 1;
+			else if (outcome.outcome === "already") already += 1;
 			else missing += 1;
 		}
-		track("crm.added_to_event", { orgId, eventId: target.id, added, already });
+		track("crm.added_to_event", {
+			orgId,
+			eventId: parsed.data.targetEventId,
+			added,
+			already,
+		});
 		const parts = [
-			`${added} added to ${target.name}`,
+			`${added} added to ${eventName}`,
 			already ? `${already} already there` : null,
 			missing ? `${missing} not found in the directory` : null,
 		].filter(Boolean);
@@ -268,7 +276,7 @@ async function saveSegmentAction(
 				organizationId: orgId,
 				name: parsed.data.name,
 				createdById: userId,
-				filters: directoryFiltersToStored(filters),
+				filters,
 			})
 			.returning({ id: crmSegments.id });
 		track("crm.segment_saved", { orgId, segmentId: created?.id });
@@ -287,6 +295,7 @@ export default function CrmDirectory({
 	actionData,
 }: Route.ComponentProps) {
 	const { people, total, page, perPage, filters, events, segment } = loaderData;
+	const busy = useNavigation().state !== "idle";
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	const toggleSelected = (email: string, checked: boolean) => {
 		setSelected((prev) => {
@@ -404,7 +413,7 @@ export default function CrmDirectory({
 						name="intent"
 						value="add-to-event"
 						icon="plus"
-						disabled={selected.size === 0}
+						disabled={busy || selected.size === 0}
 					>
 						Add to event
 					</Button>
@@ -423,7 +432,7 @@ export default function CrmDirectory({
 						value="enroll"
 						variant="ghost"
 						icon="clipboard"
-						disabled={selected.size === 0}
+						disabled={busy || selected.size === 0}
 					>
 						Enroll in pipeline
 					</Button>

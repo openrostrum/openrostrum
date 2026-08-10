@@ -2,8 +2,8 @@ import { count, eq } from "drizzle-orm";
 import { data, Outlet, useLocation } from "react-router";
 import { getDb } from "~/db";
 import { crmSegments, pipelineCards } from "~/db/schema";
-import { countDirectory, resolveCrmOrg } from "~/domain/crm";
-import { requireAdmin } from "~/lib/auth";
+import { countDirectory } from "~/domain/crm";
+import { requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import { createTimings } from "~/lib/track";
 import { ButtonLink, EmptyState, PageHeader, Panel, Tab, Tabs } from "~/ui";
 import type { Route } from "./+types/admin.crm";
@@ -23,7 +23,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
 	const timings = createTimings();
-	const org = await timings.time("org", () => resolveCrmOrg(env, db, user));
+	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	if (!org) {
 		return data(
 			{ org: null, counts: null },

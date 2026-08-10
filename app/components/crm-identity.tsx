@@ -25,8 +25,10 @@ export function IdentityPanel({
 		<Panel>
 			<div className="flex flex-col gap-3">
 				<SectionHeading aside={aside}>{heading}</SectionHeading>
-				<p className="text-[15px] font-medium text-fg">{name}</p>
-				<p className="font-mono text-[12px] text-fg-muted">{email}</p>
+				<p className="text-[13px] font-medium text-fg">{name}</p>
+				<p className="font-mono text-[12px] tabular-nums text-fg-muted">
+					{email}
+				</p>
 				{lines.map((line) => (
 					<p key={line} className="text-[13px] text-fg-muted">
 						{line}

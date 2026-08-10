@@ -1,30 +1,21 @@
 import { CONTACT_STATUS } from "~/db/constants";
 
 /**
- * The directory filter set and its three serialized forms — URL params
- * (`event` param ↔ `eventId` field), stored segment JSON, and back. ONE codec
- * so the directory page, saved segments, and pagination links can never
- * disagree about what a filter set means. Client-safe (no drizzle) because
- * route components build pagination/segment URLs from it.
+ * The directory filter set — ONE optional-field shape used verbatim as the
+ * URL-param codec's output, the stored segment JSON (JSON.stringify drops
+ * undefined keys), and the query input, so the directory page, saved
+ * segments, and pagination links can never disagree about what a filter set
+ * means. Client-safe (no drizzle): route components build links from it.
  */
 export interface DirectoryFilters {
-	q?: string | null;
-	company?: string | null;
-	title?: string | null;
-	eventId?: string | null;
-	status?: CrmContactStatus | null;
-}
-
-export type CrmContactStatus = (typeof CONTACT_STATUS)[number];
-
-/** Stored shape on crm_segments.filters (absent keys instead of nulls). */
-export interface StoredSegmentFilters {
 	q?: string;
 	company?: string;
 	title?: string;
 	eventId?: string;
-	status?: string;
+	status?: CrmContactStatus;
 }
+
+export type CrmContactStatus = (typeof CONTACT_STATUS)[number];
 
 export function isCrmContactStatus(value: unknown): value is CrmContactStatus {
 	return (
@@ -42,11 +33,11 @@ export function directoryFiltersFromParams(
 ): DirectoryFilters {
 	const status = params.get("status");
 	return {
-		q: params.get("q"),
-		company: params.get("company"),
-		title: params.get("title"),
-		eventId: params.get("event"),
-		status: isCrmContactStatus(status) ? status : null,
+		q: params.get("q") || undefined,
+		company: params.get("company") || undefined,
+		title: params.get("title") || undefined,
+		eventId: params.get("event") || undefined,
+		status: isCrmContactStatus(status) ? status : undefined,
 	};
 }
 
@@ -60,27 +51,21 @@ export function directoryFiltersToParams(f: DirectoryFilters): URLSearchParams {
 	return params;
 }
 
-export function directoryFiltersToStored(
-	f: DirectoryFilters,
-): StoredSegmentFilters {
+/** Narrow persisted JSON back to the filter shape (an unknown stored status —
+ * e.g. after an enum change — degrades to "no status filter", never a 500). */
+export function sanitizeStoredFilters(stored: {
+	q?: string;
+	company?: string;
+	title?: string;
+	eventId?: string;
+	status?: string;
+}): DirectoryFilters {
 	return {
-		q: f.q || undefined,
-		company: f.company || undefined,
-		title: f.title || undefined,
-		eventId: f.eventId || undefined,
-		status: f.status || undefined,
-	};
-}
-
-export function storedFiltersToDirectory(
-	stored: StoredSegmentFilters,
-): DirectoryFilters {
-	return {
-		q: stored.q ?? null,
-		company: stored.company ?? null,
-		title: stored.title ?? null,
-		eventId: stored.eventId ?? null,
-		status: isCrmContactStatus(stored.status) ? stored.status : null,
+		q: stored.q || undefined,
+		company: stored.company || undefined,
+		title: stored.title || undefined,
+		eventId: stored.eventId || undefined,
+		status: isCrmContactStatus(stored.status) ? stored.status : undefined,
 	};
 }
 
@@ -92,8 +77,8 @@ export function directoryUrl(f: DirectoryFilters, page?: number): string {
 }
 
 /** Reopen link for a saved segment: its filters expanded + the segment id. */
-export function segmentUrl(id: string, stored: StoredSegmentFilters): string {
-	const params = directoryFiltersToParams(storedFiltersToDirectory(stored));
+export function segmentUrl(id: string, f: DirectoryFilters): string {
+	const params = directoryFiltersToParams(f);
 	params.set("segment", id);
 	return `/admin/crm/directory?${params.toString()}`;
 }

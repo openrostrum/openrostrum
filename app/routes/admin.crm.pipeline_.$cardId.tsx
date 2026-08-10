@@ -1,25 +1,19 @@
 import { and, asc, count, desc, eq } from "drizzle-orm";
-import { data, Form, redirect } from "react-router";
+import { data, Form, redirect, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { PIPELINE_STAGE } from "~/db/constants";
-import {
-	crmNotes,
-	events,
-	pipelineCards,
-	pipelineStageChanges,
-} from "~/db/schema";
+import { events, pipelineCards, pipelineStageChanges } from "~/db/schema";
 import { IdentityPanel } from "~/components/crm-identity";
 import { CrmNotesPanel } from "~/components/crm-notes";
 import { SectionHeading } from "~/components/section-heading";
 import {
-	addPersonToEvent,
-	findOrgEvent,
+	addCrmNote,
+	addPersonToEventNotice,
 	movePipelineCard,
 	queryNotes,
-	resolveCrmOrg,
 } from "~/domain/crm";
-import { requireAdmin } from "~/lib/auth";
+import { requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatInTz } from "~/lib/format";
 import { PIPELINE_STAGE_LABEL, PIPELINE_STAGE_TONE } from "~/lib/pipeline";
@@ -49,13 +43,6 @@ const NOTES_SHOWN = 50;
 const HISTORY_SHOWN = 100;
 
 const Move = z.object({ stage: z.enum(PIPELINE_STAGE) });
-const AddNote = z.object({
-	body: z
-		.string()
-		.trim()
-		.min(1, "Write the note before saving.")
-		.max(4000, "Keep notes under 4,000 characters."),
-});
 const AssignToEvent = z.object({
 	targetEventId: z.string().min(1, "Pick an event."),
 });
@@ -87,7 +74,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
 	const timings = createTimings();
-	const org = await timings.time("org", () => resolveCrmOrg(env, db, user));
+	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	if (!org) throw redirect("/admin/crm");
 	const card = await timings.time("card", () =>
 		findCard(db, org.id, params.cardId),
@@ -141,7 +128,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	// Actions MUST self-authenticate — a POST does not re-run the layout loader.
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
-	const org = await resolveCrmOrg(env, db, user);
+	const org = await resolveActiveOrg(env, user);
 	if (!org) return { formError: "No organization is configured yet." };
 	const card = await findCard(db, org.id, params.cardId);
 	if (!card) {
@@ -173,26 +160,22 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	}
 
 	if (intent === "add-note") {
-		const parsed = AddNote.safeParse({ body: form.get("body") });
-		if (!parsed.success) {
-			return {
-				noteError: parsed.error.issues[0]?.message ?? "Invalid note.",
-			};
-		}
+		let result: Awaited<ReturnType<typeof addCrmNote>>;
 		try {
-			await timings.time("db", () =>
-				db.insert(crmNotes).values({
-					organizationId: org.id,
-					email: card.email,
-					authorId: actor.id,
-					authorName: actor.name,
-					body: parsed.data.body,
-				}),
+			result = await timings.time("db", () =>
+				addCrmNote(
+					db,
+					org.id,
+					card.email,
+					actor,
+					String(form.get("body") ?? ""),
+				),
 			);
 		} catch (error) {
 			track("crm.note_failed", { orgId: org.id, error: errorMessage(error) });
 			return { noteError: "Could not save the note — please try again." };
 		}
+		if (!result.ok) return { noteError: result.reason };
 		track("crm.note_added", { orgId: org.id, cardId: card.id });
 		return data(
 			{ notice: "Note saved." },
@@ -207,33 +190,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		if (!parsed.success) {
 			return { formError: parsed.error.issues[0]?.message ?? "Pick an event." };
 		}
-		const result = await timings.time("db", async () => {
-			// Name lookup doubles as the org check; addPersonToEvent re-verifies
-			// internally, so a forged event id can never be written into.
-			const target = await findOrgEvent(db, org.id, parsed.data.targetEventId);
-			if (!target) {
-				return {
-					formError: "That event does not belong to your organization.",
-				};
-			}
-			const outcome = await addPersonToEvent(db, org.id, card.email, target.id);
-			track("crm.added_to_event", {
-				orgId: org.id,
-				eventId: target.id,
-				outcome,
-			});
-			if (outcome === "missing" || outcome === "foreign") {
-				return {
-					formError:
-						"No directory record remains for this person — they may have been removed from every event.",
-				};
-			}
-			return {
-				notice:
-					outcome === "added"
-						? `Added to ${target.name} — they now appear in that event's roster.`
-						: `Already a contact in ${target.name}.`,
-			};
+		const { outcome, ...result } = await timings.time("db", () =>
+			addPersonToEventNotice(db, org.id, card.email, parsed.data.targetEventId),
+		);
+		track("crm.added_to_event", {
+			orgId: org.id,
+			eventId: parsed.data.targetEventId,
+			outcome,
 		});
 		return data(result, { headers: { "Server-Timing": timings.header() } });
 	}
@@ -257,6 +220,7 @@ export default function CrmPipelineCard({
 }: Route.ComponentProps) {
 	const { card, history, historyTotal, notes, noteCount, events } = loaderData;
 	const name = `${card.firstName} ${card.lastName}`.trim();
+	const busy = useNavigation().state !== "idle";
 	const formError =
 		actionData && "formError" in actionData ? actionData.formError : undefined;
 	const noteError =
@@ -312,7 +276,13 @@ export default function CrmPipelineCard({
 									))}
 								</Select>
 							</Field>
-							<Button type="submit" name="intent" value="move" variant="ghost">
+							<Button
+								type="submit"
+								name="intent"
+								value="move"
+								variant="ghost"
+								disabled={busy}
+							>
 								Move
 							</Button>
 						</Form>
@@ -334,6 +304,7 @@ export default function CrmPipelineCard({
 								name="intent"
 								value="assign-to-event"
 								icon="plus"
+								disabled={busy}
 							>
 								Add to event
 							</Button>
@@ -351,7 +322,12 @@ export default function CrmPipelineCard({
 				</Panel>
 			</div>
 
-			<CrmNotesPanel notes={notes} total={noteCount} error={noteError} />
+			<CrmNotesPanel
+				notes={notes}
+				total={noteCount}
+				error={noteError}
+				busy={busy}
+			/>
 
 			<div className="flex flex-col gap-3">
 				<Table>

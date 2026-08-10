@@ -1,8 +1,8 @@
 import { data, Link } from "react-router";
 import { getDb } from "~/db";
 import { StatCard } from "~/components/stat-card";
-import { queryCrmDashboard, resolveCrmOrg } from "~/domain/crm";
-import { requireAdmin } from "~/lib/auth";
+import { queryCrmDashboard } from "~/domain/crm";
+import { requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import { formatDateUTC } from "~/lib/format";
 import { PIPELINE_STAGE_LABEL, PIPELINE_STAGE_TONE } from "~/lib/pipeline";
 import { createTimings } from "~/lib/track";
@@ -31,7 +31,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
 	const timings = createTimings();
-	const org = await timings.time("org", () => resolveCrmOrg(env, db, user));
+	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	// No org: return empty data instead of redirecting — this route IS
 	// /admin/crm, so a redirect here would loop; the shell layout renders the
 	// "No organization yet" state and never mounts this component.

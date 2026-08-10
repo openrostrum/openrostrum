@@ -19,10 +19,13 @@ export function CrmNotesPanel({
 	notes,
 	total,
 	error,
+	busy,
 }: {
 	notes: Note[];
 	total: number;
 	error?: string;
+	/** Disables the composer while a submission is in flight (double-submit guard). */
+	busy?: boolean;
 }) {
 	return (
 		<Panel>
@@ -36,7 +39,13 @@ export function CrmNotesPanel({
 						<Textarea name="body" rows={2} />
 					</Field>
 					<div>
-						<Button type="submit" name="intent" value="add-note" icon="plus">
+						<Button
+							type="submit"
+							name="intent"
+							value="add-note"
+							icon="plus"
+							disabled={busy}
+						>
 							Add note
 						</Button>
 					</div>

@@ -2,12 +2,12 @@ import { and, asc, count, eq } from "drizzle-orm";
 import { data, Form, redirect } from "react-router";
 import { getDb } from "~/db";
 import { crmSegments, events } from "~/db/schema";
-import { countDirectory, resolveCrmOrg } from "~/domain/crm";
-import { requireAdmin } from "~/lib/auth";
+import { countDirectory } from "~/domain/crm";
+import { requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import {
+	type DirectoryFilters,
+	sanitizeStoredFilters,
 	segmentUrl,
-	type StoredSegmentFilters,
-	storedFiltersToDirectory,
 } from "~/lib/crm-filters";
 import { formatDateUTC } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
@@ -40,7 +40,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
 	const timings = createTimings();
-	const org = await timings.time("org", () => resolveCrmOrg(env, db, user));
+	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	if (!org) throw redirect("/admin/crm");
 	const { segments, total, eventNames } = await timings.time("db", async () => {
 		const [rows, [totalRow], orgEvents] = await Promise.all([
@@ -61,16 +61,15 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		]);
 		// Segments are dynamic: membership is computed live from the same
 		// predicate the directory filters with, never stored.
+		const filterSets = rows.map((s) => sanitizeStoredFilters(s.filters));
 		const members = await Promise.all(
-			rows.map((s) =>
-				countDirectory(db, org.id, storedFiltersToDirectory(s.filters)),
-			),
+			filterSets.map((f) => countDirectory(db, org.id, f)),
 		);
 		return {
 			segments: rows.map((s, i) => ({
 				id: s.id,
 				name: s.name,
-				filters: s.filters,
+				filters: filterSets[i] ?? {},
 				members: members[i] ?? 0,
 				createdAt: s.createdAt,
 			})),
@@ -92,17 +91,17 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 }
 
 function filterSummary(
-	stored: StoredSegmentFilters,
+	f: DirectoryFilters,
 	eventNames: Map<string, string>,
 ): string {
 	const parts: string[] = [];
-	if (stored.q) parts.push(`search "${stored.q}"`);
-	if (stored.company) parts.push(`company "${stored.company}"`);
-	if (stored.title) parts.push(`title "${stored.title}"`);
-	if (stored.eventId) {
-		parts.push(`event ${eventNames.get(stored.eventId) ?? "(deleted event)"}`);
+	if (f.q) parts.push(`search "${f.q}"`);
+	if (f.company) parts.push(`company "${f.company}"`);
+	if (f.title) parts.push(`title "${f.title}"`);
+	if (f.eventId) {
+		parts.push(`event ${eventNames.get(f.eventId) ?? "(deleted event)"}`);
 	}
-	if (stored.status) parts.push(`status ${stored.status}`);
+	if (f.status) parts.push(`status ${f.status}`);
 	return parts.join(" · ") || "no filters";
 }
 
@@ -111,7 +110,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	// Actions MUST self-authenticate — a POST does not re-run the layout loader.
 	const user = await requireAdmin(env, request);
 	const db = getDb(env);
-	const org = await resolveCrmOrg(env, db, user);
+	const org = await resolveActiveOrg(env, user);
 	if (!org) return { formError: "No organization is configured yet." };
 	const form = await request.formData();
 	if (form.get("intent") !== "delete") {

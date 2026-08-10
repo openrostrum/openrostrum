@@ -15,52 +15,13 @@ import {
 	contacts,
 	crmNotes,
 	events,
-	organizationMembers,
-	organizations,
+	participants,
 	pipelineCards,
 	pipelineStageChanges,
-	users,
 } from "~/db/schema";
-import { getActiveEvent } from "~/lib/auth";
 import type { CrmContactStatus, DirectoryFilters } from "~/lib/crm-filters";
 import { isUniqueViolation } from "~/lib/errors";
 import type { PipelineStage } from "~/lib/pipeline";
-
-type Org = typeof organizations.$inferSelect;
-type AppUser = typeof users.$inferSelect;
-
-/**
- * The organization a CRM surface operates on: the active event's org when one
- * is set (getActiveEvent is the membership chokepoint — it only returns the
- * caller's orgs' events), else the user's first membership (an org can
- * predate its first event). Null = the user belongs to no organization.
- */
-export async function resolveCrmOrg(
-	env: Env,
-	db: Db,
-	user: AppUser,
-): Promise<Org | null> {
-	const event = await getActiveEvent(env, user);
-	if (event) {
-		const [org] = await db
-			.select()
-			.from(organizations)
-			.where(eq(organizations.id, event.organizationId))
-			.limit(1);
-		if (org) return org;
-	}
-	const [first] = await db
-		.select({ org: organizations })
-		.from(organizationMembers)
-		.innerJoin(
-			organizations,
-			eq(organizations.id, organizationMembers.organizationId),
-		)
-		.where(eq(organizationMembers.userId, user.id))
-		.orderBy(organizationMembers.createdAt)
-		.limit(1);
-	return first?.org ?? null;
-}
 
 /* -------------------------------------------------------------- directory --- */
 // The DirectoryFilters shape + its URL/segment-JSON codec live client-safe in
@@ -137,7 +98,6 @@ export interface DirectoryAppearance {
 	eventId: string;
 	eventName: string;
 	status: CrmContactStatus;
-	sessionCount: number;
 }
 
 export interface DirectoryPerson {
@@ -157,15 +117,16 @@ type AppearanceRow = {
 	lastName: string;
 	jobTitle: string | null;
 	companyName: string | null;
-	bio: string | null;
 	status: CrmContactStatus;
 	eventId: string;
 	eventName: string;
-	sessionCount: number;
 };
 
 /** Every appearance for the given person emails, newest contact row first —
- * the first row per email is the identity the directory presents. */
+ * the first row per email is the identity the directory presents. Content-
+ * sized columns (bio) and per-row aggregates (session counts) stay OUT: the
+ * directory fetches up to 50 people's appearances per load, and only the
+ * one-person profile renders those — it fetches them itself. */
 function appearancesFor(db: Db, orgId: string, emails: string[]) {
 	return db
 		.select({
@@ -175,14 +136,9 @@ function appearancesFor(db: Db, orgId: string, emails: string[]) {
 			lastName: contacts.lastName,
 			jobTitle: contacts.jobTitle,
 			companyName: contacts.companyName,
-			bio: contacts.bio,
 			status: contacts.status,
 			eventId: contacts.eventId,
 			eventName: events.name,
-			sessionCount: sql<number>`(
-				SELECT COUNT(*) FROM participants
-				WHERE participants.contact_id = ${contacts.id}
-			)`,
 		})
 		.from(contacts)
 		.innerJoin(events, eq(events.id, contacts.eventId))
@@ -217,7 +173,6 @@ function composePeople(
 			eventId: row.eventId,
 			eventName: row.eventName,
 			status: row.status,
-			sessionCount: row.sessionCount,
 		});
 	}
 	return orderedEmails.flatMap((email) => byEmail.get(email) ?? []);
@@ -283,7 +238,12 @@ export async function queryDirectoryPage(
 
 const SAME_NAME_SHOWN = 10;
 
-export interface PersonProfile extends DirectoryPerson {
+export interface PersonAppearance extends DirectoryAppearance {
+	sessionCount: number;
+}
+
+export interface PersonProfile extends Omit<DirectoryPerson, "appearances"> {
+	appearances: PersonAppearance[];
 	bio: string | null;
 	/** Other directory people carrying the same name — the duplicate surface. */
 	sameNamePeople: Array<{ email: string; firstName: string; lastName: string }>;
@@ -305,29 +265,52 @@ export async function queryPerson(
 		eq(personName, name),
 		sql`${personEmail} <> ${email}`,
 	);
-	const [sameName, [sameNameCount]] = await Promise.all([
-		db
-			.select({
-				email: personEmail,
-				firstName: sql<string>`min(${contacts.firstName})`,
-				lastName: sql<string>`min(${contacts.lastName})`,
-			})
-			.from(contacts)
-			.innerJoin(events, eq(events.id, contacts.eventId))
-			.where(sameNameWhere)
-			.groupBy(personEmail)
-			.limit(SAME_NAME_SHOWN),
-		db
-			.select({ n: sql<number>`count(distinct ${personEmail})` })
-			.from(contacts)
-			.innerJoin(events, eq(events.id, contacts.eventId))
-			.where(sameNameWhere),
-	]);
+	const [sameName, [sameNameCount], [bioRow], sessionCounts] =
+		await Promise.all([
+			db
+				.select({
+					email: personEmail,
+					firstName: sql<string>`min(${contacts.firstName})`,
+					lastName: sql<string>`min(${contacts.lastName})`,
+				})
+				.from(contacts)
+				.innerJoin(events, eq(events.id, contacts.eventId))
+				.where(sameNameWhere)
+				.groupBy(personEmail)
+				.limit(SAME_NAME_SHOWN),
+			db
+				.select({ n: sql<number>`count(distinct ${personEmail})` })
+				.from(contacts)
+				.innerJoin(events, eq(events.id, contacts.eventId))
+				.where(sameNameWhere),
+			// Bio + session counts fetched here alone — the shared appearance
+			// projection excludes them, and only this profile renders them.
+			db
+				.select({ bio: contacts.bio })
+				.from(contacts)
+				.where(eq(contacts.id, latest.contactId))
+				.limit(1),
+			db
+				.select({ contactId: participants.contactId, n: count() })
+				.from(participants)
+				.where(
+					inArray(
+						participants.contactId,
+						rows.map((r) => r.contactId),
+					),
+				)
+				.groupBy(participants.contactId),
+		]);
 	const [person] = composePeople(rows, [email], new Set());
 	if (!person) return null;
+	const countByContact = new Map(sessionCounts.map((r) => [r.contactId, r.n]));
 	return {
 		...person,
-		bio: latest.bio,
+		appearances: person.appearances.map((a) => ({
+			...a,
+			sessionCount: countByContact.get(a.contactId) ?? 0,
+		})),
+		bio: bioRow?.bio ?? null,
 		possibleDuplicate: sameName.length > 0,
 		sameNamePeople: sameName,
 		sameNameTotal: sameNameCount?.n ?? sameName.length,
@@ -371,30 +354,47 @@ export async function queryNotes(
 	return { notes, total: totalRow?.n ?? 0 };
 }
 
-/* ----------------------------------------------------------- add to event --- */
+export type AddNoteResult = { ok: true } | { ok: false; reason: string };
 
-export type AddToEventResult = "added" | "already" | "missing" | "foreign";
-
-/** The org's event by id, or null — the routes' pick-list/notice lookup. */
-export async function findOrgEvent(
+/** The one person-note write — both the profile and the card composer post
+ * here, so validation and shape can never drift between the two surfaces. */
+export async function addCrmNote(
 	db: Db,
 	orgId: string,
-	eventId: string,
-): Promise<{ id: string; name: string } | null> {
-	const [event] = await db
-		.select({ id: events.id, name: events.name })
-		.from(events)
-		.where(and(eq(events.id, eventId), eq(events.organizationId, orgId)))
-		.limit(1);
-	return event ?? null;
+	email: string,
+	actor: { id: string; name: string },
+	rawBody: string,
+): Promise<AddNoteResult> {
+	const body = rawBody.trim();
+	if (body.length === 0) {
+		return { ok: false, reason: "Write the note before saving." };
+	}
+	if (body.length > 4000) {
+		return { ok: false, reason: "Keep notes under 4,000 characters." };
+	}
+	await db.insert(crmNotes).values({
+		organizationId: orgId,
+		email,
+		authorId: actor.id,
+		authorName: actor.name,
+		body,
+	});
+	return { ok: true };
 }
+
+/* ----------------------------------------------------------- add to event --- */
+
+export type AddToEventResult =
+	| { outcome: "added" | "already" | "missing"; eventName: string }
+	| { outcome: "foreign" };
 
 /**
  * Push a directory person into an event as a contact: copies the latest
  * appearance's profile fields; idempotent — an existing contact with that
  * email is reported, never duplicated. The target event is verified to
- * belong to the org HERE, so a cross-tenant insert is impossible by
- * construction no matter what a caller passes ("foreign" = refused).
+ * belong to the org HERE (and its name returned for notices), so a
+ * cross-tenant insert is impossible by construction no matter what a caller
+ * passes ("foreign" = refused).
  */
 export async function addPersonToEvent(
 	db: Db,
@@ -402,7 +402,12 @@ export async function addPersonToEvent(
 	email: string,
 	targetEventId: string,
 ): Promise<AddToEventResult> {
-	if (!(await findOrgEvent(db, orgId, targetEventId))) return "foreign";
+	const [target] = await db
+		.select({ id: events.id, name: events.name })
+		.from(events)
+		.where(and(eq(events.id, targetEventId), eq(events.organizationId, orgId)))
+		.limit(1);
+	if (!target) return { outcome: "foreign" };
 	const [src] = await db
 		.select({ contact: contacts })
 		.from(contacts)
@@ -410,13 +415,13 @@ export async function addPersonToEvent(
 		.where(and(eq(events.organizationId, orgId), eq(personEmail, email)))
 		.orderBy(desc(contacts.createdAt), desc(contacts.id))
 		.limit(1);
-	if (!src) return "missing";
+	if (!src) return { outcome: "missing", eventName: target.name };
 	const [existing] = await db
 		.select({ id: contacts.id })
 		.from(contacts)
 		.where(and(eq(contacts.eventId, targetEventId), eq(personEmail, email)))
 		.limit(1);
-	if (existing) return "already";
+	if (existing) return { outcome: "already", eventName: target.name };
 	const c = src.contact;
 	try {
 		await db.insert(contacts).values({
@@ -446,10 +451,42 @@ export async function addPersonToEvent(
 			status: "pending",
 		});
 	} catch (error) {
-		if (isUniqueViolation(error)) return "already";
+		if (isUniqueViolation(error)) {
+			return { outcome: "already", eventName: target.name };
+		}
 		throw error;
 	}
-	return "added";
+	return { outcome: "added", eventName: target.name };
+}
+
+/** The single-person add-to-event action shape shared by the profile and the
+ * pipeline card — one outcome→message mapping so the surfaces agree. */
+export async function addPersonToEventNotice(
+	db: Db,
+	orgId: string,
+	email: string,
+	targetEventId: string,
+): Promise<{ notice?: string; formError?: string; outcome: string }> {
+	const result = await addPersonToEvent(db, orgId, email, targetEventId);
+	if (result.outcome === "foreign") {
+		return {
+			formError: "That event does not belong to your organization.",
+			outcome: result.outcome,
+		};
+	}
+	if (result.outcome === "missing") {
+		return {
+			formError: "This person is no longer in the directory.",
+			outcome: result.outcome,
+		};
+	}
+	return {
+		notice:
+			result.outcome === "added"
+				? `Added to ${result.eventName} — profile fields carried over; workflow status starts at pending.`
+				: `Already a contact in ${result.eventName}.`,
+		outcome: result.outcome,
+	};
 }
 
 /* --------------------------------------------------------------- pipeline --- */
