@@ -448,6 +448,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		try {
 			({ deduped } = await timings.time("db", () =>
 				addFileComment(db, {
+					key: form.get("commentKey"),
 					fileId: file.id,
 					authorId: user.id,
 					authorName: ctx.contact

@@ -9,6 +9,7 @@ import {
 	submissions,
 	taskAssignments,
 } from "~/db/schema";
+import { errorChainIncludes } from "~/lib/errors";
 import { HEADSHOT_MAX_BYTES, HEADSHOT_TYPES } from "~/lib/headshot";
 import { likeContains } from "~/lib/like";
 import type { BadgeTone } from "~/ui";
@@ -124,50 +125,41 @@ export const UPLOAD_ERRORS = {
 /** One rule for how long a deny note / file comment may be, every caller. */
 export const REVIEW_NOTE_MAX = 2000;
 
-/**
- * A repeat of the thread's latest comment only counts as a double-submit
- * inside this window; past it, an identical re-post is a deliberate bump —
- * comments send no notifications, so a re-ping is the author's only nudge.
- */
-export const COMMENT_DEDUPE_WINDOW_MS = 2 * 60 * 1000;
+const UUID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * THE file-comment write path (portal and admin) — re-posting the thread's
- * latest comment verbatim within the dedupe window is a double-submit
- * (double-click, retry, back-button repost), so it lands nothing and reports
- * `deduped`. One conditional INSERT…SELECT: a read-then-insert pair would let
- * two overlapping POSTs both pass the read (D1 serializes statements, not
- * request interleavings), which is the very race being closed. "Latest" is
- * max(rowid) — insertion order — because createdAt is second-granular and
- * quick exchanges tie.
+ * THE file-comment write path (portal and admin). The client-minted key IS
+ * the row id, so a replayed POST trips the primary key atomically and
+ * reports success instead of duplicating; the key scopes dedupe alone, so a
+ * missing or invalid one falls back to a fresh server key.
  */
 export async function addFileComment(
 	db: Db,
 	values: {
+		key: FormDataEntryValue | null;
 		fileId: string;
 		authorId: string;
 		authorName: string;
 		body: string;
 	},
-	now: Date = new Date(),
 ): Promise<{ deduped: boolean }> {
-	const nowEpoch = Math.floor(now.getTime() / 1000);
-	const windowSeconds = COMMENT_DEDUPE_WINDOW_MS / 1000;
-	const result = await db.run(sql`
-		insert into ${fileComments} (id, file_id, author_id, author_name, body, created_at)
-		select ${crypto.randomUUID()}, ${values.fileId}, ${values.authorId},
-			${values.authorName}, ${values.body}, ${nowEpoch}
-		where not exists (
-			select 1 from ${fileComments}
-			where rowid = (
-					select max(rowid) from ${fileComments}
-					where ${fileComments.fileId} = ${values.fileId}
-				)
-				and ${fileComments.authorId} = ${values.authorId}
-				and ${fileComments.body} = ${values.body}
-				and ${nowEpoch} - ${fileComments.createdAt} < ${windowSeconds}
-		)`);
-	return { deduped: result.meta.changes === 0 };
+	const { key, ...comment } = values;
+	const id =
+		typeof key === "string" && UUID_RE.test(key)
+			? key.toLowerCase()
+			: crypto.randomUUID();
+	try {
+		await db.insert(fileComments).values({ id, ...comment });
+	} catch (error) {
+		if (
+			errorChainIncludes(error, "UNIQUE constraint failed: file_comments.id")
+		) {
+			return { deduped: true };
+		}
+		throw error;
+	}
+	return { deduped: false };
 }
 
 export type UploadErrorCode = keyof typeof UPLOAD_ERRORS;

@@ -11,7 +11,6 @@ import {
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
-import { COMMENT_DEDUPE_WINDOW_MS } from "../app/domain/files";
 import {
 	action as taskAction,
 	loader as taskLoader,
@@ -414,7 +413,7 @@ describe("portal tasks", () => {
 		expect(thrownStatus(thrown)).toBe(404);
 	});
 
-	it("lands a double-submitted identical comment ONCE; the same text after a reply is a new comment", async () => {
+	it("lands a replayed comment POST once; a fresh key posts the same words again", async () => {
 		await seedTasks();
 		const db = getDb(env);
 		const form = new FormData();
@@ -433,7 +432,7 @@ describe("portal tasks", () => {
 			.from(files)
 			.where(eq(files.taskAssignmentId, "ta_slides"));
 
-		const comment = async (body: string) =>
+		const comment = async (body: string, commentKey: string) =>
 			taskAction({
 				context: CONTEXT,
 				request: await act(
@@ -442,60 +441,54 @@ describe("portal tasks", () => {
 					new URLSearchParams({
 						intent: "comment",
 						fileId: upload?.id ?? "",
+						commentKey,
 						body,
 					}),
 				),
 				params: params("ta_slides"),
 			} as unknown as ActionArgs);
 
-		// One submit firing twice must land once — both posts succeed as the
-		// same idempotent write.
+		const thread = () =>
+			db
+				.select()
+				.from(fileComments)
+				.where(eq(fileComments.fileId, upload?.id ?? ""));
+
+		// One submit firing twice replays the SAME client key — both report
+		// success, one row lands.
+		const key = crypto.randomUUID();
 		const first = unwrap<{ ok?: boolean }>(
-			await comment("Speaker notes are on slide 12."),
+			await comment("Speaker notes are on slide 12.", key),
 		);
 		const second = unwrap<{ ok?: boolean }>(
-			await comment("Speaker notes are on slide 12."),
+			await comment("Speaker notes are on slide 12.", key),
 		);
 		expect(first.ok).toBe(true);
 		expect(second.ok).toBe(true);
-		expect(
-			await db
-				.select()
-				.from(fileComments)
-				.where(eq(fileComments.fileId, upload?.id ?? "")),
-		).toHaveLength(1);
+		expect(await thread()).toHaveLength(1);
 
-		// After the organizer replies, re-posting the same text is a real
-		// follow-up, not a double-submit.
-		await db.insert(fileComments).values({
-			fileId: upload?.id ?? "",
-			authorId: null,
-			authorName: "Olive Organizer",
-			body: "Which slide again?",
-		});
-		await comment("Speaker notes are on slide 12.");
-		expect(
-			await db
-				.select()
-				.from(fileComments)
-				.where(eq(fileComments.fileId, upload?.id ?? "")),
-		).toHaveLength(3);
+		// A deliberate re-post of the same words rides a FRESH key and lands —
+		// comments send no notifications, so a re-ping must never vanish.
+		await comment("Speaker notes are on slide 12.", crypto.randomUUID());
+		expect(await thread()).toHaveLength(2);
 
-		// Past the dedupe window an identical re-post is a deliberate bump —
-		// comments send no notifications, so it must never silently vanish.
-		await db
-			.update(fileComments)
-			.set({
-				createdAt: new Date(Date.now() - COMMENT_DEDUPE_WINDOW_MS - 1000),
-			})
-			.where(eq(fileComments.fileId, upload?.id ?? ""));
-		await comment("Speaker notes are on slide 12.");
-		expect(
-			await db
-				.select()
-				.from(fileComments)
-				.where(eq(fileComments.fileId, upload?.id ?? "")),
-		).toHaveLength(4);
+		// A missing/garbage key never blocks the post — the server mints one.
+		const bare = await taskAction({
+			context: CONTEXT,
+			request: await act(
+				"u_priya",
+				"ta_slides",
+				new URLSearchParams({
+					intent: "comment",
+					fileId: upload?.id ?? "",
+					commentKey: "not-a-uuid",
+					body: "No key, still lands.",
+				}),
+			),
+			params: params("ta_slides"),
+		} as unknown as ActionArgs);
+		expect(unwrap<{ ok?: boolean }>(bare).ok).toBe(true);
+		expect(await thread()).toHaveLength(3);
 	});
 
 	it("serializes comments with the author's real name, an isYou flag, and a date+time stamp", async () => {

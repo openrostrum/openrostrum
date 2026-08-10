@@ -1,5 +1,5 @@
 import { asc, eq } from "drizzle-orm";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Form, redirect, useNavigation } from "react-router";
 import { getDb } from "~/db";
 import { events, organizationMembers, organizations, users } from "~/db/schema";
@@ -141,6 +141,7 @@ export default function NewEvent({
 	actionData,
 }: Route.ComponentProps) {
 	const busy = useNavigation().state !== "idle";
+	const formRef = useRef<HTMLFormElement>(null);
 	const fieldErrorCount = Object.values(actionData?.fieldErrors ?? {}).filter(
 		(msgs) => msgs?.length,
 	).length;
@@ -150,7 +151,7 @@ export default function NewEvent({
 	// never smooth: keyboard-initiated actions are never animated.
 	useEffect(() => {
 		if (fieldErrorCount === 0) return;
-		const invalid = document.querySelector('[aria-invalid="true"]');
+		const invalid = formRef.current?.querySelector('[aria-invalid="true"]');
 		if (invalid instanceof HTMLElement) {
 			invalid.scrollIntoView({ block: "center" });
 			invalid.focus({ preventScroll: true });
@@ -164,7 +165,7 @@ export default function NewEvent({
 				subtitle={`The new event joins ${loaderData.organizationName} with its own submissions, forms, library, and agenda. Everything here can be changed later in settings.`}
 			/>
 			<Panel>
-				<Form method="post" className="flex flex-col gap-[13px]">
+				<Form ref={formRef} method="post" className="flex flex-col gap-[13px]">
 					<EventDetailsFields
 						values={actionData?.values ?? null}
 						errors={actionData?.fieldErrors}

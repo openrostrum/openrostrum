@@ -1,10 +1,10 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { useState } from "react";
 import {
 	Form,
 	data,
 	isRouteErrorResponse,
 	redirect,
-	useNavigation,
 	useRouteError,
 } from "react-router";
 import { getDb } from "~/db";
@@ -27,6 +27,7 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatBytes, formatInTz } from "~/lib/format";
+import { useBusy } from "~/lib/use-busy";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -216,6 +217,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			}
 			const { deduped } = await timings.time("db", () =>
 				addFileComment(db, {
+					key: form.get("commentKey"),
 					fileId: latest.id,
 					authorId: user.id,
 					authorName: user.name ?? user.email,
@@ -266,13 +268,34 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	return withTimings({ formError: "Unknown action." });
 }
 
+/**
+ * Remounted by its parent (`key` = thread length) whenever a comment lands:
+ * that clears the box and mints the next idempotency key, while a failed
+ * post keeps both so a retry replays the same key and resumes.
+ */
+function CommentForm({ busy, error }: { busy: boolean; error?: string }) {
+	const [commentKey] = useState(() => crypto.randomUUID());
+	return (
+		<Form method="post" className="flex flex-wrap items-end gap-3">
+			<Input type="hidden" name="intent" value="comment" />
+			<Input type="hidden" name="commentKey" value={commentKey} />
+			<Field label="Reply to the speaker" error={error}>
+				<Input name="body" placeholder="Write a comment…" maxLength={2000} />
+			</Field>
+			<Button type="submit" disabled={busy}>
+				{busy ? "Posting…" : "Post comment"}
+			</Button>
+		</Form>
+	);
+}
+
 export default function FileDetail({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
 	const { latest, versions, submission, contact, assignment, comments } =
 		loaderData;
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	const inReviewLoop = latest.taskAssignmentId !== null;
 	const speakerName = contact
 		? `${contact.firstName} ${contact.lastName}`
@@ -458,22 +481,11 @@ export default function FileDetail({
 							body="Start the thread below — the speaker sees replies on this file in their portal."
 						/>
 					)}
-					<Form method="post" className="flex flex-wrap items-end gap-3">
-						<Input type="hidden" name="intent" value="comment" />
-						<Field
-							label="Reply to the speaker"
-							error={actionData?.fieldErrors?.body?.[0]}
-						>
-							<Input
-								name="body"
-								placeholder="Write a comment…"
-								maxLength={2000}
-							/>
-						</Field>
-						<Button type="submit" disabled={busy}>
-							{busy ? "Posting…" : "Post comment"}
-						</Button>
-					</Form>
+					<CommentForm
+						key={comments.length}
+						busy={busy}
+						error={actionData?.fieldErrors?.body?.[0]}
+					/>
 				</div>
 			</Panel>
 		</div>

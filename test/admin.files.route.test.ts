@@ -10,8 +10,6 @@ import {
 import { CONTEXT, authedRequest, postForm } from "./tasks-fixtures";
 import {
 	catchThrown,
-	makeUser,
-	requestAs,
 	seedFilesWorld,
 	thrownStatus,
 	unwrap,
@@ -317,33 +315,23 @@ describe("file detail — versions, review, comments", () => {
 		// speaker's comment stays attributed to the version it was made on
 		expect(detail.comments[0]?.version).toBe(1);
 
-		// A double-submitted identical reply BY THE SAME USER lands once (same
-		// guard as the portal); a different teammate saying the same words is a
-		// real comment. postDetail mints a fresh admin per call, so drive the
-		// duplicate pair as one fixed user.
-		await makeUser("u_replier", "replier@test.co", "admin", {
-			activeEventId: "e1",
-			memberOfOrg: "org1",
-		});
-		const url = "http://localhost/admin/files/f_slides_v2";
-		const replyTwice = async () =>
-			detailAction({
-				context: CONTEXT,
-				request: await requestAs(
-					"u_replier",
-					url,
-					postForm(url, { intent: "comment", body: "Ping - any update?" }),
-				),
-				params: { id: "f_slides_v2" },
-			} as unknown as DetailActionArgs);
-		await replyTwice();
-		await replyTwice();
-		expect((await loadDetail("f_slides_v1")).comments).toHaveLength(3);
-
-		// A DIFFERENT teammate posting the identical text right after is a real
-		// comment — the dedupe discriminates on author, never on body alone.
+		// A double-fired reply replays the same client key and lands once;
+		// the same words under a fresh key are a real comment.
+		const replayKey = crypto.randomUUID();
 		await postDetail("f_slides_v2", {
 			intent: "comment",
+			commentKey: replayKey,
+			body: "Ping - any update?",
+		});
+		await postDetail("f_slides_v2", {
+			intent: "comment",
+			commentKey: replayKey,
+			body: "Ping - any update?",
+		});
+		expect((await loadDetail("f_slides_v1")).comments).toHaveLength(3);
+		await postDetail("f_slides_v2", {
+			intent: "comment",
+			commentKey: crypto.randomUUID(),
 			body: "Ping - any update?",
 		});
 		expect((await loadDetail("f_slides_v1")).comments).toHaveLength(4);

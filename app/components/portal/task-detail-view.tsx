@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useState } from "react";
 import { Form, useFetcher } from "react-router";
+import { useBusy } from "~/lib/use-busy";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
 import {
 	Button,
@@ -41,13 +42,13 @@ function CommentThread({
 	comments: CommentView[];
 }) {
 	const fetcher = useFetcher<TaskDetailActionData>();
-	const formRef = useRef<HTMLFormElement>(null);
-	const busy = fetcher.state !== "idle";
-	// A posted comment leaves the box empty — leftover text re-submitted is
-	// exactly the double-post the server has to dedupe.
-	useEffect(() => {
-		if (!busy && fetcher.data?.ok) formRef.current?.reset();
-	}, [busy, fetcher.data]);
+	const busy = useBusy();
+	const posting = fetcher.state !== "idle";
+	// The key rides the POST as the row id, so a double-fired submit replays
+	// the same key and lands once; a landed comment grows the thread, which
+	// remounts this form (parent `key`) — clearing the box and minting the
+	// next key. A failed post keeps both, so a retry resumes.
+	const [commentKey] = useState(() => crypto.randomUUID());
 	return (
 		<div className="mt-2 flex flex-col gap-2 border-l-2 border-hair pl-3">
 			{comments.map((c) => (
@@ -60,13 +61,13 @@ function CommentThread({
 				</div>
 			))}
 			<fetcher.Form
-				ref={formRef}
 				method="post"
 				action={action}
 				className="flex flex-wrap items-center gap-2"
 			>
 				<input type="hidden" name="intent" value="comment" />
 				<input type="hidden" name="fileId" value={fileId} />
+				<input type="hidden" name="commentKey" value={commentKey} />
 				<Input
 					name="body"
 					placeholder="Write a comment for the event team…"
@@ -74,7 +75,7 @@ function CommentThread({
 					required
 				/>
 				<Button type="submit" variant="ghost" disabled={busy}>
-					{busy ? "Posting…" : "Comment"}
+					{posting ? "Posting…" : "Comment"}
 				</Button>
 				{fetcher.data?.intent === "comment" && fetcher.data.formError && (
 					<ErrorText>{fetcher.data.formError}</ErrorText>
@@ -304,6 +305,7 @@ export function TaskDetailView({
 											</Notice>
 										)}
 										<CommentThread
+											key={`${f.id}:${f.comments.length}`}
 											action={here}
 											fileId={f.id}
 											comments={f.comments}
