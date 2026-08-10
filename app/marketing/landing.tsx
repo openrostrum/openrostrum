@@ -53,14 +53,11 @@ function TopNav() {
 					</a>
 				</nav>
 				<div className="flex items-center gap-2.5">
-					<Cta
-						to="/login"
-						variant="ghost"
-						size="sm"
-						className="hidden sm:inline-flex"
-					>
-						Sign in
-					</Cta>
+					<span className="hidden sm:contents">
+						<Cta to="/login" variant="ghost" size="sm">
+							Sign in
+						</Cta>
+					</span>
 					<Cta to="/signup" size="sm">
 						Get started
 					</Cta>

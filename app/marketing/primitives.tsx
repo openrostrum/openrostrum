@@ -42,7 +42,6 @@ type CtaProps = {
 	href?: string;
 	icon?: IconName;
 	external?: boolean;
-	className?: string;
 };
 
 export function Cta({
@@ -53,14 +52,8 @@ export function Cta({
 	href,
 	icon,
 	external,
-	className: extraClassName,
 }: CtaProps) {
-	const className = cn(
-		CTA_BASE,
-		CTA_SIZE[size],
-		CTA_VARIANT[variant],
-		extraClassName,
-	);
+	const className = cn(CTA_BASE, CTA_SIZE[size], CTA_VARIANT[variant]);
 	const inner = (
 		<>
 			<span>{children}</span>

@@ -52,17 +52,7 @@ wrangler secret put AIRTABLE_API_KEY    # native Airtable sync
 wrangler secret put AIRTABLE_BASE_ID
 ```
 
-See `.dev.vars.example` for the full list.
-
-### Auto-deploy on merge to `main`
-
-CI deploys to Cloudflare on every push to `main` once quality passes. It stays a green no-op until you add these **repository secrets** (Settings → Secrets and variables → Actions):
-
-- `CLOUDFLARE_API_TOKEN` — a token with Workers Scripts + D1 edit permissions
-- `CLOUDFLARE_ACCOUNT_ID` — your Cloudflare account id
-- `CF_D1_DATABASE_ID` — the id `wrangler d1 create openrostrum` printed
-
-Optionally set an `EMAIL_FROM` repository **variable** to override the committed default. The deploy job applies remote D1 migrations, then deploys. Runtime secrets (`RESEND_API_KEY`, `AIRTABLE_*`, `TURNSTILE_SECRET`) live on the worker via `wrangler secret put` and are not read by CI.
+See `.dev.vars.example` for the full list. Forks can also auto-deploy on every merge to `main` — see [`.github/workflows/`](.github/workflows/) for the three repository secrets that switch it on.
 
 ## Documentation
 
@@ -72,7 +62,6 @@ Optionally set an `EMAIL_FROM` repository **variable** to override the committed
 | Design system | [`docs/rules/design-system.md`](docs/rules/design-system.md) |
 | Airtable sync design | [`docs/airtable-sync-design.md`](docs/airtable-sync-design.md) |
 | Runtime observability (events, timings, log queries) | [`docs/observability.md`](docs/observability.md) |
-| Engineering conventions | [`docs/rules/`](docs/rules/) |
 
 ## Stack
 
@@ -80,7 +69,7 @@ React Router 7 (framework mode) · Cloudflare Workers · D1 + Drizzle · R2 · T
 
 ## Contributing
 
-`pnpm verify` runs the full gate — map check, typecheck, lint, stylelint, and tests in workerd against a real D1 database. Run it before every commit; CI runs the same gate on every PR.
+Conventions live in [`docs/rules/`](docs/rules/); `pnpm verify` runs the full check (typecheck, lint, tests in workerd against real D1) — CI runs the same gate on every PR.
 
 ## License
 
