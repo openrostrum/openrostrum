@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, count, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { useState } from "react";
 import { Form, data, redirect, useFetcher } from "react-router";
@@ -99,28 +99,35 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	// lets a client run this loader alone via `?_routes=`, skipping the layout.
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
-	if (!event) return { submissions: [], eventName: null };
+	if (!event) return { submissions: [], total: 0, eventName: null };
 	const db = getDb(env);
 	const timings = createTimings();
-	const rows = await timings.time("db", () =>
-		db.query.submissions.findMany({
-			// Columns match what the table renders — full rows (descriptions,
-			// whole contact records) made cost scale with content size.
-			columns: { id: true, title: true, status: true },
-			where: (s, { eq }) => eq(s.eventId, event.id), // scope to the ACTIVE event
-			with: {
-				format: { columns: { name: true } },
-				participants: { columns: { id: true } },
-				submissionTracks: {
-					with: { track: { columns: { name: true, color: true } } },
+	const [rows, totalRow] = await timings.time("db", () =>
+		Promise.all([
+			db.query.submissions.findMany({
+				// Columns match what the table renders — full rows (descriptions,
+				// whole contact records) made cost scale with content size.
+				columns: { id: true, title: true, status: true },
+				where: (s, { eq }) => eq(s.eventId, event.id), // scope to the ACTIVE event
+				with: {
+					format: { columns: { name: true } },
+					participants: { columns: { id: true } },
+					submissionTracks: {
+						with: { track: { columns: { name: true, color: true } } },
+					},
 				},
-			},
-			orderBy: (s, { desc }) => [desc(s.createdAt)],
-			limit: 100, // paginate for real lists — never load an unbounded table
-		}),
+				orderBy: (s, { desc }) => [desc(s.createdAt)],
+				limit: 100, // paginate for real lists — never load an unbounded table
+			}),
+			db
+				.select({ n: count() })
+				.from(submissions)
+				.where(eq(submissions.eventId, event.id))
+				.then((r) => r[0]),
+		]),
 	);
 	return data(
-		{ submissions: rows, eventName: event.name },
+		{ submissions: rows, total: totalRow?.n ?? 0, eventName: event.name },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
@@ -567,7 +574,7 @@ export default function Submissions({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { submissions: rows } = loaderData;
+	const { submissions: rows, total } = loaderData;
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	// The send idempotency key is minted per SELECTION and held in client
 	// state, so loader revalidation can't rotate it: retrying a failed (or
@@ -595,7 +602,7 @@ export default function Submissions({
 		actionData && "skipped" in actionData ? actionData.skipped : undefined;
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
-			<PageHeader title="Submissions" count={`${rows.length} total`} />
+			<PageHeader title="Submissions" count={`${total} total`} />
 
 			<Panel>
 				<Form method="post" className="flex flex-wrap items-end gap-3">
@@ -722,6 +729,12 @@ export default function Submissions({
 							<Td>{s.format?.name ?? "—"}</Td>
 						</Tr>
 					))}
+					{total > rows.length && (
+						<EmptyRow colSpan={6}>
+							Showing the {rows.length} most recent of {total} — the Abstracts
+							and Sessions tabs search and paginate the full list.
+						</EmptyRow>
+					)}
 					{rows.length === 0 && (
 						<EmptyRow colSpan={6}>
 							No submissions yet — share your call for papers and talks will

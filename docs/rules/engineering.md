@@ -30,7 +30,7 @@ House conventions only. The **mandatory platform rules** (D1 batch, react-router
 
 ## Bounded loaders
 
-**Every relational query selects only the columns its projection renders** — never `with: { contact: true }` when the view needs a name (full rows make request cost scale with content size, and on public surfaces they carry PII into the Worker only to drop it at projection; this class of loader produced real production 1102s). **Every list a loader returns is capped or paginated with an honest truncation signal** — a count, a "showing first N of M" row, or a show-all link; never a silently clipped table. Workers meter CPU per request (the current deploy's budget is the free plan's, ~10ms): payload size IS a correctness constraint, not a nicety.
+**Every relational query selects only the columns its projection renders** — never `with: { contact: true }` when the view needs a name (full rows make request cost scale with content size, and on public surfaces they carry PII into the Worker only to drop it at projection; this class of loader produced real production 1102s). **Every list that grows per user action (submissions, revisions, contacts, conflicts, history of any kind) is capped or paginated with an honest truncation signal** — a true count, a "showing first N of M" row, or a show-all link; never a silently clipped table. A surface whose product IS the whole curated set (the agenda board, the public program) is bounded by the event's size instead — column narrowing still applies there. Workers meter CPU per request, so payload size IS a correctness constraint, not a nicety — however generous the plan's budget (at the time of writing: the free plan's ~10ms, which real loaders exceeded).
 
 ## Routes, nav, seams
 
