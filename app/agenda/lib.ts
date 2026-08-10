@@ -24,6 +24,70 @@ export type AgendaSession = {
 
 export type AgendaRoom = { id: string; name: string; capacity: number | null };
 
+/**
+ * THE duration rule, in one place: a session that already has a time span
+ * keeps it (a move never resizes a block); a first placement takes the
+ * format's default. Server writes, optimistic UI, and drop previews all call
+ * this.
+ */
+export function sessionDurationMins(
+	s: Pick<AgendaSession, "startsAt" | "endsAt" | "durationMins">,
+): number {
+	if (s.startsAt != null && s.endsAt != null) {
+		return Math.round((s.endsAt - s.startsAt) / 60_000);
+	}
+	return s.durationMins;
+}
+
+/** Strict overlap — touching intervals (end == start) do not overlap. */
+export function intervalsOverlap(
+	aStart: number,
+	aEnd: number,
+	bStart: number,
+	bEnd: number,
+): boolean {
+	return aStart < bEnd && bStart < aEnd;
+}
+
+export type SessionFilters = {
+	q: string;
+	trackId: string;
+	roomId: string;
+	status: string;
+	showDrafts: boolean;
+};
+
+/** Drafts ride along only when their toggle is on; everything else must be schedulable. */
+export function isSessionVisible(
+	s: AgendaSession,
+	showDrafts: boolean,
+): boolean {
+	return s.schedulable || (showDrafts && s.status === "draft");
+}
+
+/**
+ * The one filter predicate — board dimming, the tray, and the List view all
+ * share it. The room filter only constrains sessions that HAVE a room:
+ * unscheduled cards stay visible so there is still something to place.
+ */
+export function matchesSessionFilters(
+	s: AgendaSession,
+	f: SessionFilters,
+): boolean {
+	if (f.trackId && !s.tracks.some((t) => t.id === f.trackId)) return false;
+	if (f.roomId && s.roomId && s.roomId !== f.roomId) return false;
+	if (f.status && s.status !== f.status) return false;
+	if (f.q) {
+		const q = f.q.toLowerCase();
+		const inTitle = s.title.toLowerCase().includes(q);
+		const inSpeaker = s.speakers.some((sp) =>
+			sp.name.toLowerCase().includes(q),
+		);
+		if (!inTitle && !inSpeaker) return false;
+	}
+	return true;
+}
+
 /* ------------------------------------------------------------ wall clock --- */
 
 const fmtCache = new Map<string, Intl.DateTimeFormat>();
@@ -343,7 +407,7 @@ export type Placement = {
 type Interval = { start: number; end: number };
 
 function overlapsAny(list: readonly Interval[], start: number, end: number) {
-	return list.some((i) => i.start < end && start < i.end);
+	return list.some((i) => intervalsOverlap(i.start, i.end, start, end));
 }
 
 /**

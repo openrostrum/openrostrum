@@ -29,16 +29,21 @@ import {
 	conflictSentence,
 	conflictsById,
 	detectConflicts,
+	eventDayList,
 	formatDayLabel,
 	formatMinutes,
 	formatRangeMs,
+	isSessionVisible,
+	matchesSessionFilters,
 	resolveEventDays,
+	sessionDurationMins,
+	SLOT_MINS,
 	utcToWall,
 	wallToUtc,
 } from "~/agenda/lib";
 import { getDb } from "~/db";
 import { SUBMISSION_STATUS } from "~/db/constants";
-import { events, formats, submissions } from "~/db/schema";
+import { events, formats, rooms as roomsTable, submissions } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
@@ -270,8 +275,8 @@ const ScheduleIntent = z.object({
 		.number()
 		.int()
 		.min(0)
-		.max(24 * 60 - 5)
-		.multipleOf(5),
+		.max(24 * 60 - SLOT_MINS)
+		.multipleOf(SLOT_MINS),
 });
 
 const SettingsWindow = z
@@ -350,13 +355,13 @@ export async function action({ context, request }: Route.ActionArgs) {
 					`“${sub.title}” is ${sub.status.replace("_", " ")} — only schedulable statuses can be placed on the agenda (see Settings).`,
 				);
 			}
-			const days = resolveEventDays(
+			// A date-less event has no bound to enforce — its grid days derive from
+			// existing sessions, so any dropped day is legitimate.
+			const days = eventDayList(
 				event.startsAt?.getTime() ?? null,
 				event.endsAt?.getTime() ?? null,
-				[],
-				event.timezone,
 			);
-			if (!days.includes(p.day)) {
+			if (days.length > 0 && !days.includes(p.day)) {
 				return fail("That day is outside the event.");
 			}
 			if (
@@ -365,12 +370,12 @@ export async function action({ context, request }: Route.ActionArgs) {
 			) {
 				return fail("That time is outside the agenda day window.");
 			}
-			// First placement derives the end from the format default; a move
-			// preserves the block's existing duration.
 			const durationMs =
-				sub.startsAt && sub.endsAt
-					? sub.endsAt.getTime() - sub.startsAt.getTime()
-					: (sub.format?.defaultDurationMins ?? 30) * 60_000;
+				sessionDurationMins({
+					startsAt: sub.startsAt?.getTime() ?? null,
+					endsAt: sub.endsAt?.getTime() ?? null,
+					durationMins: sub.format?.defaultDurationMins ?? 30,
+				}) * 60_000;
 			const startsAt = new Date(
 				wallToUtc(p.day, p.startMinutes, event.timezone),
 			);
@@ -567,8 +572,33 @@ export async function action({ context, request }: Route.ActionArgs) {
 					.set({ defaultDurationMins: d.mins })
 					.where(and(eq(formats.id, d.id), eq(formats.eventId, event.id))),
 			);
+			// Room visibility: applied only when the form carried the field (the
+			// presence marker keeps a partial POST from silently hiding every room).
+			const roomChanges: { id: string; visible: boolean }[] = [];
+			if (form.get("visibleRooms_present")) {
+				const selectedRooms = new Set(form.getAll("visibleRooms").map(String));
+				const roomRows = await db.query.rooms.findMany({
+					where: (r, { eq: eqW }) => eqW(r.eventId, event.id),
+				});
+				for (const room of roomRows) {
+					const visible = selectedRooms.has(room.id);
+					if (room.visible !== visible)
+						roomChanges.push({ id: room.id, visible });
+				}
+			}
 			await timings.time("db-write", () =>
-				db.batch([eventUpdate, ...formatUpdates]),
+				db.batch([
+					eventUpdate,
+					...formatUpdates,
+					...roomChanges.map((c) =>
+						db
+							.update(roomsTable)
+							.set({ visible: c.visible })
+							.where(
+								and(eq(roomsTable.id, c.id), eq(roomsTable.eventId, event.id)),
+							),
+					),
+				]),
 			);
 			track("agenda.settings_updated", {
 				eventId: event.id,
@@ -613,14 +643,10 @@ function useOptimisticSessions(
 				rows = rows.map((s) => {
 					if (s.id !== id) return s;
 					const startMs = wallToUtc(day, minutes, timezone);
-					const durationMs =
-						s.startsAt != null && s.endsAt != null
-							? s.endsAt - s.startsAt
-							: s.durationMins * 60_000;
 					return {
 						...s,
 						startsAt: startMs,
-						endsAt: startMs + durationMs,
+						endsAt: startMs + sessionDurationMins(s) * 60_000,
 						roomId,
 					};
 				});
@@ -637,16 +663,23 @@ function useOptimisticSessions(
 	}, [base, fetchers, timezone]);
 }
 
-function viewLink(
+function patchParams(
 	params: URLSearchParams,
 	patch: Record<string, string | null>,
-): string {
+): URLSearchParams {
 	const next = new URLSearchParams(params);
 	for (const [key, value] of Object.entries(patch)) {
 		if (value === null || value === "") next.delete(key);
 		else next.set(key, value);
 	}
-	const qs = next.toString();
+	return next;
+}
+
+function viewLink(
+	params: URLSearchParams,
+	patch: Record<string, string | null>,
+): string {
+	const qs = patchParams(params, patch).toString();
 	return qs ? `?${qs}` : "?";
 }
 
@@ -875,10 +908,7 @@ export default function Agenda({
 							value={filters.trackId}
 							onChange={(e) =>
 								setSearchParams(
-									(prev) =>
-										new URLSearchParams(
-											viewLink(prev, { track: e.currentTarget.value }).slice(1),
-										),
+									(prev) => patchParams(prev, { track: e.currentTarget.value }),
 									{ preventScrollReset: true },
 								)
 							}
@@ -896,10 +926,7 @@ export default function Agenda({
 							value={filters.roomId}
 							onChange={(e) =>
 								setSearchParams(
-									(prev) =>
-										new URLSearchParams(
-											viewLink(prev, { room: e.currentTarget.value }).slice(1),
-										),
+									(prev) => patchParams(prev, { room: e.currentTarget.value }),
 									{ preventScrollReset: true },
 								)
 							}
@@ -918,11 +945,7 @@ export default function Agenda({
 							onChange={(e) =>
 								setSearchParams(
 									(prev) =>
-										new URLSearchParams(
-											viewLink(prev, { status: e.currentTarget.value }).slice(
-												1,
-											),
-										),
+										patchParams(prev, { status: e.currentTarget.value }),
 									{ preventScrollReset: true },
 								)
 							}
@@ -940,11 +963,9 @@ export default function Agenda({
 						onClick={() =>
 							setSearchParams(
 								(prev) =>
-									new URLSearchParams(
-										viewLink(prev, {
-											drafts: filters.showDrafts ? null : "1",
-										}).slice(1),
-									),
+									patchParams(prev, {
+										drafts: filters.showDrafts ? null : "1",
+									}),
 								{ preventScrollReset: true },
 							)
 						}
@@ -1078,6 +1099,23 @@ export default function Agenda({
 								initial={event.schedulableStatuses}
 							/>
 						</div>
+						{loaderData.rooms.length > 0 && (
+							<div className="flex flex-col gap-2">
+								<SectionLabel hint="Hidden rooms keep their scheduled sessions but leave the day grid.">
+									Rooms shown on the grid
+								</SectionLabel>
+								<ToggleChips
+									name="visibleRooms"
+									options={loaderData.rooms.map((r) => ({
+										value: r.id,
+										label: r.name,
+									}))}
+									initial={loaderData.rooms
+										.filter((r) => r.visible)
+										.map((r) => r.id)}
+								/>
+							</div>
+						)}
 						<div className="flex flex-col gap-2">
 							<SectionLabel hint="Auto-fills a block's end time when a session is first placed.">
 								Default duration per format (minutes)
@@ -1150,24 +1188,8 @@ function ListView({
 }) {
 	const roomName = new Map(rooms.map((r) => [r.id, r.name]));
 	const rows = sessions
-		.filter(
-			(s) => s.schedulable || (filters.showDrafts && s.status === "draft"),
-		)
-		.filter((s) => {
-			if (filters.trackId && !s.tracks.some((t) => t.id === filters.trackId))
-				return false;
-			if (filters.roomId && s.roomId !== filters.roomId) return false;
-			if (filters.status && s.status !== filters.status) return false;
-			if (filters.q) {
-				const q = filters.q.toLowerCase();
-				if (
-					!s.title.toLowerCase().includes(q) &&
-					!s.speakers.some((sp) => sp.name.toLowerCase().includes(q))
-				)
-					return false;
-			}
-			return true;
-		})
+		.filter((s) => isSessionVisible(s, filters.showDrafts))
+		.filter((s) => matchesSessionFilters(s, filters))
 		.sort((a, b) => {
 			if (a.startsAt == null && b.startsAt == null)
 				return a.title.localeCompare(b.title);

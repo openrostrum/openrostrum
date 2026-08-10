@@ -11,9 +11,9 @@ import {
 	wallToUtc,
 } from "../app/agenda/lib";
 
-// Expected instants come from the scenario walk's SQL literals (event TZ
-// America/Los_Angeles: PDT=UTC-7 in Oct 2026, PST=UTC-8 after Nov 1 2026) —
-// independent of the implementation under test.
+// Expected instants are hand-derived from the event timezone's fixed UTC
+// offsets (America/Los_Angeles: PDT=UTC-7 in Oct 2026, PST=UTC-8 after
+// Nov 1 2026) — independent of the implementation under test.
 
 const TZ = "America/Los_Angeles";
 const utc = (y: number, mo: number, d: number, h: number, min = 0): number =>
@@ -42,7 +42,7 @@ const ROOMS = [
 
 describe("wall-clock conversion", () => {
 	it("converts event-TZ wall clock to UTC across the DST boundary", () => {
-		// 9:30 AM PDT on Oct 12 = 16:30 UTC (walk-06 AG-S2).
+		// 9:30 AM PDT on Oct 12 = 16:30 UTC.
 		expect(wallToUtc("2026-10-12", 570, TZ)).toBe(utc(2026, 10, 12, 16, 30));
 		// After DST ends (Nov 1 2026) the same wall clock is 17:30 UTC.
 		expect(wallToUtc("2026-11-02", 570, TZ)).toBe(utc(2026, 11, 2, 17, 30));
@@ -55,7 +55,7 @@ describe("wall-clock conversion", () => {
 });
 
 describe("event day list", () => {
-	it("derives the 3 scenario days from date-at-UTC-midnight bounds", () => {
+	it("derives inclusive calendar days from date-at-UTC-midnight bounds", () => {
 		expect(eventDayList(utc(2026, 10, 12, 0), utc(2026, 10, 14, 0))).toEqual([
 			"2026-10-12",
 			"2026-10-13",
@@ -76,7 +76,7 @@ describe("event day list", () => {
 });
 
 describe("conflict detection (speaker + same-room only)", () => {
-	// AG-S3: Live Demo 10:00–10:30 and Panel 10:15–11:15, both Main Hall (PDT).
+	// Live Demo 10:00–10:30 and Panel 10:15–11:15, both Main Hall (PDT).
 	const liveDemo = session({
 		id: "live",
 		title: "Live Demo: Agent Swarms in Production",
@@ -106,7 +106,7 @@ describe("conflict detection (speaker + same-room only)", () => {
 	});
 
 	it("flags a shared speaker ACROSS rooms and names the person", () => {
-		// AG-S4: Office Hours 10:15–10:45 in Room 305, also Marco Silva.
+		// Office Hours 10:15–10:45 in Room 305, also Marco Silva.
 		const officeHours = session({
 			id: "office",
 			title: "Office Hours: D1 Performance Clinic",
@@ -153,8 +153,8 @@ describe("conflict detection (speaker + same-room only)", () => {
 	});
 
 	it("treats touching blocks (end == next start) as NOT conflicting", () => {
-		// AG-S4 step 5 boundary: Workshop until 13:00, Office Hours from 13:00,
-		// same room AND same speaker — strict inequality must hold for both classes.
+		// Workshop until 13:00, Office Hours from 13:00 — same room AND same
+		// speaker; strict inequality must hold for both conflict classes.
 		const a = session({
 			id: "a",
 			startsAt: utc(2026, 10, 12, 18, 30),

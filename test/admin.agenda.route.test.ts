@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { detectConflicts } from "../app/agenda/lib";
 import { getDb } from "../app/db";
@@ -15,9 +16,9 @@ import {
 import { createSession, hashPassword } from "../app/lib/auth";
 import { action, loader } from "../app/routes/admin.agenda";
 
-// Fixtures mirror scenario 06's seed baseline; expected UTC instants come from
-// the scenario walk's SQL literals (event TZ America/Los_Angeles, PDT=UTC-7),
-// not from the code under test.
+// A 3-day event in America/Los_Angeles with named rooms/formats and one
+// double-booked speaker. Expected UTC instants are hand-derived from the
+// fixed PDT offset (UTC-7), not from the code under test.
 
 const utc = (y: number, mo: number, d: number, h: number, min = 0): Date =>
 	new Date(Date.UTC(y, mo - 1, d, h, min));
@@ -336,6 +337,28 @@ describe("schedule / move / unschedule", () => {
 	});
 });
 
+describe("date-less events", () => {
+	it("accepts a drop on a session-derived day when the event has no dates", async () => {
+		const db = await seedBaseline();
+		await db
+			.update(events)
+			.set({ startsAt: null, endsAt: null })
+			.where(eq(events.id, "e1"));
+		const result = await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		expect(result.ok).toBe(true);
+		const row = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_keynote"),
+		});
+		expect(row?.startsAt).toEqual(utc(2026, 10, 12, 16, 30));
+	});
+});
+
 describe("end-to-end conflict surface", () => {
 	it("two placements that overlap in one room show up as a room conflict on reload", async () => {
 		await seedBaseline();
@@ -437,6 +460,47 @@ describe("publish + settings", () => {
 			where: (f, { eq }) => eq(f.id, "fmt_keynote"),
 		});
 		expect(keynote?.defaultDurationMins).toBe(60);
+	});
+
+	it("applies room visibility only when the form carries the field", async () => {
+		const db = await seedBaseline();
+		const body = new URLSearchParams({
+			intent: "settings",
+			dayStartMin: "480",
+			dayEndMin: "1080",
+			visibleRooms_present: "1",
+			visibleRooms: "room_main", // room_305 unchecked → hidden
+		});
+		body.append("schedulableStatuses", "accepted");
+		const request = await adminRequest(body);
+		const result = unwrap<ActionData>(
+			await action({
+				context: CONTEXT,
+				request,
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
+		expect(result.ok).toBe(true);
+		let room305 = await db.query.rooms.findFirst({
+			where: (r, { eq: eqW }) => eqW(r.id, "room_305"),
+		});
+		expect(room305?.visible).toBe(false);
+		const mainHall = await db.query.rooms.findFirst({
+			where: (r, { eq: eqW }) => eqW(r.id, "room_main"),
+		});
+		expect(mainHall?.visible).toBe(true);
+		// A POST without the presence marker must NOT hide every room.
+		const withoutField = await callAction({
+			intent: "settings",
+			dayStartMin: "480",
+			dayEndMin: "1080",
+			schedulableStatuses: "accepted",
+		});
+		expect(withoutField.ok).toBe(true);
+		room305 = await db.query.rooms.findFirst({
+			where: (r, { eq: eqW }) => eqW(r.id, "room_305"),
+		});
+		expect(room305?.visible).toBe(false); // unchanged, not re-hidden/shown
 	});
 
 	it("rejects an inverted day window and an empty status set without writing", async () => {

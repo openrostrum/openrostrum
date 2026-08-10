@@ -25,9 +25,15 @@ import {
 	formatDayLabel,
 	formatMinutes,
 	formatRangeMs,
+	intervalsOverlap,
+	isSessionVisible,
 	layoutLanes,
+	matchesSessionFilters,
+	type SessionFilters,
+	sessionDurationMins,
 	SLOT_MINS,
 	utcToWall,
+	wallToUtc,
 } from "./lib";
 
 // Grid scale: one 15-min slot = 16px, so an hour is 64px and a 10-hour day
@@ -38,13 +44,7 @@ const PX_PER_MIN = SLOT_PX / SLOT_MINS;
 
 export type BoardView = "day" | "week" | "track";
 
-export type BoardFilters = {
-	q: string;
-	trackId: string;
-	roomId: string;
-	status: string;
-	showDrafts: boolean;
-};
+export type BoardFilters = SessionFilters;
 
 type BoardProps = {
 	view: BoardView;
@@ -66,20 +66,6 @@ type BoardProps = {
 	) => void;
 	onUnschedule: (sessionId: string) => void;
 };
-
-function matchesFilters(s: AgendaSession, f: BoardFilters): boolean {
-	if (f.trackId && !s.tracks.some((t) => t.id === f.trackId)) return false;
-	if (f.status && s.status !== f.status) return false;
-	if (f.q) {
-		const q = f.q.toLowerCase();
-		const inTitle = s.title.toLowerCase().includes(q);
-		const inSpeaker = s.speakers.some((sp) =>
-			sp.name.toLowerCase().includes(q),
-		);
-		if (!inTitle && !inSpeaker) return false;
-	}
-	return true;
-}
 
 function isDraft(s: AgendaSession): boolean {
 	return s.status === "draft";
@@ -218,6 +204,9 @@ export function ToggleChips({
 					</button>
 				);
 			})}
+			{/* presence marker: lets the action tell "none selected" apart from
+			    "field not submitted at all" */}
+			<input type="hidden" name={`${name}_present`} value="1" />
 			{[...selected].map((value) => (
 				<input key={value} type="hidden" name={name} value={value} />
 			))}
@@ -700,7 +689,7 @@ function GridColumn({
 							height={(clippedEnd - clippedStart) * PX_PER_MIN - 2}
 							lane={lane.lane}
 							laneCount={lane.laneCount}
-							dimmed={!matchesFilters(b.session, filters)}
+							dimmed={!matchesSessionFilters(b.session, filters)}
 							subtitle={b.subtitle}
 							draggable={draggable && b.session.schedulable}
 							onUnschedule={onUnschedule}
@@ -800,10 +789,7 @@ export function AgendaBoard({
 	const [active, setActive] = useState<AgendaSession | null>(null);
 
 	const visible = useMemo(
-		() =>
-			sessions.filter(
-				(s) => s.schedulable || (filters.showDrafts && isDraft(s)),
-			),
+		() => sessions.filter((s) => isSessionVisible(s, filters.showDrafts)),
 		[sessions, filters.showDrafts],
 	);
 	const placed = useMemo(
@@ -820,14 +806,14 @@ export function AgendaBoard({
 	const trayUnscheduled = useMemo(
 		() =>
 			visible
-				.filter((s) => s.startsAt == null && matchesFilters(s, filters))
+				.filter((s) => s.startsAt == null && matchesSessionFilters(s, filters))
 				.sort((a, b) => a.title.localeCompare(b.title)),
 		[visible, filters],
 	);
 	const trayScheduled = useMemo(
 		() =>
 			placed
-				.filter((p) => matchesFilters(p.session, filters))
+				.filter((p) => matchesSessionFilters(p.session, filters))
 				.sort(
 					(a, b) =>
 						(a.session.startsAt ?? 0) - (b.session.startsAt ?? 0) ||
@@ -864,18 +850,19 @@ export function AgendaBoard({
 		minutes: number,
 	) => {
 		if (session.roomId) return session.roomId;
-		const durationMins =
-			session.startsAt != null && session.endsAt != null
-				? Math.round((session.endsAt - session.startsAt) / 60_000)
-				: session.durationMins;
+		const startMs = wallToUtc(day, minutes, timezone);
+		const endMs = startMs + sessionDurationMins(session) * 60_000;
 		const free = rooms.find(
 			(room) =>
 				!placed.some(
 					(p) =>
 						p.session.roomId === room.id &&
-						p.wall.day === day &&
-						p.wall.minutes < minutes + durationMins &&
-						minutes < (p.endWall.day === day ? p.endWall.minutes : 24 * 60),
+						intervalsOverlap(
+							p.session.startsAt as number,
+							p.session.endsAt as number,
+							startMs,
+							endMs,
+						),
 				),
 		);
 		return (free ?? rooms[0])?.id ?? null;
@@ -1040,10 +1027,7 @@ export function AgendaBoard({
 							{active.title}
 						</div>
 						<div className="mt-[2px] font-mono text-[10.5px] text-fg-muted">
-							{active.formatName ?? "No format"} ·{" "}
-							{active.startsAt != null && active.endsAt != null
-								? Math.round((active.endsAt - active.startsAt) / 60_000)
-								: active.durationMins}
+							{active.formatName ?? "No format"} · {sessionDurationMins(active)}
 							m
 						</div>
 					</div>
