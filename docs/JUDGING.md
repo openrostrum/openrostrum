@@ -38,6 +38,14 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
   widgets only when its content status is Approved (independent of the
   accept decision). The agenda/itinerary additionally require the agenda to be
   Published (button in the agenda builder).
+- **Org team invites carry a copyable link (no inbox needed).** At
+  `/admin/settings/team`, "Invite teammate" (name + email) creates a pending
+  invite whose full link is shown in the UI with a Copy button — the same link
+  is also emailed. Opening the link at `/set-password/<token>` sets a password
+  and lands the new member in `/admin` as an equal admin of the organization.
+  Any member may remove any member (in-app confirm, no native dialogs), except
+  the last one — that removal is refused with an inline message. Removing
+  yourself logs you out.
 - **Bot protection is disabled on this deployment** so browser agents can
   exercise the public form (the Turnstile port resolves to a no-op without
   keys).
