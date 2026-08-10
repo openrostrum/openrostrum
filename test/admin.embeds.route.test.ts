@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
-import { embeds, users } from "../app/db/schema";
+import { embeds, organizationMembers, users } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
 import {
 	action as detailAction,
@@ -19,6 +19,10 @@ async function adminRequest(url: string, init?: RequestInit): Promise<Request> {
 		role: "admin",
 		activeEventId: "e1",
 	});
+	// Admin access resolves through org membership, not the role alone.
+	await db
+		.insert(organizationMembers)
+		.values({ id: "om_admin", organizationId: "org1", userId: "u_admin" });
 	const setCookie = await createSession(env, "u_admin");
 	const headers = new Headers(init?.headers);
 	headers.set("Cookie", setCookie.split(";")[0] ?? "");
@@ -196,6 +200,9 @@ describe("embeds admin", () => {
 			role: "admin",
 			activeEventId: "e1",
 		});
+		await db
+			.insert(organizationMembers)
+			.values({ id: "om_admin", organizationId: "org1", userId: "u_admin" });
 		const {
 			organizations,
 			events,
