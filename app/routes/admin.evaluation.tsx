@@ -1,33 +1,56 @@
 import { useState } from "react";
 import {
 	and,
+	asc,
 	count,
 	countDistinct,
 	desc,
 	eq,
 	inArray,
+	isNull,
 	like,
+	notInArray,
+	sql,
 } from "drizzle-orm";
 import { Form, Outlet, data, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import {
+	aiReviews,
+	evaluationAnswers,
 	evaluationPlans,
 	evaluationRounds,
 	evaluations,
 	reviews,
 	roundEvaluators,
+	roundQuestions,
 	submissions,
 	users,
 } from "~/db/schema";
+import {
+	AI_BULK_BATCH,
+	AI_FAILURE_MESSAGES,
+	AI_REVIEW_MODEL,
+	AI_UNAVAILABLE_MESSAGE,
+	clearAiOverride,
+	effectiveAiScore,
+	generateAiReview,
+	getAiRunner,
+	loadAiReviewContexts,
+	overrideAiReview,
+	saveAiReview,
+} from "~/domain/ai-review";
 import { deletePlanDeep } from "~/lib/assign";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
+	evaluationScore,
 	fetchChunked,
 	formatDay,
+	formatScore,
 	REVIEW_DECISION_TONE as DECISION_TONE,
 	REVIEW_PAGE_SIZE as PAGE_SIZE,
+	REVIEWABLE_EXCLUDED,
 } from "~/lib/evaluation";
 import { Pager } from "~/lib/pager";
 import { createTimings, track } from "~/lib/track";
@@ -42,6 +65,7 @@ import {
 	PageHeader,
 	Panel,
 	SearchInput,
+	Select,
 	StatusBadge,
 	Tab,
 	Table,
@@ -81,12 +105,14 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			tab: "plans",
 			plans: [],
 			decisions: null,
+			ai: null,
 		});
 	}
 	const db = getDb(env);
 	const timings = createTimings();
+	const tabParam = url.searchParams.get("tab");
 	const tab =
-		url.searchParams.get("tab") === "decisions" ? "decisions" : "plans";
+		tabParam === "decisions" || tabParam === "ai" ? tabParam : "plans";
 
 	// Aggregates come back pre-grouped: at real scale a plan holds thousands of
 	// evaluation rows, and six numbers per plan never need them materialized.
@@ -273,6 +299,253 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		decisions = { rows: pageRows, total, page, q, detail };
 	}
 
+	let ai = null;
+	if (tab === "ai") {
+		const q = url.searchParams.get("q")?.trim() ?? "";
+		const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+		const sortParam = url.searchParams.get("sort");
+		const sort =
+			sortParam === "ai_desc" || sortParam === "ai_asc" ? sortParam : "newest";
+		const subParam = url.searchParams.get("sub");
+		const reviewable = and(
+			eq(submissions.eventId, event.id),
+			notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
+		);
+		const filter = and(
+			reviewable,
+			q ? like(submissions.title, `%${q}%`) : undefined,
+		);
+		const effective = sql`coalesce(${aiReviews.overrideScore}, ${aiReviews.score})`;
+		// SQLite sorts NULL smallest: DESC pushes unscored rows last for free;
+		// ASC needs the explicit IS NULL key so unscored rows sink there too.
+		const orderBy =
+			sort === "ai_desc"
+				? [sql`${effective} desc`, desc(submissions.createdAt)]
+				: sort === "ai_asc"
+					? [
+							sql`${effective} is null`,
+							sql`${effective} asc`,
+							desc(submissions.createdAt),
+						]
+					: [desc(submissions.createdAt)];
+		const [totals, missingRows, rows] = await timings.time("db-ai", () =>
+			Promise.all([
+				db.select({ n: count() }).from(submissions).where(filter),
+				db
+					.select({ n: count() })
+					.from(submissions)
+					.leftJoin(aiReviews, eq(aiReviews.submissionId, submissions.id))
+					.where(and(reviewable, isNull(aiReviews.id))),
+				db
+					.select({
+						id: submissions.id,
+						title: submissions.title,
+						status: submissions.status,
+						aiScore: aiReviews.score,
+						aiOverride: aiReviews.overrideScore,
+						aiUpdatedAt: aiReviews.updatedAt,
+					})
+					.from(submissions)
+					.leftJoin(aiReviews, eq(aiReviews.submissionId, submissions.id))
+					.where(filter)
+					.orderBy(...orderBy)
+					.limit(PAGE_SIZE)
+					.offset((page - 1) * PAGE_SIZE),
+			]),
+		);
+		const pageIds = rows.map((r) => r.id);
+		const tallies =
+			pageIds.length === 0
+				? []
+				: await timings.time("db-ai-tallies", () =>
+						db
+							.select({
+								submissionId: reviews.submissionId,
+								decision: reviews.decision,
+								n: count(),
+							})
+							.from(reviews)
+							.where(inArray(reviews.submissionId, pageIds))
+							.groupBy(reviews.submissionId, reviews.decision),
+					);
+		const tallyFor = (id: string, decision: string) =>
+			tallies.find((t) => t.submissionId === id && t.decision === decision)
+				?.n ?? 0;
+
+		let detail = null;
+		if (subParam) {
+			const [sub] = await db
+				.select({
+					id: submissions.id,
+					title: submissions.title,
+					status: submissions.status,
+				})
+				.from(submissions)
+				.where(
+					and(eq(submissions.id, subParam), eq(submissions.eventId, event.id)),
+				)
+				.limit(1);
+			if (sub) {
+				const [aiRowArr, decisionRows, evalRows] = await timings.time(
+					"db-ai-detail",
+					() =>
+						Promise.all([
+							db
+								.select({
+									score: aiReviews.score,
+									rationale: aiReviews.rationale,
+									model: aiReviews.model,
+									overrideScore: aiReviews.overrideScore,
+									overrideAt: aiReviews.overrideAt,
+									updatedAt: aiReviews.updatedAt,
+									overrideByName: users.name,
+									overrideByEmail: users.email,
+								})
+								.from(aiReviews)
+								.leftJoin(users, eq(users.id, aiReviews.overrideById))
+								.where(eq(aiReviews.submissionId, sub.id))
+								.limit(1),
+							db
+								.select({
+									reviewer: users.name,
+									reviewerEmail: users.email,
+									decision: reviews.decision,
+									comment: reviews.comment,
+									updatedAt: reviews.updatedAt,
+								})
+								.from(reviews)
+								.innerJoin(users, eq(users.id, reviews.reviewerId))
+								.where(eq(reviews.submissionId, sub.id))
+								.orderBy(desc(reviews.updatedAt)),
+							db
+								.select({
+									id: evaluations.id,
+									roundId: evaluations.roundId,
+									submittedAt: evaluations.submittedAt,
+									evaluator: users.name,
+									evaluatorEmail: users.email,
+									roundName: evaluationRounds.name,
+									planName: evaluationPlans.name,
+								})
+								.from(evaluations)
+								.innerJoin(users, eq(users.id, evaluations.evaluatorId))
+								.innerJoin(
+									evaluationRounds,
+									eq(evaluationRounds.id, evaluations.roundId),
+								)
+								.innerJoin(
+									evaluationPlans,
+									eq(evaluationPlans.id, evaluationRounds.planId),
+								)
+								.where(
+									and(
+										eq(evaluations.submissionId, sub.id),
+										eq(evaluations.status, "completed"),
+									),
+								),
+						]),
+				);
+				const aiRow = aiRowArr[0] ?? null;
+				const roundIds = [...new Set(evalRows.map((e) => e.roundId))];
+				const evalIds = evalRows.map((e) => e.id);
+				const [questionRows, answerRows] =
+					evalIds.length === 0
+						? [[], []]
+						: await Promise.all([
+								db
+									.select({
+										id: roundQuestions.id,
+										roundId: roundQuestions.roundId,
+										type: roundQuestions.type,
+										weight: roundQuestions.weight,
+									})
+									.from(roundQuestions)
+									.where(inArray(roundQuestions.roundId, roundIds)),
+								db
+									.select({
+										evaluationId: evaluationAnswers.evaluationId,
+										questionId: evaluationAnswers.questionId,
+										valueNumber: evaluationAnswers.valueNumber,
+									})
+									.from(evaluationAnswers)
+									.where(inArray(evaluationAnswers.evaluationId, evalIds)),
+							]);
+				detail = {
+					id: sub.id,
+					title: sub.title,
+					status: sub.status,
+					ai: aiRow
+						? {
+								score: aiRow.score,
+								effective: effectiveAiScore(aiRow),
+								rationale: aiRow.rationale,
+								model: aiRow.model,
+								ranAt: formatDay(aiRow.updatedAt),
+								override:
+									aiRow.overrideScore == null
+										? null
+										: {
+												score: aiRow.overrideScore,
+												by:
+													aiRow.overrideByName ??
+													aiRow.overrideByEmail ??
+													"an organizer",
+												at: formatDay(aiRow.overrideAt),
+											},
+							}
+						: null,
+					decisions: decisionRows.map((r) => ({
+						reviewer: r.reviewer ?? r.reviewerEmail,
+						decision: r.decision,
+						comment: r.comment,
+						updatedAt: formatDay(r.updatedAt),
+					})),
+					evaluations: evalRows.map((e) => ({
+						id: e.id,
+						evaluator: e.evaluator ?? e.evaluatorEmail,
+						plan: e.planName,
+						round: e.roundName,
+						score: formatScore(
+							evaluationScore(
+								questionRows.filter((qr) => qr.roundId === e.roundId),
+								answerRows.filter((a) => a.evaluationId === e.id),
+							),
+						),
+						submittedAt: e.submittedAt ? formatDay(e.submittedAt) : "—",
+					})),
+				};
+			}
+		}
+
+		ai = {
+			available: getAiRunner(env) != null,
+			q,
+			page,
+			sort,
+			total: totals[0]?.n ?? 0,
+			missing: missingRows[0]?.n ?? 0,
+			rows: rows.map((r) => ({
+				id: r.id,
+				title: r.title,
+				status: r.status,
+				aiScore: r.aiScore,
+				aiOverride: r.aiOverride,
+				aiEffective:
+					r.aiScore == null
+						? null
+						: effectiveAiScore({
+								score: r.aiScore,
+								overrideScore: r.aiOverride,
+							}),
+				aiUpdatedAt: r.aiUpdatedAt ? formatDay(r.aiUpdatedAt) : null,
+				approve: tallyFor(r.id, "approve"),
+				maybe: tallyFor(r.id, "maybe"),
+				deny: tallyFor(r.id, "deny"),
+			})),
+			detail,
+		};
+	}
+
 	return data(
 		{
 			child: false as const,
@@ -280,6 +553,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			tab,
 			plans,
 			decisions,
+			ai,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -364,6 +638,162 @@ export async function action({ context, request }: Route.ActionArgs) {
 			track("evaluation.plan_deleted", { eventId: event.id, planId });
 			return { intent, ok: "Plan deleted." };
 		}
+		if (intent === "ai-run") {
+			const runner = getAiRunner(env);
+			if (!runner) return { intent, formError: AI_UNAVAILABLE_MESSAGE };
+			const submissionId = String(form.get("submissionId") ?? "");
+			const contexts = await loadAiReviewContexts(db, event, [submissionId]);
+			const ctx = contexts.get(submissionId);
+			if (!ctx) return { intent, formError: "Submission not found." };
+			const result = await generateAiReview(runner, ctx);
+			if (!result.ok) {
+				track("ai_review.failed", {
+					eventId: event.id,
+					submissionId,
+					reason: result.reason,
+					detail: result.detail,
+				});
+				return { intent, formError: AI_FAILURE_MESSAGES[result.reason] };
+			}
+			await saveAiReview(db, submissionId, result);
+			track("ai_review.scored", {
+				eventId: event.id,
+				submissionId,
+				score: result.score,
+				model: AI_REVIEW_MODEL,
+			});
+			return {
+				intent,
+				ok: `AI scored “${ctx.title}” ${formatScore(result.score)}/10.`,
+			};
+		}
+		if (intent === "ai-run-bulk") {
+			const runner = getAiRunner(env);
+			if (!runner) return { intent, formError: AI_UNAVAILABLE_MESSAGE };
+			const reviewable = and(
+				eq(submissions.eventId, event.id),
+				notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
+			);
+			const candidates = await db
+				.select({ id: submissions.id })
+				.from(submissions)
+				.leftJoin(aiReviews, eq(aiReviews.submissionId, submissions.id))
+				.where(and(reviewable, isNull(aiReviews.id)))
+				.orderBy(asc(submissions.createdAt))
+				.limit(AI_BULK_BATCH);
+			if (candidates.length === 0) {
+				return {
+					intent,
+					ok: "Every reviewable submission already has an AI review.",
+				};
+			}
+			const contexts = await loadAiReviewContexts(
+				db,
+				event,
+				candidates.map((c) => c.id),
+			);
+			let scored = 0;
+			const failures: string[] = [];
+			// The model calls run concurrently (I/O-bound); D1 serializes writes.
+			await Promise.all(
+				candidates.map(async ({ id }) => {
+					const ctx = contexts.get(id);
+					if (!ctx) return;
+					const result = await generateAiReview(runner, ctx);
+					if (result.ok) {
+						await saveAiReview(db, id, result);
+						scored += 1;
+					} else {
+						failures.push(result.reason);
+						track("ai_review.failed", {
+							eventId: event.id,
+							submissionId: id,
+							reason: result.reason,
+							detail: result.detail,
+						});
+					}
+				}),
+			);
+			const [remaining] = await db
+				.select({ n: count() })
+				.from(submissions)
+				.leftJoin(aiReviews, eq(aiReviews.submissionId, submissions.id))
+				.where(and(reviewable, isNull(aiReviews.id)));
+			track("ai_review.bulk_run", {
+				eventId: event.id,
+				scored,
+				failed: failures.length,
+				remaining: remaining?.n ?? 0,
+			});
+			const failedNote =
+				failures.length > 0
+					? ` ${failures.length} failed (${[...new Set(failures)].join(", ")}) — they stay unscored.`
+					: "";
+			const remainingNote =
+				(remaining?.n ?? 0) > 0
+					? ` ${remaining?.n} still unscored — run again to continue.`
+					: " All reviewable submissions now have an AI score.";
+			return {
+				intent,
+				ok: `AI reviewed ${scored} of ${candidates.length} submissions.${failedNote}${remainingNote}`,
+			};
+		}
+		if (intent === "ai-override" || intent === "ai-clear-override") {
+			const submissionId = String(form.get("submissionId") ?? "");
+			const [sub] = await db
+				.select({ id: submissions.id })
+				.from(submissions)
+				.where(
+					and(
+						eq(submissions.id, submissionId),
+						eq(submissions.eventId, event.id),
+					),
+				)
+				.limit(1);
+			if (!sub) return { intent, formError: "Submission not found." };
+			if (intent === "ai-clear-override") {
+				const cleared = await clearAiOverride(db, submissionId);
+				if (!cleared) {
+					return { intent, formError: "There is no AI review to restore." };
+				}
+				track("ai_review.override_cleared", {
+					eventId: event.id,
+					submissionId,
+				});
+				return { intent, ok: "Override removed — the AI score stands again." };
+			}
+			const raw = String(form.get("score") ?? "").trim();
+			const parsed = z.coerce.number().min(0).max(10).safeParse(raw);
+			if (!raw || !parsed.success) {
+				return {
+					intent,
+					formError: "Override score must be a number between 0 and 10.",
+				};
+			}
+			const score = Math.round(parsed.data * 10) / 10;
+			const overridden = await overrideAiReview(
+				db,
+				submissionId,
+				score,
+				user.id,
+			);
+			if (!overridden) {
+				return {
+					intent,
+					formError:
+						"Run the AI review first — there is no AI score to override.",
+				};
+			}
+			track("ai_review.overridden", {
+				eventId: event.id,
+				submissionId,
+				score,
+			});
+			return {
+				intent,
+				ok: `AI score overridden to ${formatScore(score)} — your number is now the effective score.`,
+			};
+		}
 	} catch (error) {
 		track("evaluation.action_failed", {
 			eventId: event.id,
@@ -380,7 +810,7 @@ export default function Evaluation({
 	actionData,
 }: Route.ComponentProps) {
 	if (loaderData.child) return <Outlet />;
-	const { tab, plans, decisions } = loaderData;
+	const { tab, plans, decisions, ai } = loaderData;
 	return (
 		<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
 			<PageHeader
@@ -395,16 +825,17 @@ export default function Evaluation({
 				<Tab to="?tab=decisions" active={tab === "decisions"}>
 					Decisions
 				</Tab>
+				<Tab to="?tab=ai" active={tab === "ai"}>
+					AI review
+				</Tab>
 			</Tabs>
 			{actionData?.ok && (
 				<StatusBadge tone="success">{actionData.ok}</StatusBadge>
 			)}
 			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
-			{tab === "plans" ? (
-				<PlansTab plans={plans} actionData={actionData} />
-			) : (
-				<DecisionsTab decisions={decisions} />
-			)}
+			{tab === "plans" && <PlansTab plans={plans} actionData={actionData} />}
+			{tab === "decisions" && <DecisionsTab decisions={decisions} />}
+			{tab === "ai" && <AiTab ai={ai} />}
 		</div>
 	);
 }
@@ -669,6 +1100,313 @@ function DecisionsTab({
 				</TBody>
 			</Table>
 			<Pager page={page} total={total} link={(p) => pageLink(p)} />
+		</>
+	);
+}
+
+type AiTabData = Extract<
+	Awaited<ReturnType<typeof loader>>["data"],
+	{ child: false }
+>["ai"];
+
+function AiTab({ ai }: { ai: AiTabData }) {
+	if (!ai) return null;
+	const { available, q, page, sort, total, missing, rows, detail } = ai;
+	const pageLink = (over: Record<string, string | number>) => {
+		const sp = new URLSearchParams({ tab: "ai", sort, page: String(page) });
+		if (q) sp.set("q", q);
+		for (const [k, v] of Object.entries(over)) {
+			if (v === "") sp.delete(k);
+			else sp.set(k, String(v));
+		}
+		return `?${sp.toString()}`;
+	};
+	return (
+		<>
+			{!available && (
+				<Panel>
+					<EmptyState
+						icon="presentation"
+						title="AI review is not available on this deployment"
+						body="The Workers AI binding is not configured. Self-hosters: add the ai binding in wrangler.json and redeploy. Scores recorded while it was available stay visible below."
+					/>
+				</Panel>
+			)}
+			<div className="flex flex-wrap items-center gap-3">
+				{available && missing > 0 && (
+					<Form method="post">
+						<Input type="hidden" name="intent" value="ai-run-bulk" />
+						<Button type="submit" icon="star">
+							Run AI review on unscored — {Math.min(missing, AI_BULK_BATCH)} of{" "}
+							{missing} per click
+						</Button>
+					</Form>
+				)}
+				{available && missing === 0 && total > 0 && (
+					<StatusBadge tone="success">
+						Every reviewable submission has an AI first-pass score.
+					</StatusBadge>
+				)}
+				<Form method="get" className="flex flex-wrap items-end gap-3">
+					<Input type="hidden" name="tab" value="ai" />
+					<SearchInput
+						name="q"
+						defaultValue={q}
+						placeholder="Search submissions…"
+					/>
+					<Field label="Sort">
+						<Select name="sort" defaultValue={sort}>
+							<option value="newest">Newest first</option>
+							<option value="ai_desc">AI score — high to low</option>
+							<option value="ai_asc">AI score — low to high</option>
+						</Select>
+					</Field>
+					<Button type="submit" variant="ghost">
+						Apply
+					</Button>
+				</Form>
+			</div>
+
+			{detail && (
+				<Panel>
+					<div className="flex flex-col gap-4">
+						<PageHeader
+							title={detail.title}
+							count={detail.status.replace("_", " ")}
+							subtitle="Human reviews are authoritative — the AI score is a first-pass triage signal and never enters the decision tally or scorecard aggregates."
+							actions={
+								<ButtonLink to={pageLink({ sub: "" })} variant="ghost">
+									Close
+								</ButtonLink>
+							}
+						/>
+						{detail.ai ? (
+							<div className="flex flex-col gap-3">
+								<div className="flex flex-wrap items-center gap-2">
+									<StatusBadge tone="info">
+										AI first-pass {formatScore(detail.ai.score)}/10
+									</StatusBadge>
+									{detail.ai.override && (
+										<StatusBadge tone="caution">
+											Overridden to {formatScore(detail.ai.override.score)} by{" "}
+											{detail.ai.override.by} · {detail.ai.override.at}
+										</StatusBadge>
+									)}
+									<StatusBadge tone="faint">
+										{detail.ai.model} · ran {detail.ai.ranAt}
+									</StatusBadge>
+								</div>
+								<Field label="AI rationale">
+									<p className="max-w-[72ch] whitespace-pre-wrap">
+										{detail.ai.rationale}
+									</p>
+								</Field>
+								<div className="flex flex-wrap items-end gap-3">
+									<Form method="post" className="flex items-end gap-2">
+										<Input type="hidden" name="intent" value="ai-override" />
+										<Input
+											type="hidden"
+											name="submissionId"
+											value={detail.id}
+										/>
+										<Field label="Override score (0–10)">
+											<Input
+												type="number"
+												name="score"
+												min="0"
+												max="10"
+												step="0.1"
+												defaultValue={
+													detail.ai.override
+														? String(detail.ai.override.score)
+														: ""
+												}
+												size={6}
+											/>
+										</Field>
+										<Button type="submit">Override AI score</Button>
+									</Form>
+									{detail.ai.override && (
+										<Form method="post">
+											<Input
+												type="hidden"
+												name="intent"
+												value="ai-clear-override"
+											/>
+											<Input
+												type="hidden"
+												name="submissionId"
+												value={detail.id}
+											/>
+											<Button type="submit" variant="ghost">
+												Remove override
+											</Button>
+										</Form>
+									)}
+									{available && (
+										<Form method="post">
+											<Input type="hidden" name="intent" value="ai-run" />
+											<Input
+												type="hidden"
+												name="submissionId"
+												value={detail.id}
+											/>
+											<Button type="submit" variant="ghost" icon="sync">
+												Re-run — replaces the score and clears any override
+											</Button>
+										</Form>
+									)}
+								</div>
+							</div>
+						) : (
+							<div className="flex flex-wrap items-center gap-3">
+								<StatusBadge tone="faint">No AI review yet</StatusBadge>
+								{available && (
+									<Form method="post">
+										<Input type="hidden" name="intent" value="ai-run" />
+										<Input
+											type="hidden"
+											name="submissionId"
+											value={detail.id}
+										/>
+										<Button type="submit">Run AI review</Button>
+									</Form>
+								)}
+							</div>
+						)}
+						<Field label="Reviewer decisions (approve / maybe / deny)">
+							<Table>
+								<THead>
+									<Th>Reviewer</Th>
+									<Th>Decision</Th>
+									<Th>Comment</Th>
+									<Th>Updated</Th>
+								</THead>
+								<TBody>
+									{detail.decisions.map((r) => (
+										<Tr key={`${r.reviewer}-${r.updatedAt}`}>
+											<Td kind="strong">{r.reviewer}</Td>
+											<Td>
+												<StatusBadge
+													tone={DECISION_TONE[r.decision] ?? "neutral"}
+												>
+													{r.decision}
+												</StatusBadge>
+											</Td>
+											<Td>{r.comment ?? "—"}</Td>
+											<Td kind="mono">{r.updatedAt}</Td>
+										</Tr>
+									))}
+									{detail.decisions.length === 0 && (
+										<EmptyRow colSpan={4}>
+											No reviewer decisions yet — they appear as reviewers work
+											through their track queues.
+										</EmptyRow>
+									)}
+								</TBody>
+							</Table>
+						</Field>
+						<Field label="Scorecard reviews (completed)">
+							<Table>
+								<THead>
+									<Th>Evaluator</Th>
+									<Th>Plan · Round</Th>
+									<Th>Weighted score</Th>
+									<Th>Submitted</Th>
+								</THead>
+								<TBody>
+									{detail.evaluations.map((e) => (
+										<Tr key={e.id}>
+											<Td kind="strong">{e.evaluator}</Td>
+											<Td>
+												{e.plan} · {e.round}
+											</Td>
+											<Td kind="mono">{e.score}</Td>
+											<Td kind="mono">{e.submittedAt}</Td>
+										</Tr>
+									))}
+									{detail.evaluations.length === 0 && (
+										<EmptyRow colSpan={4}>
+											No completed scorecard reviews yet.
+										</EmptyRow>
+									)}
+								</TBody>
+							</Table>
+						</Field>
+					</div>
+				</Panel>
+			)}
+
+			<Table>
+				<THead>
+					<Th>Submission</Th>
+					<Th>Status</Th>
+					<Th>AI first-pass</Th>
+					<Th>Ran</Th>
+					<Th>Human decisions</Th>
+					<Th>Actions</Th>
+				</THead>
+				<TBody>
+					{rows.map((row) => (
+						<Tr key={row.id} selected={detail?.id === row.id}>
+							<Td kind="strong">{row.title}</Td>
+							<Td>
+								<StatusBadge tone="neutral">
+									{row.status.replace("_", " ")}
+								</StatusBadge>
+							</Td>
+							<Td>
+								{row.aiScore == null ? (
+									<StatusBadge tone="faint">Not scored</StatusBadge>
+								) : row.aiOverride != null ? (
+									<div className="flex flex-wrap items-center gap-2">
+										<StatusBadge tone="caution">
+											Overridden {formatScore(row.aiEffective)}
+										</StatusBadge>
+										<StatusBadge tone="info">
+											AI {formatScore(row.aiScore)}
+										</StatusBadge>
+									</div>
+								) : (
+									<StatusBadge tone="info">
+										AI {formatScore(row.aiScore)}
+									</StatusBadge>
+								)}
+							</Td>
+							<Td kind="mono">{row.aiUpdatedAt ?? "—"}</Td>
+							<Td>
+								{row.approve + row.maybe + row.deny === 0 ? (
+									<StatusBadge tone="faint">None yet</StatusBadge>
+								) : (
+									`${row.approve} approve · ${row.maybe} maybe · ${row.deny} deny`
+								)}
+							</Td>
+							<Td>
+								<div className="flex items-center gap-2">
+									{available && (
+										<Form method="post">
+											<Input type="hidden" name="intent" value="ai-run" />
+											<Input type="hidden" name="submissionId" value={row.id} />
+											<Button type="submit" variant="ghost">
+												{row.aiScore == null ? "Run AI review" : "Re-run"}
+											</Button>
+										</Form>
+									)}
+									<TextLink to={pageLink({ sub: row.id })}>Detail</TextLink>
+								</div>
+							</Td>
+						</Tr>
+					))}
+					{rows.length === 0 && (
+						<EmptyRow colSpan={6}>
+							{q
+								? `No submissions match “${q}”. Clear the search to see all.`
+								: "No reviewable submissions yet — they appear here once the call for papers has entries."}
+						</EmptyRow>
+					)}
+				</TBody>
+			</Table>
+			<Pager page={page} total={total} link={(p) => pageLink({ page: p })} />
 		</>
 	);
 }

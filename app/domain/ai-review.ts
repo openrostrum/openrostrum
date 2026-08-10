@@ -1,0 +1,366 @@
+import { and, eq, inArray, notInArray } from "drizzle-orm";
+import { z } from "zod";
+import type { Db } from "~/db";
+import {
+	aiReviews,
+	formats,
+	levels,
+	submissionTags,
+	submissionTracks,
+	submissions,
+	tags,
+	tracks,
+} from "~/db/schema";
+import { errorMessage } from "~/lib/errors";
+import { REVIEWABLE_EXCLUDED } from "~/lib/evaluation";
+import { stripHtml } from "~/lib/html";
+
+/**
+ * AI first-pass review of a CFP submission on Cloudflare Workers AI. The AI is
+ * a triage signal only: its score lives in `ai_reviews`, is always labeled as
+ * AI, and never enters human evaluation aggregates. When the binding is absent
+ * (self-host without Workers AI) every surface degrades to an explicit
+ * "not available" state — never a crash, never a fabricated score.
+ */
+
+export const AI_REVIEW_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+
+/** How many missing submissions one bulk click processes (kept small so the request stays bounded). */
+export const AI_BULK_BATCH = 5;
+
+const DEFAULT_TIMEOUT_MS = 45_000;
+const MAX_ABSTRACT_CHARS = 6_000;
+
+/** The slice of the Workers AI binding this feature uses — tests stub this shape. */
+export type AiRunner = {
+	run(
+		model: string,
+		inputs: Record<string, unknown>,
+	): Promise<Record<string, unknown>>;
+};
+
+export function getAiRunner(env: Env): AiRunner | null {
+	return env.AI ?? null;
+}
+
+export const AI_UNAVAILABLE_MESSAGE =
+	"AI review is not available on this deployment — the Workers AI binding is not configured.";
+
+export const AI_FAILURE_MESSAGES: Record<AiReviewFailure["reason"], string> = {
+	timeout: "The AI model timed out — try again in a moment.",
+	malformed:
+		"The AI model returned an unusable reply twice in a row — nothing was recorded. Try again.",
+	error: "The AI model could not be reached — nothing was recorded. Try again.",
+};
+
+export type AiReviewSubmission = {
+	title: string;
+	description: string | null;
+	eventName: string;
+	format: string | null;
+	level: string | null;
+	language: string | null;
+	tracks: string[];
+	tags: string[];
+};
+
+export type AiReviewSuccess = { ok: true; score: number; rationale: string };
+export type AiReviewFailure = {
+	ok: false;
+	reason: "timeout" | "malformed" | "error";
+	detail: string;
+};
+export type AiReviewResult = AiReviewSuccess | AiReviewFailure;
+
+// Coerced: models occasionally quote the number ("score": "7.5").
+const Verdict = z.object({
+	score: z.coerce.number().min(0).max(10),
+	rationale: z.string().trim().min(40),
+});
+
+export function buildReviewMessages(
+	sub: AiReviewSubmission,
+): Array<{ role: string; content: string }> {
+	const abstract = stripHtml(sub.description ?? "").trim();
+	const truncated =
+		abstract.length > MAX_ABSTRACT_CHARS
+			? `${abstract.slice(0, MAX_ABSTRACT_CHARS)}\n[abstract truncated]`
+			: abstract;
+	const lines = [
+		`Event: ${sub.eventName}`,
+		`Title: ${sub.title}`,
+		sub.format ? `Format: ${sub.format}` : null,
+		sub.level ? `Audience level: ${sub.level}` : null,
+		sub.language ? `Language: ${sub.language}` : null,
+		sub.tracks.length > 0 ? `Tracks: ${sub.tracks.join(", ")}` : null,
+		sub.tags.length > 0 ? `Tags: ${sub.tags.join(", ")}` : null,
+		"",
+		truncated
+			? `Abstract:\n${truncated}`
+			: "Abstract: NONE PROVIDED — judge on the title alone and say so in your rationale.",
+	].filter((l): l is string => l != null);
+	return [
+		{
+			role: "system",
+			content:
+				"You are the AI first-pass reviewer for a conference call for papers. " +
+				"Score the submission for program fit and quality, then justify the score. " +
+				'Reply with ONLY a JSON object, no markdown fences, no prose around it: {"score": <number 0-10, one decimal allowed>, "rationale": "<3 to 6 sentences that cite specific content of THIS submission>"}. ' +
+				"Scoring guide: 0-3 weak or off-topic, 4-6 borderline, 7-8 strong, 9-10 exceptional. " +
+				"Never invent facts that are not in the submission.",
+		},
+		{ role: "user", content: lines.join("\n") },
+	];
+}
+
+class TimeoutError extends Error {}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+	// A late loser must not surface as an unhandled rejection.
+	promise.catch(() => {});
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			promise,
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => reject(new TimeoutError()), ms);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/**
+ * Workers AI is mid-migration between reply envelopes: some models/routes
+ * return `{ response }`, the current llama-4 chat route returns the OpenAI
+ * chat-completions shape (verified live 2026-08-10). Accept both.
+ */
+function responseText(result: unknown): string {
+	if (typeof result === "string") return result;
+	if (result && typeof result === "object") {
+		const r = (result as { response?: unknown }).response;
+		if (typeof r === "string") return r;
+		const choices = (result as { choices?: unknown }).choices;
+		if (Array.isArray(choices)) {
+			const content = (choices[0] as { message?: { content?: unknown } })
+				?.message?.content;
+			if (typeof content === "string") return content;
+		}
+	}
+	return "";
+}
+
+/** Salvage the JSON object from a reply that may wrap it in fences or prose. */
+function parseVerdict(raw: string): z.infer<typeof Verdict> | null {
+	const start = raw.indexOf("{");
+	const end = raw.lastIndexOf("}");
+	if (start === -1 || end <= start) return null;
+	try {
+		const parsed = Verdict.safeParse(JSON.parse(raw.slice(start, end + 1)));
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * One structured-output attempt loop: ask, parse against the strict schema,
+ * and on a malformed reply retry ONCE with the bad reply quoted back. Any
+ * failure comes back as a typed result — callers render it, never throw it.
+ */
+export async function generateAiReview(
+	ai: AiRunner,
+	sub: AiReviewSubmission,
+	opts: { timeoutMs?: number } = {},
+): Promise<AiReviewResult> {
+	const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+	const messages = buildReviewMessages(sub);
+	let lastRaw = "";
+	for (let attempt = 0; attempt < 2; attempt++) {
+		const thread =
+			attempt === 0
+				? messages
+				: [
+						...messages,
+						{ role: "assistant", content: lastRaw },
+						{
+							role: "user",
+							content:
+								"That reply was not a valid JSON object matching the required schema. " +
+								'Reply again with ONLY {"score": <number 0-10>, "rationale": "<3 to 6 specific sentences>"} — nothing else.',
+						},
+					];
+		let result: Record<string, unknown>;
+		try {
+			result = await withTimeout(
+				ai.run(AI_REVIEW_MODEL, {
+					messages: thread,
+					max_tokens: 600,
+					temperature: 0.2,
+				}),
+				timeoutMs,
+			);
+		} catch (error) {
+			if (error instanceof TimeoutError) {
+				return {
+					ok: false,
+					reason: "timeout",
+					detail: `model did not answer within ${timeoutMs}ms`,
+				};
+			}
+			return { ok: false, reason: "error", detail: errorMessage(error) };
+		}
+		lastRaw = responseText(result);
+		const verdict = parseVerdict(lastRaw);
+		if (verdict) {
+			return {
+				ok: true,
+				score: Math.round(verdict.score * 10) / 10,
+				rationale: verdict.rationale,
+			};
+		}
+	}
+	return {
+		ok: false,
+		reason: "malformed",
+		detail: `unparseable model reply: ${lastRaw.slice(0, 200)}`,
+	};
+}
+
+/**
+ * Everything the prompt needs about the requested submissions, scoped to the
+ * caller's event and restricted to reviewable statuses — an id outside either
+ * simply comes back absent, so actions can't be pointed at foreign rows.
+ */
+export async function loadAiReviewContexts(
+	db: Db,
+	event: { id: string; name: string },
+	submissionIds: readonly string[],
+): Promise<Map<string, AiReviewSubmission & { id: string }>> {
+	if (submissionIds.length === 0) return new Map();
+	const rows = await db
+		.select({
+			id: submissions.id,
+			title: submissions.title,
+			description: submissions.description,
+			language: submissions.language,
+			format: formats.name,
+			level: levels.name,
+		})
+		.from(submissions)
+		.leftJoin(formats, eq(formats.id, submissions.formatId))
+		.leftJoin(levels, eq(levels.id, submissions.levelId))
+		.where(
+			and(
+				inArray(submissions.id, [...submissionIds]),
+				eq(submissions.eventId, event.id),
+				notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
+			),
+		);
+	const ids = rows.map((r) => r.id);
+	const [trackRows, tagRows] =
+		ids.length === 0
+			? [[], []]
+			: await Promise.all([
+					db
+						.select({
+							submissionId: submissionTracks.submissionId,
+							name: tracks.name,
+						})
+						.from(submissionTracks)
+						.innerJoin(tracks, eq(tracks.id, submissionTracks.trackId))
+						.where(inArray(submissionTracks.submissionId, ids)),
+					db
+						.select({
+							submissionId: submissionTags.submissionId,
+							name: tags.name,
+						})
+						.from(submissionTags)
+						.innerJoin(tags, eq(tags.id, submissionTags.tagId))
+						.where(inArray(submissionTags.submissionId, ids)),
+				]);
+	return new Map(
+		rows.map((row) => [
+			row.id,
+			{
+				id: row.id,
+				title: row.title,
+				description: row.description,
+				eventName: event.name,
+				format: row.format,
+				level: row.level,
+				language: row.language,
+				tracks: trackRows
+					.filter((t) => t.submissionId === row.id)
+					.map((t) => t.name),
+				tags: tagRows
+					.filter((t) => t.submissionId === row.id)
+					.map((t) => t.name),
+			},
+		]),
+	);
+}
+
+/**
+ * Persist a fresh AI verdict — replaces any previous run in place and clears a
+ * standing override: a new AI pass makes the old human correction stale, and
+ * the organizer can override again from the new score.
+ */
+export async function saveAiReview(
+	db: Db,
+	submissionId: string,
+	verdict: { score: number; rationale: string },
+): Promise<void> {
+	const values = {
+		score: verdict.score,
+		rationale: verdict.rationale,
+		model: AI_REVIEW_MODEL,
+		overrideScore: null,
+		overrideById: null,
+		overrideAt: null,
+		updatedAt: new Date(),
+	};
+	await db
+		.insert(aiReviews)
+		.values({ submissionId, ...values })
+		.onConflictDoUpdate({
+			target: aiReviews.submissionId,
+			set: values,
+		});
+}
+
+/** Organizer override: their number becomes the effective score, AI's original stays visible. */
+export async function overrideAiReview(
+	db: Db,
+	submissionId: string,
+	score: number,
+	userId: string,
+): Promise<boolean> {
+	const updated = await db
+		.update(aiReviews)
+		.set({ overrideScore: score, overrideById: userId, overrideAt: new Date() })
+		.where(eq(aiReviews.submissionId, submissionId))
+		.returning({ id: aiReviews.id });
+	return updated.length > 0;
+}
+
+export async function clearAiOverride(
+	db: Db,
+	submissionId: string,
+): Promise<boolean> {
+	const updated = await db
+		.update(aiReviews)
+		.set({ overrideScore: null, overrideById: null, overrideAt: null })
+		.where(eq(aiReviews.submissionId, submissionId))
+		.returning({ id: aiReviews.id });
+	return updated.length > 0;
+}
+
+/** The number an organizer acts on: their override when present, else the AI's. */
+export function effectiveAiScore(row: {
+	score: number;
+	overrideScore: number | null;
+}): number {
+	return row.overrideScore ?? row.score;
+}

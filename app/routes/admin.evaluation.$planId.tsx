@@ -4,6 +4,7 @@ import { Form, data, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import {
+	aiReviews,
 	contacts,
 	evaluationAnswers,
 	evaluationPlans,
@@ -17,6 +18,7 @@ import {
 	tracks,
 	users,
 } from "~/db/schema";
+import { effectiveAiScore } from "~/domain/ai-review";
 import { deletePlanDeep, deleteRoundDeep, mintEvaluations } from "~/lib/assign";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
@@ -398,22 +400,49 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			});
 		}
 		const subRows = [...subMap].map(([id, v]) => ({ id, ...v }));
-		const speakerRows = await timings.time("db-speakers", () =>
-			fetchChunked(
-				subRows.map((s) => s.id),
-				(chunk) =>
-					db
-						.select({
-							submissionId: participants.submissionId,
-							firstName: contacts.firstName,
-							lastName: contacts.lastName,
-							role: participants.role,
-						})
-						.from(participants)
-						.innerJoin(contacts, eq(contacts.id, participants.contactId))
-						.where(inArray(participants.submissionId, chunk)),
-			),
+		const [speakerRows, aiRows] = await timings.time("db-speakers", () =>
+			Promise.all([
+				fetchChunked(
+					subRows.map((s) => s.id),
+					(chunk) =>
+						db
+							.select({
+								submissionId: participants.submissionId,
+								firstName: contacts.firstName,
+								lastName: contacts.lastName,
+								role: participants.role,
+							})
+							.from(participants)
+							.innerJoin(contacts, eq(contacts.id, participants.contactId))
+							.where(inArray(participants.submissionId, chunk)),
+				),
+				fetchChunked(
+					subRows.map((s) => s.id),
+					(chunk) =>
+						db
+							.select({
+								submissionId: aiReviews.submissionId,
+								score: aiReviews.score,
+								overrideScore: aiReviews.overrideScore,
+								rationale: aiReviews.rationale,
+								model: aiReviews.model,
+								updatedAt: aiReviews.updatedAt,
+							})
+							.from(aiReviews)
+							.where(inArray(aiReviews.submissionId, chunk)),
+				),
+			]),
 		);
+		const aiFor = (submissionId: string) => {
+			const row = aiRows.find((a) => a.submissionId === submissionId);
+			return row
+				? {
+						score: row.score,
+						overridden: row.overrideScore != null,
+						effective: effectiveAiScore(row),
+					}
+				: null;
+		};
 		const scored = scores.evalRows.map((e) => ({
 			...e,
 			score: scores.scoreOf(e),
@@ -448,6 +477,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 						.map((e) => e.score as number),
 				),
 				perRound,
+				ai: aiFor(sub.id),
 			};
 		});
 		const dir = sort.endsWith("_asc") ? 1 : -1;
@@ -469,10 +499,21 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			const sub = subRows.find((s) => s.id === subParam);
 			if (sub) {
 				const mine = scored.filter((e) => e.submissionId === sub.id);
+				const aiRow = aiRows.find((a) => a.submissionId === sub.id);
 				detail = {
 					id: sub.id,
 					title: sub.title,
 					speakers: speakersFor(sub.id),
+					ai: aiRow
+						? {
+								score: aiRow.score,
+								effective: effectiveAiScore(aiRow),
+								overridden: aiRow.overrideScore != null,
+								rationale: aiRow.rationale,
+								model: aiRow.model,
+								ranAt: formatDay(aiRow.updatedAt),
+							}
+						: null,
 					evaluations: mine.map((e) => ({
 						id: e.id,
 						evaluator: e.evaluatorName ?? e.evaluatorEmail,
@@ -1817,6 +1858,32 @@ function ResultsTab({
 								</ButtonLink>
 							}
 						/>
+						{detail.ai && (
+							<Field label="AI first-pass review — a triage signal that never enters the human aggregate">
+								<div className="flex flex-col gap-2">
+									<div className="flex flex-wrap items-center gap-2">
+										<StatusBadge tone="info">
+											AI {formatScore(detail.ai.score)}/10
+										</StatusBadge>
+										{detail.ai.overridden && (
+											<StatusBadge tone="caution">
+												Overridden to {formatScore(detail.ai.effective)} by an
+												organizer
+											</StatusBadge>
+										)}
+										<StatusBadge tone="faint">
+											{detail.ai.model} · ran {detail.ai.ranAt}
+										</StatusBadge>
+										<TextLink to={`/admin/evaluation?tab=ai&sub=${detail.id}`}>
+											Manage AI review
+										</TextLink>
+									</div>
+									<p className="max-w-[72ch] whitespace-pre-wrap">
+										{detail.ai.rationale}
+									</p>
+								</div>
+							</Field>
+						)}
 						<Table>
 							<THead>
 								<Th>Evaluator</Th>
@@ -1899,6 +1966,7 @@ function ResultsTab({
 							{sort === "score_asc" ? "↑" : sort === "score_desc" ? "↓" : ""}
 						</TextLink>
 					</Th>
+					<Th>AI first-pass</Th>
 					<Th></Th>
 				</THead>
 				<TBody>
@@ -1922,12 +1990,26 @@ function ResultsTab({
 							))}
 							<Td kind="mono">{formatScore(row.aggregate)}</Td>
 							<Td>
+								{row.ai == null ? (
+									<StatusBadge tone="faint">—</StatusBadge>
+								) : (
+									<div className="flex flex-wrap items-center gap-2">
+										<StatusBadge tone="info">
+											AI {formatScore(row.ai.effective)}
+										</StatusBadge>
+										{row.ai.overridden && (
+											<StatusBadge tone="caution">overridden</StatusBadge>
+										)}
+									</div>
+								)}
+							</Td>
+							<Td>
 								<TextLink to={link({ sub: row.id })}>Detail</TextLink>
 							</Td>
 						</Tr>
 					))}
 					{rows.length === 0 && (
-						<EmptyRow colSpan={6 + rounds.length}>
+						<EmptyRow colSpan={7 + rounds.length}>
 							No results yet — scores appear here as reviewers complete their
 							assigned evaluations.
 						</EmptyRow>
