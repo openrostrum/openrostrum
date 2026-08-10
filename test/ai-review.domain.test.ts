@@ -146,9 +146,20 @@ describe("AI review persistence — replace and override", () => {
 	it("re-saving replaces the single row and clears a standing override", async () => {
 		await seedEvalBase(env, { withPlan: false });
 		const db = getDb(env);
-		await saveAiReview(db, "s1", { score: 7.5, rationale: RATIONALE });
+		await saveAiReview(db, "s1", { score: 7.5, rationale: RATIONALE }, null);
 		await overrideAiReview(db, "s1", 4, "u_admin");
-		await saveAiReview(db, "s1", { score: 5.5, rationale: "Second pass." });
+		// A legitimate re-run reads the row's current stamp before saving.
+		const [fresh] = await db
+			.select({ updatedAt: aiReviews.updatedAt })
+			.from(aiReviews)
+			.where(eq(aiReviews.submissionId, "s1"));
+		const saved = await saveAiReview(
+			db,
+			"s1",
+			{ score: 5.5, rationale: "Second pass." },
+			fresh?.updatedAt ?? null,
+		);
+		expect(saved).toBe(true);
 		const rows = await db
 			.select()
 			.from(aiReviews)
@@ -163,10 +174,51 @@ describe("AI review persistence — replace and override", () => {
 		});
 	});
 
+	it("a late save keyed to a stale stamp is skipped — the in-flight override survives", async () => {
+		await seedEvalBase(env, { withPlan: false });
+		const db = getDb(env);
+		await saveAiReview(db, "s1", { score: 7.5, rationale: RATIONALE }, null);
+		const stale = new Date("2026-08-01T00:00:00Z");
+		await db
+			.update(aiReviews)
+			.set({ updatedAt: stale })
+			.where(eq(aiReviews.submissionId, "s1"));
+		// Organizer overrides while a slow re-run (started at `stale`) is in flight.
+		await overrideAiReview(db, "s1", 3, "u_admin");
+		const saved = await saveAiReview(
+			db,
+			"s1",
+			{ score: 9, rationale: "Late verdict." },
+			stale,
+		);
+		expect(saved).toBe(false);
+		const [row] = await db
+			.select()
+			.from(aiReviews)
+			.where(eq(aiReviews.submissionId, "s1"));
+		expect(row).toMatchObject({ score: 7.5, overrideScore: 3 });
+	});
+
+	it("two concurrent first runs cannot both land — the second save is skipped", async () => {
+		await seedEvalBase(env, { withPlan: false });
+		const db = getDb(env);
+		expect(
+			await saveAiReview(db, "s1", { score: 7, rationale: RATIONALE }, null),
+		).toBe(true);
+		expect(
+			await saveAiReview(db, "s1", { score: 2, rationale: "Loser." }, null),
+		).toBe(false);
+		const [row] = await db
+			.select()
+			.from(aiReviews)
+			.where(eq(aiReviews.submissionId, "s1"));
+		expect(row?.score).toBe(7);
+	});
+
 	it("override wins as the effective score until cleared, and records who set it", async () => {
 		await seedEvalBase(env, { withPlan: false });
 		const db = getDb(env);
-		await saveAiReview(db, "s1", { score: 7.5, rationale: RATIONALE });
+		await saveAiReview(db, "s1", { score: 7.5, rationale: RATIONALE }, null);
 		expect(await overrideAiReview(db, "s1", 3, "u_admin")).toBe(true);
 		const [row] = await db
 			.select()

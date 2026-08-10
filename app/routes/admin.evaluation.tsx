@@ -594,7 +594,20 @@ export async function action({ context, request }: Route.ActionArgs) {
 				});
 				return { intent, formError: AI_FAILURE_MESSAGES[result.reason] };
 			}
-			await saveAiReview(db, submissionId, result);
+			const saved = await saveAiReview(
+				db,
+				submissionId,
+				result,
+				current?.updatedAt ?? null,
+			);
+			if (!saved) {
+				track("ai_review.save_skipped", { eventId: event.id, submissionId });
+				return {
+					intent,
+					formError:
+						"This submission's AI review changed while the model was running — nothing was overwritten. Refresh to see the current result.",
+				};
+			}
 			track("ai_review.scored", {
 				eventId: event.id,
 				submissionId,
@@ -636,16 +649,24 @@ export async function action({ context, request }: Route.ActionArgs) {
 					const ctx = contexts.get(id);
 					if (!ctx) return;
 					const result = await generateAiReview(runner, ctx);
-					if (result.ok) {
-						await saveAiReview(db, id, result);
-						scored += 1;
-					} else {
+					if (!result.ok) {
 						failures.push(result.reason);
 						track("ai_review.failed", {
 							eventId: event.id,
 							submissionId: id,
 							reason: result.reason,
 							detail: result.detail,
+						});
+						return;
+					}
+					// Candidates had no row when selected; a concurrent scorer's row wins.
+					if (await saveAiReview(db, id, result, null)) {
+						scored += 1;
+					} else {
+						failures.push("raced");
+						track("ai_review.save_skipped", {
+							eventId: event.id,
+							submissionId: id,
 						});
 					}
 				}),

@@ -1,4 +1,4 @@
-import { and, eq, inArray, notInArray } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "~/db";
 import {
@@ -309,12 +309,18 @@ export async function loadAiReviewContexts(
  * Persist a fresh AI verdict — replaces any previous run in place and clears a
  * standing override: a new AI pass makes the old human correction stale, and
  * the organizer can override again from the new score.
+ *
+ * Compare-and-set on `expected` (the row's updatedAt when the run started,
+ * null = no row existed): model calls take tens of seconds, and anything
+ * written meanwhile — an override, another run's result — must win over this
+ * late save. Returns false when the save was skipped for that reason.
  */
 export async function saveAiReview(
 	db: Db,
 	submissionId: string,
 	verdict: { score: number; rationale: string },
-): Promise<void> {
+	expected: Date | null,
+): Promise<boolean> {
 	const values = {
 		score: verdict.score,
 		rationale: verdict.rationale,
@@ -324,13 +330,16 @@ export async function saveAiReview(
 		overrideAt: null,
 		updatedAt: new Date(),
 	};
-	await db
+	const written = await db
 		.insert(aiReviews)
 		.values({ submissionId, ...values })
 		.onConflictDoUpdate({
 			target: aiReviews.submissionId,
 			set: values,
-		});
+			setWhere: expected ? eq(aiReviews.updatedAt, expected) : sql`1 = 0`,
+		})
+		.returning({ id: aiReviews.id });
+	return written.length > 0;
 }
 
 /** Organizer override: their number becomes the effective score, AI's original stays visible. */
