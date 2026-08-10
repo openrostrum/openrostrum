@@ -54,7 +54,6 @@ export function Sidebar({
 	children,
 }: {
 	user: { name: string | null; email: string };
-	/** Quiet slot in the user area, beside logout — the theme switcher. */
 	themeControl?: ReactNode;
 	children: ReactNode;
 }) {
