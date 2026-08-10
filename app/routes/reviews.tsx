@@ -22,7 +22,14 @@ import {
 	tracks,
 } from "~/db/schema";
 import { requireRole } from "~/lib/auth";
-import { formatDay, roundWritable } from "~/lib/evaluation";
+import {
+	EVAL_STATUS_TONE,
+	formatDay,
+	REVIEW_DECISION_TONE,
+	REVIEW_PAGE_SIZE as PAGE_SIZE,
+	REVIEWABLE_EXCLUDED,
+	roundWritable,
+} from "~/lib/evaluation";
 import { createTimings } from "~/lib/track";
 import {
 	Button,
@@ -46,23 +53,8 @@ import {
 	Th,
 	THead,
 	Tr,
-	type BadgeTone,
 } from "~/ui";
 import type { Route } from "./+types/reviews";
-
-const PAGE_SIZE = 25;
-const QUEUE_EXCLUDED = ["draft", "withdrawn"] as const;
-
-const EVAL_TONE: Record<string, BadgeTone> = {
-	pending: "warning",
-	completed: "success",
-	abstained: "caution",
-};
-const DECISION_TONE: Record<string, BadgeTone> = {
-	approve: "success",
-	maybe: "warning",
-	deny: "danger",
-};
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
@@ -140,7 +132,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					and(
 						eq(reviewerTracks.userId, user.id),
 						eq(tracks.eventId, submissions.eventId),
-						notInArray(submissions.status, [...QUEUE_EXCLUDED]),
+						notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
 					),
 				),
 		]),
@@ -246,7 +238,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		const where = and(
 			eq(reviewerTracks.userId, user.id),
 			eq(tracks.eventId, submissions.eventId),
-			notInArray(submissions.status, [...QUEUE_EXCLUDED]),
+			notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
 			q ? like(submissions.title, `%${q}%`) : undefined,
 		);
 		const [totalRows, rows] = await timings.time("db-tracks", () =>
@@ -506,7 +498,9 @@ function Queue({ data: d }: { data: QueueData }) {
 									</Td>
 									<Td kind="mono">{item.due}</Td>
 									<Td>
-										<StatusBadge tone={EVAL_TONE[item.status] ?? "neutral"}>
+										<StatusBadge
+											tone={EVAL_STATUS_TONE[item.status] ?? "neutral"}
+										>
 											{item.status === "pending"
 												? "Pending review"
 												: item.status}
@@ -570,7 +564,7 @@ function Queue({ data: d }: { data: QueueData }) {
 									<Td>
 										{item.decision ? (
 											<StatusBadge
-												tone={DECISION_TONE[item.decision] ?? "neutral"}
+												tone={REVIEW_DECISION_TONE[item.decision] ?? "neutral"}
 											>
 												{item.decision}
 											</StatusBadge>

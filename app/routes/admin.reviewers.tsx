@@ -17,6 +17,7 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { ensureQuickRound, mintEvaluations } from "~/lib/assign";
 import { errorMessage } from "~/lib/errors";
+import { REVIEWABLE_EXCLUDED, utcDayKey } from "~/lib/evaluation";
 import { escapeHtmlText } from "~/lib/html";
 import {
 	activeInviteTokens,
@@ -53,8 +54,6 @@ const AddReviewer = z.object({
 	email: z.string().email("Enter a valid email address"),
 	trackIds: z.array(z.string().min(1)).min(1, "Assign at least one track"),
 });
-
-const REVIEWABLE_EXCLUDED = ["draft", "withdrawn"] as const;
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
@@ -240,7 +239,9 @@ export async function action({
 					to: reviewer.email,
 					subject: `You're now a reviewer for ${event.name}`,
 					html: `<p>Hi ${escapeHtmlText(parsed.data.name)},</p><p>You have been added as a reviewer for ${escapeHtmlText(event.name)}.</p><p><a href="${origin}/reviews">Open your review queue</a></p>`,
-					dedupeKey: `reviewer_added:${reviewer.id}:${event.id}`,
+					// Day-scoped occurrence: a same-day double-submit dedupes, but a
+					// reviewer removed and later re-added is still notified.
+					dedupeKey: `reviewer_added:${reviewer.id}:${event.id}:${utcDayKey()}`,
 					eventId: event.id,
 				});
 			}
@@ -286,6 +287,12 @@ export async function action({
 			}
 			if (!trackIds.every((id) => eventTrackIds.has(id))) {
 				return { intent, formError: "Pick tracks from this event only." };
+			}
+			// Never trust a client-supplied principal id: the target must already
+			// be one of this event's reviewers.
+			const registry = await listEventReviewers(db, event.id);
+			if (!registry.some((r) => r.id === userId)) {
+				return { intent, formError: "Reviewer not found." };
 			}
 			await db.batch([
 				db
@@ -362,6 +369,12 @@ export async function action({
 			const submissionIds = form.getAll("submissionIds").map(String);
 			if (submissionIds.length === 0) {
 				return { intent, formError: "Pick at least one submission." };
+			}
+			// The minted rows grant /reviews access — validate the principal
+			// against the event's reviewer registry, never the raw form value.
+			const registry = await listEventReviewers(db, event.id);
+			if (!registry.some((r) => r.id === userId)) {
+				return { intent, formError: "Reviewer not found." };
 			}
 			const valid = await db
 				.select({ id: submissions.id })

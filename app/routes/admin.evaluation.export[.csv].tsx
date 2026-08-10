@@ -16,7 +16,7 @@ import {
 	meanScore,
 	toCsv,
 } from "~/lib/evaluation";
-import { track } from "~/lib/track";
+import { createTimings, track } from "~/lib/track";
 import type { Route } from "./+types/admin.evaluation.export[.csv]";
 
 /**
@@ -48,61 +48,72 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		.limit(1);
 	if (!plan) throw new Response("Not found", { status: 404 });
 
-	const [rounds, questions, evalRows, answerRows] = await Promise.all([
-		db
-			.select()
-			.from(evaluationRounds)
-			.where(eq(evaluationRounds.planId, plan.id))
-			.orderBy(evaluationRounds.position, evaluationRounds.createdAt),
-		db
-			.select({
-				id: roundQuestions.id,
-				roundId: roundQuestions.roundId,
-				label: roundQuestions.label,
-				type: roundQuestions.type,
-				weight: roundQuestions.weight,
-				position: roundQuestions.position,
-			})
-			.from(roundQuestions)
-			.innerJoin(
-				evaluationRounds,
-				eq(evaluationRounds.id, roundQuestions.roundId),
-			)
-			.where(eq(evaluationRounds.planId, plan.id))
-			.orderBy(roundQuestions.position),
-		db
-			.select({
-				id: evaluations.id,
-				roundId: evaluations.roundId,
-				submissionId: evaluations.submissionId,
-				status: evaluations.status,
-				submittedAt: evaluations.submittedAt,
-				abstainReason: evaluations.abstainReason,
-				evaluatorName: users.name,
-				evaluatorEmail: users.email,
-				submissionTitle: submissions.title,
-				submissionStatus: submissions.status,
-			})
-			.from(evaluations)
-			.innerJoin(users, eq(users.id, evaluations.evaluatorId))
-			.innerJoin(submissions, eq(submissions.id, evaluations.submissionId))
-			.innerJoin(evaluationRounds, eq(evaluationRounds.id, evaluations.roundId))
-			.where(eq(evaluationRounds.planId, plan.id)),
-		db
-			.select({
-				evaluationId: evaluationAnswers.evaluationId,
-				questionId: evaluationAnswers.questionId,
-				valueNumber: evaluationAnswers.valueNumber,
-				valueText: evaluationAnswers.valueText,
-			})
-			.from(evaluationAnswers)
-			.innerJoin(
-				evaluations,
-				eq(evaluations.id, evaluationAnswers.evaluationId),
-			)
-			.innerJoin(evaluationRounds, eq(evaluationRounds.id, evaluations.roundId))
-			.where(eq(evaluationRounds.planId, plan.id)),
-	]);
+	const timings = createTimings();
+	const [rounds, questions, evalRows, answerRows] = await timings.time(
+		"db",
+		() =>
+			Promise.all([
+				db
+					.select()
+					.from(evaluationRounds)
+					.where(eq(evaluationRounds.planId, plan.id))
+					.orderBy(evaluationRounds.position, evaluationRounds.createdAt),
+				db
+					.select({
+						id: roundQuestions.id,
+						roundId: roundQuestions.roundId,
+						label: roundQuestions.label,
+						type: roundQuestions.type,
+						weight: roundQuestions.weight,
+						position: roundQuestions.position,
+					})
+					.from(roundQuestions)
+					.innerJoin(
+						evaluationRounds,
+						eq(evaluationRounds.id, roundQuestions.roundId),
+					)
+					.where(eq(evaluationRounds.planId, plan.id))
+					.orderBy(roundQuestions.position),
+				db
+					.select({
+						id: evaluations.id,
+						roundId: evaluations.roundId,
+						submissionId: evaluations.submissionId,
+						status: evaluations.status,
+						submittedAt: evaluations.submittedAt,
+						abstainReason: evaluations.abstainReason,
+						evaluatorName: users.name,
+						evaluatorEmail: users.email,
+						submissionTitle: submissions.title,
+						submissionStatus: submissions.status,
+					})
+					.from(evaluations)
+					.innerJoin(users, eq(users.id, evaluations.evaluatorId))
+					.innerJoin(submissions, eq(submissions.id, evaluations.submissionId))
+					.innerJoin(
+						evaluationRounds,
+						eq(evaluationRounds.id, evaluations.roundId),
+					)
+					.where(eq(evaluationRounds.planId, plan.id)),
+				db
+					.select({
+						evaluationId: evaluationAnswers.evaluationId,
+						questionId: evaluationAnswers.questionId,
+						valueNumber: evaluationAnswers.valueNumber,
+						valueText: evaluationAnswers.valueText,
+					})
+					.from(evaluationAnswers)
+					.innerJoin(
+						evaluations,
+						eq(evaluations.id, evaluationAnswers.evaluationId),
+					)
+					.innerJoin(
+						evaluationRounds,
+						eq(evaluationRounds.id, evaluations.roundId),
+					)
+					.where(eq(evaluationRounds.planId, plan.id)),
+			]),
+	);
 
 	const roundName = new Map(rounds.map((r) => [r.id, r.name]));
 	const answersByEval = new Map<string, typeof answerRows>();
@@ -229,6 +240,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		headers: {
 			"Content-Type": "text/csv; charset=utf-8",
 			"Content-Disposition": `attachment; filename="evaluation-${slug}-${report}.csv"`,
+			"Server-Timing": timings.header(),
 		},
 	});
 }

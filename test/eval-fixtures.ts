@@ -222,8 +222,8 @@ export async function sessionRequest(
 
 export const CONTEXT_OF = (env: Env) => ({ cloudflare: { env, ctx: {} } });
 
-/** The kit's sample round-1 review: Originality 4, Relevance 2, Accept. */
-export function kitScorecardBody(evaluationId: string): URLSearchParams {
+/** Canonical sample round-1 review: Originality 4, Relevance 2, Accept. */
+export function sampleScorecardBody(evaluationId: string): URLSearchParams {
 	return new URLSearchParams([
 		["intent", "save-eval"],
 		["evaluationId", evaluationId],

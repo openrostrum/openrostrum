@@ -17,7 +17,7 @@ import {
 import { loader as queueLoader } from "../app/routes/reviews";
 import {
 	CONTEXT_OF,
-	kitScorecardBody,
+	sampleScorecardBody,
 	seedEvalBase,
 	sessionRequest,
 } from "./eval-fixtures";
@@ -169,7 +169,7 @@ describe("anonymized review projection (/reviews/:id)", () => {
 });
 
 describe("scoring, recusal, and the round lock", () => {
-	it("saves the kit scorecard, marks completed, and stays editable", async () => {
+	it("saves the sample scorecard, marks completed, and stays editable", async () => {
 		const { db } = await seedEvalBase(env);
 		const post = async (body: URLSearchParams) =>
 			call(
@@ -180,7 +180,7 @@ describe("scoring, recusal, and the round lock", () => {
 				}),
 				"s1",
 			);
-		const result = (await post(kitScorecardBody("ev1"))) as { ok?: string };
+		const result = (await post(sampleScorecardBody("ev1"))) as { ok?: string };
 		expect(result.ok).toBeTruthy();
 		const [ev] = await db
 			.select()
@@ -189,7 +189,7 @@ describe("scoring, recusal, and the round lock", () => {
 		expect(ev?.status).toBe("completed");
 		expect(ev?.submittedAt).not.toBeNull();
 		// edit: change Relevance 2 → 5; the stored answer must follow
-		const edited = kitScorecardBody("ev1");
+		const edited = sampleScorecardBody("ev1");
 		edited.set("q_q_rel", "5");
 		await post(edited);
 		const loaded = (await call(
@@ -211,7 +211,7 @@ describe("scoring, recusal, and the round lock", () => {
 
 	it("rejects a missing required question with a field error and writes nothing", async () => {
 		const { db } = await seedEvalBase(env);
-		const body = kitScorecardBody("ev1");
+		const body = sampleScorecardBody("ev1");
 		body.set("q_q_orig", ""); // required rating left blank
 		const result = (await call(
 			reviewAction,
@@ -279,7 +279,7 @@ describe("scoring, recusal, and the round lock", () => {
 				}),
 				"s1",
 			);
-		const save = (await post(kitScorecardBody("ev1"))) as {
+		const save = (await post(sampleScorecardBody("ev1"))) as {
 			formError?: string;
 		};
 		expect(save.formError).toMatch(/locked|closed/i);
@@ -333,6 +333,28 @@ describe("track decision + feedback email", () => {
 			.from(submissions)
 			.where(eq(submissions.id, "s1"));
 		expect(sub?.status).toBe("pending"); // a reviewer decision is never a status change
+	});
+
+	it("identical feedback double-submit sends once; different feedback still sends", async () => {
+		const { db } = await seedEvalBase(env);
+		const decide = async (feedback: string) =>
+			call(
+				reviewAction,
+				await sessionRequest(env, "u_rev", "http://localhost/reviews/s1", {
+					method: "POST",
+					body: new URLSearchParams([
+						["intent", "decide"],
+						["decision", "maybe"],
+						["feedback", feedback],
+					]),
+				}),
+				"s1",
+			);
+		await decide("Please add benchmarks.");
+		await decide("Please add benchmarks."); // double-submit replay
+		expect(await db.select().from(emailOutbox)).toHaveLength(1);
+		await decide("Second, different note.");
+		expect(await db.select().from(emailOutbox)).toHaveLength(2);
 	});
 
 	it("a decision WITHOUT feedback sends no email", async () => {

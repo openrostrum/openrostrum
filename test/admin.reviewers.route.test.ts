@@ -32,7 +32,7 @@ const post = async (body: URLSearchParams) =>
 		}),
 	);
 
-describe("reviewer invites (G7 mechanics)", () => {
+describe("reviewer invites (sentinel-hash users + org-less tokens)", () => {
 	it("add mints a sentinel user + NULL-org token + invite email with the set-password link", async () => {
 		const { db } = await seedEvalBase(env, { withPlan: false });
 		const response = (await post(
@@ -188,6 +188,52 @@ describe("quick assignment from the reviewers page", () => {
 		)) as { ok?: string };
 		expect(again.ok).toContain("already assigned");
 		expect(await db.select().from(evaluations)).toHaveLength(2);
+	});
+});
+
+describe("quick assignment never targets a locked round", () => {
+	it("with only a CLOSED plan, auto-assign creates a fresh writable round", async () => {
+		const { db } = await seedEvalBase(env); // plan1/r1 exist and are open
+		await db
+			.update(evaluationPlans)
+			.set({ status: "closed" })
+			.where(eq(evaluationPlans.id, "plan1"));
+		const result = (await post(
+			new URLSearchParams([
+				["intent", "assign"],
+				["userId", "u_rev"],
+				["roundId", "auto"],
+				["submissionIds", "s2"],
+			]),
+		)) as { ok?: string };
+		expect(result.ok).toContain("Assigned 1");
+		const [row] = await db
+			.select()
+			.from(evaluations)
+			.where(eq(evaluations.submissionId, "s2"));
+		// minted into a NEW writable round, not the locked plan's r1
+		expect(row?.roundId).not.toBe("r1");
+		const plans = await db.select().from(evaluationPlans);
+		expect(plans).toHaveLength(2);
+	});
+
+	it("rejects a principal outside the event reviewer registry", async () => {
+		const { db } = await seedEvalBase(env);
+		const result = (await post(
+			new URLSearchParams([
+				["intent", "assign"],
+				["userId", "u_speaker"], // not a reviewer on this event
+				["roundId", "r1"],
+				["submissionIds", "s2"],
+			]),
+		)) as { formError?: string };
+		expect(result.formError).toBeTruthy();
+		expect(
+			await db
+				.select()
+				.from(evaluations)
+				.where(eq(evaluations.evaluatorId, "u_speaker")),
+		).toHaveLength(0);
 	});
 });
 

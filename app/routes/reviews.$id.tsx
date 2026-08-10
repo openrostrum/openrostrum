@@ -25,7 +25,11 @@ import {
 } from "~/db/schema";
 import { requireRole } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatDay, roundWritable } from "~/lib/evaluation";
+import {
+	formatDay,
+	REVIEW_DECISION_TONE as DECISION_TONE,
+	roundWritable,
+} from "~/lib/evaluation";
 import { escapeHtmlText, stripHtml } from "~/lib/html";
 import { createTimings, track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
@@ -46,15 +50,8 @@ import {
 	Th,
 	THead,
 	Tr,
-	type BadgeTone,
 } from "~/ui";
 import type { Route } from "./+types/reviews.$id";
-
-const DECISION_TONE: Record<string, BadgeTone> = {
-	approve: "success",
-	maybe: "warning",
-	deny: "danger",
-};
 
 const Decision = z.object({
 	decision: z.enum(["approve", "maybe", "deny"]),
@@ -66,7 +63,7 @@ const Decision = z.object({
  * Access + shared context for both loader and action. A reviewer may open a
  * submission only when it is assigned to them (an `evaluations` row exists)
  * or routed to them by track overlap — anything else is 404, so URL guessing
- * can't browse the event (flows/09: evaluators never reuse admin reads).
+ * can't browse the event (evaluators must never reach the admin-wide reads).
  */
 async function requireReviewContext(
 	env: Env,
@@ -240,8 +237,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 						.where(eq(evaluationAnswers.evaluationId, evaluation.id)),
 				]);
 				// "Show scores from other evaluators": averages of OTHER completed
-				// reviews' rating answers — scores only, no comments, no names
-				// (flows/09 rule k).
+				// reviews' rating answers — scores only, never comments, never
+				// evaluator identities.
 				let others: Array<{
 					questionId: string;
 					average: number;
@@ -403,6 +400,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					.update(evaluations)
 					.set({ status: "pending", abstainReason: null, submittedAt: null })
 					.where(eq(evaluations.id, evaluationId));
+				track("evaluation.resumed", {
+					submissionId: params.id,
+					evaluationId,
+				});
 				return { intent, evaluationId, ok: "Review reopened." };
 			}
 
@@ -573,10 +574,21 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 							"Feedback was NOT sent — this submission has no submitter email on file.",
 					};
 				}
+				// Content-keyed dedupe: an identical double-submit sends once, a
+				// later DIFFERENT feedback to the same speaker still goes out.
+				const digest = await crypto.subtle.digest(
+					"SHA-256",
+					new TextEncoder().encode(feedback),
+				);
+				const feedbackHash = [...new Uint8Array(digest)]
+					.slice(0, 8)
+					.map((b) => b.toString(16).padStart(2, "0"))
+					.join("");
 				await getEmailSender(env).send({
 					to,
 					subject: `Feedback on your submission: ${subRow?.title ?? "your talk"}`,
 					html: `<p>${escapeHtmlText(feedback)}</p><p>— The review team</p>`,
+					dedupeKey: `review_feedback:${params.id}:${user.id}:${feedbackHash}`,
 					eventId: subRow?.eventId,
 				});
 				track("review.feedback_sent", { submissionId: params.id });

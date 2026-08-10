@@ -8,6 +8,7 @@ import {
 	events,
 	organizations,
 	roundEvaluators,
+	roundQuestions,
 	users,
 } from "../app/db/schema";
 import { action as reviewAction } from "../app/routes/reviews.$id";
@@ -19,7 +20,7 @@ import { loader as exportLoader } from "../app/routes/admin.evaluation.export[.c
 import { action as listAction } from "../app/routes/admin.evaluation";
 import {
 	CONTEXT_OF,
-	kitScorecardBody,
+	sampleScorecardBody,
 	seedEvalBase,
 	sessionRequest,
 } from "./eval-fixtures";
@@ -53,7 +54,7 @@ const callReview = async (body: URLSearchParams, id: string) =>
 describe("plan results (weighted aggregate, sortable)", () => {
 	it("shows the WEIGHTED aggregate (≈3.33) and sorts both directions", async () => {
 		const { db } = await seedEvalBase(env);
-		await callReview(kitScorecardBody("ev1"), "s1");
+		await callReview(sampleScorecardBody("ev1"), "s1");
 		// second submission scored 5/5 → aggregate 5.00, must outrank 3.33
 		await db.insert(evaluations).values({
 			id: "ev2",
@@ -61,7 +62,7 @@ describe("plan results (weighted aggregate, sortable)", () => {
 			submissionId: "s2",
 			evaluatorId: "u_rev",
 		});
-		const top = kitScorecardBody("ev2");
+		const top = sampleScorecardBody("ev2");
 		top.set("q_q_orig", "5");
 		top.set("q_q_rel", "5");
 		await callReview(top, "s2");
@@ -88,7 +89,7 @@ describe("plan results (weighted aggregate, sortable)", () => {
 			"Taming 40-Minute CI",
 		]);
 		expect(desc.data.results.rows[0]?.aggregate).toBeCloseTo(5, 5);
-		// The kit's arithmetic: weighted 10/3 ≈ 3.33, NOT the flat 3.0 mean.
+		// Weighted arithmetic: 10/3 ≈ 3.33, NOT the flat 3.0 mean.
 		expect(desc.data.results.rows[1]?.aggregate).toBeCloseTo(10 / 3, 5);
 		const asc = await load("score_asc");
 		expect(asc.data.results.rows.map((r) => r.title)).toEqual([
@@ -99,7 +100,7 @@ describe("plan results (weighted aggregate, sortable)", () => {
 
 	it("organizer results detail exposes identity even for an anonymized round", async () => {
 		await seedEvalBase(env); // r1 is anonymized — reviewers are blinded, organizers never are
-		await callReview(kitScorecardBody("ev1"), "s1");
+		await callReview(sampleScorecardBody("ev1"), "s1");
 		const result = (await call(
 			planLoader,
 			await sessionRequest(
@@ -207,6 +208,35 @@ describe("assignment tooling", () => {
 		expect(rows[0]?.submissionId).toBe("s3"); // the only Developer Experience submission
 	});
 
+	it("assign-one rejects a principal outside the event reviewer registry", async () => {
+		const { db } = await seedEvalBase(env);
+		const result = (await call(
+			planAction,
+			await sessionRequest(
+				env,
+				"u_admin",
+				"http://localhost/admin/evaluation/plan1",
+				{
+					method: "POST",
+					body: new URLSearchParams([
+						["intent", "assign-one"],
+						["roundId", "r1"],
+						["submissionId", "s2"],
+						["evaluatorId", "u_speaker"], // not a reviewer on this event
+					]),
+				},
+			),
+			"plan1",
+		)) as { formError?: string };
+		expect(result.formError).toBeTruthy();
+		expect(
+			await db
+				.select()
+				.from(evaluations)
+				.where(eq(evaluations.evaluatorId, "u_speaker")),
+		).toHaveLength(0);
+	});
+
 	it("another org's plan is unreachable from this admin (404)", async () => {
 		const { db } = await seedEvalBase(env);
 		await db.insert(organizations).values({ id: "org2", name: "Other" });
@@ -233,6 +263,58 @@ describe("assignment tooling", () => {
 		);
 		expect(thrown).toBeInstanceOf(Response);
 		expect((thrown as Response).status).toBe(404);
+	});
+});
+
+describe("scorecard integrity", () => {
+	it("a question with recorded answers cannot be deleted; an unanswered one can", async () => {
+		const { db } = await seedEvalBase(env);
+		await callReview(sampleScorecardBody("ev1"), "s1"); // records answers
+		const del = async (questionId: string) =>
+			(await call(
+				planAction,
+				await sessionRequest(
+					env,
+					"u_admin",
+					"http://localhost/admin/evaluation/plan1",
+					{
+						method: "POST",
+						body: new URLSearchParams([
+							["intent", "delete-question"],
+							["roundId", "r1"],
+							["questionId", questionId],
+						]),
+					},
+				),
+				"plan1",
+			)) as { ok?: string; formError?: string };
+		const answered = await del("q_orig");
+		expect(answered.formError).toMatch(/recorded answers/);
+		// the row survived
+		expect(
+			await db
+				.select()
+				.from(roundQuestions)
+				.where(eq(roundQuestions.id, "q_orig")),
+		).toHaveLength(1);
+		// a question nobody answered deletes cleanly
+		await db.insert(roundQuestions).values({
+			id: "q_fresh",
+			roundId: "r1",
+			label: "Fresh",
+			type: "text",
+			weight: 1,
+			required: false,
+			position: 9,
+		});
+		const fresh = await del("q_fresh");
+		expect(fresh.ok).toBeTruthy();
+		expect(
+			await db
+				.select()
+				.from(roundQuestions)
+				.where(eq(roundQuestions.id, "q_fresh")),
+		).toHaveLength(0);
 	});
 });
 
@@ -270,7 +352,7 @@ describe("reminders", () => {
 
 	it("fully caught-up reviewers get no reminder", async () => {
 		const { db } = await seedEvalBase(env);
-		await callReview(kitScorecardBody("ev1"), "s1"); // completes the only assignment
+		await callReview(sampleScorecardBody("ev1"), "s1"); // completes the only assignment
 		const result = (await call(
 			planAction,
 			await sessionRequest(
@@ -295,7 +377,7 @@ describe("reminders", () => {
 describe("CSV export", () => {
 	it("individual report carries the criterion answers and the weighted score", async () => {
 		await seedEvalBase(env);
-		await callReview(kitScorecardBody("ev1"), "s1");
+		await callReview(sampleScorecardBody("ev1"), "s1");
 		const response = (await call(
 			exportLoader,
 			await sessionRequest(
@@ -318,7 +400,7 @@ describe("CSV export", () => {
 
 	it("cumulative report aggregates one row per submission", async () => {
 		await seedEvalBase(env);
-		await callReview(kitScorecardBody("ev1"), "s1");
+		await callReview(sampleScorecardBody("ev1"), "s1");
 		const response = (await call(
 			exportLoader,
 			await sessionRequest(
@@ -371,7 +453,7 @@ describe("plan list actions", () => {
 			.update(evaluationPlans)
 			.set({ status: "closed" })
 			.where(eq(evaluationPlans.id, "plan1"));
-		const result = (await callReview(kitScorecardBody("ev1"), "s1")) as {
+		const result = (await callReview(sampleScorecardBody("ev1"), "s1")) as {
 			formError?: string;
 		};
 		expect(result.formError).toBeTruthy();

@@ -4,6 +4,29 @@
  * scoring/distribution contracts are unit-testable against fixed fixtures.
  */
 
+import type { BadgeTone } from "~/ui";
+
+/**
+ * Statuses that are never reviewable: drafts are private to their submitter
+ * and withdrawn submissions were pulled by the speaker. Single-sourced so the
+ * admin assignment scope and both reviewer queues can never disagree.
+ */
+export const REVIEWABLE_EXCLUDED = ["draft", "withdrawn"] as const;
+
+export const REVIEW_PAGE_SIZE = 25;
+
+export const EVAL_STATUS_TONE: Record<string, BadgeTone> = {
+	pending: "warning",
+	completed: "success",
+	abstained: "caution",
+};
+
+export const REVIEW_DECISION_TONE: Record<string, BadgeTone> = {
+	approve: "success",
+	maybe: "warning",
+	deny: "danger",
+};
+
 export type ScoreQuestion = {
 	id: string;
 	type: "rating" | "dropdown" | "text";

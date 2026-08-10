@@ -14,7 +14,11 @@ import {
 } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatDay } from "~/lib/evaluation";
+import {
+	formatDay,
+	REVIEW_DECISION_TONE as DECISION_TONE,
+	REVIEW_PAGE_SIZE as PAGE_SIZE,
+} from "~/lib/evaluation";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -38,22 +42,13 @@ import {
 	Th,
 	THead,
 	Tr,
-	type BadgeTone,
 } from "~/ui";
 import type { Route } from "./+types/admin.evaluation";
-
-const PAGE_SIZE = 25;
 
 const NewPlan = z.object({
 	name: z.string().min(1, "Plan name is required"),
 	instructions: z.string().optional(),
 });
-
-const DECISION_TONE: Record<string, BadgeTone> = {
-	approve: "success",
-	maybe: "warning",
-	deny: "danger",
-};
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;

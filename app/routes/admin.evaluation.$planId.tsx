@@ -23,11 +23,14 @@ import { errorMessage } from "~/lib/errors";
 import {
 	dateInputValue,
 	distributeAssignments,
+	EVAL_STATUS_TONE,
 	evaluationScore,
 	formatDay,
 	formatScore,
 	meanScore,
 	parseDateInput,
+	REVIEW_PAGE_SIZE as PAGE_SIZE,
+	REVIEWABLE_EXCLUDED,
 	utcDayKey,
 } from "~/lib/evaluation";
 import { listEventReviewers } from "~/lib/reviewers";
@@ -57,20 +60,11 @@ import {
 	Th,
 	THead,
 	Tr,
-	type BadgeTone,
 } from "~/ui";
 import type { Route } from "./+types/admin.evaluation.$planId";
 
-const PAGE_SIZE = 25;
-const REVIEWABLE_EXCLUDED = ["draft", "withdrawn"] as const;
 const TABS = ["rounds", "assign", "progress", "results", "settings"] as const;
 type TabName = (typeof TABS)[number];
-
-const EVAL_TONE: Record<string, BadgeTone> = {
-	pending: "warning",
-	completed: "success",
-	abstained: "caution",
-};
 
 const RoundInput = z.object({
 	name: z.string().min(1, "Round name is required"),
@@ -632,6 +626,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				.update(evaluationPlans)
 				.set({ name, instructions: String(form.get("instructions") ?? "") })
 				.where(eq(evaluationPlans.id, plan.id));
+			track("evaluation.plan_updated", { eventId: event.id, planId: plan.id });
 			return { intent, ok: "Plan updated." };
 		}
 		if (intent === "toggle-plan") {
@@ -705,6 +700,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				.update(evaluationRounds)
 				.set(values)
 				.where(eq(evaluationRounds.id, roundId));
+			track("evaluation.round_updated", { eventId: event.id, roundId });
 			return { intent, ok: `Round “${values.name}” updated.` };
 		}
 		if (intent === "delete-round") {
@@ -761,28 +757,37 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 						eq(roundQuestions.roundId, roundId),
 					),
 				);
+			track("evaluation.question_updated", { eventId: event.id, roundId });
 			return { intent, roundId, ok: `Question “${values.label}” updated.` };
 		}
 		if (intent === "delete-question") {
 			const roundId = String(form.get("roundId") ?? "");
 			const questionId = String(form.get("questionId") ?? "");
 			if (!roundOf(roundId)) return { intent, formError: "Round not found." };
-			try {
-				await db
-					.delete(roundQuestions)
-					.where(
-						and(
-							eq(roundQuestions.id, questionId),
-							eq(roundQuestions.roundId, roundId),
-						),
-					);
-			} catch {
+			// Check for recorded answers explicitly instead of catching the FK
+			// error — a transient DB failure must not masquerade as this message.
+			const [{ n: answered }] = (await db
+				.select({ n: count() })
+				.from(evaluationAnswers)
+				.where(eq(evaluationAnswers.questionId, questionId))) as [
+				{ n: number },
+			];
+			if (answered > 0) {
 				return {
 					intent,
 					formError:
 						"This question already has recorded answers — it can't be deleted. Close the round instead.",
 				};
 			}
+			await db
+				.delete(roundQuestions)
+				.where(
+					and(
+						eq(roundQuestions.id, questionId),
+						eq(roundQuestions.roundId, roundId),
+					),
+				);
+			track("evaluation.question_deleted", { eventId: event.id, roundId });
 			return { intent, ok: "Question deleted." };
 		}
 		if (intent === "add-evaluator") {
@@ -790,6 +795,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			const userId = String(form.get("userId") ?? "");
 			if (!roundOf(roundId)) return { intent, formError: "Round not found." };
 			if (!userId) return { intent, formError: "Pick a reviewer to add." };
+			// Pool membership grants queue access — the principal must come from
+			// this event's reviewer registry, never the raw form value.
+			const registry = await listEventReviewers(db, event.id);
+			if (!registry.some((r) => r.id === userId)) {
+				return { intent, formError: "Reviewer not found on this event." };
+			}
 			await db
 				.insert(roundEvaluators)
 				.values({ roundId, userId })
@@ -820,6 +831,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 						),
 					),
 			]);
+			track("evaluation.pool_removed", { eventId: event.id, roundId, userId });
 			return {
 				intent,
 				ok: "Reviewer removed from the pool — completed reviews were kept.",
@@ -907,7 +919,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				reviewersPerSubmission,
 				maxPerEvaluator,
 			});
-			const minted = await mintEvaluations(db, roundId, pairs);
+			const minted = await mintEvaluations(db, roundId, pairs, existing);
 			track("evaluation.assigned_bulk", {
 				eventId: event.id,
 				roundId,
@@ -926,6 +938,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			if (!roundOf(roundId)) return { intent, formError: "Round not found." };
 			if (!evaluatorId) {
 				return { intent, formError: "Pick a reviewer to assign." };
+			}
+			// The minted row grants /reviews access — validate the principal
+			// against the event's reviewer registry, never the raw form value.
+			const registry = await listEventReviewers(db, event.id);
+			if (!registry.some((r) => r.id === evaluatorId)) {
+				return { intent, formError: "Reviewer not found on this event." };
 			}
 			const [sub] = await db
 				.select({ id: submissions.id })
@@ -977,6 +995,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				};
 			}
 			await db.delete(evaluations).where(eq(evaluations.id, evaluationId));
+			track("evaluation.unassigned", { eventId: event.id, evaluationId });
 			return { intent, ok: "Assignment removed." };
 		}
 		if (intent === "remind") {
@@ -1526,7 +1545,6 @@ function AssignTab({
 	assign: NonNullable<LoaderData["assign"]>;
 }) {
 	const round = rounds.find((r) => r.id === assign.roundId) ?? rounds[0];
-	const pages = Math.max(1, Math.ceil(assign.total / PAGE_SIZE));
 	const baseParams = (over: Record<string, string | number>) => {
 		const sp = new URLSearchParams({ tab: "assign" });
 		if (round) sp.set("round", round.id);
@@ -1672,30 +1690,11 @@ function AssignTab({
 					)}
 				</TBody>
 			</Table>
-			{assign.total > PAGE_SIZE && (
-				<div className="flex items-center gap-3">
-					{assign.page > 1 && (
-						<ButtonLink
-							to={baseParams({ page: assign.page - 1 })}
-							variant="ghost"
-						>
-							Previous
-						</ButtonLink>
-					)}
-					<TableFooter>
-						{(assign.page - 1) * PAGE_SIZE + 1}–
-						{Math.min(assign.page * PAGE_SIZE, assign.total)} of {assign.total}
-					</TableFooter>
-					{assign.page < pages && (
-						<ButtonLink
-							to={baseParams({ page: assign.page + 1 })}
-							variant="ghost"
-						>
-							Next
-						</ButtonLink>
-					)}
-				</div>
-			)}
+			<Pager
+				page={assign.page}
+				total={assign.total}
+				link={(p) => baseParams({ page: p })}
+			/>
 
 			<PageHeader
 				title="Current assignments"
@@ -1714,7 +1713,7 @@ function AssignTab({
 							<Td kind="strong">{row.title}</Td>
 							<Td>{row.evaluator}</Td>
 							<Td>
-								<StatusBadge tone={EVAL_TONE[row.status] ?? "neutral"}>
+								<StatusBadge tone={EVAL_STATUS_TONE[row.status] ?? "neutral"}>
 									{row.status}
 								</StatusBadge>
 							</Td>
@@ -1739,31 +1738,11 @@ function AssignTab({
 					)}
 				</TBody>
 			</Table>
-			{assign.current.total > PAGE_SIZE && (
-				<div className="flex items-center gap-3">
-					{assign.apage > 1 && (
-						<ButtonLink
-							to={baseParams({ apage: assign.apage - 1 })}
-							variant="ghost"
-						>
-							Previous
-						</ButtonLink>
-					)}
-					<TableFooter>
-						{(assign.apage - 1) * PAGE_SIZE + 1}–
-						{Math.min(assign.apage * PAGE_SIZE, assign.current.total)} of{" "}
-						{assign.current.total}
-					</TableFooter>
-					{assign.apage * PAGE_SIZE < assign.current.total && (
-						<ButtonLink
-							to={baseParams({ apage: assign.apage + 1 })}
-							variant="ghost"
-						>
-							Next
-						</ButtonLink>
-					)}
-				</div>
-			)}
+			<Pager
+				page={assign.apage}
+				total={assign.current.total}
+				link={(p) => baseParams({ apage: p })}
+			/>
 		</>
 	);
 }
@@ -1846,7 +1825,6 @@ function ResultsTab({
 	results: NonNullable<LoaderData["results"]>;
 }) {
 	const { sort, page, total, rows, detail } = results;
-	const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 	const link = (over: Record<string, string | number>) => {
 		const sp = new URLSearchParams({
 			tab: "results",
@@ -1904,7 +1882,9 @@ function ResultsTab({
 										<Td kind="strong">{e.evaluator}</Td>
 										<Td>{e.round}</Td>
 										<Td>
-											<StatusBadge tone={EVAL_TONE[e.status] ?? "neutral"}>
+											<StatusBadge
+												tone={EVAL_STATUS_TONE[e.status] ?? "neutral"}
+											>
 												{e.status === "abstained" && e.abstainReason
 													? `abstained — ${e.abstainReason}`
 													: e.status}
@@ -2005,25 +1985,39 @@ function ResultsTab({
 					)}
 				</TBody>
 			</Table>
-			{total > PAGE_SIZE && (
-				<div className="flex items-center gap-3">
-					{page > 1 && (
-						<ButtonLink to={link({ page: page - 1 })} variant="ghost">
-							Previous
-						</ButtonLink>
-					)}
-					<TableFooter>
-						{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of{" "}
-						{total}
-					</TableFooter>
-					{page < pages && (
-						<ButtonLink to={link({ page: page + 1 })} variant="ghost">
-							Next
-						</ButtonLink>
-					)}
-				</div>
-			)}
+			<Pager page={page} total={total} link={(p) => link({ page: p })} />
 		</>
+	);
+}
+
+function Pager({
+	page,
+	total,
+	link,
+}: {
+	page: number;
+	total: number;
+	link: (page: number) => string;
+}) {
+	if (total <= PAGE_SIZE) return null;
+	const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+	return (
+		<div className="flex items-center gap-3">
+			{page > 1 && (
+				<ButtonLink to={link(page - 1)} variant="ghost">
+					Previous
+				</ButtonLink>
+			)}
+			<TableFooter>
+				{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of{" "}
+				{total}
+			</TableFooter>
+			{page < pages && (
+				<ButtonLink to={link(page + 1)} variant="ghost">
+					Next
+				</ButtonLink>
+			)}
+		</div>
 	);
 }
 
