@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Form, Link, useFetcher } from "react-router";
+import { Form, Link, useFetcher, useNavigation } from "react-router";
 // Pure client-safe module: the Abstracts and Sessions tabs are ONE
 // implementation rendered by two type-scoped routes (server half in
 // ./submission-list.server.ts). Enums come from ~/db/constants so no drizzle
@@ -286,6 +286,9 @@ export function SubmissionListPage({
 }) {
 	const loaded = data.eventName === null ? null : data;
 	const [drawerOpen, setDrawerOpen] = useState(false);
+	// Bulk apply is a document POST — block the double-click that would replay
+	// the transition before the first response lands.
+	const busy = useNavigation().state !== "idle";
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	// A new page/tab/search renders different rows — a stale selection would
 	// silently act on rows the admin can no longer see.
@@ -362,7 +365,7 @@ export function SubmissionListPage({
 							type="submit"
 							name="intent"
 							value="approve-all-accepted"
-							disabled={loaded.notPublicCount === 0}
+							disabled={loaded.notPublicCount === 0 || busy}
 						>
 							Approve all accepted
 						</Button>
@@ -410,12 +413,18 @@ export function SubmissionListPage({
 						name="intent"
 						value="bulk-set-status"
 						variant="ghost"
-						disabled={selected.size === 0}
+						disabled={selected.size === 0 || busy}
 					>
 						Apply
 					</Button>
 				</Form>
 			</div>
+
+			<p>
+				Apply never emails anyone — accepting links speaker accounts and mints
+				onboarding tasks; decision emails are sent explicitly from All
+				Submissions.
+			</p>
 
 			{actionData?.notice && <p>{actionData.notice}</p>}
 			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}

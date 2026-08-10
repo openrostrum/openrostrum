@@ -34,6 +34,11 @@ import type { Route } from "./+types/embed.$publicId";
 // inside third-party iframes — no frame-blocking headers). Published snippets
 // live on sites we don't control, so this URL contract must stay stable.
 
+// Embeds follow the viewer's OS, never the theme cookie: a third-party iframe
+// never sends the SameSite cookie, so the "os" pin keeps the admin's
+// same-origin Preview honest about what visitors will see.
+export const handle = { colorScheme: "os" as const };
+
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
