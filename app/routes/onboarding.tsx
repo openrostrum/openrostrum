@@ -9,6 +9,10 @@ import { getUser, homePathForRole } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import {
+	isSlugTakenError,
+	SLUG_TAKEN_MESSAGE,
+} from "~/settings/event-details.server";
+import {
 	Button,
 	ErrorText,
 	Field,
@@ -131,7 +135,7 @@ export async function action({
 	const timings = createTimings();
 	try {
 		// One atomic batch: an org must never exist without its founding member,
-		// nor an event without its default email templates.
+		// nor an event without its default email templates and portal.
 		await timings.time("db", () =>
 			db.batch([
 				db
@@ -150,7 +154,7 @@ export async function action({
 					startsAt: new Date(`${parsed.data.startsAt}T00:00:00Z`),
 					endsAt: new Date(`${parsed.data.endsAt}T00:00:00Z`),
 				}),
-				provisionEventDefaults(db, eventId),
+				...provisionEventDefaults(db, eventId),
 				db
 					.update(users)
 					.set({ activeEventId: eventId })
@@ -160,10 +164,10 @@ export async function action({
 	} catch (error) {
 		// Event slugs are one global namespace — a taken slug is a normal
 		// user-facing outcome, not a server error.
-		if (errorMessage(error).includes("UNIQUE constraint failed: events.slug")) {
+		if (isSlugTakenError(error)) {
 			return {
 				fieldErrors: {
-					slug: ["That URL slug is already taken — pick another."],
+					slug: [SLUG_TAKEN_MESSAGE],
 				},
 				values,
 			};

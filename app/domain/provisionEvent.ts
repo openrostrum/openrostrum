@@ -1,5 +1,5 @@
 import type { Db } from "~/db";
-import { emailTemplates } from "~/db/schema";
+import { emailTemplates, portals } from "~/db/schema";
 
 /**
  * The template set every event carries from birth. Senders resolve templates
@@ -64,12 +64,17 @@ export const EVENT_EMAIL_TEMPLATE_KEYS = DEFAULT_EMAIL_TEMPLATES.map(
 export type EventEmailTemplateKey = (typeof EVENT_EMAIL_TEMPLATE_KEYS)[number];
 
 /**
- * Every event-creation path must call this: an event without its default
- * templates silently never sends its confirmation email. Returns the
- * unexecuted insert so callers batch it atomically with the event insert.
+ * Every event-creation path must SPREAD this into its batch: an event without
+ * its default templates silently never sends its confirmation email, and one
+ * without its default speaker portal has no portal URL for the CFP success
+ * redirect or any emailed link to resolve to. Returns unexecuted inserts so
+ * callers batch them atomically with the event insert.
  */
 export function provisionEventDefaults(db: Db, eventId: string) {
-	return db
-		.insert(emailTemplates)
-		.values(DEFAULT_EMAIL_TEMPLATES.map((t) => ({ ...t, eventId })));
+	return [
+		db
+			.insert(emailTemplates)
+			.values(DEFAULT_EMAIL_TEMPLATES.map((t) => ({ ...t, eventId }))),
+		db.insert(portals).values({ eventId }),
+	] as const;
 }
