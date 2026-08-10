@@ -7,7 +7,9 @@ import contentSource from "./content.ts?raw";
 import landingSource from "./landing.tsx?raw";
 
 function internalLinks(source: string): string[] {
-	return [...source.matchAll(/\bto[:=]\s*"(\/[^"]*)"/g)].map((m) => m[1]);
+	return [...source.matchAll(/\bto[:=]\s*"(\/[^"]*)"/g)].flatMap((m) =>
+		m[1] === undefined ? [] : [m[1]],
+	);
 }
 
 describe("marketing internal links", () => {
