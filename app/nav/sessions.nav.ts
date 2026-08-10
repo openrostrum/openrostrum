@@ -5,5 +5,5 @@ export default {
 	to: "/admin/sessions",
 	section: "Program",
 	order: 3,
-	icon: "mic",
+	icon: "presentation",
 } satisfies NavItem;

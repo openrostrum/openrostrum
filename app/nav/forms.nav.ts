@@ -5,5 +5,5 @@ export default {
 	to: "/admin/forms",
 	section: "Program",
 	order: 2,
-	icon: "sliders",
+	icon: "clipboard",
 } satisfies NavItem;

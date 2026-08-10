@@ -5,5 +5,5 @@ export default {
 	to: "/admin/settings/team",
 	section: "Configure",
 	order: 20,
-	icon: "sliders",
+	icon: "users",
 } satisfies NavItem;

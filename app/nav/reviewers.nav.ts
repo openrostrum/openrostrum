@@ -5,5 +5,5 @@ export default {
 	to: "/admin/reviewers",
 	section: "Program",
 	order: 3,
-	icon: "mic",
+	icon: "eye",
 } satisfies NavItem;

@@ -73,6 +73,54 @@ const PATHS = {
 			<circle cx="18.5" cy="12" r="1.5" fill="currentColor" stroke="none" />
 		</>
 	),
+	users: (
+		<>
+			<circle cx="9" cy="8.5" r="3.2" />
+			<path d="M3.5 19.5a5.5 5.5 0 0 1 11 0" />
+			<path d="M16.2 5.8a3.2 3.2 0 0 1 0 5.4M17.5 15.4a5.5 5.5 0 0 1 3 4.1" />
+		</>
+	),
+	sync: (
+		<>
+			<path d="M20.5 4.5v5h-5M3.5 19.5v-5h5" />
+			<path d="M4.4 9.5a8 8 0 0 1 13.2-3l2.9 3M19.6 14.5a8 8 0 0 1-13.2 3l-2.9-3" />
+		</>
+	),
+	doc: (
+		<>
+			<path d="M14 3.5H7a1.7 1.7 0 0 0-1.7 1.7v13.6A1.7 1.7 0 0 0 7 20.5h10a1.7 1.7 0 0 0 1.7-1.7V8.2z" />
+			<path d="M14 3.5v4.7h4.7M9 12.5h6M9 16h6" />
+		</>
+	),
+	clipboard: (
+		<>
+			<rect x="5" y="5" width="14" height="15.5" rx="2" />
+			<rect x="9" y="3.5" width="6" height="3.4" rx="1.2" />
+			<path d="M9 12h6M9 15.8h4" />
+		</>
+	),
+	folder: (
+		<path d="M3.5 6.5a1.7 1.7 0 0 1 1.7-1.7h4.3l2 2.7h7.3a1.7 1.7 0 0 1 1.7 1.7v9.1a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7z" />
+	),
+	eye: (
+		<>
+			<path d="M3.5 12s3.2-6 8.5-6 8.5 6 8.5 6-3.2 6-8.5 6-8.5-6-8.5-6z" />
+			<circle cx="12" cy="12" r="2.6" />
+		</>
+	),
+	presentation: (
+		<>
+			<rect x="3.5" y="4.5" width="17" height="11.5" rx="1.8" />
+			<path d="M12 16v2.8M9 21l3-2.2 3 2.2" />
+		</>
+	),
+	"check-square": (
+		<>
+			<rect x="4" y="4" width="16" height="16" rx="2.2" />
+			<path d="M8.5 12.2l2.5 2.6 4.7-5" />
+		</>
+	),
+	code: <path d="M9 7.5L4.5 12 9 16.5M15 7.5l4.5 4.5L15 16.5" />,
 } as const;
 
 export type IconName = keyof typeof PATHS;

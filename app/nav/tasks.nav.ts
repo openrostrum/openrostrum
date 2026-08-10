@@ -5,5 +5,5 @@ export default {
 	to: "/admin/tasks",
 	section: "Portals",
 	order: 1,
-	icon: "star",
+	icon: "check-square",
 } satisfies NavItem;

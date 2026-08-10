@@ -5,5 +5,5 @@ export default {
 	to: "/admin/files",
 	section: "Program",
 	order: 3,
-	icon: "export",
+	icon: "folder",
 } satisfies NavItem;
