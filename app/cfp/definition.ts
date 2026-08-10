@@ -260,12 +260,10 @@ export function isInputField(field: WizardField): boolean {
 }
 
 /**
- * A select-style field whose event has no options configured (fresh event,
- * unconfigured taxonomy, option-less library dropdown). Nothing can be chosen,
- * so it must never render on the wizard and never block validation — required
- * or not, whatever stale value a resumed draft carries. Must stay in agreement
- * with `placementMissingOptions` (~/lib/forms), which warns the builder about
- * the same fields pre-resolution.
+ * A select offering zero options (unconfigured taxonomy, option-less library
+ * dropdown): nothing is choosable, so it must never render and never block
+ * validation — required or not, whatever stale value a resumed draft carries.
+ * Twin of `placementMissingOptions` (~/lib/forms), the builder-side warning.
  */
 export function isUnanswerableSelect(field: WizardField): boolean {
 	return (

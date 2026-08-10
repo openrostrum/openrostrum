@@ -677,9 +677,8 @@ describe("edit until close", () => {
 	});
 });
 
-// Fresh-event trap (prod bug, 2026-08-09): with zero taxonomies configured,
-// the default form's required selects offered nothing to choose and the
-// speaker could never save a draft past validation nor advance to Review.
+// With zero taxonomies configured, the default form's required selects offer
+// nothing to choose — draft save and submit must still work end to end.
 describe("fresh event with zero taxonomies", () => {
 	function callFreshSession(cookie: string, body: unknown) {
 		return sessionAction({

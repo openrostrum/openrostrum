@@ -139,9 +139,8 @@ describe("effectiveFormStatus", () => {
 	});
 });
 
-// The builder's "No options yet" warning — an organizer who publishes before
-// configuring taxonomies must SEE that the public wizard will omit the
-// question (fresh-event trap, prod bug 2026-08-09).
+// An organizer who publishes before configuring taxonomies must SEE that the
+// public wizard will omit the question — this warning is the only signal.
 describe("placementMissingOptions", () => {
 	const eventOptions = {
 		format: [],

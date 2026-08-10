@@ -237,11 +237,10 @@ export const RULE_TRIGGER_FIELD_TYPES = [
 ] as const;
 
 /**
- * A placed option-backed question with zero options configured for the event.
- * The public wizard omits such a question entirely, so the builder must warn
- * the organizer — otherwise a published form silently loses the question.
- * Must stay in agreement with `isUnanswerableSelect` (~/cfp/definition), the
- * post-resolution twin that decides what the wizard omits.
+ * A placed option-backed question with zero configured options. The public
+ * wizard omits it entirely, so the builder must warn — otherwise a published
+ * form silently loses the question. Twin of `isUnanswerableSelect`
+ * (~/cfp/definition), which decides the wizard-side omission.
  */
 export function placementMissingOptions(
 	placement: {

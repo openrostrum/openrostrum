@@ -132,9 +132,9 @@ describe("section validation", () => {
 		).toBeUndefined();
 	});
 
-	// Fresh-event trap (prod bug, 2026-08-09): an event with no taxonomies
-	// configured rendered required selects nobody could answer — the speaker
-	// could never advance past the Submission step.
+	// An event with no taxonomies configured must never present required
+	// selects nobody can answer — that strands the speaker on the Submission
+	// step with no way to advance.
 	it("never blocks on a select that offers zero options, required or not", () => {
 		const emptyLanguage: WizardField = {
 			key: "b_language",
@@ -156,7 +156,6 @@ describe("section validation", () => {
 			options: [],
 			rule: null,
 		};
-		// Missing value on a required empty select: no error.
 		expect(validateSection([emptyLanguage, emptyTags], {})).toEqual({});
 		// Stale value carried by a resumed draft (submissions default the
 		// language to "English"): still no "Choose a valid Language" error.
