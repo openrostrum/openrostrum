@@ -41,7 +41,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Central files library + file detail | `admin.files.tsx` · `admin.files_.$id.tsx` | `/admin/files` (library, CNT-13) · `/admin/files/:id` (versions, approve/deny, comments) | 1 | done |
 | Contact record (admin) | `admin.contacts_.$id.tsx` | `/admin/contacts/:id` | 1 | done |
 | Contact headshot bytes (admin, resource route) | `admin.contacts_.$id.headshot.tsx` | `/admin/contacts/:id/headshot` (GET bytes, admin-authz, event-scoped) | 1 | done |
-| CSV export (resource route) | `admin.submissions.export[.csv].tsx` | `/admin/submissions/export.csv` (COMMITTED, P2 #3) | 2 | todo |
+| CSV export (resource route) | `admin.submissions.export[.csv].tsx` | `/admin/submissions/export.csv` (COMMITTED, P2 #3; honors `type`/`status` filters) | 2 | done |
 | Contacts / speaker roster (list) | `admin.contacts.tsx` | `/admin/contacts` (search, status filter, + Add) — P1 #17 | 1 | done |
 | Speaker CSV import | `admin.contacts_.import.tsx` | `/admin/contacts/import` (upload → map → dedupe) | 1 | done |
 | Compose bulk email to speakers | `admin.contacts_.compose.tsx` | `/admin/contacts/compose` (merge fields + preview) | 1 | done |
