@@ -565,6 +565,111 @@ describe("field library + create-field", () => {
 		expect(shirt?.options).toEqual(["S", "M", "L"]);
 	});
 
+	// Regression: the panel only renders the maxLength/options inputs for the
+	// types they apply to, so the browser POST OMITS those keys entirely. The
+	// schema once required them to be present — every create silently no-oped
+	// with a 200 + fieldErrors payload on inputs the UI never rendered.
+	it("creates fields from the payload the panel ACTUALLY posts (absent options/maxLength keys)", async () => {
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+
+		// type=text renders no options input → no `options` key in the POST.
+		const text = await runAction(
+			formId,
+			{
+				intent: "create-field",
+				name: "Dietary requirements",
+				type: "text",
+				maxLength: "",
+				description: "",
+				scope: "event",
+				section: "session",
+				required: "false",
+			},
+			cookie,
+		);
+		expect(text.ok).toBe("create-field");
+		const [textRow] = await db
+			.select()
+			.from(fields)
+			.where(eq(fields.name, "Dietary requirements"));
+		expect(textRow?.eventId).toBe("e1");
+		expect(textRow?.organizationId).toBeNull();
+		const [textPlacement] = await db
+			.select()
+			.from(formFields)
+			.where(eq(formFields.fieldId, textRow?.id ?? ""));
+		expect(textPlacement?.formId).toBe(formId);
+
+		// type=dropdown renders no maxLength input → no `maxLength` key.
+		const dropdown = await runAction(
+			formId,
+			{
+				intent: "create-field",
+				name: "Audience level",
+				type: "dropdown",
+				options: "Beginner, Advanced",
+				description: "",
+				scope: "event",
+				section: "session",
+				required: "false",
+			},
+			cookie,
+		);
+		expect(dropdown.ok).toBe("create-field");
+		const [ddRow] = await db
+			.select()
+			.from(fields)
+			.where(eq(fields.name, "Audience level"));
+		expect(ddRow?.options).toEqual(["Beginner", "Advanced"]);
+		expect(ddRow?.maxLength).toBeNull();
+
+		// type=checkbox renders NEITHER input → both keys absent.
+		const checkbox = await runAction(
+			formId,
+			{
+				intent: "create-field",
+				name: "Needs AV setup",
+				type: "checkbox",
+				description: "",
+				scope: "org",
+				section: "session",
+				required: "false",
+			},
+			cookie,
+		);
+		expect(checkbox.ok).toBe("create-field");
+		const [cbRow] = await db
+			.select()
+			.from(fields)
+			.where(eq(fields.name, "Needs AV setup"));
+		expect(cbRow?.organizationId).toBe("org1");
+		expect(cbRow?.eventId).toBeNull();
+	});
+
+	it("a validation failure surfaces in the returned payload and persists nothing (never a silent 200)", async () => {
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		const result = await runAction(
+			formId,
+			{
+				intent: "create-field",
+				name: "   ",
+				type: "text",
+				maxLength: "",
+				description: "",
+				scope: "event",
+				section: "session",
+				required: "false",
+			},
+			cookie,
+		);
+		expect(result.ok).toBeUndefined();
+		expect(result.fieldErrors?.name?.[0]).toBe("Name is required");
+		const rows = await db.select().from(fields).where(eq(fields.eventId, "e1"));
+		expect(rows).toHaveLength(0);
+	});
+
 	it("a dropdown without options is rejected with a field error", async () => {
 		const { cookie } = await seedBase();
 		const formId = await createForm(cookie);

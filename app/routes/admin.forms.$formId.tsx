@@ -130,12 +130,15 @@ function chunk<T>(items: T[], size: number): T[][] {
 
 const boolish = z.enum(["true", "false"]).transform((v) => v === "true");
 
-const emptyToNull = (v: unknown) =>
-	typeof v === "string" && v.trim() === "" ? null : v;
+// FormData drops inputs that aren't rendered (conditionally shown panels), so
+// an ABSENT key must parse exactly like a blank one — otherwise the action
+// rejects payloads the UI legitimately sends.
+const blankToNull = (v: unknown) =>
+	v == null || (typeof v === "string" && v.trim() === "") ? null : v;
 
 const optionalInt = (min: number, max: number) =>
 	z.preprocess(
-		emptyToNull,
+		blankToNull,
 		z.coerce.number().int().min(min).max(max).nullable(),
 	);
 
@@ -199,14 +202,14 @@ const SaveForm = insertFormSchema
 		// Not columns: the close instant is entered as date + time in the EVENT
 		// timezone. Past dates are deliberately legal — backdating closes a form.
 		closeDate: z.preprocess(
-			emptyToNull,
+			blankToNull,
 			z
 				.string()
 				.regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date")
 				.nullable(),
 		),
 		closeTime: z.preprocess(
-			emptyToNull,
+			blankToNull,
 			z
 				.string()
 				.regex(/^\d{2}:\d{2}$/, "Enter a valid time")
@@ -243,8 +246,10 @@ const CreateField = createInsertSchema(fields)
 		// Narrower than the column enum: layout elements have their own tab.
 		type: z.enum(CREATE_FIELD_TYPES),
 		description: z.string().trim().max(1000),
+		// maxLength/options inputs only render for the types they apply to —
+		// the schema must accept their ABSENCE, not just a blank value.
 		maxLength: optionalInt(1, 5000),
-		options: z.string().trim().max(5000),
+		options: z.string().trim().max(5000).default(""),
 		scope: z.enum(["event", "org"]),
 		section: z.enum(["session", "participant"]),
 		required: boolish,
@@ -2004,6 +2009,20 @@ function CreateFieldPanel({
 	const fetcher = useFetcher<typeof action>();
 	const [type, setType] = useState<string>("text");
 	const errors = fetcher.data?.fieldErrors;
+	const hasLength =
+		type === "text" || type === "textarea" || type === "wysiwyg";
+	// Inline slots exist only for the inputs the CURRENT type renders. Any
+	// other rejection (schema drift, hidden inputs) must still surface —
+	// a 200 whose errors nobody renders is a silent no-op.
+	const slottedKeys = new Set([
+		"name",
+		"description",
+		...(hasLength ? ["maxLength"] : []),
+		...(type === "dropdown" ? ["options"] : []),
+	]);
+	const strayErrors = Object.entries(errors ?? {}).flatMap(([key, messages]) =>
+		!slottedKeys.has(key) && messages?.[0] ? [`${key}: ${messages[0]}`] : [],
+	);
 	return (
 		<fetcher.Form
 			key={fetcher.data?.created ?? "new"}
@@ -2029,7 +2048,7 @@ function CreateFieldPanel({
 					))}
 				</Select>
 			</Field>
-			{(type === "text" || type === "textarea" || type === "wysiwyg") && (
+			{hasLength && (
 				<Field label="Maximum length" error={errors?.maxLength?.[0]}>
 					<Input name="maxLength" type="number" min={1} max={5000} />
 				</Field>
@@ -2061,6 +2080,9 @@ function CreateFieldPanel({
 			<Button type="submit">Add field</Button>
 			{fetcher.data?.formError && (
 				<ErrorText>{fetcher.data.formError}</ErrorText>
+			)}
+			{strayErrors.length > 0 && (
+				<ErrorText>Couldn’t add the field — {strayErrors.join("; ")}</ErrorText>
 			)}
 		</fetcher.Form>
 	);
