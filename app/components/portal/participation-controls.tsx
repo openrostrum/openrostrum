@@ -6,18 +6,15 @@ import type { ParticipationView } from "./types";
 
 /**
  * Per-PERSON Confirm/Withdraw on an Accepted session. Drives ONLY the
- * caller's own participants row — the action re-verifies ownership. Rendered
- * with the owner's name so it is unambiguous whose status the control moves.
+ * caller's own participants row — the action re-verifies ownership.
  */
 export function ParticipationControls({
 	action,
 	participation,
-	ownerLabel = "Your participation",
 }: {
 	/** URL of the owning submission's action. */
 	action: string;
 	participation: ParticipationView;
-	ownerLabel?: string;
 }) {
 	const fetcher = useFetcher<{ formError?: string }>();
 	if (!participation.confirmable) return null;
@@ -28,7 +25,7 @@ export function ParticipationControls({
 			className="flex flex-wrap items-center gap-2"
 		>
 			<input type="hidden" name="participantId" value={participation.id} />
-			<Muted>{ownerLabel}:</Muted>
+			<Muted>Your participation:</Muted>
 			<StatusBadge tone={participation.status.tone}>
 				{participation.status.label}
 			</StatusBadge>

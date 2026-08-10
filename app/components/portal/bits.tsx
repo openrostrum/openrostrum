@@ -3,11 +3,8 @@ import { Panel } from "~/ui";
 import { cn } from "~/ui/cn";
 
 /**
- * PENDING-PROMOTION VIEW LAYER. These portal view pieces compose ~/ui
- * primitives wherever one exists (Card wraps Panel below); the handful of
- * genuinely new visual decisions here (Notice, MetaGrid, PillToggle, text
- * tiers) are candidates for promotion into app/ui — an integration-owner
- * decision requested in the owning PR, per the design-system contract.
+ * Portal view pieces. Every color is a theme token and ~/ui primitives are
+ * composed wherever one exists, so a re-skin stays a token/app-ui edit.
  */
 
 /** Panel with a heading row — the portal's card composition unit. */
@@ -24,8 +21,8 @@ export function Card({
 }) {
 	return (
 		<Panel>
-			<section>
-				<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+			<section className="flex flex-col gap-3">
+				<div className="flex flex-wrap items-center justify-between gap-2">
 					<h3 className="text-[13px] font-semibold text-fg">
 						{title}
 						{count !== undefined && (
@@ -36,7 +33,7 @@ export function Card({
 					</h3>
 					{action}
 				</div>
-				{children}
+				<div>{children}</div>
 			</section>
 		</Panel>
 	);

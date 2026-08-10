@@ -259,14 +259,25 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 						: "Complete this task by uploading the requested file.",
 			});
 		}
-		await db
-			.update(taskAssignments)
-			.set(
-				intent === "complete"
-					? { status: "complete", completedAt: new Date() }
-					: { status: "incomplete", completedAt: null },
-			)
-			.where(eq(taskAssignments.id, assignment.id));
+		try {
+			await db
+				.update(taskAssignments)
+				.set(
+					intent === "complete"
+						? { status: "complete", completedAt: new Date() }
+						: { status: "incomplete", completedAt: null },
+				)
+				.where(eq(taskAssignments.id, assignment.id));
+		} catch (error) {
+			track("portal.task_status_change_failed", {
+				eventId: ctx.event.id,
+				assignmentId: assignment.id,
+				error: errorMessage(error),
+			});
+			return fail({
+				formError: "Could not update the task — please try again.",
+			});
+		}
 		track("portal.task_status_changed", {
 			eventId: ctx.event.id,
 			assignmentId: assignment.id,
@@ -314,20 +325,41 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		// Validation failures persist NOTHING — the row is untouched.
 		if (Object.keys(fieldErrors).length > 0) return fail({ fieldErrors });
 
-		await db
-			.update(taskAssignments)
-			.set({ status: "complete", completedAt: new Date(), response: answers })
-			.where(eq(taskAssignments.id, assignment.id));
-		if (pf.sendConfirmationEmail && ctx.contact) {
-			await getEmailSender(env).send({
-				to: ctx.contact.email,
-				subject: `We received “${task.name}”`,
-				html:
-					pf.confirmationHtml ??
-					`<p>Thanks — your “${task.name}” form was received by the event team.</p>`,
-				dedupeKey: `portal_form:${assignment.id}`,
+		try {
+			await db
+				.update(taskAssignments)
+				.set({ status: "complete", completedAt: new Date(), response: answers })
+				.where(eq(taskAssignments.id, assignment.id));
+		} catch (error) {
+			track("portal.task_form_submit_failed", {
 				eventId: ctx.event.id,
+				assignmentId: assignment.id,
+				error: errorMessage(error),
 			});
+			return fail({
+				formError: "Could not submit the form — please try again.",
+			});
+		}
+		if (pf.sendConfirmationEmail && ctx.contact) {
+			// The form is saved either way — a failed email must not read as a
+			// failed submission; it only loses the courtesy copy.
+			try {
+				await getEmailSender(env).send({
+					to: ctx.contact.email,
+					subject: `We received “${task.name}”`,
+					html:
+						pf.confirmationHtml ??
+						`<p>Thanks — your “${task.name}” form was received by the event team.</p>`,
+					dedupeKey: `portal_form:${assignment.id}`,
+					eventId: ctx.event.id,
+				});
+			} catch (error) {
+				track("email.send_failed", {
+					eventId: ctx.event.id,
+					assignmentId: assignment.id,
+					error: errorMessage(error),
+				});
+			}
 		}
 		track("portal.task_form_submitted", {
 			eventId: ctx.event.id,
@@ -388,7 +420,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					reviewStatus: "pending",
 				}),
 				// Upload lands the request in the review queue, not "complete" —
-				// the organizer approves or denies (flows/07 §2d).
+				// the organizer approves or denies it.
 				db
 					.update(taskAssignments)
 					.set({ status: "pending_feedback", fileKey: r2Key })
@@ -427,14 +459,25 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			)
 			.limit(1);
 		if (!file) throw data(null, { status: 404 });
-		await db.insert(fileComments).values({
-			fileId: file.id,
-			authorId: user.id,
-			authorName: ctx.contact
-				? `${ctx.contact.firstName} ${ctx.contact.lastName}`
-				: (user.name ?? user.email),
-			body,
-		});
+		try {
+			await db.insert(fileComments).values({
+				fileId: file.id,
+				authorId: user.id,
+				authorName: ctx.contact
+					? `${ctx.contact.firstName} ${ctx.contact.lastName}`
+					: (user.name ?? user.email),
+				body,
+			});
+		} catch (error) {
+			track("portal.file_comment_failed", {
+				eventId: ctx.event.id,
+				fileId: file.id,
+				error: errorMessage(error),
+			});
+			return fail({
+				formError: "Could not post your comment — please try again.",
+			});
+		}
 		track("portal.file_comment_added", {
 			eventId: ctx.event.id,
 			fileId: file.id,

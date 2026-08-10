@@ -254,10 +254,21 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		}
 		const acceptance =
 			intent === "confirm-participation" ? "accepted" : "declined";
-		await db
-			.update(participants)
-			.set({ acceptanceStatus: acceptance })
-			.where(eq(participants.id, myParticipant.id));
+		try {
+			await db
+				.update(participants)
+				.set({ acceptanceStatus: acceptance })
+				.where(eq(participants.id, myParticipant.id));
+		} catch (error) {
+			track("portal.participation_change_failed", {
+				eventId: ctx.event.id,
+				submissionId: submission.id,
+				error: errorMessage(error),
+			});
+			return fail({
+				formError: "Could not update your participation — please try again.",
+			});
+		}
 		track("portal.participation_changed", {
 			eventId: ctx.event.id,
 			submissionId: submission.id,
@@ -273,20 +284,31 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			return fail({ formError: "This submission can no longer be withdrawn." });
 		}
 		const reason = String(form.get("reason") ?? "").trim();
-		await db
-			.update(submissions)
-			.set({
-				status: "withdrawn",
-				statusChangedAt: new Date(),
-				withdrawnAt: new Date(),
-				withdrawnById: user.id,
-				withdrawnReason: reason || null,
-				// A withdrawn session must not linger on the agenda grid.
-				startsAt: null,
-				endsAt: null,
-				roomId: null,
-			})
-			.where(eq(submissions.id, submission.id));
+		try {
+			await db
+				.update(submissions)
+				.set({
+					status: "withdrawn",
+					statusChangedAt: new Date(),
+					withdrawnAt: new Date(),
+					withdrawnById: user.id,
+					withdrawnReason: reason || null,
+					// A withdrawn session must not linger on the agenda grid.
+					startsAt: null,
+					endsAt: null,
+					roomId: null,
+				})
+				.where(eq(submissions.id, submission.id));
+		} catch (error) {
+			track("portal.submission_withdraw_failed", {
+				eventId: ctx.event.id,
+				submissionId: submission.id,
+				error: errorMessage(error),
+			});
+			return fail({
+				formError: "Could not withdraw the submission — please try again.",
+			});
+		}
 		track("portal.submission_withdrawn", {
 			eventId: ctx.event.id,
 			submissionId: submission.id,
@@ -322,8 +344,8 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				},
 			});
 		}
-		// Taxonomy ids must belong to THIS event — never trust client ids.
-		const [eventFormats, eventLevels, eventTracks, eventTags] =
+		// Taxonomy values must belong to THIS event — never trust client input.
+		const [eventFormats, eventLevels, eventTracks, eventTags, eventLanguages] =
 			await Promise.all([
 				db
 					.select({ id: formats.id })
@@ -341,6 +363,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					.select({ id: tags.id })
 					.from(tags)
 					.where(eq(tags.eventId, ctx.event.id)),
+				db
+					.select({ name: languages.name })
+					.from(languages)
+					.where(eq(languages.eventId, ctx.event.id)),
 			]);
 		const formatId =
 			parsed.data.formatId &&
@@ -370,7 +396,11 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 						description,
 						formatId,
 						levelId,
-						language: parsed.data.language || submission.language,
+						language:
+							parsed.data.language &&
+							eventLanguages.some((l) => l.name === parsed.data.language)
+								? parsed.data.language
+								: submission.language,
 					})
 					.where(eq(submissions.id, submission.id)),
 				db
@@ -481,9 +511,14 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			});
 		}
 		const existing = await db
-			.select({ id: participants.id })
+			.select({ id: participants.id, contactId: participants.contactId })
 			.from(participants)
 			.where(eq(participants.submissionId, submission.id));
+		// Typed duplicate check — the unique constraint below is only the
+		// concurrent-submit backstop, never the classifier.
+		if (existing.some((p) => p.contactId === contact.id)) {
+			return fail({ formError: "This person is already on this submission." });
+		}
 		try {
 			await db.insert(participants).values({
 				submissionId: submission.id,
@@ -492,20 +527,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				position: existing.length,
 			});
 		} catch (error) {
-			// Drizzle wraps the SQLite detail in `cause` — read both layers so
-			// only the (submission, contact) uniqueness gets the "already on it"
-			// copy; any other failure must not masquerade as a duplicate.
-			const cause = (error as { cause?: unknown }).cause;
-			const detail = `${errorMessage(error)} ${cause ? errorMessage(cause) : ""}`;
 			track("portal.participant_add_failed", {
 				eventId: ctx.event.id,
 				submissionId: submission.id,
-				error: detail,
+				error: errorMessage(error),
 			});
 			return fail({
-				formError: /unique|constraint/i.test(detail)
-					? "This person is already on this submission."
-					: "Could not add this person — please try again.",
+				formError: "Could not add this person — please try again.",
 			});
 		}
 		track("portal.participant_added", {
@@ -565,7 +593,18 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				});
 			}
 		}
-		await db.delete(participants).where(eq(participants.id, row.id));
+		try {
+			await db.delete(participants).where(eq(participants.id, row.id));
+		} catch (error) {
+			track("portal.participant_remove_failed", {
+				eventId: ctx.event.id,
+				submissionId: submission.id,
+				error: errorMessage(error),
+			});
+			return fail({
+				formError: "Could not remove this person — please try again.",
+			});
+		}
 		track("portal.participant_removed", {
 			eventId: ctx.event.id,
 			submissionId: submission.id,

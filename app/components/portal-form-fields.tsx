@@ -8,8 +8,8 @@ export type PortalFormFieldDef = {
 	options?: string[];
 };
 
-// Textarea control skin — Field owns label/error; no textarea primitive
-// exists in app/ui yet (pending-promotion, mirrors Input's control skin).
+// Field owns label/error; app/ui has no textarea primitive, so this mirrors
+// Input's control skin in one place.
 const TEXTAREA =
 	"min-h-20 rounded-control bg-surface px-[11px] py-2 text-[13px] text-fg shadow-control placeholder:text-fg-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol";
 

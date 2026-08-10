@@ -1,8 +1,8 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 /**
- * Labeled checkbox (pending-promotion primitive — no Checkbox exists in
- * app/ui yet; single definition here so the skin lives in ONE place).
+ * Labeled checkbox. No Checkbox primitive exists in app/ui, so the skin is
+ * defined exactly once, here.
  */
 export function CheckboxOption({
 	label,

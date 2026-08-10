@@ -29,10 +29,10 @@ type Portal = typeof portals.$inferSelect;
 export type PortalStatus = { label: string; tone: BadgeTone };
 
 /**
- * SERVER-SIDE status masking (flows/09 rule e): Accept Queue / Decline Queue
- * are admin staging so outcomes can be emailed before they're visible — the
- * portal must render them as "Pending". Loaders return THIS label, never the
- * raw enum, so queue names cannot reach portal HTML by construction.
+ * SERVER-SIDE status masking: Accept Queue / Decline Queue are admin staging
+ * so outcomes can be emailed before they're visible — the portal must render
+ * them as "Pending". Loaders return THIS label, never the raw enum, so queue
+ * names cannot reach portal HTML by construction.
  */
 const STATUS_PROJECTION: Record<
 	(typeof SUBMISSION_STATUS)[number],
@@ -296,8 +296,6 @@ export type PortalTaskRow = {
 	name: string;
 	required: boolean;
 	type: string;
-	isFileRequest: boolean;
-	hasForm: boolean;
 	status: PortalStatus;
 	open: boolean;
 	dueAtMs: number | null;
@@ -321,8 +319,6 @@ export async function listPortalTasks(
 			name: tasks.name,
 			required: tasks.required,
 			type: tasks.type,
-			isFileRequest: tasks.isFileRequest,
-			portalFormId: tasks.portalFormId,
 			submissionTitle: submissions.title,
 		})
 		.from(taskAssignments)
@@ -335,8 +331,6 @@ export async function listPortalTasks(
 			name: r.name,
 			required: r.required,
 			type: r.type,
-			isFileRequest: r.isFileRequest,
-			hasForm: r.portalFormId !== null,
 			status: TASK_STATUS_PROJECTION[r.status],
 			open: r.status !== "complete",
 			dueAtMs: r.dueAt?.getTime() ?? null,
@@ -350,6 +344,19 @@ export async function listPortalTasks(
 				(a.dueAtMs ?? Infinity) - (b.dueAtMs ?? Infinity) ||
 				a.name.localeCompare(b.name),
 		);
+}
+
+/** Streams a private R2 object inline (headshots, portal logos). */
+export async function serveBlob(env: Env, key: string): Promise<Response> {
+	const object = await env.BLOBS.get(key);
+	if (!object) throw data(null, { status: 404 });
+	return new Response(object.body, {
+		headers: {
+			"Content-Type":
+				object.httpMetadata?.contentType ?? "application/octet-stream",
+			"Cache-Control": "private, max-age=3600",
+		},
+	});
 }
 
 export type EditWindow = {

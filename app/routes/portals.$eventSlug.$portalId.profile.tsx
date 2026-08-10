@@ -37,9 +37,9 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		{
 			saved: new URL(request.url).searchParams.get("saved"),
 			headshotUrl: headshotUrl(base, c?.headshotKey ?? null),
-			// Explicit field whitelist (flows/09 rule o): organizer-internal fields
-			// (workflow status, logistics notes, visibility flag) never reach the
-			// portal payload.
+			// Explicit field whitelist: organizer-internal fields (workflow
+			// status, logistics notes, visibility flag) never reach the portal
+			// payload.
 			contact: c
 				? {
 						email: c.email,

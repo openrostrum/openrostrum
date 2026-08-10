@@ -1,5 +1,5 @@
 import { data } from "react-router";
-import { getPortalContext } from "~/domain/portal";
+import { getPortalContext, serveBlob } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.logo";
 
@@ -9,13 +9,5 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const user = await requireUser(env, request);
 	const ctx = await getPortalContext(env, user, params);
 	if (!ctx.portal.logoKey) throw data(null, { status: 404 });
-	const object = await env.BLOBS.get(ctx.portal.logoKey);
-	if (!object) throw data(null, { status: 404 });
-	return new Response(object.body, {
-		headers: {
-			"Content-Type":
-				object.httpMetadata?.contentType ?? "application/octet-stream",
-			"Cache-Control": "private, max-age=3600",
-		},
-	});
+	return serveBlob(env, ctx.portal.logoKey);
 }

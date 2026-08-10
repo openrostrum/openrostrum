@@ -8,8 +8,7 @@ const TOOL =
 const TOOL_ON = "bg-petrol-wash text-petrol";
 
 /**
- * The shared rich-text editor (SCOPE cross-cutting: one editor everywhere
- * Sessionboard shows WYSIWYG). Progressive form participation via a hidden
+ * The one shared rich-text editor. Participates in plain forms via a hidden
  * input carrying the HTML; the server re-sanitizes on write regardless.
  */
 export function RichTextEditor({
@@ -37,10 +36,6 @@ export function RichTextEditor({
 		},
 	});
 
-	const toggle = (fn: () => boolean | undefined) => () => {
-		fn();
-	};
-
 	return (
 		<div className="flex flex-col gap-[5px] text-[12.5px]">
 			<span className="font-medium text-fg-muted">{label}</span>
@@ -51,7 +46,7 @@ export function RichTextEditor({
 						aria-label="Bold"
 						aria-pressed={editor?.isActive("bold") ?? false}
 						className={`${TOOL} ${editor?.isActive("bold") ? TOOL_ON : ""}`}
-						onClick={toggle(() => editor?.chain().focus().toggleBold().run())}
+						onClick={() => editor?.chain().focus().toggleBold().run()}
 					>
 						B
 					</button>
@@ -60,7 +55,7 @@ export function RichTextEditor({
 						aria-label="Italic"
 						aria-pressed={editor?.isActive("italic") ?? false}
 						className={`${TOOL} italic ${editor?.isActive("italic") ? TOOL_ON : ""}`}
-						onClick={toggle(() => editor?.chain().focus().toggleItalic().run())}
+						onClick={() => editor?.chain().focus().toggleItalic().run()}
 					>
 						I
 					</button>
@@ -69,9 +64,7 @@ export function RichTextEditor({
 						aria-label="Bullet list"
 						aria-pressed={editor?.isActive("bulletList") ?? false}
 						className={`${TOOL} ${editor?.isActive("bulletList") ? TOOL_ON : ""}`}
-						onClick={toggle(() =>
-							editor?.chain().focus().toggleBulletList().run(),
-						)}
+						onClick={() => editor?.chain().focus().toggleBulletList().run()}
 					>
 						• List
 					</button>
@@ -80,9 +73,7 @@ export function RichTextEditor({
 						aria-label="Numbered list"
 						aria-pressed={editor?.isActive("orderedList") ?? false}
 						className={`${TOOL} ${editor?.isActive("orderedList") ? TOOL_ON : ""}`}
-						onClick={toggle(() =>
-							editor?.chain().focus().toggleOrderedList().run(),
-						)}
+						onClick={() => editor?.chain().focus().toggleOrderedList().run()}
 					>
 						1. List
 					</button>
