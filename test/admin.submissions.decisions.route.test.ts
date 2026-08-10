@@ -17,12 +17,19 @@ import {
 import { createSession, hashPassword } from "../app/lib/auth";
 import { action } from "../app/routes/admin.submissions";
 
-// Wiring oracle: the admin route's decision intents must run through the
-// shared spine with the caller-side guarantees the scenarios demand — event
-// scoping (cross-event rows untouchable), no email on status change, and the
-// send action emailing + finalizing in one explicit step.
-
 const CONTEXT = { cloudflare: { env, ctx: {} } };
+
+/** Decision intents return `data(body, { Server-Timing })` — unwrap for asserts. */
+function unwrap(result: unknown) {
+	return result as {
+		data: {
+			notice?: string;
+			skipped?: string[];
+			formError?: string;
+		};
+		init: { headers: Record<string, string> };
+	};
+}
 
 async function seedWorld() {
 	const db = getDb(env);
@@ -119,7 +126,7 @@ async function seedSubmissionWithSpeaker(
 }
 
 describe("set-status intent", () => {
-	it("flips the status through the spine and sends nothing", async () => {
+	it("flips the status through the spine, sends nothing, and surfaces Server-Timing", async () => {
 		const db = await seedWorld();
 		await seedSubmissionWithSpeaker("s1", "pending", "priya@example.com");
 		const request = await requestAs(
@@ -130,13 +137,16 @@ describe("set-status intent", () => {
 				status: "accept_queue",
 			}),
 		);
-		const result = (await action({
-			context: CONTEXT,
-			request,
-			params: {},
-		} as unknown as Parameters<typeof action>[0])) as { notice?: string };
+		const result = unwrap(
+			await action({
+				context: CONTEXT,
+				request,
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
 
-		expect(result.notice).toContain("accept queue");
+		expect(result.data.notice).toContain("accept queue");
+		expect(result.init.headers["Server-Timing"]).toContain("db;dur=");
 		const [row] = await db
 			.select()
 			.from(submissions)
@@ -188,13 +198,15 @@ describe("set-status intent", () => {
 				status: "accepted",
 			}),
 		);
-		const result = (await action({
-			context: CONTEXT,
-			request,
-			params: {},
-		} as unknown as Parameters<typeof action>[0])) as { formError?: string };
+		const result = unwrap(
+			await action({
+				context: CONTEXT,
+				request,
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
 
-		expect(result.formError).toMatch(/does not belong/i);
+		expect(result.data.formError).toMatch(/does not belong/i);
 		const [row] = await db
 			.select()
 			.from(submissions)
@@ -254,16 +266,15 @@ describe("bulk + send-decisions intents", () => {
 				["status", "decline_queue"],
 			]),
 		);
-		const result = (await action({
-			context: CONTEXT,
-			request,
-			params: {},
-		} as unknown as Parameters<typeof action>[0])) as {
-			notice?: string;
-			skipped?: string[];
-		};
-		expect(result.notice).toContain("2 submissions set to decline queue");
-		expect(result.skipped?.join(" ")).toMatch(/draft/i);
+		const result = unwrap(
+			await action({
+				context: CONTEXT,
+				request,
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
+		expect(result.data.notice).toContain("2 submissions set to decline queue");
+		expect(result.data.skipped?.join(" ")).toMatch(/draft/i);
 		const rows = await db.select().from(submissions);
 		const byId = new Map(rows.map((r) => [r.id, r.status]));
 		expect(byId.get("s1")).toBe("decline_queue");
@@ -284,18 +295,17 @@ describe("bulk + send-decisions intents", () => {
 			["submissionIds", "s3"],
 			["idempotencyKey", "form-key-1"],
 		]);
-		const result = (await action({
-			context: CONTEXT,
-			request: await requestAs("u_admin", body),
-			params: {},
-		} as unknown as Parameters<typeof action>[0])) as {
-			notice?: string;
-			skipped?: string[];
-		};
+		const result = unwrap(
+			await action({
+				context: CONTEXT,
+				request: await requestAs("u_admin", body),
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
 
-		expect(result.notice).toContain("2 accept emails sent");
-		expect(result.notice).toContain("2 submissions finalized as accepted");
-		expect(result.skipped?.join(" ")).toMatch(/draft/i);
+		expect(result.data.notice).toContain("2 accept emails sent");
+		expect(result.data.notice).toContain("2 submissions finalized as accepted");
+		expect(result.data.skipped?.join(" ")).toMatch(/draft/i);
 
 		const outbox = await db.select().from(emailOutbox);
 		expect(outbox).toHaveLength(2);
@@ -316,12 +326,14 @@ describe("bulk + send-decisions intents", () => {
 		expect(await db.select().from(taskAssignments)).toHaveLength(4);
 
 		// Double-submit replay: same form key → no extra email, no extra tasks.
-		const replay = (await action({
-			context: CONTEXT,
-			request: await requestAs("u_admin", body),
-			params: {},
-		} as unknown as Parameters<typeof action>[0])) as { notice?: string };
-		expect(replay.notice).toContain("0 accept emails sent");
+		const replay = unwrap(
+			await action({
+				context: CONTEXT,
+				request: await requestAs("u_admin", body),
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
+		expect(replay.data.notice).toContain("0 accept emails sent");
 		expect(await db.select().from(emailOutbox)).toHaveLength(2);
 		expect(await db.select().from(taskAssignments)).toHaveLength(4);
 	});
@@ -329,20 +341,22 @@ describe("bulk + send-decisions intents", () => {
 	it("send-decline finalizes to declined with the decline template", async () => {
 		const db = await seedWorld();
 		await seedSubmissionWithSpeaker("s1", "decline_queue", "tom@example.com");
-		const result = (await action({
-			context: CONTEXT,
-			request: await requestAs(
-				"u_admin",
-				new URLSearchParams([
-					["intent", "send-decline"],
-					["submissionIds", "s1"],
-					["idempotencyKey", "form-key-2"],
-				]),
-			),
-			params: {},
-		} as unknown as Parameters<typeof action>[0])) as { notice?: string };
+		const result = unwrap(
+			await action({
+				context: CONTEXT,
+				request: await requestAs(
+					"u_admin",
+					new URLSearchParams([
+						["intent", "send-decline"],
+						["submissionIds", "s1"],
+						["idempotencyKey", "form-key-2"],
+					]),
+				),
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
 
-		expect(result.notice).toContain("1 decline email sent");
+		expect(result.data.notice).toContain("1 decline email sent");
 		const [mail] = await db.select().from(emailOutbox);
 		expect(mail?.subject).toBe("Update on your submission");
 		expect(mail?.icsAttachment).toBeNull();
@@ -363,26 +377,71 @@ describe("bulk + send-decisions intents", () => {
 			"other@example.com",
 			"e2",
 		);
-		const result = (await action({
-			context: CONTEXT,
-			request: await requestAs(
-				"u_admin",
-				new URLSearchParams([
-					["intent", "send-accept"],
-					["submissionIds", "foreign"],
-					["idempotencyKey", "form-key-3"],
-				]),
-			),
-			params: {},
-		} as unknown as Parameters<typeof action>[0])) as {
-			skipped?: string[];
-		};
-		expect(result.skipped?.join(" ")).toMatch(/not part of this event/i);
+		const result = unwrap(
+			await action({
+				context: CONTEXT,
+				request: await requestAs(
+					"u_admin",
+					new URLSearchParams([
+						["intent", "send-accept"],
+						["submissionIds", "foreign"],
+						["idempotencyKey", "form-key-3"],
+					]),
+				),
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
+		expect(result.data.skipped?.join(" ")).toMatch(/not part of this event/i);
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 		const [row] = await db
 			.select()
 			.from(submissions)
 			.where(eq(submissions.id, "foreign"));
+		expect(row?.status).toBe("accept_queue");
+	});
+
+	it("caps a decision send at 100 recipients with a batching message", async () => {
+		const db = await seedWorld();
+		const body = new URLSearchParams([
+			["intent", "send-accept"],
+			["idempotencyKey", "form-key-4"],
+			...Array.from(
+				{ length: 101 },
+				(_, i) => ["submissionIds", `s${i}`] as [string, string],
+			),
+		]);
+		const result = (await action({
+			context: CONTEXT,
+			request: await requestAs("u_admin", body),
+			params: {},
+		} as unknown as Parameters<typeof action>[0])) as { formError?: string };
+		expect(result.formError).toMatch(/batches of up to 100/i);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+	});
+
+	it("a missing template is reported as fixable product state, not a generic failure", async () => {
+		const db = await seedWorld();
+		await db.delete(emailTemplates).where(eq(emailTemplates.id, "et_accept"));
+		await seedSubmissionWithSpeaker("s1", "accept_queue", "a@example.com");
+		const result = unwrap(
+			await action({
+				context: CONTEXT,
+				request: await requestAs(
+					"u_admin",
+					new URLSearchParams([
+						["intent", "send-accept"],
+						["submissionIds", "s1"],
+						["idempotencyKey", "form-key-5"],
+					]),
+				),
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
+		expect(result.data.formError).toMatch(/email template is missing/i);
+		const [row] = await db
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, "s1"));
 		expect(row?.status).toBe("accept_queue");
 	});
 });

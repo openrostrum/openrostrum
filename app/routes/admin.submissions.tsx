@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { useState } from "react";
 import { Form, data, redirect, useFetcher } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
@@ -11,7 +12,8 @@ import {
 } from "~/db/constants";
 import { insertSubmissionSchema, submissions } from "~/db/schema";
 import {
-	canTransition,
+	canReceiveDecision,
+	MissingTemplateError,
 	sendDecisionEmails,
 	transitionSubmissions,
 } from "~/domain/accept";
@@ -61,7 +63,11 @@ const BulkSetStatus = z.object({
 const SendDecisions = z.object({
 	submissionIds: z
 		.array(z.string().min(1))
-		.min(1, "Select at least one submission."),
+		.min(1, "Select at least one submission.")
+		.max(
+			100,
+			"Decision emails go out in batches of up to 100 — narrow the selection.",
+		),
 	decision: z.enum(["accept", "decline"]),
 	idempotencyKey: z.string().min(1),
 });
@@ -76,8 +82,8 @@ type DecisionActionData = {
 // Without this export, RR7 drops loader/action headers from DOCUMENT
 // responses (they only flow to .data requests) — Server-Timing would
 // silently vanish on full page loads.
-export function headers({ loaderHeaders }: Route.HeadersArgs) {
-	return loaderHeaders;
+export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
+	return actionHeaders.has("Server-Timing") ? actionHeaders : loaderHeaders;
 }
 
 export async function loader({ context, request }: Route.LoaderArgs) {
@@ -186,37 +192,57 @@ async function findEventSubmissions(
 		.where(and(inArray(submissions.id, ids), eq(submissions.eventId, eventId)));
 }
 
+/** Wrap an intent's result so its Server-Timing marks reach the response. */
+function timed(
+	timings: ReturnType<typeof createTimings>,
+	body: DecisionActionData,
+) {
+	return data(body, { headers: { "Server-Timing": timings.header() } });
+}
+
 async function setStatusAction(
 	db: ReturnType<typeof getDb>,
 	eventId: string,
 	form: FormData,
-): Promise<DecisionActionData> {
+) {
 	const parsed = SetStatus.safeParse({
 		submissionId: form.get("submissionId"),
 		status: form.get("status"),
 	});
 	if (!parsed.success) {
-		return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
+		return {
+			fieldErrors: z.flattenError(parsed.error).fieldErrors as Record<
+				string,
+				string[] | undefined
+			>,
+		};
 	}
-	const rows = await findEventSubmissions(db, eventId, [
-		parsed.data.submissionId,
-	]);
-	const row = rows[0];
-	if (!row) {
-		return { formError: "That submission does not belong to this event." };
-	}
-	const [result] = await transitionSubmissions(db, [row], parsed.data.status);
-	if (result && !result.ok) return { formError: result.reason };
-	return {
-		notice: `"${row.title}" is now ${parsed.data.status.replace("_", " ")}.`,
-	};
+	const timings = createTimings();
+	const result = await timings.time("db", async () => {
+		const rows = await findEventSubmissions(db, eventId, [
+			parsed.data.submissionId,
+		]);
+		const row = rows[0];
+		if (!row)
+			return { formError: "That submission does not belong to this event." };
+		const [transition] = await transitionSubmissions(
+			db,
+			[row],
+			parsed.data.status,
+		);
+		if (transition && !transition.ok) return { formError: transition.reason };
+		return {
+			notice: `"${row.title}" is now ${parsed.data.status.replace("_", " ")}.`,
+		};
+	});
+	return timed(timings, result);
 }
 
 async function bulkSetStatusAction(
 	db: ReturnType<typeof getDb>,
 	eventId: string,
 	form: FormData,
-): Promise<DecisionActionData> {
+) {
 	const parsed = BulkSetStatus.safeParse({
 		submissionIds: form.getAll("submissionIds"),
 		status: form.get("status"),
@@ -224,22 +250,26 @@ async function bulkSetStatusAction(
 	if (!parsed.success) {
 		return { formError: firstZodMessage(parsed.error) };
 	}
-	const rows = await findEventSubmissions(
-		db,
-		eventId,
-		parsed.data.submissionIds,
-	);
-	const skipped: string[] = missingIdNotes(parsed.data.submissionIds, rows);
-	const results = await transitionSubmissions(db, rows, parsed.data.status);
-	for (const r of results.filter((r) => !r.ok)) {
-		const title = rows.find((row) => row.id === r.submissionId)?.title;
-		skipped.push(`"${title ?? r.submissionId}": ${r.reason}`);
-	}
-	const changed = results.filter((r) => r.ok).length;
-	return {
-		notice: `${changed} submission${changed === 1 ? "" : "s"} set to ${parsed.data.status.replace("_", " ")}.`,
-		skipped: skipped.length ? skipped : undefined,
-	};
+	const timings = createTimings();
+	const result = await timings.time("db", async () => {
+		const rows = await findEventSubmissions(
+			db,
+			eventId,
+			parsed.data.submissionIds,
+		);
+		const skipped: string[] = missingIdNotes(parsed.data.submissionIds, rows);
+		const results = await transitionSubmissions(db, rows, parsed.data.status);
+		for (const r of results.filter((r) => !r.ok)) {
+			const title = rows.find((row) => row.id === r.submissionId)?.title;
+			skipped.push(`"${title ?? r.submissionId}": ${r.reason}`);
+		}
+		const changed = results.filter((r) => r.ok).length;
+		return {
+			notice: `${changed} submission${changed === 1 ? "" : "s"} set to ${parsed.data.status.replace("_", " ")}.`,
+			skipped: skipped.length ? skipped : undefined,
+		};
+	});
+	return timed(timings, result);
 }
 
 async function sendDecisionsAction(
@@ -248,7 +278,7 @@ async function sendDecisionsAction(
 	event: NonNullable<Awaited<ReturnType<typeof getActiveEvent>>>,
 	form: FormData,
 	intent: "send-accept" | "send-decline",
-): Promise<DecisionActionData> {
+) {
 	const parsed = SendDecisions.safeParse({
 		submissionIds: form.getAll("submissionIds"),
 		decision: intent === "send-accept" ? "accept" : "decline",
@@ -259,60 +289,64 @@ async function sendDecisionsAction(
 	}
 	const { decision, idempotencyKey } = parsed.data;
 	const target = decision === "accept" ? "accepted" : "declined";
-	const rows = await findEventSubmissions(
-		db,
-		event.id,
-		parsed.data.submissionIds,
+	const timings = createTimings();
+	const rows = await timings.time("db", () =>
+		findEventSubmissions(db, event.id, parsed.data.submissionIds),
 	);
 	const skipped: string[] = missingIdNotes(parsed.data.submissionIds, rows);
 
 	// Sessionboard's loop is send → then flip; we run both as one explicit
 	// action. Rows that can't take the decision (drafts) are excluded from the
 	// send too — nobody gets a decision email for a decision that didn't apply.
-	const eligible = rows.filter((r) => canTransition(r.status, target).ok);
-	for (const row of rows.filter((r) => !canTransition(r.status, target).ok)) {
-		const check = canTransition(row.status, target);
-		skipped.push(`"${row.title}": ${check.ok ? "" : check.reason}`);
+	const eligible: typeof rows = [];
+	for (const row of rows) {
+		const check = canReceiveDecision(row.status);
+		if (check.ok) eligible.push(row);
+		else skipped.push(`"${row.title}": ${check.reason}`);
 	}
-	const timings = createTimings();
 	try {
-		const results = await timings.time("db", async () => {
-			const sent = await sendDecisionEmails(db, env, {
+		const sent = await timings.time("send", () =>
+			sendDecisionEmails(db, env, {
 				event,
 				rows: eligible,
 				decision,
 				idempotencyKey,
-			});
-			const sendable = new Set(
-				sent.filter((s) => s.ok).map((s) => s.submissionId),
-			);
-			const transitions = await transitionSubmissions(
+			}),
+		);
+		const sendable = new Set(
+			sent.filter((s) => s.ok).map((s) => s.submissionId),
+		);
+		const transitions = await timings.time("db", () =>
+			transitionSubmissions(
 				db,
 				eligible.filter((r) => sendable.has(r.id)),
 				target,
-			);
-			return { sent, transitions };
-		});
-		for (const s of results.sent.filter((s) => !s.ok)) {
+			),
+		);
+		for (const s of sent.filter((s) => !s.ok)) {
 			const title = rows.find((row) => row.id === s.submissionId)?.title;
 			skipped.push(`"${title ?? s.submissionId}": ${s.reason}`);
 		}
-		const emailed = results.sent.filter((s) => s.ok && !s.deduped).length;
-		const finalized = results.transitions.filter((t) => t.ok).length;
-		return {
+		const emailed = sent.filter((s) => s.ok && !s.deduped).length;
+		const finalized = transitions.filter((t) => t.ok).length;
+		return timed(timings, {
 			notice: `${emailed} ${decision} email${emailed === 1 ? "" : "s"} sent · ${finalized} submission${finalized === 1 ? "" : "s"} finalized as ${target}.`,
 			skipped: skipped.length ? skipped : undefined,
-		};
+		});
 	} catch (error) {
 		track("email.decision_send_failed", {
 			eventId: event.id,
 			decision,
 			error: errorMessage(error),
 		});
-		return {
+		// Missing template is product state the admin can fix; anything else is
+		// infrastructure and gets the generic copy (never leak provider detail).
+		return timed(timings, {
 			formError:
-				"Could not send the decision emails — check the event's email templates and try again.",
-		};
+				error instanceof MissingTemplateError
+					? error.message
+					: "Could not send the decision emails — please try again.",
+		});
 	}
 }
 
@@ -346,6 +380,15 @@ function StatusCell({
 		(SUBMISSION_STATUS as readonly string[]).includes(pending)
 			? (pending as (typeof SUBMISSION_STATUS)[number])
 			: status;
+	// A refused flip snaps the pill back — say why instead of failing silently.
+	const inlineError =
+		!pending &&
+		fetcher.data &&
+		typeof fetcher.data === "object" &&
+		"formError" in fetcher.data &&
+		typeof fetcher.data.formError === "string"
+			? fetcher.data.formError
+			: undefined;
 	if (status === "draft") {
 		return <StatusBadge tone={SUBMISSION_STATUS_TONE.draft}>draft</StatusBadge>;
 	}
@@ -374,6 +417,7 @@ function StatusCell({
 					</option>
 				))}
 			</Select>
+			{inlineError && <ErrorText>{inlineError}</ErrorText>}
 		</fetcher.Form>
 	);
 }
@@ -383,6 +427,14 @@ export default function Submissions({
 	actionData,
 }: Route.ComponentProps) {
 	const { submissions: rows, sendKey } = loaderData;
+	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+	const toggleSelected = (id: string, checked: boolean) =>
+		setSelected((prev) => {
+			const next = new Set(prev);
+			if (checked) next.add(id);
+			else next.delete(id);
+			return next;
+		});
 	const fieldErrors =
 		actionData && "fieldErrors" in actionData
 			? actionData.fieldErrors
@@ -434,7 +486,9 @@ export default function Submissions({
 					className="flex flex-wrap items-end gap-3"
 				>
 					<Input type="hidden" name="idempotencyKey" value={sendKey} />
-					<Field label="Selected submissions">
+					<Field
+						label={`${selected.size} selected submission${selected.size === 1 ? "" : "s"}`}
+					>
 						<Select name="status" defaultValue="accept_queue">
 							{DECISION_STATUS.map((s) => (
 								<option key={s} value={s}>
@@ -448,10 +502,17 @@ export default function Submissions({
 						name="intent"
 						value="bulk-set-status"
 						variant="ghost"
+						disabled={selected.size === 0}
 					>
 						Apply status
 					</Button>
-					<Button type="submit" name="intent" value="send-accept" icon="mail">
+					<Button
+						type="submit"
+						name="intent"
+						value="send-accept"
+						icon="mail"
+						disabled={selected.size === 0}
+					>
 						Send accept emails + finalize
 					</Button>
 					<Button
@@ -460,6 +521,7 @@ export default function Submissions({
 						value="send-decline"
 						variant="ghost"
 						icon="mail"
+						disabled={selected.size === 0}
 					>
 						Send decline emails + finalize
 					</Button>
@@ -489,6 +551,10 @@ export default function Submissions({
 									value={s.id}
 									form="bulk-actions"
 									aria-label={`Select ${s.title}`}
+									checked={selected.has(s.id)}
+									onChange={(e) =>
+										toggleSelected(s.id, e.currentTarget.checked)
+									}
 								/>
 							</Td>
 							<Td kind="strong">{s.title}</Td>

@@ -19,15 +19,11 @@ import {
 	users,
 } from "../app/db/schema";
 import {
-	canTransition,
+	canReceiveDecision,
 	sendDecisionEmails,
 	transitionSubmissions,
 	withdrawSubmission,
 } from "../app/domain/accept";
-
-// Oracles: docs/scenarios/05-review-accept.yaml (RV-S2/S3/S4/S8) and
-// docs/scenarios/09-cross-module-seams.yaml (XM-S1/S6) — queue semantics,
-// silent provisioning, idempotent re-accept, withdrawal record-keeping.
 
 const db = () => getDb(env);
 
@@ -187,9 +183,9 @@ describe("transition matrix", () => {
 		expect(await d.select().from(emailOutbox)).toHaveLength(0);
 	});
 
-	it("exposes draft refusal through canTransition for callers that pre-filter", () => {
-		expect(canTransition("draft", "accepted").ok).toBe(false);
-		expect(canTransition("withdrawn", "accepted").ok).toBe(true);
+	it("exposes draft refusal through canReceiveDecision for callers that pre-filter", () => {
+		expect(canReceiveDecision("draft").ok).toBe(false);
+		expect(canReceiveDecision("withdrawn").ok).toBe(true);
 	});
 });
 
@@ -380,6 +376,36 @@ describe("accept auto-provisioning", () => {
 		expect(await d.select().from(taskAssignments)).toHaveLength(6);
 	});
 
+	it("a speaker's second accepted submission cannot re-mint a taken submission task — and says so", async () => {
+		const d = await seedBase();
+		await seedOnboardingTasks();
+		const first = await insertSubmission({ status: "pending", title: "First" });
+		const second = await insertSubmission({
+			status: "pending",
+			title: "Second",
+		});
+		await addSpeaker(first.id, "c_marco", "marco@example.com");
+		await d.insert(participants).values({
+			submissionId: second.id,
+			contactId: "c_marco",
+			role: "speaker",
+		});
+
+		await transitionSubmissions(d, [first], "accepted");
+		await transitionSubmissions(d, [second], "accepted");
+
+		// unique(taskId, contactId) caps submission-scoped tasks at one per
+		// contact: the second accept keeps the first submission's assignment.
+		const slides = await d
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.taskId, "task_slides"));
+		expect(slides).toHaveLength(1);
+		expect(slides[0]?.submissionId).toBe(first.id);
+		// Contact-scoped tasks are shared per person — still exactly one each.
+		expect(await d.select().from(taskAssignments)).toHaveLength(3);
+	});
+
 	it("declining a withdrawn submission keeps the who/when/why record", async () => {
 		const d = await seedBase();
 		const row = await insertSubmission({
@@ -550,6 +576,41 @@ describe("send decisions", () => {
 			// The send itself never flips status — that is the caller's second step.
 			expect(s.status).toBe("accept_queue");
 		}
+	});
+
+	it("a deduped retry back-fills a missing notifiedAt stamp (partial-failure recovery)", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const row = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(row.id, "c_ines", "ines.moreau@example.com");
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		await sendDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "key-A",
+		});
+		// Simulate the crash window: the email exists but the stamp never ran.
+		await d
+			.update(submissions)
+			.set({ notifiedAt: null })
+			.where(eq(submissions.id, row.id));
+
+		const retry = await sendDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "key-A",
+		});
+		expect(retry[0]?.deduped).toBe(true);
+		expect(await d.select().from(emailOutbox)).toHaveLength(1);
+		const [after] = await d
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, row.id));
+		expect(after?.notifiedAt).toBeInstanceOf(Date);
 	});
 
 	it("dedupes a double-submit but allows a deliberate re-send under a new key", async () => {
