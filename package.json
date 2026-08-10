@@ -1,7 +1,8 @@
 {
 	"name": "openrostrum",
+	"license": "MIT",
 	"private": true,
-	"description": "OpenRostrum — the open-source Sessionboard alternative.",
+	"description": "OpenRostrum \u2014 the open-source Sessionboard alternative.",
 	"pnpm": {
 		"onlyBuiltDependencies": [
 			"esbuild",

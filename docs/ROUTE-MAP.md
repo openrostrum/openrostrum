@@ -28,10 +28,10 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Public CFP | `submit.$eventSlug.$formId.tsx` (+ `.step.*`) | `/submit/:eventSlug/:formId` | 2 | todo |
 | Speaker portal | `portals.$eventSlug.$portalId.tsx` (+ `home/submissions/profile/tasks`) | `/portals/:eventSlug/:portalId/*` | 2 | todo |
 | Create event | `admin.events.new.tsx` | `/admin/events/new` | 1 | todo |
-| Event switcher (action) | `admin.events.switch.tsx` | `/admin/events/switch` (POST → sets `users.activeEventId`) | 0/1 | todo |
+| Event switcher (action) | `admin.events.switch.tsx` | `/admin/events/switch` (POST → sets `users.activeEventId`; membership-guarded) | 0/1 | done |
 | Reviewer management | `admin.reviewers.tsx` | `/admin/reviewers` (add reviewer + track assignment + invite) | 1 | todo |
 | Reviewer "My Reviews" (reviewer role) | `reviews.tsx` · `reviews.$id.tsx` | `/reviews` · `/reviews/:id` (NOT under `admin.*`) | 1 | todo |
-| Set / reset password (invite + forgot landing) | `set-password.$token.tsx` | `/set-password/:token` | 1 | todo |
+| Set / reset password (invite + forgot landing) | `set-password.$token.tsx` | `/set-password/:token` | 1 | done |
 | Forgot password (request) | `forgot-password.tsx` | `/forgot-password` (`// @public`) | 1 | todo |
 | Unsubscribe | `unsubscribe.$token.tsx` | `/unsubscribe/:token` (signed token; `// @public`) | 1 | todo |
 | Email history log | `admin.emails.history.tsx` | `/admin/emails/history` | 1 | todo |
@@ -46,7 +46,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Evaluation results export | `admin.evaluation.export[.csv].tsx` | `/admin/evaluation/export.csv` | 3 | todo |
 | Embeds admin | `admin.embeds.tsx` · `admin.embeds.$id.tsx` | `/admin/embeds` (P1 #16, EMB-15) | 2 | todo |
 | Files ZIP bundle (resource) | `admin.files.export[.zip].tsx` | `/admin/files/export.zip` (latest versions, grouped) | 2 | todo |
-| Team admins (org members) | `admin.settings.team.tsx` | `/admin/settings/team` (org-member invite + remove w/ last-member guard, P1 #21/#22 Wave D) | 1 | todo |
+| Team admins (org members) | `admin.settings.team.tsx` | `/admin/settings/team` (org-member invite + remove w/ last-member guard, P1 #21/#22 Wave D) | 1 | done |
 | Organizer sign-up | `signup.tsx` | `/signup` (`// @public`; existing-email → decided sign-in message; P1 #22 Wave C) | 2 | todo |
 | Org onboarding | `onboarding.tsx` | `/onboarding` (one form: org name + first event; auth'd, membership-less users only; P1 #22 Wave C) | 2 | todo |
 | Public sessions list | `sessions.$eventSlug.tsx` | `/sessions/:eventSlug` (P1 #16a) | 2 | todo |
