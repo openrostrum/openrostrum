@@ -176,9 +176,6 @@ describe("contacts roster", () => {
 		);
 	});
 
-	// Email is the identity key; a same-name/different-email create is legal but
-	// silently minting look-alike contacts was a judged defect — it must warn
-	// once and go through only on explicit confirmation.
 	it("warns before creating a same-name contact under a different email", async () => {
 		const db = getDb(env);
 		const body = new URLSearchParams({
@@ -207,12 +204,9 @@ describe("contacts roster", () => {
 			data: { duplicate?: { name: string; email: string } };
 		};
 
-		// Case-insensitive name match, warning names the existing record…
 		expect(result.data.duplicate?.email).toBe("speaker@example.com");
-		// …and nothing was written.
 		expect(await db.select().from(contacts)).toHaveLength(1);
 
-		// Confirming creates it anyway.
 		body.set("confirmDuplicate", "1");
 		const setCookie = await createSession(env, "u_admin");
 		const confirmed = (await action({

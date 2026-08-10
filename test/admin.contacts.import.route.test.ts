@@ -193,9 +193,6 @@ describe("CSV import", () => {
 		expect(vip?.status).toBe("pending");
 	});
 
-	// The judged corruption: a CSV with ONE "Name" column, merged by email into
-	// an existing contact, wrote the whole name into first_name ("Sam Speaker" /
-	// "Speaker"). A full-name mapping must split before it touches the record.
 	it("merges a full-name column as split first/last — never the whole name into first_name", async () => {
 		const db = getDb(env);
 		const csv = [

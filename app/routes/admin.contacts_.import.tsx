@@ -55,10 +55,7 @@ const IMPORT_FIELDS = [
 
 type ImportFieldKey = (typeof IMPORT_FIELDS)[number]["key"];
 
-/** The mapped columns that copy straight onto contact profile fields.
- * Email (the dedupe key), status (enum-checked), and the name columns
- * (split-derived per row so a full-name column never lands whole in
- * first_name) are handled explicitly instead. */
+/** Explicit overwrite whitelist; names and status have separate merge rules. */
 const PROFILE_KEYS = [
 	"jobTitle",
 	"companyName",
@@ -337,10 +334,7 @@ export async function action({
 
 		const match = byEmail.get(email);
 		if (match) {
-			// Only genuine differences count as changes, so "the file had nothing
-			// new" stays true for a re-import of the same file. Names always merge
-			// as the SPLIT halves — a full-name cell must never land whole in
-			// first_name on top of an existing contact.
+			// Re-imports skip no-op updates; names merge only as split halves.
 			const changes: Partial<typeof contacts.$inferInsert> = {};
 			for (const key of PROFILE_KEYS) {
 				const v = values[key];
@@ -439,8 +433,6 @@ const OUTCOME_TONE = {
 
 export default function ImportContacts({ actionData }: Route.ComponentProps) {
 	const state = actionData;
-	// One import can write hundreds of rows — a double-click must never run it
-	// twice, so both step buttons disable while the submission is in flight.
 	const busy = useBusy();
 
 	return (

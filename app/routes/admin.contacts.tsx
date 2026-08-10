@@ -148,8 +148,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 type ActionResult = {
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
-	/** Same name already on the roster under another email — a non-blocking
-	 * warning: resubmitting with confirmDuplicate creates the contact anyway. */
 	duplicate?: { name: string; email: string };
 };
 
@@ -259,10 +257,7 @@ export default function ContactsRoster({
 	const from = total === 0 ? 0 : (page - 1) * perPage + 1;
 	const to = Math.min(page * perPage, total);
 	const busy = useBusy();
-	// The search box is controlled and re-synced from the URL (render-time
-	// adjustment, not an effect): what the box shows is exactly what a Search
-	// click serializes, and a Clear/tab navigation can never leave stale text —
-	// an uncontrolled box and the URL drift apart (judged: empty-q submits).
+	// Re-sync on URL changes so Clear and tab navigation cannot leave stale text.
 	const [query, setQuery] = useState(q);
 	const [syncedQ, setSyncedQ] = useState(q);
 	if (q !== syncedQ) {
