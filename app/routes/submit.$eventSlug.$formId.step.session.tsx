@@ -1,6 +1,6 @@
 // @public route family — the loader gates with getUser and redirects to the
 // account step; the action requires a signed-in speaker.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	data,
 	redirect,
@@ -12,7 +12,7 @@ import {
 } from "react-router";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { validateSection } from "~/cfp/definition";
+import { validateSection, type WizardState } from "~/cfp/definition";
 import { SectionFields } from "~/cfp/fields";
 import { normalizeSelfRows, WizardPayload } from "~/cfp/payload";
 import {
@@ -373,29 +373,39 @@ export default function SessionStep({
 				? initial.updatedAt
 				: null;
 
-	// Adopt server-loaded state (resume/edit) or start clean — never clobber
-	// values the user is mid-typing.
+	// Render-time seed so the form paints on the SERVER render too (resumes
+	// show their content immediately); the shared wizard context adopts it on
+	// mount and carries edits across steps.
+	const seeded = useMemo<WizardState>(() => {
+		if (initial) {
+			return {
+				wizardId: initial.sid,
+				sid: initial.sid,
+				loadedStatus: initial.loadedStatus,
+				values: initial.values,
+				participants:
+					initial.participants.length > 0
+						? initial.participants
+						: newWizardState(selfContact).participants,
+			};
+		}
+		return newWizardState(selfContact);
+	}, [initial, selfContact]);
+
+	// The context's state wins unless the URL points at a DIFFERENT submission
+	// (resume/edit/new) — then the seed replaces it.
+	const ctxMatchesTarget =
+		ctx.state !== null &&
+		(initial ? ctx.state.sid === initial.sid : !(startNew && ctx.state.sid));
+	const state: WizardState =
+		ctxMatchesTarget && ctx.state !== null ? ctx.state : seeded;
+
+	// Adopt the rendered state into the shared context — never clobber values
+	// the user is mid-typing (ctxMatchesTarget keeps their state).
 	useEffect(() => {
 		if (mode !== "form") return;
-		if (initial) {
-			if (ctx.state?.sid !== initial.sid) {
-				ctx.setState({
-					wizardId: initial.sid,
-					sid: initial.sid,
-					loadedStatus: initial.loadedStatus,
-					values: initial.values,
-					participants:
-						initial.participants.length > 0
-							? initial.participants
-							: newWizardState(selfContact).participants,
-				});
-			}
-			return;
-		}
-		if (!ctx.state || (startNew && ctx.state.sid)) {
-			ctx.setState(newWizardState(selfContact));
-		}
-	}, [mode, initial, startNew, selfContact, ctx]);
+		if (!ctxMatchesTarget) ctx.setState(seeded);
+	}, [mode, ctxMatchesTarget, seeded, ctx]);
 
 	// A successful draft save mints the row — reflect its id in state + URL so
 	// a reload resumes instead of forking a second draft.
@@ -450,9 +460,6 @@ export default function SessionStep({
 			/>
 		);
 	}
-
-	const state = ctx.state;
-	if (!state) return null;
 
 	if (readOnly) {
 		return (
