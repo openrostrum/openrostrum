@@ -35,6 +35,7 @@ import {
 } from "~/lib/headshot";
 import { escapeHtml, sanitizeHtml } from "~/lib/html";
 import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
+import { normalizeXUrl } from "~/lib/social";
 import { TASK_STATUS_LABEL, TASK_STATUS_TONE } from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
@@ -359,6 +360,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		return { fieldErrors: undefined, formError: undefined, invited: true };
 	}
 
+	const rawTwitter = String(form.get("twitterUrl") ?? "").trim();
 	const parsed = UpdateContact.safeParse({
 		firstName: form.get("firstName"),
 		lastName: form.get("lastName"),
@@ -368,7 +370,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		mobilePhone: form.get("mobilePhone") || null,
 		bio: form.get("bio") || null,
 		linkedinUrl: form.get("linkedinUrl") || null,
-		twitterUrl: form.get("twitterUrl") || null,
+		// Canonicalize handles (@name → https://x.com/name); keep anything
+		// unrecognizable verbatim — organizer edits never dead-end on this field.
+		twitterUrl: (normalizeXUrl(rawTwitter) ?? rawTwitter) || null,
 		facebookUrl: form.get("facebookUrl") || null,
 		websiteUrl: form.get("websiteUrl") || null,
 		logisticsNotes: form.get("logisticsNotes") || null,

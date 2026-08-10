@@ -202,7 +202,7 @@ export function ProfileView({
 							<Input
 								name="twitterUrl"
 								defaultValue={contact.twitterUrl ?? ""}
-								placeholder="https://x.com/…"
+								placeholder="@handle or https://x.com/…"
 								invalid={Boolean(err("twitterUrl"))}
 							/>
 						</Field>

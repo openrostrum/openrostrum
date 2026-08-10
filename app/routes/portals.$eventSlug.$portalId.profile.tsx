@@ -14,6 +14,7 @@ import { errorMessage } from "~/lib/errors";
 import { textLength } from "~/lib/format";
 import { headshotUrl } from "~/lib/headshot";
 import { sanitizeHtml } from "~/lib/html";
+import { normalizeXUrl } from "~/lib/social";
 import { createTimings, track } from "~/lib/track";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.profile";
 
@@ -67,43 +68,72 @@ const urlOrEmpty = z.union([
 	z.literal(""),
 ]);
 
-// Derived from the DB schema (single source of truth) with form refinements —
-// a renamed contact column breaks this pick at compile time.
-const ProfileSchema = insertContactSchema
-	.pick({
-		firstName: true,
-		lastName: true,
-		salutation: true,
-		honorific: true,
-		pronouns: true,
-		gender: true,
-		jobTitle: true,
-		companyName: true,
-		mobilePhone: true,
-		homePhone: true,
-		bio: true,
-		linkedinUrl: true,
-		twitterUrl: true,
-		facebookUrl: true,
-		websiteUrl: true,
-	})
-	.extend({
-		firstName: z.string().min(1, "First name is required").max(100),
-		lastName: z.string().min(1, "Last name is required").max(100),
-		salutation: z.string().max(50),
-		honorific: z.string().max(50),
-		pronouns: z.string().max(50),
-		gender: z.string().max(50),
-		jobTitle: z.string().max(150),
-		companyName: z.string().max(150),
-		mobilePhone: z.string().max(50),
-		homePhone: z.string().max(50),
-		bio: z.string().max(60000, "Biography is too long"),
-		linkedinUrl: urlOrEmpty,
-		twitterUrl: urlOrEmpty,
-		facebookUrl: urlOrEmpty,
-		websiteUrl: urlOrEmpty,
+// A value we ourselves stored must never block saving an unrelated field —
+// imports and admin edits historically accepted any string here.
+function urlOrEmptyOrStored(stored: string | null) {
+	return stored ? z.union([z.literal(stored), urlOrEmpty]) : urlOrEmpty;
+}
+
+// X identity arrives as @handle / handle / URL; canonicalize on write and
+// keep an unrecognizable ALREADY-STORED value rather than dead-ending the save.
+function xUrlOrHandle(stored: string | null) {
+	return z.string().transform((value, ctx) => {
+		const trimmed = value.trim();
+		const normalized = normalizeXUrl(trimmed);
+		if (normalized !== null) return normalized;
+		if (trimmed === (stored ?? "").trim()) return trimmed;
+		ctx.addIssue({
+			code: "custom",
+			message: "Enter your X handle (e.g. @name) or profile URL",
+		});
+		return z.NEVER;
 	});
+}
+
+// Derived from the DB schema (single source of truth) with form refinements —
+// a renamed contact column breaks this pick at compile time. Built per
+// request: the URL fields need the contact's stored values (see above).
+const profileSchema = (stored: {
+	linkedinUrl: string | null;
+	twitterUrl: string | null;
+	facebookUrl: string | null;
+	websiteUrl: string | null;
+}) =>
+	insertContactSchema
+		.pick({
+			firstName: true,
+			lastName: true,
+			salutation: true,
+			honorific: true,
+			pronouns: true,
+			gender: true,
+			jobTitle: true,
+			companyName: true,
+			mobilePhone: true,
+			homePhone: true,
+			bio: true,
+			linkedinUrl: true,
+			twitterUrl: true,
+			facebookUrl: true,
+			websiteUrl: true,
+		})
+		.extend({
+			firstName: z.string().min(1, "First name is required").max(100),
+			lastName: z.string().min(1, "Last name is required").max(100),
+			salutation: z.string().max(50),
+			honorific: z.string().max(50),
+			pronouns: z.string().max(50),
+			gender: z.string().max(50),
+			jobTitle: z.string().max(150),
+			companyName: z.string().max(150),
+			mobilePhone: z.string().max(50),
+			homePhone: z.string().max(50),
+			bio: z.string().max(60000, "Biography is too long"),
+			linkedinUrl: urlOrEmptyOrStored(stored.linkedinUrl),
+			twitterUrl: xUrlOrHandle(stored.twitterUrl),
+			facebookUrl: urlOrEmptyOrStored(stored.facebookUrl),
+			websiteUrl: urlOrEmptyOrStored(stored.websiteUrl),
+		});
 
 export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
@@ -177,7 +207,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				"websiteUrl",
 			].map((k) => [k, String(form.get(k) ?? "")]),
 		);
-		const parsed = ProfileSchema.safeParse(raw);
+		const parsed = profileSchema(contact).safeParse(raw);
 		if (!parsed.success) {
 			return fail({ fieldErrors: z.flattenError(parsed.error).fieldErrors });
 		}
