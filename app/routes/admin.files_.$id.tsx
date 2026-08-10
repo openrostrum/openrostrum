@@ -18,13 +18,12 @@ import {
 import {
 	FILE_REVIEW_LABEL,
 	FILE_REVIEW_TONE,
-	formatFileSize,
 	getFileChain,
 	setFileReview,
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatDateUTC } from "~/lib/format";
+import { formatBytes, formatDateUTC } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -389,7 +388,7 @@ export default function FileDetail({
 										</div>
 									</Td>
 									<Td kind="strong">{v.fileName}</Td>
-									<Td kind="mono">{formatFileSize(v.sizeBytes)}</Td>
+									<Td kind="mono">{formatBytes(v.sizeBytes)}</Td>
 									<Td kind="mono">{formatDateUTC(v.createdAt)}</Td>
 									<Td>
 										<StatusBadge

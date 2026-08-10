@@ -6,7 +6,6 @@ import {
 } from "~/components/portal/task-detail-view";
 import { getDb } from "~/db";
 import {
-	FILE_KIND,
 	fileComments,
 	files,
 	portalForms,
@@ -14,6 +13,7 @@ import {
 	taskAssignments,
 	tasks,
 } from "~/db/schema";
+import { checkUpload, UPLOAD_CONSTRAINTS } from "~/domain/files";
 import {
 	FILE_REVIEW_PROJECTION,
 	getPortalContext,
@@ -33,26 +33,6 @@ import type { Route } from "./+types/portals.$eventSlug.$portalId.tasks_.$assign
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
-
-const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
-const UPLOAD_CONSTRAINTS =
-	"PDF, PowerPoint, Keynote, Word, Excel, images, ZIP, or text — up to 25 MB.";
-const EXT_KIND: Record<string, (typeof FILE_KIND)[number]> = {
-	pdf: "slides",
-	ppt: "slides",
-	pptx: "slides",
-	key: "slides",
-	doc: "doc",
-	docx: "doc",
-	txt: "doc",
-	md: "doc",
-	xls: "doc",
-	xlsx: "doc",
-	png: "other",
-	jpg: "other",
-	jpeg: "other",
-	zip: "other",
-};
 
 /** My assignment or 404 — ownership is the contact chain, never a param. */
 async function requireMyAssignment(
@@ -392,17 +372,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		if (!(file instanceof File) || file.size === 0) {
 			return fail({ fieldErrors: { file: ["Choose a file first."] } });
 		}
-		const ext = (file.name.split(".").pop() ?? "").toLowerCase();
-		const kind = EXT_KIND[ext];
 		// Server-side enforcement of the stated constraints — accept= is a hint.
-		if (!kind) {
-			return fail({ fieldErrors: { file: [UPLOAD_CONSTRAINTS] } });
+		const check = checkUpload(file);
+		if (!check.ok) {
+			return fail({ fieldErrors: { file: [check.error] } });
 		}
-		if (file.size > UPLOAD_MAX_BYTES) {
-			return fail({
-				fieldErrors: { file: ["Keep the file under 25 MB."] },
-			});
-		}
+		const kind = check.kind;
 		const prior = await db
 			.select({ version: files.version })
 			.from(files)

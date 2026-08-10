@@ -1,12 +1,12 @@
 import { asc, eq } from "drizzle-orm";
 import { useState } from "react";
 import { Form, data } from "react-router";
+import { FilePicker } from "~/components/file-picker";
 import { getDb } from "~/db";
 import { submissions } from "~/db/schema";
 import {
 	FILE_REVIEW_LABEL,
 	FILE_REVIEW_TONE,
-	formatFileSize,
 	listFileGroups,
 	UPLOAD_ACCEPT,
 	UPLOAD_CONSTRAINTS,
@@ -14,7 +14,7 @@ import {
 	type UploadErrorCode,
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
-import { formatDateUTC } from "~/lib/format";
+import { formatBytes, formatDateUTC } from "~/lib/format";
 import { createTimings } from "~/lib/track";
 import {
 	Button,
@@ -173,9 +173,14 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 					className="flex flex-wrap items-end gap-3"
 				>
 					<Input type="hidden" name="redirectTo" value="/admin/files" />
-					<Field label="Upload a file">
-						<Input type="file" name="file" accept={UPLOAD_ACCEPT} required />
-					</Field>
+					<div className="min-w-64">
+						<FilePicker
+							name="file"
+							accept={UPLOAD_ACCEPT}
+							constraints={UPLOAD_CONSTRAINTS}
+							required
+						/>
+					</div>
 					<Field label="Attach to session (optional)">
 						<Select name="submissionId" defaultValue="">
 							<option value="">No session — event-level file</option>
@@ -195,7 +200,6 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 					<Button type="submit" icon="plus">
 						Upload
 					</Button>
-					<p className="w-full">{UPLOAD_CONSTRAINTS}</p>
 					{uploadError && <ErrorText>{uploadError}</ErrorText>}
 					{uploaded && <StatusBadge tone="success">File uploaded.</StatusBadge>}
 				</Form>
@@ -291,7 +295,7 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 									)}
 								</div>
 							</Td>
-							<Td kind="mono">{formatFileSize(f.sizeBytes)}</Td>
+							<Td kind="mono">{formatBytes(f.sizeBytes)}</Td>
 							<Td kind="mono">{formatDateUTC(f.createdAt)}</Td>
 						</Tr>
 					))}

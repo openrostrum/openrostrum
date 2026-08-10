@@ -318,13 +318,6 @@ export async function getFileChain(
 	return { file, versions };
 }
 
-export function formatFileSize(size: number | null): string {
-	if (size == null) return "—";
-	if (size < 1024) return `${size} B`;
-	if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
-	return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /** Windows-and-zip-safe display name (also used for Content-Disposition). */
 export function sanitizeFileName(name: string): string {
 	const safe = name.replace(/[^\w.\- ()]+/g, "_").trim();

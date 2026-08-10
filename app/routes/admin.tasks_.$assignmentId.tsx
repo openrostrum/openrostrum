@@ -10,10 +10,10 @@ import {
 	taskAssignments,
 	tasks,
 } from "~/db/schema";
-import { formatFileSize, setFileReview } from "~/domain/files";
+import { setFileReview } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatDateUTC, parseDueDate } from "~/lib/format";
+import { formatBytes, formatDateUTC, parseDueDate } from "~/lib/format";
 import {
 	isOverdue,
 	TASK_STATUS_LABEL,
@@ -466,7 +466,7 @@ export default function TaskAssignmentDetail({
 										<Td kind="strong">
 											<TextLink to={`/files/${f.id}`}>{f.fileName}</TextLink>
 										</Td>
-										<Td kind="mono">{formatFileSize(f.sizeBytes)}</Td>
+										<Td kind="mono">{formatBytes(f.sizeBytes)}</Td>
 										<Td kind="mono">{formatDateUTC(f.createdAt)}</Td>
 										<Td>
 											<div className="flex flex-wrap items-center gap-2">
