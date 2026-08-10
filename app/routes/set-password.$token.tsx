@@ -2,6 +2,7 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { Form, data, redirect, useNavigation } from "react-router";
 import { z } from "zod";
+import { AuthNote, AuthPage } from "~/auth/page";
 import { getDb } from "~/db";
 import {
 	authSessions,
@@ -19,16 +20,7 @@ import {
 } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
-import {
-	Button,
-	ErrorText,
-	Field,
-	Input,
-	PageHeader,
-	Panel,
-	TextLink,
-	Wordmark,
-} from "~/ui";
+import { Button, ErrorText, Field, Input, TextLink } from "~/ui";
 import type { Route } from "./+types/set-password.$token";
 
 const PasswordSchema = z
@@ -60,6 +52,10 @@ async function lookupToken(env: Env, token: string) {
 	if (!row || row.reset.usedAt || row.reset.expiresAt.getTime() <= Date.now())
 		return null;
 	return row;
+}
+
+export function meta(_: Route.MetaArgs) {
+	return [{ title: "Set your password — OpenRostrum" }];
 }
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
@@ -209,97 +205,97 @@ export default function SetPassword({
 
 	if (loaderData.state === "invalid") {
 		return (
-			<main className="mx-auto flex min-h-screen max-w-[400px] flex-col justify-center gap-7 px-6 py-16">
-				<div className="flex justify-center">
-					<Wordmark size={21} />
-				</div>
-				<Panel>
-					<div className="flex flex-col gap-3">
-						<PageHeader
-							title="This link doesn't work"
-							tone="danger"
-							subtitle="It is invalid, already used, or expired. Ask whoever sent it to send a fresh one."
-						/>
+			<AuthPage
+				title="This link doesn't work"
+				tone="danger"
+				nav={{
+					prompt: "Already have an account?",
+					label: "Sign in",
+					to: "/login",
+				}}
+				below={
+					<>
+						<TextLink to="/forgot-password">Request a new reset link</TextLink>
 						<TextLink to="/login">Go to sign in</TextLink>
-					</div>
-				</Panel>
-			</main>
+					</>
+				}
+			>
+				<AuthNote>
+					It is invalid, already used, or expired. Ask whoever sent it to send a
+					fresh one.
+				</AuthNote>
+			</AuthPage>
 		);
 	}
 
 	return (
-		<main className="mx-auto flex min-h-screen max-w-[400px] flex-col justify-center gap-7 px-6 py-16">
-			<div className="flex justify-center">
-				<Wordmark size={21} />
-			</div>
-			<PageHeader
-				title={
-					loaderData.orgName
-						? `Join ${loaderData.orgName}`
-						: "Set your password"
-				}
-				subtitle={
-					loaderData.orgName
-						? `You've been invited to ${loaderData.orgName}. Set a password to finish creating your account.`
-						: "Choose a new password for your account."
-				}
-			/>
-			<Panel>
-				<Form method="post" className="flex flex-col gap-[13px]">
-					<Field label="Email">
-						<Input
-							name="email"
-							type="email"
-							value={loaderData.email}
-							readOnly
-							autoComplete="username"
-						/>
-					</Field>
-					<Field
-						label="New password"
-						error={actionData?.fieldErrors?.password?.[0]}
-					>
-						<Input
-							name="password"
-							type="password"
-							required
-							minLength={8}
-							autoComplete="new-password"
-							invalid={Boolean(actionData?.fieldErrors?.password?.[0])}
-						/>
-					</Field>
-					<Field
-						label="Confirm password"
-						error={actionData?.fieldErrors?.confirm?.[0]}
-					>
-						<Input
-							name="confirm"
-							type="password"
-							required
-							autoComplete="new-password"
-							invalid={Boolean(actionData?.fieldErrors?.confirm?.[0])}
-						/>
-					</Field>
-					<Button type="submit" disabled={busy}>
-						{loaderData.orgName ? "Set password & join" : "Set password"}
-					</Button>
-					{actionData?.formError && (
-						<ErrorText>{actionData.formError}</ErrorText>
-					)}
-				</Form>
-			</Panel>
-		</main>
+		<AuthPage
+			title={
+				loaderData.orgName ? `Join ${loaderData.orgName}` : "Set your password"
+			}
+			subtitle={
+				loaderData.orgName
+					? `You've been invited to ${loaderData.orgName}. Set a password to finish creating your account.`
+					: "Choose a new password for your account."
+			}
+			nav={{
+				prompt: "Already have an account?",
+				label: "Sign in",
+				to: "/login",
+			}}
+		>
+			<Form method="post" className="flex flex-col gap-[13px]">
+				<Field label="Email">
+					<Input
+						name="email"
+						type="email"
+						value={loaderData.email}
+						readOnly
+						autoComplete="username"
+					/>
+				</Field>
+				<Field
+					label="New password"
+					error={actionData?.fieldErrors?.password?.[0]}
+				>
+					<Input
+						name="password"
+						type="password"
+						required
+						minLength={8}
+						autoComplete="new-password"
+						invalid={Boolean(actionData?.fieldErrors?.password?.[0])}
+					/>
+				</Field>
+				<Field
+					label="Confirm password"
+					error={actionData?.fieldErrors?.confirm?.[0]}
+				>
+					<Input
+						name="confirm"
+						type="password"
+						required
+						autoComplete="new-password"
+						invalid={Boolean(actionData?.fieldErrors?.confirm?.[0])}
+					/>
+				</Field>
+				<Button type="submit" disabled={busy}>
+					{loaderData.orgName ? "Set password & join" : "Set password"}
+				</Button>
+				{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
+			</Form>
+		</AuthPage>
 	);
 }
 
 export function ErrorBoundary() {
 	return (
-		<main className="mx-auto max-w-[400px] px-6 py-16">
-			<PageHeader
-				title="Something went wrong"
-				tone="danger"
-				subtitle="Please reload the page or ask for a fresh link."
-			/>
-		</main>
+		<AuthPage
+			title="Something went wrong"
+			tone="danger"
+			below={<TextLink to="/login">Go to sign in</TextLink>}
+		>
+			<AuthNote>Please reload the page or ask for a fresh link.</AuthNote>
+		</AuthPage>
 	);
 }

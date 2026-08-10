@@ -2,6 +2,7 @@
 import { eq } from "drizzle-orm";
 import { Form, redirect, useNavigation } from "react-router";
 import { z } from "zod";
+import { AuthNote, AuthPage } from "~/auth/page";
 import { getDb } from "~/db";
 import { users } from "~/db/schema";
 import {
@@ -14,15 +15,7 @@ import {
 import { errorChainIncludes, errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import { getTurnstile } from "~/ports/turnstile";
-import {
-	Button,
-	ErrorText,
-	Field,
-	Input,
-	Panel,
-	TextLink,
-	Wordmark,
-} from "~/ui";
+import { Button, ErrorText, Field, Input, TextLink } from "~/ui";
 import type { Route } from "./+types/signup";
 
 const SignupForm = z.object({
@@ -48,6 +41,10 @@ type ActionResult = {
 	 * (no-JS fallback) re-renders the form filled in instead of wiped. */
 	values?: { name: string; email: string };
 };
+
+export function meta(_: Route.MetaArgs) {
+	return [{ title: "Create your account — OpenRostrum" }];
+}
 
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
@@ -139,77 +136,78 @@ export async function action({
 export default function Signup({ actionData }: Route.ComponentProps) {
 	const busy = useNavigation().state !== "idle";
 	return (
-		<main className="mx-auto flex min-h-screen max-w-[360px] flex-col justify-center gap-7 px-6 py-16">
-			<div className="flex justify-center">
-				<Wordmark size={21} />
-			</div>
-			<Panel>
-				<Form method="post" className="flex flex-col gap-[13px]">
-					<Field label="Name" error={actionData?.fieldErrors?.name?.[0]}>
-						<Input
-							name="name"
-							autoComplete="name"
-							required
-							placeholder="Alex Rivera"
-							defaultValue={actionData?.values?.name}
-							invalid={Boolean(actionData?.fieldErrors?.name?.[0])}
-						/>
-					</Field>
-					<Field label="Email" error={actionData?.fieldErrors?.email?.[0]}>
-						<Input
-							name="email"
-							type="email"
-							autoComplete="email"
-							required
-							placeholder="you@conference.org"
-							defaultValue={actionData?.values?.email}
-							invalid={Boolean(actionData?.fieldErrors?.email?.[0])}
-						/>
-					</Field>
-					<Field
-						label="Password"
-						error={actionData?.fieldErrors?.password?.[0]}
-					>
-						<Input
-							name="password"
-							type="password"
-							autoComplete="new-password"
-							required
-							minLength={8}
-							invalid={Boolean(actionData?.fieldErrors?.password?.[0])}
-						/>
-					</Field>
-					<Button type="submit" disabled={busy}>
-						Create account
-					</Button>
-					{actionData?.existingAccount && (
-						<p>
-							You already have an account —{" "}
-							<TextLink to="/login">sign in</TextLink> instead.
-						</p>
-					)}
-					{actionData?.formError && (
-						<ErrorText>{actionData.formError}</ErrorText>
-					)}
-				</Form>
-			</Panel>
-			<p className="flex justify-center gap-[5px]">
-				Already have an account? <TextLink to="/login">Sign in</TextLink>
-			</p>
-		</main>
+		<AuthPage
+			title="Create your account"
+			subtitle="Set up your organization and run your conference's program here — free and open source."
+			nav={{
+				prompt: "Already have an account?",
+				label: "Sign in",
+				to: "/login",
+			}}
+		>
+			<Form method="post" className="flex flex-col gap-[13px]">
+				<Field label="Name" error={actionData?.fieldErrors?.name?.[0]}>
+					<Input
+						name="name"
+						autoComplete="name"
+						required
+						placeholder="Alex Rivera"
+						defaultValue={actionData?.values?.name}
+						invalid={Boolean(actionData?.fieldErrors?.name?.[0])}
+					/>
+				</Field>
+				<Field label="Email" error={actionData?.fieldErrors?.email?.[0]}>
+					<Input
+						name="email"
+						type="email"
+						autoComplete="email"
+						required
+						placeholder="you@conference.org"
+						defaultValue={actionData?.values?.email}
+						invalid={Boolean(actionData?.fieldErrors?.email?.[0])}
+					/>
+				</Field>
+				<Field label="Password" error={actionData?.fieldErrors?.password?.[0]}>
+					<Input
+						name="password"
+						type="password"
+						autoComplete="new-password"
+						required
+						minLength={8}
+						invalid={Boolean(actionData?.fieldErrors?.password?.[0])}
+					/>
+				</Field>
+				<Button type="submit" disabled={busy}>
+					Create account
+				</Button>
+				{actionData?.existingAccount && (
+					<AuthNote>
+						You already have an account —{" "}
+						<TextLink to="/login">sign in</TextLink> instead.
+					</AuthNote>
+				)}
+				{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
+			</Form>
+		</AuthPage>
 	);
 }
 
 export function ErrorBoundary() {
 	return (
-		<main className="mx-auto flex min-h-screen max-w-[360px] flex-col justify-center gap-7 px-6 py-16">
-			<Panel>
-				<p>
-					Something went wrong creating your account. Please refresh and try
-					again, or <TextLink to="/login">sign in</TextLink> if you already have
-					an account.
-				</p>
-			</Panel>
-		</main>
+		<AuthPage
+			title="Something went wrong"
+			tone="danger"
+			nav={{
+				prompt: "Already have an account?",
+				label: "Sign in",
+				to: "/login",
+			}}
+		>
+			<AuthNote>
+				Something went wrong creating your account. Please refresh and try
+				again, or <TextLink to="/login">sign in</TextLink> if you already have
+				an account.
+			</AuthNote>
+		</AuthPage>
 	);
 }
