@@ -110,13 +110,61 @@ function withSuppression(env: Env, sender: EmailSender): EmailSender {
 	};
 }
 
-/** Prod adapter (Resend) — wired in the verification-capabilities phase. */
-export function createResendEmailSender(_env: Env): EmailSender {
+const RESEND_ENDPOINT = "https://api.resend.com/emails";
+// Verified sending domain (see VERIFICATION-CAPABILITIES.md #4). SPF/DKIM live
+// on openrostrum.com; sending as any other domain silently fails delivery.
+const DEFAULT_FROM = "OpenRostrum <noreply@openrostrum.com>";
+
+/** base64 of a UTF-8 string — btoa alone corrupts non-Latin1 bytes. */
+function base64Utf8(s: string): string {
+	const bytes = new TextEncoder().encode(s);
+	let binary = "";
+	for (const b of bytes) binary += String.fromCharCode(b);
+	return btoa(binary);
+}
+
+/** Prod adapter: real mail via Resend from the verified openrostrum.com domain. */
+export function createResendEmailSender(env: Env): EmailSender {
 	return {
-		async send() {
-			throw new Error(
-				"Resend adapter not configured yet (capabilities phase).",
-			);
+		async send(msg) {
+			const body: Record<string, unknown> = {
+				from: DEFAULT_FROM,
+				to: [msg.to],
+				subject: msg.subject,
+				html: msg.html,
+			};
+			if (msg.replyTo) body.reply_to = msg.replyTo;
+			if (msg.ics) {
+				body.attachments = [
+					{
+						filename: "invite.ics",
+						content: base64Utf8(msg.ics),
+						content_type: "text/calendar; method=REQUEST",
+					},
+				];
+			}
+			const headers: Record<string, string> = {
+				Authorization: `Bearer ${env.RESEND_API_KEY}`,
+				"Content-Type": "application/json",
+			};
+			// Resend dedupes server-side on this key for 24h, so a retried send
+			// (cron re-run, double-submit) never delivers twice.
+			if (msg.dedupeKey) headers["Idempotency-Key"] = msg.dedupeKey;
+
+			const res = await fetch(RESEND_ENDPOINT, {
+				method: "POST",
+				headers,
+				body: JSON.stringify(body),
+			});
+			if (!res.ok) {
+				// Surface for the caller's catch (which logs + shows a generic
+				// message); never leak provider detail into the UI.
+				throw new Error(
+					`Resend send failed (${res.status}): ${await res.text()}`,
+				);
+			}
+			const data = (await res.json()) as { id: string };
+			return { id: data.id, deduped: false, suppressed: false };
 		},
 	};
 }

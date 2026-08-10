@@ -12,7 +12,7 @@
 		{
 			"binding": "DB",
 			"database_name": "openrostrum",
-			"database_id": "local-dev-placeholder-replaced-in-prod",
+			"database_id": "5f1d8b81-229e-4756-8dbb-c0f926b87921",
 			"migrations_dir": "drizzle/migrations"
 		}
 	],
