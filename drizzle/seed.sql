@@ -47,6 +47,8 @@ DELETE FROM tracks;
 DELETE FROM password_resets;
 DELETE FROM auth_sessions;
 DELETE FROM events;
+DELETE FROM organization_members;
+DELETE FROM organizations;
 DELETE FROM users;
 
 INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES
@@ -54,8 +56,16 @@ INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES
  ('u_speaker',  'speaker@example.com',  'pbkdf2$100000$aSqRq0XCE+U62GUmG1OUqg==$7007E8kKOtwNCfhBs3QTdUh/aS1iJwcjCfU//25YYjU=', 'Sam Speaker',   'speaker',  unixepoch()),
  ('u_reviewer', 'reviewer@example.com', 'pbkdf2$100000$aSqRq0XCE+U62GUmG1OUqg==$7007E8kKOtwNCfhBs3QTdUh/aS1iJwcjCfU//25YYjU=', 'Riley Reviewer','reviewer', unixepoch());
 
-INSERT INTO events (id, name, slug, type, timezone, starts_at, ends_at, created_at) VALUES
- ('e_demo', 'AI.Engineer Sandbox Event', 'ai-engineer-sandbox', 'Conference', 'America/Los_Angeles',
+-- The Demo organization: the tenant the sandbox event (and the shared judge
+-- seat) lives in. Self-serve sign-ups mint their own orgs and never see it.
+INSERT INTO organizations (id, name, created_at) VALUES
+ ('org_demo', 'Demo', unixepoch());
+
+INSERT INTO organization_members (id, organization_id, user_id, created_at) VALUES
+ ('om_admin', 'org_demo', 'u_admin', unixepoch());
+
+INSERT INTO events (id, organization_id, name, slug, type, timezone, starts_at, ends_at, created_at) VALUES
+ ('e_demo', 'org_demo', 'AI.Engineer Sandbox Event', 'ai-engineer-sandbox', 'Conference', 'America/Los_Angeles',
   unixepoch('2026-10-12'), unixepoch('2026-10-14'), unixepoch());
 
 INSERT INTO tracks (id, event_id, name, color, created_at) VALUES
@@ -93,14 +103,16 @@ INSERT INTO forms (id, event_id, public_id, type, status, internal_name, externa
  ('form_workshops','e_demo', 'form-workshops-uuid','session',  'closed', 'Workshop CFP', 'Call for Workshops', unixepoch('2026-08-01'), unixepoch(), unixepoch());
 
 -- Custom field library + placement on the Session form, incl. a conditional rule.
-INSERT INTO fields (id, event_id, name, type, options, scope, created_at) VALUES
- ('fld_experience', 'e_demo', 'Prior speaking experience', 'dropdown', '["First time","Experienced"]', 'event', unixepoch()),
- ('fld_notes',      'e_demo', 'Anything else to share?',   'textarea', NULL,                            'event', unixepoch());
+-- Scope XOR: event fields set event_id (organization_id NULL); org-wide fields
+-- would set organization_id with event_id NULL.
+INSERT INTO fields (id, event_id, name, type, options, created_at) VALUES
+ ('fld_experience', 'e_demo', 'Prior speaking experience', 'dropdown', '["First time","Experienced"]', unixepoch()),
+ ('fld_notes',      'e_demo', 'Anything else to share?',   'textarea', NULL,                            unixepoch());
 
 INSERT INTO form_fields (id, form_id, field_id, section, position, required, question_rule, created_at) VALUES
  ('ff_experience', 'form_sessions', 'fld_experience', 'session', 0, 1, NULL, unixepoch()),
  -- show the notes field only when experience = "Experienced"
- ('ff_notes',      'form_sessions', 'fld_notes',      'session', 1, 0, '{"fieldId":"fld_experience","operator":"equals","value":"Experienced"}', unixepoch());
+ ('ff_notes',      'form_sessions', 'fld_notes',      'session', 1, 0, '{"trigger":{"kind":"field","fieldId":"fld_experience"},"operator":"equals","value":"Experienced"}', unixepoch());
 
 INSERT INTO contacts (id, event_id, user_id, email, first_name, last_name, bio, created_at) VALUES
  ('c_sam',  'e_demo', 'u_speaker', 'speaker@example.com', 'Sam',  'Speaker', 'Builder of agents.',        unixepoch()),
@@ -207,8 +219,9 @@ INSERT INTO embeds (id, event_id, public_id, name, type, enabled, config, create
  ('emb_demo', 'e_demo', 'embed-demo-uuid', 'Website sessions list', 'sessions', 1, '{}', unixepoch());
 
 -- Compat-API token: raw value "kms-demo-api-token" (documented in docs/JUDGING.md).
-INSERT INTO api_tokens (id, name, token_hash, created_at) VALUES
- ('apitok_demo', 'Demo token', '4d8bfefbee32ccc1ca5ac38e161464666eaba9ef881e1969de204aeab0470b43', unixepoch());
+-- Org-scoped; event_id NULL = valid for all the Demo org's events.
+INSERT INTO api_tokens (id, organization_id, name, token_hash, created_at) VALUES
+ ('apitok_demo', 'org_demo', 'Demo token', '4d8bfefbee32ccc1ca5ac38e161464666eaba9ef881e1969de204aeab0470b43', unixepoch());
 
 INSERT INTO email_templates (id, event_id, key, name, subject, body_html, category, trigger, created_at, updated_at) VALUES
  ('et_confirm', 'e_demo', 'submission_confirmation', 'Submission Confirmation',           'We received your submission', '<p>Thanks for submitting!</p>',        'lifecycle', 'auto',   unixepoch(), unixepoch()),

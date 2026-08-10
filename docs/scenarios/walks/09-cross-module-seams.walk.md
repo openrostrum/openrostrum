@@ -578,3 +578,474 @@ Deep link preserved. **OK** — EXPERIENCE met. Denial pages humane (`403.tsx` b
   opportunistic P2 band ("take from the top only") — NOT the committed floor (only P2 #3 CSV export
   carries the explicit "COMMITTED" annotation). Testing it as a required seam exceeds the committed
   tiers. Walked for design-readiness, but it should not gate the swarm.
+
+---
+
+## Re-walk 2026-08-10 — tenancy migration (Wave A gate)
+
+Trigger: the multi-tenancy migration landed in `app/db/schema.ts` (design:
+`docs/multi-tenancy-design.md`). Read for this walk: `schema.ts` post-migration ·
+`drizzle/migrations/0002_hesitant_blonde_phantom.sql` + `0003_daily_chamber.sql` ·
+`drizzle/seed.sql` · `app/lib/auth.ts` · `app/routes/admin.tsx` /
+`admin.submissions.tsx` · `docs/flows/09-data-exposure.md` (rule p, org-membership row) ·
+`docs/airtable-sync-design.md`. Rule (process.md gate): determination per step DURING the
+walk; "covered: Wave B/C/D" only where the design doc commits the behavior explicitly.
+
+**Schema facts this walk stands on (verified in the two migrations + seed):**
+
+- `0002` creates `organizations` + `organization_members` (`unique(organization_id,user_id)`,
+  no role column), adds nullable `organization_id` to `api_tokens`/`events`/`fields` +
+  nullable `api_tokens.event_id`, then backfills: mints `org_demo`, one membership per
+  `role='admin'` user, `events`/`api_tokens` → `org_demo`, `fields WHERE scope='global'` →
+  `organization_id='org_demo', event_id=NULL`.
+- `0003` rebuilds `api_tokens` and `events` with `organization_id` **NOT NULL** (FK cascade;
+  `api_tokens.event_id` nullable FK cascade) and **drops `fields.scope`**.
+- `drizzle/seed.sql` mints `org_demo` / `om_admin`(u_admin) / `e_demo`(→org_demo) /
+  `apitok_demo`(org_demo, `event_id` NULL = all Demo-org events); seeded fields are
+  event-scoped (`organization_id` NULL) — the XOR is demonstrated in seed.
+- Grep: **zero** reads of `fields.scope` anywhere in `app/` — the column drop breaks no
+  existing serving code.
+
+### Seam artifacts A1–A3 (cross-cutting; step entries below reference them)
+
+#### A1 — admin event resolution (`getActiveEvent` + admin guard)
+
+Wave A ships schema only. `app/lib/auth.ts:239-251` is UNTOUCHED: `getActiveEvent` still
+falls back to `SELECT * FROM events LIMIT 1` — any org's event — and `requireAdmin` still
+checks `users.role`. Committed Wave B artifact (design §Authorization: "first event across
+MY orgs, else null", membership check event → org → member):
+
+```sql
+-- sticky choice, now membership-checked:
+SELECT e.* FROM events e
+ JOIN organization_members om
+   ON om.organization_id = e.organization_id AND om.user_id = :me
+WHERE e.id = :activeEventId;
+-- fallback (REPLACES `SELECT * FROM events LIMIT 1`):
+SELECT e.* FROM events e
+ JOIN organization_members om
+   ON om.organization_id = e.organization_id AND om.user_id = :me
+ORDER BY e.created_at LIMIT 1;   -- first event across MY orgs; no row → null → create-event flow
+```
+
+Covered: **Wave B** — the design names the fallback as "the hole Wave B exists to close",
+with a test on the null-`activeEventId` path. Interim safety: until `/signup` (Wave C),
+`org_demo` is the only organization (seed and the 0002 backfill both mint exactly one), so
+the any-event fallback cannot cross a tenant boundary — the wave order (B before C) is what
+keeps this non-judge-visible. Observation, not a gap: `events` has no index on
+`organization_id` (0003 recreates only `events_slug_unique`); fine while events-per-deploy
+is tens — revisit only if it bites.
+
+#### A2 — `/api/v1` token guard (org scoping + per-token event restriction)
+
+Route unbuilt (P1 #20 lane); the guard the migration makes possible, committed Wave B
+("API-token org scoping"). Token presented as `x-access-token`; `token_hash` = hex
+SHA-256 of the raw value (seed: `kms-demo-api-token` → `4d8b…0b43`):
+
+```sql
+-- resolve the token → its tenant + optional event restriction:
+SELECT id, organization_id, event_id
+  FROM api_tokens WHERE token_hash = :sha256hex LIMIT 1;   -- miss → 401
+UPDATE api_tokens SET last_used_at = unixepoch() WHERE id = :tokenId;
+
+-- the readable event set, derived ONCE per request:
+SELECT e.id FROM events e
+ WHERE e.organization_id = :tokenOrgId
+   AND (:tokenEventId IS NULL OR e.id = :tokenEventId);
+-- every data read then carries it:
+SELECT s.* FROM submissions s WHERE s.event_id IN (<readable event ids>);
+-- org A's token naming org B's event/record → id resolves outside the set → 403/404
+-- (the design's cross-tenant denial test, §Verification per wave).
+```
+
+A token restricted to a deleted event dies with it (`event_id` FK ON DELETE cascade) —
+correct, never a dangling all-org grant. `apitok_demo` (`event_id` NULL) reads all Demo-org
+events, exactly the JUDGING.md contract.
+**GAP: flows/09 rule p names per-token Hide-PII (default ON) + scopes; `api_tokens` carries
+neither column. v1 can pin Hide-PII always-ON in the serializer (behavior, no column
+needed), but the per-token toggle/scopes need integration-owner columns when the P1 #20
+lane builds — file the column request then. [MINOR]**
+
+#### A3 — Airtable sync row selection (env base binds to org_demo)
+
+Design §Airtable: the env-configured base/token is bound to the Demo organization,
+"enforced in the background engine's row selection" — the port stays a dumb transport.
+`'org_demo'` is a stable literal: minted under that exact id by BOTH `drizzle/seed.sql`
+and the 0002 backfill. Covered: **Wave D** (Demo-org row-selection guard +
+"Airtable isn't configured for this organization" state for self-serve orgs). The changed
+selection SQL, per synced table (sync-design Decision 4):
+
+```sql
+-- push tick — only Demo-org rows ever reach the env base:
+SELECT s.*  FROM submissions s      JOIN events e ON e.id = s.event_id
+ WHERE e.organization_id = 'org_demo';                          -- Sessions
+SELECT c.*  FROM contacts c         JOIN events e ON e.id = c.event_id
+ WHERE e.organization_id = 'org_demo';                          -- Contacts
+SELECT ta.* FROM task_assignments ta
+  JOIN tasks t  ON t.id = ta.task_id
+  JOIN events e ON e.id = t.event_id
+ WHERE e.organization_id = 'org_demo';                          -- Task assignments
+
+-- pull/webhook reconcile — a link may only bind to a Demo-org record; anything
+-- else is refused + track()'d, never applied (per table, submissions shown):
+SELECT al.* FROM airtable_links al
+  JOIN submissions s ON al.table_name = 'submissions' AND al.record_id = s.id
+  JOIN events e ON e.id = s.event_id
+ WHERE e.organization_id = 'org_demo';
+```
+
+Absence-as-delete and the >20% circuit breaker now compute over the **org-filtered** linked
+set — a self-serve org's rows can never register as "absent from the base" (they were never
+selected), so no cross-tenant archive is reachable. Inbound status flips still route
+through `app/domain/accept.ts` (Decision 1) — see XM-S1.10 for why the spine itself needs
+no org parameter.
+
+### XM-S1 — the full spine
+
+#### XM-S1 step 1 — CHANGED
+The form lookup is byte-identical (`SELECT public_id FROM forms WHERE event_id=:active AND
+internal_name=…`); what changed is how `:active` resolves — `events.organization_id` is now
+NOT NULL and resolution must pass membership. Artifact = **A1**. Wave A interim keeps the
+old any-event fallback — covered: Wave B (design §Authorization), interim single-org-safe
+per A1.
+
+#### XM-S1 step 2 — UNCHANGED
+Public loader keys on `forms.public_id` alone; no tenancy column in the path; the slug
+namespace stays deliberately global (design: "accepted trade-off, recorded").
+
+#### XM-S1 step 3 — UNCHANGED
+CFP inline signup mints `users(role='speaker')` + an event-scoped `contacts` row; **no**
+`organization_members` row is created — org membership is organizer-side, and `/signup`
+(Wave C) is a different flow. `users`/`contacts` untouched by 0002/0003. (The old gap #3
+mechanism — `normalizeEmail` + "ALWAYS stored lowercased" on `users.email` — has since
+landed in `auth.ts:10`; noted for the register, not a tenancy artifact.)
+
+#### XM-S1 step 4 — UNCHANGED
+`formats WHERE event_id` — event-scoped taxonomy, no org column.
+
+#### XM-S1 step 5 — UNCHANGED
+`contacts` insert is event-scoped; migration didn't touch the table.
+
+#### XM-S1 step 6 — UNCHANGED
+The submission insert derives `event_id` from the FORM row server-side (never from any org
+context); `db.batch` + `email_outbox` untouched by the migration.
+
+#### XM-S1 step 7 — CHANGED
+The action's guard chain. Wave A: `requireAdmin` (role) + event scope via the A1-resolved
+event — behaviorally identical to pre-tenancy. Wave B swaps in membership, and the
+row-level write guard becomes membership-scoped (flows/09: "the org boundary is a hard
+wall"):
+
+```sql
+UPDATE submissions SET status = 'accept_queue', status_changed_at = unixepoch()
+ WHERE id = :id
+   AND event_id IN (SELECT e.id FROM events e
+                     JOIN organization_members om
+                       ON om.organization_id = e.organization_id
+                      AND om.user_id = :me);   -- 0 rows updated → 404/403, cross-tenant denial
+```
+
+Covered: Wave B (admin guard) + the standing row-level `eventId` verification. Prior MINOR
+#12 (pagination/search/tab counts) stands, untouched by tenancy.
+
+#### XM-S1 step 8 — UNCHANGED
+Portal projection is contact-scoped (`user → contacts → participants`); no org column in
+the portal read path. Prior MAJOR #4 (mask single-source) stands — not a tenancy artifact.
+
+#### XM-S1 step 9 — UNCHANGED
+Bulk send + status flip key on event-scoped rows; `email_templates`/`email_outbox`/
+`email_suppressions` untouched by the migration.
+
+#### XM-S1 step 10 — UNCHANGED
+The provisioning SQL keys on `tasks.event_id` + `contacts` — no org column on either.
+Tenancy determination made here: the spine's three committed callers (route action,
+`/api/v1`, Airtable inbound transition) each arrive **already org-filtered** (A1/A2/A3),
+and `submission → event → organization_id` is derivable, so `app/domain/accept.ts` needs
+NO org parameter — the domain-function design stays sound under tenancy. Prior MAJOR #5
+(fan-out / idempotency / `submission`-type task) stands unchanged.
+
+#### XM-S1 step 11 — UNCHANGED
+`task_assignments` update by `id + contact_id` ownership; no tenancy column.
+
+#### XM-S1 step 12 — UNCHANGED
+`SELECT response FROM task_assignments WHERE id=?` — reached through the A1-resolved event;
+step SQL identical.
+
+#### XM-S1 step 13 — UNCHANGED
+Agenda queries `WHERE event_id`; `formats`/`rooms`/`tracks` all event-scoped.
+
+#### XM-S1 step 14 — UNCHANGED
+Manual insert derives `event_id` from the active event (A1); conflict SQL already joins
+`a.event_id = b.event_id` — tenant-safe by construction once events are org-owned.
+
+#### XM-S1 step 15 — UNCHANGED
+Resolve = reschedule UPDATE + re-run of the step-14 query; nothing tenancy-bearing.
+
+#### XM-S1 step 16 — UNCHANGED
+Outstanding-tasks dashboard groups on `contacts.event_id` — event-scoped.
+
+### XM-S2 — config → public propagation
+
+#### XM-S2 step 1 — CHANGED
+The rename UPDATE is identical (`UPDATE fields SET name='Special requirements' WHERE
+id=…`), but the library read that serves the builder — and defines the rename's blast
+radius — drops `scope`:
+
+```sql
+-- form-builder field library, post-XOR (REPLACES `WHERE event_id=? OR scope='global'`):
+SELECT f.* FROM fields f
+ WHERE f.event_id = :activeEventId
+    OR f.organization_id = (SELECT organization_id FROM events WHERE id = :activeEventId);
+```
+
+Blast radius is now tenant-bounded: renaming an org-wide field propagates to every form in
+the ORG only; an event field stays event-local; another organization can never observe
+either. `forms.close_at` / `success_html` unchanged.
+
+#### XM-S2 step 2 — UNCHANGED
+The public form reads labels via the `form_fields.field_id → fields.id` join and never
+read `scope` (grep: zero `.scope` reads in `app/`) — the column drop is invisible here.
+
+#### XM-S2 step 3 — UNCHANGED
+`tracks` are event rows; single-row UPDATE identical.
+
+#### XM-S2 step 4 — UNCHANGED
+All four surfaces read through `submission_tracks → tracks` — no org column in the chain.
+
+#### XM-S2 step 5 — UNCHANGED
+`formats` event-scoped; stored `starts_at`/`ends_at` semantics untouched.
+
+#### XM-S2 step 6 — UNCHANGED
+The track-delete cascade FKs are identical after 0003 (`submission_tracks` /
+`reviewer_tracks` unchanged); prior MAJOR #8 + MINOR #15 stand — not tenancy artifacts.
+
+#### XM-S2 step 7 — UNCHANGED
+`forms.close_at` + Clock-port check; prior MINOR #13 stands.
+
+### XM-S3 — built-in ↔ custom field seam
+
+#### XM-S3 step 1 — CHANGED + GAP [MINOR]
+Create-field artifact under the XOR (`scope` enum gone):
+
+```sql
+-- event-scoped field (this scenario): event_id set, organization_id NULL
+INSERT INTO fields (id, event_id, organization_id, name, type, max_length, created_at)
+VALUES (:uuid, :activeEventId, NULL, 'Workshop prerequisites', 'textarea', 500, unixepoch());
+-- library "share across my events" choice → org-wide: org DERIVED from the active event
+INSERT INTO fields (id, event_id, organization_id, name, type, max_length, created_at)
+VALUES (:uuid, NULL, (SELECT organization_id FROM events WHERE id = :activeEventId),
+        'Workshop prerequisites', 'textarea', 500, unixepoch());
+```
+
+The XOR is app-enforced (design: the `formFields` fieldId/builtinRef precedent) — the
+create action must set exactly one, and the org id is always derived, never client-sent.
+The rule JSON on built-in Format is representable in the current schema —
+`{"trigger":{"kind":"builtin","ref":"format"},"operator":"equals","value":"Workshop"}`
+(`QuestionRule`, schema.ts §form_fields) — old BLOCKER #2 is closed in schema; re-verified
+during this walk, not a tenancy change.
+**GAP: `drizzle/seed.sql` (`ff_notes`) still carries the PRE-union rule shape
+`{"fieldId":"fld_experience","operator":"equals","value":"Experienced"}`, which does not
+match `QuestionRule` (`{trigger:{kind,…},operator,value}`) — a rule engine typed against
+the schema reads `rule.trigger` → `undefined` and the seeded conditional rule silently
+never fires. One-line seed fix, owned by THIS Wave A change (seed shipped in it); no other
+wave touches it. [MINOR]**
+
+#### XM-S3 step 2 — UNCHANGED
+Client-side rule evaluation over in-memory form state; no tenancy column.
+
+#### XM-S3 step 3 — UNCHANGED
+Same engine, toggling; nothing tenancy-bearing.
+
+#### XM-S3 step 4 — UNCHANGED
+Hidden-required validation semantics; prior MAJOR #11 stands — not a tenancy artifact.
+
+#### XM-S3 step 5 — UNCHANGED
+`submission_answers` keyed on `submission_id`/`field_id` — works identically whether the
+answered field is org-wide or event-scoped.
+
+#### XM-S3 step 6 — UNCHANGED
+Admin detail joins `submission_answers → fields` by id; no scope read.
+
+#### XM-S3 step 7 — UNCHANGED
+Accept/schedule only touches `submissions`; answers survive as before.
+
+### XM-S4 — identity seam
+
+#### XM-S4 step 1 — UNCHANGED
+`contacts`/`users`/`participants` carry no org column and 0002/0003 didn't touch them; the
+tenant boundary passes through `contacts.event_id`, unchanged.
+
+#### XM-S4 step 2 — UNCHANGED
+Contact reuse via `contacts_event_email_uq` — identical.
+
+#### XM-S4 step 3 — UNCHANGED
+Portal join `user → contacts → participants → submissions` — event-scoped, no org column.
+
+#### XM-S4 step 4 — UNCHANGED
+`UPDATE contacts SET bio=…` — identical.
+
+#### XM-S4 step 5 — UNCHANGED
+Both participant panes read the same `contacts.bio` row — identical.
+
+#### XM-S4 step 6 — UNCHANGED
+Email-first lookup on `users.email` — untouched by the migration.
+
+#### XM-S4 step 7 — UNCHANGED
+Case-variant handling: `normalizeEmail` (`auth.ts:10`) + the `users.email` "ALWAYS stored
+lowercased" contract have since landed — the prior BLOCKER #3 mechanism exists; noted for
+the register, not a tenancy artifact.
+
+### XM-S5 — lifecycle / deletion seam
+
+#### XM-S5 step 1 — UNCHANGED
+Precondition data; the seeded rows are now org-attached (`e_demo → org_demo`) but nothing
+in the step's artifact changes.
+
+#### XM-S5 step 2 — UNCHANGED
+Withdraw UPDATE on `submissions` — identical.
+
+#### XM-S5 step 3 — UNCHANGED
+Agenda-ghost + reviewer-queue filters; prior MAJOR #9 and MINOR #17 stand — not tenancy
+artifacts.
+
+#### XM-S5 step 4 — UNCHANGED
+The in-app confirm guard + `DELETE FROM submissions WHERE id=?` are identical. Seam note
+walked here: the committed Airtable ripple of a hard delete (sync-design: "app-side HARD
+delete → the Airtable row is actually deleted too") is now **org-gated** — the engine only
+ever holds links for Demo-org rows (A3 selection), so a self-serve org's hard delete
+correctly touches no external base. Covered: Wave D.
+
+#### XM-S5 step 5 — UNCHANGED
+The cascade graph on a `submissions` delete is identical after 0003. New in the schema but
+NOT exercised by this step: `organizations` delete now cascades org → events → everything;
+no org-delete surface exists or is committed.
+
+#### XM-S5 step 6 — UNCHANGED
+Contact-delete cascades identical.
+
+#### XM-S5 step 7 — UNCHANGED
+Prior MINOR #14 ("delete my data" vs the `users` row) stands — not a tenancy artifact.
+
+### XM-S6 — queue-mask consistency
+
+#### XM-S6 step 1 — UNCHANGED
+Status UPDATEs on the A1-resolved event; step SQL identical; outbox check identical.
+
+#### XM-S6 step 2 — UNCHANGED
+Portal surfaces are contact-scoped; prior MAJOR #4 (single-source mask) stands.
+
+#### XM-S6 step 3 — UNCHANGED
+Served-payload grep unchanged; masking remains a projection concern, not a tenancy one.
+
+#### XM-S6 step 4 — UNCHANGED
+`SELECT status, count(*) … WHERE event_id GROUP BY status` — the event is already
+tenant-scoped upstream (A1); no org column needed in the step SQL.
+
+#### XM-S6 step 5 — UNCHANGED
+Decline send + finalize — identical.
+
+### XM-S7 — CSV export seam
+
+#### XM-S7 step 1 — UNCHANGED
+Data preconditions only.
+
+#### XM-S7 step 2 — UNCHANGED
+Standard insert; quoting is a serialization concern.
+
+#### XM-S7 step 3 — UNCHANGED
+Prior MAJOR #6 (committed-but-homeless route) stands; tenancy adds no new requirement —
+the export is event-scoped and the event arrives through A1.
+
+#### XM-S7 step 4 — UNCHANGED
+The export query + custom-field pivot join `fields` by id and never read `scope`; an
+org-wide field answered in this event appears exactly once in the pivot enumeration
+(`DISTINCT` over `submission_answers` scoped by `s.event_id`) — the XOR changes nothing.
+Prior MAJOR #6's contract half stands.
+
+#### XM-S7 step 5 — UNCHANGED
+Filtered export — same query + status predicate.
+
+### XM-S8 — impersonation seam (still a SCENARIO-ERROR: P2 #6, uncommitted)
+
+#### XM-S8 step 1 — UNCHANGED
+Preconditions only.
+
+#### XM-S8 step 2 — UNCHANGED
+Contact search `WHERE event_id` — event-scoped; prior MAJOR #10 (no impersonation
+primitive in `auth.ts`) stands, and nothing in the tenancy design supplies one.
+
+#### XM-S8 step 3 — UNCHANGED
+Inherits the S6 mask concern (prior #4); no tenancy column in the preview path.
+
+#### XM-S8 step 4 — UNCHANGED
+Preview-blocked mutation; prior #10 stands.
+
+#### XM-S8 step 5 — UNCHANGED
+Replayed-POST server-side rejection; prior #10 stands.
+
+#### XM-S8 step 6 — UNCHANGED
+Return-to-admin keeps the `auth_sessions` row; sessions untouched by the migration.
+
+### XM-S9 — auth boundary sweep
+
+#### XM-S9 step 1 — UNCHANGED
+Anon → `requireUser` redirect fires before any membership question arises; tenancy adds
+nothing to the anonymous path. Walk-time re-verification (because the same channel would
+leak **cross-org** data once orgs multiply): prior BLOCKER #1 (single-fetch `_routes`
+bypass) is now closed in code for the existing child route — `admin.submissions.tsx:50`
+self-authenticates ("do NOT rely on the admin.tsx layout loader") and `admin.tsx:9-14`
+documents the rule every future child route must copy. Not a tenancy change; recorded for
+the register.
+
+#### XM-S9 step 2 — UNCHANGED
+Actions self-authenticate (`admin.submissions.tsx:76`); prior MINOR #18 (lint checks
+presence, not gating) stands.
+
+#### XM-S9 step 3 — UNCHANGED
+Public CFP route — no session, no tenancy.
+
+#### XM-S9 step 4 — CHANGED
+The denial mechanism swaps at Wave B. Wave A: `requireAdmin` role check — Maya
+(`role='speaker'`) → `/403`, behavior identical to pre-tenancy. Wave B (design
+§Authorization: "the admin guard swaps the global-role check for a membership check"):
+
+```sql
+-- admin-shell gate becomes: member of ≥1 organization
+SELECT 1 FROM organization_members WHERE user_id = :me LIMIT 1;   -- miss → /403
+-- per-event access = A1 (membership on THAT event's org);
+-- row-level writes = the XM-S1.7 membership-scoped UPDATE pattern
+```
+
+Maya has no `organization_members` row → denied under both regimes; her POST replay hits
+the same guard. Covered: Wave B. The post-A/pre-B interim is behaviorally identical to
+pre-tenancy — no judge-visible hole (single org until Wave C, and C ships after B).
+
+#### XM-S9 step 5 — UNCHANGED
+Reviewer routing (`reviewer_tracks → submission_tracks`) is event-scoped, untouched;
+Omar's admin-GET denial rides the same guard as step 4 (covered: Wave B). Prior MAJOR #7
+(reviewer surface homeless — `/reviews` is now named in `homePathForRole` but no route file
+exists) stands — not a tenancy artifact.
+
+#### XM-S9 step 6 — UNCHANGED
+`redirectTo` deep-link flow untouched.
+
+### Re-walk tally
+
+**66 steps walked: 5 CHANGED (XM-S1.1, XM-S1.7, XM-S2.1, XM-S3.1, XM-S9.4), 61 UNCHANGED.
+New GAPs from the tenancy migration: 2, both MINOR.**
+
+| Where | Gap | Severity |
+|---|---|---|
+| XM-S3.1 | Seeded `question_rule` (`ff_notes`) still uses the pre-union `{"fieldId":…}` shape — mismatches `QuestionRule` (`{trigger:{kind,…}}`); a schema-typed rule engine never fires the seeded rule. One-line seed fix, owned by this Wave A change. | **MINOR** |
+| A2 (api_tokens seam) | `api_tokens` has no `hide_pii`/scopes columns though flows/09 rule p names both. v1 can pin Hide-PII always-ON in the serializer (no column needed); the per-token toggle/scopes need integration-owner columns when the P1 #20 lane builds. | **MINOR** |
+
+Prior-register movement observed during this walk (recorded, not re-filed): **#1** closed in
+code for the existing child route + rule documented in the layout (`admin.submissions.tsx:50`,
+`admin.tsx:9-14`) — future child routes must copy it; **#2** closed in schema
+(`QuestionRule` builtin-trigger union + `formFields.builtinRef`); **#3** mechanism landed
+(`normalizeEmail` + lowercased-storage contract on `users.email`). Gaps **#4–#18 stand
+unchanged** — none is a tenancy artifact, and the tenancy migration worsens none of them.
+Wave B/C/D-dependent behaviors cited above (A1 fallback fix, admin-guard membership swap,
+A2 token guard, A3 sync selection + not-configured state, org-member invites) are all
+explicitly committed in `docs/multi-tenancy-design.md` (§Authorization, §Airtable, Build
+order table) and therefore filed as coverage citations, not gaps.

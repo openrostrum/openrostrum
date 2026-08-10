@@ -532,3 +532,332 @@ P1 #2 (question rules incl. dropdown triggers — Format IS a dropdown, so the b
 trigger is in-scope, not invention), P1 #6 (admin-notify pickers), and the red-pen
 annotations (success message + ~10s redirect "make sure this works", Close Date "kinda
 impt", confirmation email "must have").
+
+## Re-walk 2026-08-10 — tenancy migration (Wave A gate)
+
+Scope of this walk: verdicts are **tenancy-scoped** (the Wave A migration in
+`docs/multi-tenancy-design.md` §Schema: `organizations` + `organization_members`,
+`events.organizationId` NOT NULL, `api_tokens.organizationId` + nullable `eventId`,
+`fields.scope` **dropped** for the organizationId/eventId XOR, seed mints `org_demo`).
+Where a step's ORIGINAL verdict was a gap since resolved by the register fixes
+(G2 current-event, G3 rule trigger union, G4 `formFields.builtinRef`, G6 `portals`,
+G8 template provisioning), that resolution is noted so stale blockers aren't
+re-asserted — but the verdict still answers only "did TENANCY change this step".
+
+Stated once, inherited by every scenario below (the AE-S2.4 pattern):
+- **Fixture dependency:** all FB scenarios run inside AE-S2's created event; `events.organizationId`
+  is now NOT NULL, so AE-S2's create-event artifact must write the creator's org id. That
+  artifact belongs to walk 01's re-walk; here it is an input, not re-filed.
+- **Membership enforcement interim:** `getActiveEvent` (app/lib/auth.ts) still has NO
+  membership check and falls back to `db.select().from(events).limit(1)` — covered: Wave B
+  ("`getActiveEvent(env, user)` gains the membership check (event → org → member). **The
+  any-event fallback is the hole Wave B exists to close** … first event across MY orgs, else
+  null", design doc §Authorization + wave table row B). The admin guard's global-role check
+  likewise: covered, Wave B. Interim exposure is nil in practice: signup ships in Wave C,
+  after B, so the DB holds only `org_demo` while the holes are open (design doc §Build order).
+- **Enabling detail every changed artifact uses:** `getActiveEvent` selects the full `events`
+  row, so `activeEvent.organizationId` is already in hand at every admin loader/action — the
+  org is never re-derived with a second query and never trusted from the client.
+
+### FB-S1 step 1 — UNCHANGED
+Forms list + create write only `forms.eventId`; forms carry no org column (org derived via
+the event — design doc §Schema: "never stored where derivable"). Operating-as-member gate:
+covered, Wave B (see preamble).
+
+### FB-S1 step 2 — UNCHANGED
+`forms.type` / `forms.participantsStep` — event-scoped columns, untouched by the migration.
+
+### FB-S1 step 3 — UNCHANGED
+`internal_name` / `external_title` — untouched columns.
+
+### FB-S1 step 4 — UNCHANGED
+Zod `.max(15)` on a `forms` column; no tenancy column in the contract. Prior
+`[MINOR]` (cap is folklore) stands as filed.
+
+### FB-S1 step 5 — UNCHANGED
+`UPDATE forms SET page_heading …` — untouched column.
+
+### FB-S1 step 6 — UNCHANGED
+`welcome_html` / `show_welcome` — untouched columns.
+
+### FB-S1 step 7 — UNCHANGED
+Builder loader matches `forms.id` + row-level `eq(forms.eventId, activeEvent.id)` — the
+row-level eventId rule predates tenancy and continues per design doc §Authorization
+("Row-level eventId verification continues per the data-exposure matrix").
+
+### FB-S1 step 8 — UNCHANGED
+Re-render from the same row; no tenancy-bearing read.
+
+### FB-S2 step 1 — UNCHANGED
+Locked Title/Description now live as `form_fields` rows with `builtinRef` + `locked=1`
+(original BLOCKER resolved by G4 — `formFields.builtinRef`, `unique(formId, builtinRef)`,
+schema.ts). Builtin placement rows carry no org/event column → tenancy adds nothing.
+
+### FB-S2 step 2 — CHANGED
+The original artifact wrote `scope: "event"` — **that column no longer exists**. The Create
+New Field dialog's scope choice now maps to the XOR (decided app-enforced, design doc
+§Schema: "the `formFields.fieldId`/`builtinRef` precedent" — no CHECK constraint, by
+recorded decision):
+
+```ts
+// admin.forms.$formId.tsx action — the scope radio never reaches the DB:
+const cols = scope === "event"
+  ? { eventId: activeEvent.id, organizationId: null }        // event field
+  : { eventId: null, organizationId: activeEvent.organizationId }; // org-wide field
+await db.batch([
+  db.insert(fields).values({ id: keyTakeawayId, ...cols, name: "Key takeaway", type: "text", maxLength: 140 }),
+  db.insert(formFields).values({ formId, fieldId: keyTakeawayId, section: "session", position: 2, required: true }),
+]);
+```
+```sql
+-- this step ("event scope") produces:
+INSERT INTO fields (id, event_id, organization_id, name, type, max_length, created_at)
+VALUES (:keyTakeawayId, :eventId, NULL, 'Key takeaway', 'text', 140, unixepoch());
+-- the dialog's other option ("organization-wide", formerly "global") would produce:
+--   (id, NULL, :activeEventOrgId, …)
+```
+Walk 01's dual-encoding `[MINOR]` (scope='global' vs eventId NULL disagreeing) is
+**resolved by this migration** — one truth, the XOR. Seed precedent confirms
+(`drizzle/seed.sql`: event fields insert `event_id` with no `organization_id`).
+
+### FB-S2 step 3 — CHANGED
+Same rewrite for "Audience level":
+```sql
+INSERT INTO fields (id, event_id, organization_id, name, type, options, created_at)
+VALUES (:audienceLevelId, :eventId, NULL, 'Audience level', 'dropdown', '["Beginner","Intermediate","Advanced"]', unixepoch());
+```
+Placement row unchanged (`form_fields` has no tenancy column).
+
+### FB-S2 step 4 — CHANGED
+The picker's search is the query the scope-drop bites hardest. Old conceivable predicate
+(`event_id = :eventId OR scope = 'global'`) is unwritable AND was a cross-tenant leak
+(every org's "global" fields in every picker). New:
+
+```sql
+-- Add Question picker (search included):
+SELECT id, name, type FROM fields
+WHERE (event_id = :eventId
+       OR (organization_id = :orgId AND event_id IS NULL))  -- :orgId = activeEvent.organizationId
+  AND name LIKE '%' || :search || '%';
+-- both branches indexed: fields_event_idx / fields_org_idx (schema.ts).
+```
+```ts
+// and the action-side guard — the picked id must pass the SAME predicate (never trust the client;
+// this is design doc §Verification's "org A's form builder sees only its own fields" denial test):
+const [ok] = await db.select({ id: fields.id }).from(fields).where(and(
+  eq(fields.id, pickedFieldId),
+  or(eq(fields.eventId, activeEvent.id),
+     and(eq(fields.organizationId, activeEvent.organizationId), isNull(fields.eventId))),
+));
+if (!ok) throw data({ error: "Unknown field" }, { status: 404 });
+await db.insert(formFields).values({ formId, fieldId: pickedFieldId, section: "session", position: 6 });
+```
+"Earliest arrival date" (AE-S4, event-scoped → `event_id` set) matches the first branch. ✓
+Prior `[MINOR]` (unique(formId,fieldId) vs layout reuse) unaffected.
+
+### FB-S2 step 5 — UNCHANGED
+Track/Language required toggles are `builtinRef` rows' `required` flag (G4 resolution of the
+original MAJOR); builtin placements carry no tenancy column.
+
+### FB-S2 step 6 — UNCHANGED
+Cross-list order is `form_fields.position` over fieldId + builtinRef rows (G4); tenancy
+touches neither.
+
+### FB-S2 step 7 — UNCHANGED
+Public URL and route untouched — design doc: "No URL changes: `/admin/*` stays; public
+`$eventSlug` pages unchanged." Marie signs up `role: 'speaker'` — speakers are not org
+members; the public submit path resolves no membership. Prior `$formId≠forms.id` `[MINOR]` stands.
+
+### FB-S2 step 8 — UNCHANGED
+Public render joins `form_fields → fields` **by id** — works identically for event- and
+org-scoped fields; scoping was already resolved at placement time (step 4's guard).
+
+### FB-S2 step 9 — UNCHANGED
+Required-validation over `form_fields` rows; no tenancy read.
+
+### FB-S3 step 1 — CHANGED
+Same scope→XOR rewrite as FB-S2.2 for the two target fields:
+```sql
+INSERT INTO fields (id, event_id, organization_id, name, type, max_length, created_at) VALUES
+ (:prereqId,  :eventId, NULL, 'Workshop prerequisites', 'textarea', 1000, unixepoch()),
+ (:assumedId, :eventId, NULL, 'Assumed knowledge',      'text',     NULL, unixepoch());
+```
+Placements unchanged.
+
+### FB-S3 step 2 — UNCHANGED
+By tenancy. (Original BLOCKER resolved by G3: `QuestionRule.trigger =
+{kind:'builtin',ref:'format'}` — the built-in Format trigger is now representable;
+`trigger.ref` draws from `BUILTIN_FIELD`.) No org/event column participates in a rule.
+
+### FB-S3 step 3 — GAP
+The custom-trigger rule itself is untouched by tenancy; the current-schema artifact
+(shape per G3's trigger union) is:
+```sql
+UPDATE form_fields SET question_rule =
+  '{"trigger":{"kind":"field","fieldId":"<audienceLevelId>"},"operator":"equals","value":"Advanced"}'
+WHERE form_id = :formId AND field_id = :assumedId;
+```
+Walking it against the live seed exposes a drift the Wave A seed edit did not fix:
+`drizzle/seed.sql` still writes the PRE-G3 flat shape —
+`'{"fieldId":"fld_experience","operator":"equals","value":"Experienced"}'` (row `ff_notes`)
+— which does not parse as `QuestionRule` (`rule.trigger` is `undefined`): a renderer/validator
+built against the type either crashes on `trigger.kind` or treats the seeded rule as dead,
+on the **judged sandbox event's** Session CFP. One-line seed fix; seed.sql was touched by
+Wave A (org backfill) without migrating this JSON, and no committed wave owns it.
+`GAP: seed.sql ff_notes question_rule still uses the pre-G3 flat {"fieldId":…} shape — unparseable as QuestionRule.trigger; the demo form's conditional rule is dead data on the judged event [MAJOR]`
+Prior `[MINOR]` (operator vocabulary undefined) stands.
+
+### FB-S3 step 4 — UNCHANGED
+Client-side rule evaluation on the public form; public path untenanted. Prior systemic
+`[MINOR]` stands.
+
+### FB-S3 step 5 — UNCHANGED
+Both conditional fields hidden with no Format chosen — client state over rule JSON; no tenancy read.
+
+### FB-S3 step 6 — UNCHANGED
+Talk (30 min) keeps prereqs hidden — same mechanism.
+
+### FB-S3 step 7 — UNCHANGED
+Workshop↔Talk toggle — same mechanism (built-in trigger representable per G3).
+
+### FB-S3 step 8 — UNCHANGED
+Audience-level trigger toggle — same mechanism.
+
+### FB-S3 step 9 — UNCHANGED
+Server validator re-evaluates rules against submitted values; reads only form_fields +
+submitted data. Prior `[MINOR]` (hidden-required semantics scenario-only) stands.
+
+### FB-S3 step 10 — UNCHANGED
+Visible-required branch of the same validator.
+
+### FB-S4 step 1 — UNCHANGED
+`roleSpeakerMin` default 1 — untouched `forms` column.
+
+### FB-S4 step 2 — UNCHANGED
+Zod refine over `forms` role columns — no tenancy input.
+
+### FB-S4 step 3 — UNCHANGED
+`UPDATE forms SET role_* …` — untouched columns.
+
+### FB-S4 step 4 — UNCHANGED
+Participant built-ins (Biography required) are `builtinRef` rows with
+`section='participant'` (G4 resolution of the original MAJOR); no tenancy column.
+
+### FB-S4 step 5 — UNCHANGED
+Theo's signup + submission-step values — public speaker path, untenanted (as FB-S2.7).
+
+### FB-S4 step 6 — UNCHANGED
+Renders the four `role_*` columns — untouched.
+
+### FB-S4 step 7 — UNCHANGED
+`contacts` (event-scoped, `unique(event_id,email)`) + `participants` inserts and the count
+gate — no table in this step gained a tenancy column.
+
+### FB-S4 step 8 — UNCHANGED
+Chairperson variant of step 7.
+
+### FB-S4 step 9 — UNCHANGED
+`DELETE FROM participants …` + min check — untouched tables.
+
+### FB-S5 step 1 — UNCHANGED
+`UPDATE forms SET close_at, send_reminders, submission_limit, allow_multiple_drafts,
+auto_redirect, success_html …` — all untouched columns. Prior tz MINOR-note stands.
+
+### FB-S5 step 2 — GAP
+`send_confirmation_email` and the `forms.config.notify` storage shape: unchanged (prior
+`[MINOR]` on the undefined config contract stands — recipients stored as user ids). What
+tenancy CHANGES is the **picker's population**. The only pre-tenancy source — `SELECT …
+FROM users WHERE role = 'admin'` — becomes, the day Wave C mints a second organization, a
+cross-org member directory (names + emails of every other tenant's admins) inside the
+Notifications step. The correct Wave-A-servable artifact:
+```sql
+-- Notifications-step loader — org members of the event's org, NOT users.role='admin':
+SELECT u.id, u.name, u.email
+FROM organization_members om
+JOIN users u ON u.id = om.user_id
+WHERE om.organization_id = :orgId   -- activeEvent.organizationId
+ORDER BY u.name;
+```
+(Send-time resolution of stored ids should re-check membership the same way — a member
+removed in Wave D must stop receiving notifications; same predicate, one JOIN.)
+The schema serves this today, but the rule is stated nowhere binding: design doc
+§Authorization names the switcher, admin guard, `getActiveEvent`, and API tokens — recipient
+pickers appear in NO wave's scope, and flow 01 §9 just says "pick admin recipients". A build
+agent satisfying every named spec ships the `users.role='admin'` leak.
+`GAP: admin-recipient pickers (form Notifications; any pick-an-admin surface) have no post-tenancy population rule in any spec or wave — naive users.role='admin' source is a cross-org member-directory leak once Wave C ships; needs a one-line binding rule (recipients = organization_members of the event's org) [MAJOR]`
+
+### FB-S5 step 3 — UNCHANGED
+Public banner reads `close_at` / `submission_limit` via `public_id` — untenanted public path.
+
+### FB-S5 step 4 — UNCHANGED
+The submission batch writes `submissions` / `submission_tracks` / `submission_answers` /
+`contacts` / `participants` — all event-scoped, none gained a tenancy column;
+`submission_answers.field_id` references the same shared `fields` rows regardless of which
+XOR side scopes them.
+
+### FB-S5 step 5 — UNCHANGED
+By tenancy. (Original MAJOR resolved by G6: `portals` table exists, event-scoped,
+`publicId` seeded — redirect URL constructible as `/portals/:eventSlug/:portalPublicId`.)
+Portals carry `eventId` only; org derived via event.
+
+### FB-S5 step 6 — UNCHANGED
+Outbox rows: `email_outbox.eventId` / `email_templates.eventId` — event-scoped, untouched.
+(Original template-provisioning MAJOR resolved-by-spec per G8: `app/domain/createEvent.ts`
+provisions defaults.) Recipient resolution inherits FB-S5.2's picker rule.
+
+### FB-S5 step 7 — UNCHANGED
+`close_at` gate in public loader+action — untenanted public path.
+
+### FB-S5 step 8 — UNCHANGED
+Restore `close_at` — untouched column.
+
+### FB-S6 step 1 — UNCHANGED
+URL = `events.slug` + `forms.public_id`; design doc keeps slugs one global namespace
+(recorded trade-off), so the copied link's shape survives tenancy verbatim.
+
+### FB-S6 step 2 — UNCHANGED
+Public route stays auth-free and untenanted ("public `$eventSlug` pages unchanged").
+(Original `forms.status` MAJOR resolved-by-spec per register: publish sets `open`, public
+route reachable iff `open`, `closeAt` gates submission only.)
+
+### FB-S6 step 3 — UNCHANGED
+Client menu over the list route; list query scoped by `forms.eventId` as before.
+
+### FB-S6 step 4 — UNCHANGED
+Results/drafts queries filter `form_id` (+ pre-existing row-level event check). Prior
+URL-unassigned `[MINOR]` stands.
+
+### FB-S6 step 5 — UNCHANGED
+Duplicate inserts a `forms` row with the SAME `eventId` → same event ⇒ same org, so every
+copied `form_fields.fieldId` still satisfies the FB-S2.4 predicate (event fields: same
+event; org-wide fields: same org). No tenancy re-validation needed on copy; `builtinRef`
+placements and `trigger` rules copy verbatim (G3/G4 shapes are org-free).
+
+### FB-S6 step 6 — UNCHANGED
+`DELETE FROM forms` + cascades — no tenancy-bearing table in the cascade path changed
+semantics (`fields` rows are NOT cascaded by a form delete on either XOR side; only
+placements go).
+
+### FB-S6 step 7 — UNCHANGED
+Original's submissions reference the original form id — untouched logic.
+
+### FB-S6 step 8 — UNCHANGED
+404 ErrorBoundary on missing `public_id` — untenanted public path.
+
+### FB-S6 step 9 — UNCHANGED
+`public_id` untouched by copy/delete — as originally walked.
+
+### Re-walk gap summary (tenancy gate only)
+
+| Step | Gap | Severity |
+|---|---|---|
+| FB-S5.2 | Admin-recipient picker population rule absent post-tenancy — `users.role='admin'` source becomes a cross-org member-directory leak at Wave C; binding rule needed: recipients = `organization_members` of the event's org | MAJOR |
+| FB-S3.3 | `seed.sql` `ff_notes.question_rule` still pre-G3 flat shape — unparseable as `QuestionRule.trigger`; demo form's conditional rule is dead data on the judged event; untouched by Wave A's seed edit | MAJOR |
+
+53 steps walked: 4 CHANGED (FB-S2.2/2.3/2.4, FB-S3.1 — all the `fields.scope`→XOR rewrite
+plus the picker/guard predicate), 47 UNCHANGED (determinations recorded per step), 2 GAP.
+Wave-B/C/D reliances cited inline are all explicitly covered by the design doc — none
+re-filed as gaps. Resolved-by-migration: walk 01's dual-encoding `[MINOR]` (scope vs
+eventId NULL) dies with the enum. All pre-existing gaps in the 2026-08-09 summary table
+either stand as filed (MINORs, `forms.config` contract) or were resolved by G2/G3/G4/G6/G8
+before this gate — none newly invalidated by tenancy.

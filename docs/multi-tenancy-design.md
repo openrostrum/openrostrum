@@ -110,6 +110,39 @@ registered SCOPE follow-up with its own scenario re-walk.
 
 No URL changes: `/admin/*` stays; public `$eventSlug` pages unchanged.
 
+**Binding rules the 2026-08-10 re-walk surfaced** (each closes a walk GAP; the
+walk files carry the concrete SQL):
+
+- **Reviewers resolve events through assignments, never membership.** Reviewers
+  hold no `organization_members` row (giving them one would make them org
+  admins); `/reviews` derives its event scope from
+  `reviewer_tracks → tracks.event_id`. Wave B ships a test on the
+  membership-less user path — `getActiveEvent` returning null must never be
+  what the reviewer surface depends on.
+- **Admin-notify recipient pickers list the event's org members**
+  (`organization_members WHERE organizationId = event.organizationId`), never
+  `users WHERE role='admin'` — that query becomes a cross-org member-directory
+  leak the day a second org exists.
+- **Invite tokens carry mint-time intent.** `passwordResets.organizationId`
+  (nullable) is the discriminator: set = org-member invite (accept creates the
+  membership), NULL = speaker/reviewer/password-reset. The accept flow derives
+  what a token grants from this column, never from which route redeems it.
+- **Every event-creation path provisions the event's default email templates**
+  (shared domain function, both P1 #5 create-event and Wave C onboarding) —
+  today only the seed mints templates, so a non-seeded event's confirmation
+  email silently never sends.
+- **New events inherit the active event's organization** in create-event;
+  onboarding creates the first org + event. An org picker for multi-org users
+  arrives with the Selected-Events follow-up, not before.
+- **Library-field creation defaults to event-scoped**; org-wide is an explicit
+  choice in the create-field UI (the XOR always has exactly one side set).
+- **Email suppression stays person-global across orgs** (deliberate
+  cross-tenant exception, recorded: an unsubscribed address stays unsubscribed
+  everywhere — the compliance-safe reading; per-org suppression would also
+  need org context in the signed unsubscribe token).
+- **/api/v1 v1 serializers hardcode Hide-PII on**; per-token Hide-PII/scopes
+  columns are integration-owner work when the P1 #20 lane builds.
+
 ## Airtable (tenant boundary now, credentials later)
 
 The env-configured base/token is **bound to the Demo organization**, enforced in

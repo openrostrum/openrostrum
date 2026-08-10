@@ -4,6 +4,7 @@ import { getDb } from "../app/db";
 import {
 	contacts,
 	events,
+	organizations,
 	participants,
 	submissions,
 	submissionTracks,
@@ -37,7 +38,13 @@ describe("admin submissions route", () => {
 	it("loads submissions with tracks + participants", async () => {
 		const db = getDb(env);
 		const request = await adminRequest("http://localhost/admin/submissions");
-		await db.insert(events).values({ id: "e1", name: "E", slug: "e" });
+		await db.insert(organizations).values({ id: "org1", name: "Org" });
+		await db.insert(events).values({
+			id: "e1",
+			organizationId: "org1",
+			name: "E",
+			slug: "e",
+		});
 		await db
 			.insert(tracks)
 			.values({ id: "t1", eventId: "e1", name: "AI", color: "#000000" });
@@ -93,7 +100,13 @@ describe("admin submissions route", () => {
 			method: "POST",
 			body,
 		});
-		await db.insert(events).values({ id: "e1", name: "E", slug: "e" });
+		await db.insert(organizations).values({ id: "org1", name: "Org" });
+		await db.insert(events).values({
+			id: "e1",
+			organizationId: "org1",
+			name: "E",
+			slug: "e",
+		});
 
 		const response = await action({
 			context: CONTEXT,
@@ -122,7 +135,13 @@ describe("admin submissions route", () => {
 			method: "POST",
 			body,
 		});
-		await db.insert(events).values({ id: "e1", name: "E", slug: "e" });
+		await db.insert(organizations).values({ id: "org1", name: "Org" });
+		await db.insert(events).values({
+			id: "e1",
+			organizationId: "org1",
+			name: "E",
+			slug: "e",
+		});
 
 		const result = (await action({
 			context: CONTEXT,
