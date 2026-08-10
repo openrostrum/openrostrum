@@ -12,6 +12,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
+import { verifyUnsubscribeToken } from "../app/lib/unsubscribe";
 import { action } from "../app/routes/admin.contacts_.compose";
 
 async function adminRequest(url: string, init?: RequestInit): Promise<Request> {
@@ -132,8 +133,17 @@ describe("compose bulk email", () => {
 		expect(outbox[0]?.html).toContain("Hi Alice,");
 		expect(outbox[0]?.html).toContain("/portals/devflow/portal-public");
 		expect(outbox[0]?.html).not.toContain("{{");
-		// The footer's "reply to this email" opt-out must reach the organizer.
+		// Replies must reach the organizer who composed the blast.
 		expect(outbox[0]?.replyTo).toBe("admin@test.co");
+		// The blast goes through sendAnnouncement: every delivered copy carries a
+		// signed unsubscribe link that verifies for ITS recipient — footer links
+		// must work from a cold, logged-out session.
+		const unsubUrl = outbox[0]?.html.match(
+			/href="([^"]*\/unsubscribe\/[^"]+)"/,
+		)?.[1];
+		expect(unsubUrl).toContain("http://localhost/unsubscribe/");
+		const token = unsubUrl?.split("/unsubscribe/")[1] ?? "";
+		expect(await verifyUnsubscribeToken(env, token)).toBe("alice@example.com");
 	});
 
 	it("ignores a double submit: the same sendKey never delivers twice", async () => {
@@ -185,6 +195,32 @@ describe("compose bulk email", () => {
 		// The POSTed sendKey is echoed back so preview → send (and a retry after
 		// a partial failure) keeps one dedupe scope and can never double-deliver.
 		expect(result.sendKey).toBe("send-key-1");
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+	});
+
+	it("a deployment without UNSUBSCRIBE_SECRET fails the blast as ONE form error, zero sends", async () => {
+		// Production-shaped env, no secret: the unsubscribe footer would be
+		// forgeable, so the announcement path must refuse up front — not report
+		// a per-recipient "failed" pointing at an empty email history.
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/compose",
+			{ method: "POST", body: sendBody() },
+		);
+		await seedRoster();
+		const prodLike = {
+			cloudflare: { env: { ...env, APP_ENV: "production" }, ctx: {} },
+		};
+		const result = (await action({
+			context: prodLike,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0])) as {
+			step: string;
+			formError?: string;
+		};
+		expect(result.step).toBe("form");
+		expect(result.formError).toMatch(/UNSUBSCRIBE_SECRET/);
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
 
