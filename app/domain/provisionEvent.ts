@@ -37,12 +37,10 @@ const DEFAULT_EMAIL_TEMPLATES = [
 		category: "lifecycle",
 		trigger: "manual",
 	},
-	// Reminder copy leans on {{form_close_date}}, never a literal day count:
-	// each occurrence sends on the first tick inside its window (a late
-	// toggle-on can be days after the window opened), so a hardcoded "five
-	// days" could reach the recipient when it is no longer true. Bodies stay
-	// lean — the sender appends a block naming the draft, the form, the close
-	// date, and the resume link below whatever the organizer writes.
+	// Reminder copy leans on {{form_close_date}}, never a literal day count —
+	// occurrences send at the first tick INSIDE a ranged window, so "five days"
+	// can be stale on delivery. Bodies stay lean: the sender appends the
+	// draft/form/close-date/resume-link block below whatever the organizer writes.
 	{
 		key: "reminder_5day",
 		name: "Session Form - Five Days Reminder",
@@ -78,14 +76,10 @@ export const EVENT_EMAIL_TEMPLATE_KEYS = DEFAULT_EMAIL_TEMPLATES.map(
 export type EventEmailTemplateKey = (typeof EVENT_EMAIL_TEMPLATE_KEYS)[number];
 
 /**
- * Every event-creation path must SPREAD this into its batch: an event without
- * its default templates silently never sends its confirmation email, one
- * without its default speaker portal has no portal URL for the CFP success
- * redirect or any emailed link to resolve to, and one without onboarding task
- * definitions makes the accept spine mint nothing — accepted speakers would
- * see the promised hotel/flight/slides tasks only on the seeded demo event.
- * Returns unexecuted inserts so callers batch them atomically with the event
- * insert.
+ * Every event-creation path must SPREAD this into its batch (returns
+ * unexecuted inserts, batched atomically with the event insert). An event
+ * missing these defaults fails silently: no confirmation email (templates),
+ * no portal URL for emailed links, no task mints from the accept spine.
  */
 export function provisionEventDefaults(db: Db, eventId: string) {
 	const hotelFormId = crypto.randomUUID();
