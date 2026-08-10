@@ -71,6 +71,34 @@ Adversarial review found four gaps against Sessionboard; all closed to parity in
    relations).
 4. **Portal appearance** → `portals.welcomeMessage/accentColor/logoKey/backgroundKey`.
 
+## Organization & Event Team (verified 2026-08-10)
+
+Verified against learn.sessionboard.com ("Inviting organization team members",
+"Invite & Manage Event Team Members"), the "Introducing Custom Roles" product
+update, the vendored OpenAPI spec, and the eval kit's CRM research
+(`reference/killmysaas-evals/docs/07-speaker-crm.md`):
+
+- **Organization = the tenant.** Events belong to an organization ("View all my
+  organizations" in the switcher); org-level API endpoints exist
+  (`/v1/organization/{orgId}/contacts`); **API tokens are generated at
+  "Organization Settings → API Tokens"** — org-scoped, with per-token event
+  restrictions ([flows/09](flows/09-data-exposure.md) rule p).
+- **No owner role exists — at either level.** Org-level invites (Settings →
+  "Invite User": Email, First Name, Last Name, "Active User" toggle) all receive
+  the **"Admin User"** permission. Event-level default roles: Admin, Session
+  Manager, Evaluator Session Manager, Coordinator, Portal User — plus admin-built
+  custom roles via a permission on/off matrix. Any Admin invites, edits, and
+  removes team members.
+- **Per-member access scope**: "Organization Access" (all events) or "Selected
+  Events" (event-scoped Admin User).
+
+**Our parity mapping** (design: [`multi-tenancy-design.md`](multi-tenancy-design.md)):
+`organizations` + `organization_members` with **no role/owner column** — members
+are equal admins, member management is a member capability, and the only
+invariant is that an org never loses its last member. "Selected Events" scoping
+and the custom-role matrix are deliberately deferred (SCOPE #22 register / OUT
+table respectively).
+
 ## Residual unknowns (team-specific, cosmetic — absorbed by the sync layer)
 
 Their specific custom fields, custom-status *names*, whether they mirror

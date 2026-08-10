@@ -8,6 +8,8 @@ Schema lives in `app/db/schema.ts` and is authored ~complete up front. **Schema 
 
 Any change to `schema.ts`, a port, or a spec must RE-WALK the scenarios whose `touches:` header names the changed artifact — produce the concrete artifact for each affected step (real SQL/route/JSON), not a mechanism name. Inventory-checking ("the column exists") is what let a rule that couldn't trigger on a built-in dropdown ship past three review rounds; walking a scenario to its artifact is what caught it. See [`scenarios/GAP-REGISTER.md`](scenarios/GAP-REGISTER.md).
 
+**Scoping a re-walk:** walk every step of every scenario the `touches:` match selects; at each step, either produce the changed concrete artifact or record in the walk why that step is unchanged. The affected/unaffected determination is made DURING the walk, step by step — never by pre-filtering the step list (pre-filtering is inventory-checking wearing a different hat). The tenancy migration ([`multi-tenancy-design.md`](multi-tenancy-design.md) Wave A) touches `events`, so its gate is all nine scenarios, walked under this rule.
+
 ## Worktree isolation
 
 Each worktree is a full instance: unique port (via `pnpm dev:worktree`), per-worktree `.wrangler/state` (D1 file + R2 blobs), no service bindings. `pnpm db:reset` in one worktree never touches another.
