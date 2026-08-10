@@ -5,7 +5,6 @@ import { getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import { contacts, insertContactSchema } from "~/db/schema";
 import { CONTACT_STATUS_TONE } from "~/components/contact-status";
-import { Textarea } from "~/components/textarea";
 import { contactFilter, isContactStatus } from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
@@ -28,6 +27,7 @@ import {
 	Tabs,
 	TBody,
 	Td,
+	Textarea,
 	Th,
 	THead,
 	Tr,

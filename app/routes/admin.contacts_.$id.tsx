@@ -15,9 +15,7 @@ import {
 	tasks,
 	users,
 } from "~/db/schema";
-import { ConfirmButton } from "~/components/confirm-button";
 import { RichTextEditor } from "~/components/rich-text";
-import { Textarea } from "~/components/textarea";
 import {
 	getActiveEvent,
 	hasSetPassword,
@@ -36,6 +34,7 @@ import {
 	Avatar,
 	Button,
 	ButtonLink,
+	ConfirmButton,
 	EmptyRow,
 	ErrorText,
 	Field,
@@ -48,6 +47,7 @@ import {
 	Table,
 	TBody,
 	Td,
+	Textarea,
 	Th,
 	THead,
 	Tr,

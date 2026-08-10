@@ -1,6 +1,4 @@
-import { Field, Input, Select } from "~/ui";
-import { CheckboxOption } from "./checkbox-group";
-import { Textarea } from "./textarea";
+import { Checkbox, Field, Input, Select, Textarea } from "~/ui";
 
 export type PortalFormFieldDef = {
 	name: string;
@@ -53,7 +51,7 @@ export function PortalFormFields({
 				if (field.type === "checkbox") {
 					return (
 						<div key={field.name} className="flex flex-col gap-1">
-							<CheckboxOption
+							<Checkbox
 								name={`answer:${field.name}`}
 								value="Yes"
 								defaultChecked={defaultValue === "Yes"}

@@ -76,7 +76,7 @@ export function CharCounter({ count, max }: { count: number; max: number }) {
 
 /* --------------------------------------------------------------- rich text --- */
 
-const RichTextEditor = lazy(() => import("./rich-text"));
+const RichTextEditor = lazy(() => import("~/ui/rich-text"));
 
 export type RichTextProps = {
 	value: string;
