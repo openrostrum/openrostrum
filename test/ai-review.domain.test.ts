@@ -104,6 +104,13 @@ describe("generateAiReview — structured output with retry-once", () => {
 		expect(result).toMatchObject({ ok: false, reason: "malformed" });
 	});
 
+	it("a null score is rejected instead of being coerced to zero", async () => {
+		const reply = JSON.stringify({ score: null, rationale: RATIONALE });
+		const { provider } = scriptedProvider([reply, reply]);
+		const result = await generateAiReview(provider, SUB);
+		expect(result).toMatchObject({ ok: false, reason: "malformed" });
+	});
+
 	it("a model that never answers times out instead of hanging", async () => {
 		const provider: AiChatProvider = {
 			model: "test-model",

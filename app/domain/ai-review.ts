@@ -84,9 +84,7 @@ export function createDeepseekProvider(apiKey: string): AiChatProvider {
 				}),
 			});
 			if (!res.ok) {
-				throw new Error(
-					`DeepSeek request failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
-				);
+				throw new Error(`DeepSeek request failed (${res.status})`);
 			}
 			const data = (await res.json()) as { model?: unknown };
 			return {
@@ -172,9 +170,13 @@ export type AiReviewFailure = {
 };
 export type AiReviewResult = AiReviewSuccess | AiReviewFailure;
 
-// Coerced: models occasionally quote the number ("score": "7.5").
+const ReviewScore = z
+	.union([z.number(), z.string().trim().min(1)])
+	.transform(Number)
+	.pipe(z.number().min(0).max(10));
+
 const Verdict = z.object({
-	score: z.coerce.number().min(0).max(10),
+	score: ReviewScore,
 	rationale: z.string().trim().min(40),
 });
 

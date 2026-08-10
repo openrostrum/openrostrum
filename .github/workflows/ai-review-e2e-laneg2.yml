@@ -1,0 +1,33 @@
+name: AI review provider E2E lane G2
+
+on:
+  push:
+    branches: [feat/ai-review-deepseek]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Exercise both providers through the app
+        run: bash tooling/ai-review-e2e/run.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-review-e2e-laneG2
+          path: ai-review-e2e-results.json
+          if-no-files-found: error
+          retention-days: 7
