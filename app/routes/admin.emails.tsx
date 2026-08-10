@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb } from "~/db";
 import { emailTemplates } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { templateKindLabel } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import {
@@ -63,8 +64,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
-	if (!event)
-		return { templates: [], counts: { all: 0, lifecycle: 0, custom: 0 } };
+	if (!event) return { templates: [] };
 	const db = getDb(env);
 	const timings = createTimings();
 	const rows = await timings.time("db", () =>
@@ -82,21 +82,16 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			.where(eq(emailTemplates.eventId, event.id))
 			.orderBy(asc(emailTemplates.name)),
 	);
-	const counts = {
-		all: rows.length,
-		lifecycle: rows.filter((r) => r.category === "lifecycle").length,
-		custom: rows.filter((r) => r.category === "custom").length,
-	};
 	const templates = rows.map((r) => ({
 		...r,
-		type: r.category === "lifecycle" ? "Transactional" : "Announcement",
+		type: templateKindLabel(r.category),
 		triggerLabel:
 			r.trigger === "auto"
 				? `Auto — ${AUTO_TRIGGER_LABELS[r.key] ?? "automatic"}`
 				: "Manual — sent by an organizer",
 	}));
 	return data(
-		{ templates, counts },
+		{ templates },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
@@ -200,7 +195,13 @@ export default function EmailTemplates({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { templates, counts } = loaderData;
+	const { templates } = loaderData;
+	// Derived at render time — every row is already in the payload.
+	const counts = {
+		all: templates.length,
+		lifecycle: templates.filter((t) => t.category === "lifecycle").length,
+		custom: templates.filter((t) => t.category === "custom").length,
+	};
 	const [searchParams] = useSearchParams();
 	const raw = searchParams.get("category");
 	const category: Category = CATEGORIES.includes(raw as Category)

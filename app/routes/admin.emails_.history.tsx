@@ -4,6 +4,7 @@ import { getDb } from "~/db";
 import { EMAIL_STATUS, emailOutbox, emailTemplates } from "~/db/schema";
 import { HistoryDetail } from "~/emails/history-detail";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { templateKindLabel } from "~/lib/email-render";
 import { formatInTimeZone } from "~/lib/dates";
 import { createTimings } from "~/lib/track";
 import {
@@ -39,12 +40,6 @@ const STATUS_TONE: Record<string, BadgeTone> = {
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
-}
-
-function kindOf(category: string | null): string {
-	if (category === "lifecycle") return "Transactional";
-	if (category === "custom") return "Announcement";
-	return "—";
 }
 
 export async function loader({ context, request }: Route.LoaderArgs) {
@@ -149,7 +144,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				to: r.to,
 				subject: r.subject,
 				status: r.status,
-				kind: kindOf(r.templateCategory),
+				kind: templateKindLabel(r.templateCategory),
 				templateName: r.templateName ?? "—",
 				sentAtLabel: formatInTimeZone(r.sentAt ?? r.createdAt, tz),
 			})),

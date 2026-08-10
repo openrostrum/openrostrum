@@ -51,6 +51,13 @@ function substitute(
 	});
 }
 
+/** How a template's category reads as a send kind, everywhere it is shown. */
+export function templateKindLabel(category: string | null): string {
+	if (category === "lifecycle") return "Transactional";
+	if (category === "custom") return "Announcement";
+	return "—";
+}
+
 /** Plain-text substitution — subjects are never HTML. */
 export function renderSubject(template: string, ctx: MergeContext): string {
 	return substitute(template, ctx, (v) => v);

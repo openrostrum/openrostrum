@@ -72,12 +72,11 @@ function req(url: string, cookie: string, init?: RequestInit) {
 type LoaderResult = {
 	data: {
 		templates: Array<Record<string, unknown>>;
-		counts: Record<string, number>;
 	};
 };
 
 describe("email templates list", () => {
-	it("lists only the active event's templates with category counts", async () => {
+	it("lists only the active event's templates", async () => {
 		const cookie = await seedAdminAndEvents();
 		const result = (await loader({
 			context: CONTEXT,
@@ -89,7 +88,6 @@ describe("email templates list", () => {
 			"Accept Sessions",
 			"Five Days Reminder",
 		]);
-		expect(result.data.counts).toEqual({ all: 2, lifecycle: 2, custom: 0 });
 	});
 
 	it("redirects anonymous users to login (self-authenticating loader)", async () => {

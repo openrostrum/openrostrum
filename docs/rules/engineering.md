@@ -30,6 +30,8 @@ House conventions only. The **mandatory platform rules** (D1 batch, react-router
 
 Add your route as a **new file** in `app/routes/` per [`ROUTE-MAP.md`](../ROUTE-MAP.md) — never edit `app/routes.ts`. Sidebar entries are one `app/nav/<feature>.nav.ts` each [lint-enforced: `pure-nav-modules`] — never a shared nav file. External seams go behind a port (`app/ports/*`). Login/logout/403 references live in `app/routes/{login,logout,403}.tsx`.
 
+**Announcement email goes ONLY through `sendAnnouncement` (`app/lib/announcements.ts`)** — it couples the unsubscribe footer, the suppression-checked `kind: "bulk"`, and a required `dedupeKey` in one call; never pass `kind: "bulk"` to the EmailSender port directly. Transactional mail (about the recipient's own submissions/account) uses the port directly and never carries the footer. Merge fields render via `app/lib/email-render.ts` — one renderer for previews and sends.
+
 ## No shortcuts — build it right, or raise it [lint-assisted: `no-deferral-comments`]
 
 **The rule:** never decide "later" in code. If the correct implementation exceeds your task, that is a **scope decision**, and you have no authority to make one — escalate it to the integration owner exactly like you'd request a schema column, and it becomes a SCOPE/register row or it gets built now. Everything you merge is the production version of itself.

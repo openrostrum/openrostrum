@@ -45,20 +45,14 @@ function fromBase64Url(value: string): Uint8Array | null {
 	}
 }
 
-async function hmac(env: Env, message: string): Promise<Uint8Array> {
-	const key = await crypto.subtle.importKey(
+function hmacKey(env: Env): Promise<CryptoKey> {
+	return crypto.subtle.importKey(
 		"raw",
 		new TextEncoder().encode(secretFor(env)),
 		{ name: "HMAC", hash: "SHA-256" },
 		false,
-		["sign"],
+		["sign", "verify"],
 	);
-	const sig = await crypto.subtle.sign(
-		"HMAC",
-		key,
-		new TextEncoder().encode(message),
-	);
-	return new Uint8Array(sig);
 }
 
 export async function mintUnsubscribeToken(
@@ -66,8 +60,9 @@ export async function mintUnsubscribeToken(
 	email: string,
 ): Promise<string> {
 	const addr = email.trim().toLowerCase();
-	const sig = await hmac(env, addr);
-	return `${toBase64Url(new TextEncoder().encode(addr))}.${toBase64Url(sig)}`;
+	const message = new TextEncoder().encode(addr);
+	const sig = await crypto.subtle.sign("HMAC", await hmacKey(env), message);
+	return `${toBase64Url(message)}.${toBase64Url(new Uint8Array(sig))}`;
 }
 
 /** Returns the (normalized) address the token was minted for, or null. */
@@ -82,12 +77,14 @@ export async function verifyUnsubscribeToken(
 	if (!emailBytes || !sigBytes) return null;
 	const email = new TextDecoder().decode(emailBytes);
 	if (!email.includes("@")) return null;
-	const expected = await hmac(env, email);
-	if (sigBytes.length !== expected.length) return null;
-	let diff = 0;
-	for (let i = 0; i < expected.length; i += 1)
-		diff |= (expected[i] ?? 0) ^ (sigBytes[i] ?? 0);
-	return diff === 0 ? email : null;
+	// subtle.verify is the platform's constant-time HMAC check.
+	const ok = await crypto.subtle.verify(
+		"HMAC",
+		await hmacKey(env),
+		sigBytes as BufferSource,
+		emailBytes as BufferSource,
+	);
+	return ok ? email : null;
 }
 
 export async function unsubscribeUrl(
