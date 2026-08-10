@@ -67,11 +67,13 @@ async function runLoader(userId?: string) {
 		headers.set("Cookie", setCookie.split(";")[0] ?? "");
 	}
 	const request = new Request("http://localhost/admin", { headers });
-	return loader({
+	// The loader wraps its body in data() for Server-Timing; unwrap it.
+	const result = await loader({
 		context: CONTEXT,
 		request,
 		params: {},
 	} as unknown as Parameters<typeof loader>[0]);
+	return result.data;
 }
 
 describe("admin shell loader (event switcher data)", () => {

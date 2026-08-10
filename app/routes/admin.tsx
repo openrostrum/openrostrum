@@ -1,11 +1,18 @@
-import { Outlet } from "react-router";
+import { Outlet, data } from "react-router";
 import { EventSwitcher } from "~/components/event-switcher";
 import { getActiveEvent, listMyEvents, requireAdmin } from "~/lib/auth";
 import { toSwitcherEvents } from "~/lib/event-switcher.server";
+import { createTimings } from "~/lib/track";
 import { navBySection } from "~/nav/registry";
 import { Sidebar, SidebarSection, SideNavLink } from "~/ui";
 import type { IconName } from "~/ui";
 import type { Route } from "./+types/admin";
+
+// Without this export, RR7 drops loader headers from DOCUMENT responses —
+// Server-Timing would silently vanish on full page loads.
+export function headers({ loaderHeaders }: Route.HeadersArgs) {
+	return loaderHeaders;
+}
 
 /**
  * This layout's `requireAdmin` gates rendering the shell, but does NOT protect
@@ -17,14 +24,17 @@ import type { Route } from "./+types/admin";
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireAdmin(env, request);
-	const [active, mine] = await Promise.all([
-		getActiveEvent(env, user),
-		listMyEvents(env, user.id),
-	]);
-	return {
-		user: { name: user.name, email: user.email },
-		events: toSwitcherEvents(mine, active?.id ?? null),
-	};
+	const timings = createTimings();
+	const [active, mine] = await timings.time("db", () =>
+		Promise.all([getActiveEvent(env, user), listMyEvents(env, user.id)]),
+	);
+	return data(
+		{
+			user: { name: user.name, email: user.email },
+			events: toSwitcherEvents(mine, active?.id ?? null),
+		},
+		{ headers: { "Server-Timing": timings.header() } },
+	);
 }
 
 export default function AdminShell({ loaderData }: Route.ComponentProps) {

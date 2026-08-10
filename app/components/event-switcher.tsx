@@ -16,9 +16,9 @@ export type SwitcherEvent = {
  * Sidebar current-event indicator + switcher. Selecting an event POSTs to the
  * membership-guarded /admin/events/switch action; the redirect's revalidation
  * refreshes every open loader, so the whole admin area flips to the new event.
- * Every skin value here is copied from an existing surface — the trigger is
- * the ghost-Button control, the popover is Panel's card, rows take Tr's
- * selected treatment, and type sizes are the Sidebar's own voices.
+ * Skin invariant: the trigger IS the ghost-Button recipe, the popover IS
+ * Panel's card, row selection IS Tr's selected treatment, and the type sizes
+ * ARE the Sidebar's voices — keep them in lockstep with those primitives.
  */
 export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 	const [open, setOpen] = useState(false);
@@ -82,17 +82,17 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 										aria-current={event.isCurrent || undefined}
 										onClick={() => setOpen(false)}
 										className={cn(
-											"flex w-full flex-col items-start px-[12px] py-[6px] text-left",
-											"transition-colors duration-150 hover:bg-row-hover disabled:text-fg-faint",
+											"group flex w-full flex-col items-start px-[12px] py-[6px] text-left",
+											"transition-colors duration-150 hover:bg-row-hover disabled:bg-chip",
 											"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
 											event.isCurrent &&
 												"bg-row-selected shadow-[inset_2px_0_0_var(--color-petrol)]",
 										)}
 									>
-										<span className="w-full truncate text-[13px] font-medium text-fg">
+										<span className="w-full truncate text-[13px] font-medium text-fg group-disabled:text-fg-faint">
 											{event.name}
 										</span>
-										<span className="w-full truncate text-[11.5px] text-fg-muted">
+										<span className="w-full truncate text-[11.5px] text-fg-faint">
 											{event.dates ?? event.type}
 										</span>
 									</button>
