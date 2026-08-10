@@ -40,13 +40,15 @@ const DEFAULT_EMAIL_TEMPLATES = [
 	// Reminder copy leans on {{form_close_date}}, never a literal day count:
 	// each occurrence sends on the first tick inside its window (a late
 	// toggle-on can be days after the window opened), so a hardcoded "five
-	// days" could reach the recipient when it is no longer true.
+	// days" could reach the recipient when it is no longer true. Bodies stay
+	// lean — the sender appends a block naming the draft, the form, the close
+	// date, and the resume link below whatever the organizer writes.
 	{
 		key: "reminder_5day",
 		name: "Session Form - Five Days Reminder",
 		subject: "{{form_title}} closes {{form_close_date}}",
 		bodyHtml:
-			"<p>Hi {{first_name}}, you have an unsubmitted draft. {{form_title}} closes {{form_close_date}} — finish it while there's time.</p>",
+			"<p>Hi {{first_name}}, you saved a draft that hasn't been submitted yet — there's still time to finish it.</p>",
 		category: "lifecycle",
 		trigger: "auto",
 	},
@@ -55,7 +57,7 @@ const DEFAULT_EMAIL_TEMPLATES = [
 		name: "Session Form - One Day Reminder",
 		subject: "Last chance: {{form_title}} closes {{form_close_date}}",
 		bodyHtml:
-			"<p>Hi {{first_name}}, time is almost up — {{form_title}} closes {{form_close_date}}. Submit your draft before the deadline.</p>",
+			"<p>Hi {{first_name}}, this is the final day — submit your draft before the form closes.</p>",
 		category: "lifecycle",
 		trigger: "auto",
 	},

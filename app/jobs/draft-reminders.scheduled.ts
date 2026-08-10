@@ -49,7 +49,7 @@ export function reminderWindow(
 function resumeDraftHtml(row: {
 	formTitle: string;
 	closeDate: string;
-	drafts: Array<{ id: string; title: string }>;
+	drafts: Array<{ title: string }>;
 	resumeUrl: string | null;
 }): string {
 	const [latest] = row.drafts;
@@ -232,7 +232,7 @@ export async function runDraftCloseReminders(
 				resumeDraftHtml({
 					formTitle,
 					closeDate,
-					drafts: drafts.map((d) => ({ id: d.submissionId, title: d.title })),
+					drafts: drafts.map((d) => ({ title: d.title })),
 					resumeUrl,
 				});
 			try {
