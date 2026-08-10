@@ -65,7 +65,7 @@ async function requireMyAssignment(
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
 	const { assignment, task } = await timings.time("db", () =>
 		requireMyAssignment(env, ctx, params.assignmentId),
@@ -216,7 +216,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const { assignment, task } = await requireMyAssignment(
 		env,
 		ctx,

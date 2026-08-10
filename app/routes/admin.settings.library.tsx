@@ -26,7 +26,9 @@ import {
 	levels,
 	reviewerTracks,
 	rooms,
+	sessionStatuses,
 	submissionTracks,
+	submissions,
 	tags,
 	tracks,
 } from "~/db/schema";
@@ -84,6 +86,7 @@ const FormatForm = z.object({
 		.max(1440, "At most 24 hours"),
 });
 const LevelForm = z.object({ name: Name });
+const StatusForm = z.object({ name: Name, color: Color });
 const RoomForm = z.object({
 	name: Name,
 	capacity: optionalBoundedInt(
@@ -157,7 +160,8 @@ type TaxonomyTable =
 	| typeof formats
 	| typeof levels
 	| typeof rooms
-	| typeof languages;
+	| typeof languages
+	| typeof sessionStatuses;
 
 /** THE row-level tenant guard for library writes, defined once: a forged id
  * can never touch another event's row. */
@@ -339,6 +343,30 @@ const TAXONOMIES = {
 		pick: (f) => ({ name: f.get("name") }),
 		position: { key: "position", column: languages.position },
 	}),
+	status: taxonomy({
+		table: sessionStatuses,
+		schema: StatusForm,
+		pick: (f) => ({ name: f.get("name"), color: f.get("color") }),
+		position: { key: "position", column: sessionStatuses.position },
+		// The submissions FK is SET NULL — an unguarded delete would silently
+		// strip the status off every submission carrying it. Refuse instead.
+		inUse: {
+			free: (db, id) =>
+				notExists(
+					db
+						.select({ one: submissions.id })
+						.from(submissions)
+						.where(eq(submissions.customStatusId, id)),
+				),
+			describe: async (db, id) => {
+				const [subs] = await db
+					.select({ n: count() })
+					.from(submissions)
+					.where(eq(submissions.customStatusId, id));
+				return `In use by ${subs?.n ?? 0} submission${subs?.n === 1 ? "" : "s"} — clear or change their custom status before deleting.`;
+			},
+		},
+	}),
 } as const;
 
 /** Fields the active event may see and manage: its own + its org's org-wide. */
@@ -428,6 +456,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			levels: [],
 			rooms: [],
 			languages: [],
+			sessionStatuses: [],
 			fields: [],
 		};
 	}
@@ -440,6 +469,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		levelRows,
 		roomRows,
 		languageRows,
+		statusRows,
 		fieldRows,
 	] = await timings.time("db", () =>
 		db.batch([
@@ -482,6 +512,24 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				.where(eq(languages.eventId, event.id))
 				.orderBy(asc(languages.position)),
 			db
+				.select({
+					id: sessionStatuses.id,
+					name: sessionStatuses.name,
+					color: sessionStatuses.color,
+					createdAt: sessionStatuses.createdAt,
+					// Must match the delete guard's definition of "in use". $count, not
+					// a raw sql fragment: embedded fragments render columns UNQUALIFIED,
+					// and the inner scope captures bare `id` as submissions.id — the
+					// count would silently always be 0.
+					inUse: db.$count(
+						submissions,
+						eq(submissions.customStatusId, sessionStatuses.id),
+					),
+				})
+				.from(sessionStatuses)
+				.where(eq(sessionStatuses.eventId, event.id))
+				.orderBy(asc(sessionStatuses.position), asc(sessionStatuses.name)),
+			db
 				.select()
 				.from(fields)
 				.where(fieldScopeGuard(event.id, event.organizationId))
@@ -497,6 +545,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			levels: levelRows,
 			rooms: roomRows,
 			languages: languageRows,
+			sessionStatuses: statusRows,
 			fields: fieldRows,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
@@ -1142,6 +1191,43 @@ export default function Library({ loaderData }: Route.ComponentProps) {
 					</Field>
 				)}
 				emptyBody="No languages yet — add the languages speakers can present in."
+			/>
+			<Section
+				entity="status"
+				title="Session statuses"
+				subtitle="Organizer-defined statuses layered on top of the decision pipeline (“Offered”, “Pending Contract”, …) — assign them from a submission's detail page."
+				addLabel="Add status"
+				rows={loaderData.sessionStatuses}
+				columns={["Status", "Color", "In use"]}
+				renderCells={(s) => [
+					<Chip key="name" color={s.color}>
+						{s.name}
+					</Chip>,
+					<span key="color">{s.color.toUpperCase()}</span>,
+					s.inUse === 0
+						? "—"
+						: `${s.inUse} submission${s.inUse === 1 ? "" : "s"}`,
+				]}
+				renderInputs={(editing, errors) => (
+					<>
+						<Field label="Name" error={errors?.name?.[0]}>
+							<Input
+								name="name"
+								placeholder="Pending Contract"
+								defaultValue={editing?.name}
+								invalid={Boolean(errors?.name?.[0])}
+							/>
+						</Field>
+						<Field label="Color" error={errors?.color?.[0]}>
+							<Input
+								name="color"
+								type="color"
+								defaultValue={editing?.color ?? "#71717a"}
+							/>
+						</Field>
+					</>
+				)}
+				emptyBody="No custom statuses yet — add “Offered” or “Pending Contract” above, then set them on submissions."
 			/>
 			<FieldsSection rows={loaderData.fields} />
 		</div>

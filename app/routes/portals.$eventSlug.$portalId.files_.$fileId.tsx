@@ -17,7 +17,7 @@ import type { Route } from "./+types/portals.$eventSlug.$portalId.files_.$fileId
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const db = getDb(env);
 	const [file] = await db
 		.select()

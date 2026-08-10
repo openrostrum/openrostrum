@@ -45,7 +45,7 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
 	const { submission, myParticipant } = await timings.time("db", () =>
 		requireOwnedSubmission(env, ctx, user.id, params.submissionId),
@@ -237,7 +237,7 @@ const AddParticipantSchema = insertContactSchema
 export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const { submission, myParticipant } = await requireOwnedSubmission(
 		env,
 		ctx,

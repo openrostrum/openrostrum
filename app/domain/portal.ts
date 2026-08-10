@@ -18,8 +18,9 @@ import {
 	tasks,
 	users,
 } from "~/db/schema";
-import { normalizeEmail } from "~/lib/auth";
+import { normalizeEmail, userCanAccessEvent } from "~/lib/auth";
 import { formatDateUTC } from "~/lib/format";
+import { readPreviewContactId } from "~/lib/portal-preview";
 import { isOverdue } from "~/lib/task-status";
 import type { BadgeTone } from "~/ui";
 
@@ -81,6 +82,8 @@ export type PortalContext = {
 	portal: Portal;
 	/** Null = authenticated user with no contact in this event yet (e.g. draft-only). */
 	contact: Contact | null;
+	/** Set while an org admin views the portal as `contact` — read-only mode. */
+	preview: { contactName: string } | null;
 };
 
 /**
@@ -90,11 +93,19 @@ export type PortalContext = {
  * data query, and every downstream read anchors on the resolved contact.
  * A contact created before the user existed (co-speaker added by someone else)
  * is linked here by normalized-email match, once, at first portal entry.
+ *
+ * Admin preview ("View portal as"): when the preview cookie names a contact
+ * AND the session user is an admin of this event's org, the context resolves
+ * to that contact in read-only mode — every route funnels through here, so
+ * refusing non-GET requests at this chokepoint blocks all portal mutations
+ * during preview, including hand-crafted POSTs. Anyone else's preview cookie
+ * is inert (authority comes from the session, never the cookie).
  */
 export async function getPortalContext(
 	env: Env,
 	user: AppUser,
 	params: { eventSlug: string; portalId: string },
+	request: Request,
 ): Promise<PortalContext> {
 	const db = getDb(env);
 	const [event] = await db
@@ -111,6 +122,31 @@ export async function getPortalContext(
 		)
 		.limit(1);
 	if (!portal) throw data(null, { status: 404 });
+
+	const previewContactId = readPreviewContactId(request);
+	if (previewContactId && user.role === "admin") {
+		const [previewContact] = await db
+			.select()
+			.from(contacts)
+			.where(
+				and(eq(contacts.id, previewContactId), eq(contacts.eventId, event.id)),
+			)
+			.limit(1);
+		if (previewContact && (await userCanAccessEvent(env, user.id, event.id))) {
+			if (request.method !== "GET" && request.method !== "HEAD") {
+				throw data(null, { status: 403 });
+			}
+			return {
+				event,
+				portal,
+				contact: previewContact,
+				preview: {
+					contactName:
+						`${previewContact.firstName} ${previewContact.lastName}`.trim(),
+				},
+			};
+		}
+	}
 
 	let [contact] = await db
 		.select()
@@ -137,7 +173,7 @@ export async function getPortalContext(
 			contact = { ...match, userId: user.id };
 		}
 	}
-	return { event, portal, contact: contact ?? null };
+	return { event, portal, contact: contact ?? null, preview: null };
 }
 
 export function portalPath(ctx: PortalContext, suffix = ""): string {
