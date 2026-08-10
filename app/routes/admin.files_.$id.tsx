@@ -122,7 +122,14 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	return data(
 		{
 			latest,
-			versions,
+			versions: versions.map((v) => ({
+				id: v.id,
+				version: v.version,
+				fileName: v.fileName,
+				sizeBytes: v.sizeBytes,
+				uploadedOn: formatInTz(v.createdAt, event.timezone),
+				reviewStatus: v.reviewStatus,
+			})),
 			submission: submission ?? null,
 			contact: contact ?? null,
 			assignment: assignment ?? null,
@@ -134,7 +141,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				version: versionById.get(c.fileId) ?? null,
 			})),
 			eventName: event.name,
-			timezone: event.timezone,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -264,15 +270,8 @@ export default function FileDetail({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const {
-		latest,
-		versions,
-		submission,
-		contact,
-		assignment,
-		comments,
-		timezone,
-	} = loaderData;
+	const { latest, versions, submission, contact, assignment, comments } =
+		loaderData;
 	const busy = useNavigation().state !== "idle";
 	const inReviewLoop = latest.taskAssignmentId !== null;
 	const speakerName = contact
@@ -418,7 +417,7 @@ export default function FileDetail({
 									</Td>
 									<Td kind="strong">{v.fileName}</Td>
 									<Td kind="mono">{formatBytes(v.sizeBytes)}</Td>
-									<Td kind="mono">{formatInTz(v.createdAt, timezone)}</Td>
+									<Td kind="mono">{v.uploadedOn}</Td>
 									<Td>
 										<StatusBadge
 											tone={FILE_REVIEW_TONE[v.reviewStatus] ?? "neutral"}

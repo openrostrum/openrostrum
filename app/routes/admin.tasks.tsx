@@ -131,7 +131,7 @@ const TASK_TYPE_META: Record<
 };
 
 const taskTypeLabel = (type: string) =>
-	TASK_TYPE_META[type as (typeof TASK_TYPE)[number]].label;
+	(TASK_TYPE_META as Record<string, { label: string }>)[type]?.label ?? type;
 
 const taskTypeOption = (type: (typeof TASK_TYPE)[number]) => {
 	const { label, hint } = TASK_TYPE_META[type];

@@ -134,8 +134,12 @@ export const COMMENT_DEDUPE_WINDOW_MS = 2 * 60 * 1000;
 /**
  * THE file-comment write path (portal and admin) — re-posting the thread's
  * latest comment verbatim within the dedupe window is a double-submit
- * (double-click, retry, back-button repost), so it returns the existing row
- * instead of duplicating it.
+ * (double-click, retry, back-button repost), so it lands nothing and reports
+ * `deduped`. One conditional INSERT…SELECT: a read-then-insert pair would let
+ * two overlapping POSTs both pass the read (D1 serializes statements, not
+ * request interleavings), which is the very race being closed. "Latest" is
+ * max(rowid) — insertion order — because createdAt is second-granular and
+ * quick exchanges tie.
  */
 export async function addFileComment(
 	db: Db,
@@ -146,34 +150,24 @@ export async function addFileComment(
 		body: string;
 	},
 	now: Date = new Date(),
-): Promise<{ id: string; deduped: boolean }> {
-	// createdAt is second-granular, so "latest" ties on quick exchanges —
-	// rowid is the true insertion order and breaks them.
-	const [latest] = await db
-		.select({
-			id: fileComments.id,
-			authorId: fileComments.authorId,
-			body: fileComments.body,
-			createdAt: fileComments.createdAt,
-		})
-		.from(fileComments)
-		.where(eq(fileComments.fileId, values.fileId))
-		.orderBy(desc(fileComments.createdAt), sql`rowid desc`)
-		.limit(1);
-	if (
-		latest &&
-		latest.authorId === values.authorId &&
-		latest.body === values.body &&
-		now.getTime() - latest.createdAt.getTime() < COMMENT_DEDUPE_WINDOW_MS
-	) {
-		return { id: latest.id, deduped: true };
-	}
-	const [inserted] = await db
-		.insert(fileComments)
-		.values(values)
-		.returning({ id: fileComments.id });
-	if (!inserted) throw new Error("file comment insert failed");
-	return { id: inserted.id, deduped: false };
+): Promise<{ deduped: boolean }> {
+	const nowEpoch = Math.floor(now.getTime() / 1000);
+	const windowSeconds = COMMENT_DEDUPE_WINDOW_MS / 1000;
+	const result = await db.run(sql`
+		insert into ${fileComments} (id, file_id, author_id, author_name, body, created_at)
+		select ${crypto.randomUUID()}, ${values.fileId}, ${values.authorId},
+			${values.authorName}, ${values.body}, ${nowEpoch}
+		where not exists (
+			select 1 from ${fileComments}
+			where rowid = (
+					select max(rowid) from ${fileComments}
+					where ${fileComments.fileId} = ${values.fileId}
+				)
+				and ${fileComments.authorId} = ${values.authorId}
+				and ${fileComments.body} = ${values.body}
+				and ${nowEpoch} - ${fileComments.createdAt} < ${windowSeconds}
+		)`);
+	return { deduped: result.meta.changes === 0 };
 }
 
 export type UploadErrorCode = keyof typeof UPLOAD_ERRORS;
