@@ -10,7 +10,7 @@
   </p>
 </div>
 
-<a href="https://openrostrum.com"><img src="docs/media/agenda-builder.png" alt="The OpenRostrum agenda builder — sessions scheduled on a day × room grid, with an unscheduled tray, conflict detection, and one-action auto-place"></a>
+<a href="https://openrostrum.com"><img src=".github/media/agenda-builder.png" alt="The OpenRostrum agenda builder — sessions scheduled on a day × room grid, with an unscheduled tray, conflict detection, and one-action auto-place"></a>
 <p align="center"><sub>The agenda builder: drag sessions from the tray onto the day × room grid — conflicts flag themselves as you build.</sub></p>
 
 ## What it does
@@ -28,7 +28,7 @@ OpenRostrum runs the program side of a conference, end to end:
 
 | Submission review | Speaker portal |
 |---|---|
-| ![Submission review — the full list with statuses, track routing, and bulk accept/decline email actions](docs/media/submissions-review.png) | ![Speaker portal — a speaker's self-service view of their submissions, profile, and outstanding tasks](docs/media/speaker-portal.png) |
+| ![Submission review — the full list with statuses, track routing, and bulk accept/decline email actions](.github/media/submissions-review.png) | ![Speaker portal — a speaker's self-service view of their submissions, profile, and outstanding tasks](.github/media/speaker-portal.png) |
 | Review the pipeline, then accept in bulk — decision emails included. | Every speaker gets a portal: submissions, profile, tasks, files. |
 
 See it running at [openrostrum.com](https://openrostrum.com) — the public [schedule](https://openrostrum.com/schedule), [speakers](https://openrostrum.com/speakers), and [sessions](https://openrostrum.com/sessions) pages of a live event are open to everyone, no account needed.
