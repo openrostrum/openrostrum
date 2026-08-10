@@ -6,6 +6,7 @@ import {
 	detectConflicts,
 	eventDayList,
 	layoutLanes,
+	pickFreeRoom,
 	resolveEventDays,
 	utcToWall,
 	wallToUtc,
@@ -182,6 +183,44 @@ describe("conflict detection (speaker + same-room only)", () => {
 			roomId: "room_main",
 		});
 		expect(detectConflicts([liveDemo, ghost], ROOMS)).toEqual([]);
+	});
+});
+
+describe("free-room pick (week-view drops)", () => {
+	const occupied = [
+		{
+			roomId: "room_main",
+			startsAt: utc(2026, 10, 12, 17, 0),
+			endsAt: utc(2026, 10, 12, 18, 0),
+		},
+	];
+	it("skips a room that is busy over the window and falls back to the first room when all are", () => {
+		const rooms = [{ id: "room_main" }, { id: "room_305" }];
+		expect(
+			pickFreeRoom(
+				rooms,
+				occupied,
+				utc(2026, 10, 12, 17, 30),
+				utc(2026, 10, 12, 18, 0),
+			),
+		).toBe("room_305");
+		// Touching the busy interval is fine — strict overlap.
+		expect(
+			pickFreeRoom(
+				rooms,
+				occupied,
+				utc(2026, 10, 12, 18, 0),
+				utc(2026, 10, 12, 18, 30),
+			),
+		).toBe("room_main");
+		expect(
+			pickFreeRoom(
+				[{ id: "room_main" }],
+				occupied,
+				utc(2026, 10, 12, 17, 30),
+				utc(2026, 10, 12, 18, 0),
+			),
+		).toBe("room_main"); // all busy → first room; the conflict detector flags it
 	});
 });
 

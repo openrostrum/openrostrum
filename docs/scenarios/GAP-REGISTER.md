@@ -37,6 +37,7 @@ decision still needed. Corroboration = how many walkers hit it independently.
 | Track delete cascade silently strips submissions' tracks | FIXED: `restrict` + Library shows "in use by N" |
 | Withdraw leaves scheduled ghost on grid | SPEC'D: withdraw unschedules (nulls startsAt/endsAt/roomId) |
 | `forms.status` lifecycle undefined | SPEC'D: publish sets `open`; public route reachable iff `open`; `closeAt` gates submission only |
+| Agenda ships feature-local primitives (`app/agenda/board.tsx`: FilterChip, ToggleChips, InfoBar, SectionLabel, Strong, ConflictClock) because `app/ui` is integration-guarded and the agenda grid/settings need controls no `~/ui` primitive covers | OPEN (integration-owner): adopt the generic ones into `app/ui` (+ a `clock` path in `Icon`) and delete the locals, or bless `app/agenda` as that feature's component home — components are token-bound so a re-skin via tokens still applies |
 | Wizard step-state carrier | ~~SPEC'D: draft row minted on first VALID submission-step save~~ **SUPERSEDED by K1 below**: draft save requires only a non-empty Title |
 | Draft-with-no-participants invisible in portal | SPEC'D: My Submissions = participant-linked ∪ own drafts (UNION) |
 | Homeless committed routes (CSV export, email history, task responses, forgot-password, unsubscribe, my-reviews, set-password, files up/download, reviewer mgmt, contacts) | FIXED: ROUTE-MAP rows added |

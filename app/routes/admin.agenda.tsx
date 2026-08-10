@@ -28,6 +28,7 @@ import {
 	type Conflict,
 	conflictSentence,
 	conflictsById,
+	DEFAULT_DURATION_MINS,
 	detectConflicts,
 	eventDayList,
 	formatDayLabel,
@@ -145,7 +146,7 @@ function toAgendaSession(
 		endsAt: s.endsAt ? s.endsAt.getTime() : null,
 		roomId: s.roomId,
 		formatName: s.format?.name ?? null,
-		durationMins: s.format?.defaultDurationMins ?? 30,
+		durationMins: s.format?.defaultDurationMins ?? DEFAULT_DURATION_MINS,
 		tracks: s.submissionTracks.map((st) => ({
 			id: st.track.id,
 			name: st.track.name,
@@ -159,6 +160,18 @@ function toAgendaSession(
 				name: `${p.contact.firstName} ${p.contact.lastName}`.trim(),
 			})),
 	};
+}
+
+function daysFor(
+	event: { startsAt: Date | null; endsAt: Date | null; timezone: string },
+	sessions: readonly AgendaSession[],
+): string[] {
+	return resolveEventDays(
+		event.startsAt?.getTime() ?? null,
+		event.endsAt?.getTime() ?? null,
+		sessions.flatMap((s) => (s.startsAt != null ? [s.startsAt] : [])),
+		event.timezone,
+	);
 }
 
 async function loadSessions(
@@ -199,8 +212,11 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const db = getDb(env);
 	const timings = createTimings();
 	const schedulable = schedulableSetOf(event);
+	// "accepted" always loads (even when not schedulable) — the needs-a-slot
+	// alert counts accepted sessions and must not undercount under a narrowed
+	// schedulable set; "draft" loads for the Drafts display toggle.
 	const loadStatuses: SubmissionStatus[] = [
-		...new Set<SubmissionStatus>([...schedulable, "draft"]),
+		...new Set<SubmissionStatus>([...schedulable, "accepted", "draft"]),
 	];
 
 	const [roomRows, trackRows, formatRows, sessionRows] = await timings.time(
@@ -224,12 +240,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	);
 
 	const sessions = sessionRows.map((s) => toAgendaSession(s, schedulable));
-	const days = resolveEventDays(
-		event.startsAt?.getTime() ?? null,
-		event.endsAt?.getTime() ?? null,
-		sessions.flatMap((s) => (s.startsAt != null ? [s.startsAt] : [])),
-		event.timezone,
-	);
+	const days = daysFor(event, sessions);
 
 	return data(
 		{
@@ -295,7 +306,7 @@ type ActionResult = {
 	fieldErrors?: Record<string, string[] | undefined>;
 	placed?: number;
 	unplaced?: number;
-	saved?: "settings" | "publish";
+	saved?: "settings";
 };
 
 const fail = (formError: string): ActionResult => ({ ok: false, formError });
@@ -374,7 +385,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 				sessionDurationMins({
 					startsAt: sub.startsAt?.getTime() ?? null,
 					endsAt: sub.endsAt?.getTime() ?? null,
-					durationMins: sub.format?.defaultDurationMins ?? 30,
+					durationMins:
+						sub.format?.defaultDurationMins ?? DEFAULT_DURATION_MINS,
 				}) * 60_000;
 			const startsAt = new Date(
 				wallToUtc(p.day, p.startMinutes, event.timezone),
@@ -442,12 +454,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 				return fail("Add at least one room before auto-placing.");
 			}
 			const mapped = sessionRows.map((s) => toAgendaSession(s, schedulable));
-			const days = resolveEventDays(
-				event.startsAt?.getTime() ?? null,
-				event.endsAt?.getTime() ?? null,
-				mapped.flatMap((s) => (s.startsAt != null ? [s.startsAt] : [])),
-				event.timezone,
-			);
+			const days = daysFor(event, mapped);
 			const { placements, unplacedIds } = autoPlace({
 				days,
 				timezone: event.timezone,
@@ -514,7 +521,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			track(intent === "publish" ? "agenda.published" : "agenda.unpublished", {
 				eventId: event.id,
 			});
-			return data(ok({ saved: "publish" }), {
+			return data(ok(), {
 				headers: { "Server-Timing": timings.header() },
 			});
 		}

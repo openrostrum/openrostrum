@@ -15,7 +15,14 @@ import {
 } from "@dnd-kit/core";
 import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Chip, EmptyState, StatusBadge, SUBMISSION_STATUS_TONE } from "~/ui";
+import {
+	Button,
+	Chip,
+	EmptyState,
+	Select,
+	StatusBadge,
+	SUBMISSION_STATUS_TONE,
+} from "~/ui";
 import { cn } from "~/ui/cn";
 import {
 	type AgendaRoom,
@@ -25,10 +32,10 @@ import {
 	formatDayLabel,
 	formatMinutes,
 	formatRangeMs,
-	intervalsOverlap,
 	isSessionVisible,
 	layoutLanes,
 	matchesSessionFilters,
+	pickFreeRoom,
 	type SessionFilters,
 	sessionDurationMins,
 	SLOT_MINS,
@@ -142,16 +149,20 @@ const CHIP_BTN = cn(
 export function FilterChip({
 	active,
 	onClick,
+	stopPointerDown,
 	children,
 }: {
 	active: boolean;
 	onClick: () => void;
+	/** Keep a press from starting a drag when the chip sits on a draggable. */
+	stopPointerDown?: boolean;
 	children: ReactNode;
 }) {
 	return (
 		<button
 			type="button"
 			aria-pressed={active}
+			onPointerDown={stopPointerDown ? (e) => e.stopPropagation() : undefined}
 			onClick={onClick}
 			className={cn(
 				CHIP_BTN,
@@ -178,32 +189,22 @@ export function ToggleChips({
 	const [selected, setSelected] = useState(() => new Set(initial));
 	return (
 		<div className="flex flex-wrap items-center gap-2">
-			{options.map((opt) => {
-				const on = selected.has(opt.value);
-				return (
-					<button
-						key={opt.value}
-						type="button"
-						aria-pressed={on}
-						onClick={() =>
-							setSelected((prev) => {
-								const next = new Set(prev);
-								if (next.has(opt.value)) next.delete(opt.value);
-								else next.add(opt.value);
-								return next;
-							})
-						}
-						className={cn(
-							CHIP_BTN,
-							on
-								? "bg-petrol-wash text-petrol"
-								: "bg-chip text-fg-muted hover:text-fg",
-						)}
-					>
-						{opt.label}
-					</button>
-				);
-			})}
+			{options.map((opt) => (
+				<FilterChip
+					key={opt.value}
+					active={selected.has(opt.value)}
+					onClick={() =>
+						setSelected((prev) => {
+							const next = new Set(prev);
+							if (next.has(opt.value)) next.delete(opt.value);
+							else next.add(opt.value);
+							return next;
+						})
+					}
+				>
+					{opt.label}
+				</FilterChip>
+			))}
 			{/* presence marker: lets the action tell "none selected" apart from
 			    "field not submitted at all" */}
 			<input type="hidden" name={`${name}_present`} value="1" />
@@ -326,11 +327,6 @@ function GridBlock({
 	);
 }
 
-const MINI_CONTROL = cn(
-	"h-[24px] rounded-[5px] bg-chip px-[7px] text-[11px] font-medium text-fg-muted",
-	"hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-petrol",
-);
-
 /**
  * Click-to-assign fallback beside drag-and-drop: an inline day/time/room
  * picker on unscheduled cards, for keyboard users and automation that can't
@@ -364,15 +360,15 @@ function PlaceInline({
 	if (rooms.length === 0 || days.length === 0) return null;
 	if (!open) {
 		return (
-			<button
-				type="button"
-				onPointerDown={stop}
-				onKeyDown={stop}
-				onClick={() => setOpen(true)}
-				className={cn(MINI_CONTROL, "mt-[6px]")}
-			>
-				Place…
-			</button>
+			<div className="mt-[6px]">
+				<FilterChip
+					active={false}
+					stopPointerDown
+					onClick={() => setOpen(true)}
+				>
+					Place…
+				</FilterChip>
+			</div>
 		);
 	}
 	const times: number[] = [];
@@ -381,13 +377,12 @@ function PlaceInline({
 		<div
 			role="group"
 			aria-label={`Place ${session.title}`}
-			className="mt-[6px] flex flex-wrap items-center gap-[5px]"
+			className="mt-[6px] flex flex-col gap-[5px]"
 		>
-			<select
+			<Select
 				aria-label="Day"
 				onPointerDown={stop}
 				onKeyDown={stop}
-				className={MINI_CONTROL}
 				value={day}
 				onChange={(e) => setDay(e.currentTarget.value)}
 			>
@@ -396,12 +391,11 @@ function PlaceInline({
 						{formatDayLabel(d)}
 					</option>
 				))}
-			</select>
-			<select
+			</Select>
+			<Select
 				aria-label="Start time"
 				onPointerDown={stop}
 				onKeyDown={stop}
-				className={MINI_CONTROL}
 				value={minutes}
 				onChange={(e) => setMinutes(Number(e.currentTarget.value))}
 			>
@@ -410,12 +404,11 @@ function PlaceInline({
 						{formatMinutes(m)}
 					</option>
 				))}
-			</select>
-			<select
+			</Select>
+			<Select
 				aria-label="Room"
 				onPointerDown={stop}
 				onKeyDown={stop}
-				className={MINI_CONTROL}
 				value={roomId}
 				onChange={(e) => setRoomId(e.currentTarget.value)}
 			>
@@ -424,27 +417,27 @@ function PlaceInline({
 						{r.name}
 					</option>
 				))}
-			</select>
-			<button
-				type="button"
-				onPointerDown={stop}
-				onClick={() => {
-					onSchedule(session.id, day, minutes, roomId);
-					setOpen(false);
-				}}
-				className={cn(MINI_CONTROL, "bg-petrol-wash text-petrol")}
-			>
-				Place
-			</button>
-			<button
-				type="button"
-				aria-label="Cancel placing"
-				onPointerDown={stop}
-				onClick={() => setOpen(false)}
-				className={MINI_CONTROL}
-			>
-				✕
-			</button>
+			</Select>
+			<div className="flex gap-[5px]">
+				<Button
+					type="button"
+					onPointerDown={stop}
+					onClick={() => {
+						onSchedule(session.id, day, minutes, roomId);
+						setOpen(false);
+					}}
+				>
+					Place
+				</Button>
+				<Button
+					type="button"
+					variant="ghost"
+					onPointerDown={stop}
+					onClick={() => setOpen(false)}
+				>
+					Cancel
+				</Button>
+			</div>
 		</div>
 	);
 }
@@ -851,21 +844,16 @@ export function AgendaBoard({
 	) => {
 		if (session.roomId) return session.roomId;
 		const startMs = wallToUtc(day, minutes, timezone);
-		const endMs = startMs + sessionDurationMins(session) * 60_000;
-		const free = rooms.find(
-			(room) =>
-				!placed.some(
-					(p) =>
-						p.session.roomId === room.id &&
-						intervalsOverlap(
-							p.session.startsAt as number,
-							p.session.endsAt as number,
-							startMs,
-							endMs,
-						),
-				),
+		return pickFreeRoom(
+			rooms,
+			placed.map((p) => ({
+				roomId: p.session.roomId,
+				startsAt: p.session.startsAt as number,
+				endsAt: p.session.endsAt as number,
+			})),
+			startMs,
+			startMs + sessionDurationMins(session) * 60_000,
 		);
-		return (free ?? rooms[0])?.id ?? null;
 	};
 
 	const handleDragEnd = (event: DragEndEvent) => {

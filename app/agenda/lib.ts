@@ -6,6 +6,9 @@
 
 export const SLOT_MINS = 15;
 
+/** Placement length when a session's format carries no default. */
+export const DEFAULT_DURATION_MINS = 30;
+
 export type AgendaSession = {
 	id: string;
 	title: string;
@@ -47,6 +50,32 @@ export function intervalsOverlap(
 	bEnd: number,
 ): boolean {
 	return aStart < bEnd && bStart < aEnd;
+}
+
+/**
+ * First room free over [startMs, endMs) — the week-view drop rule for
+ * sessions that don't have a room yet. Falls back to the first room so a
+ * drop always lands somewhere (the conflict detector then flags it).
+ */
+export function pickFreeRoom(
+	rooms: readonly { id: string }[],
+	occupied: readonly {
+		roomId: string | null;
+		startsAt: number;
+		endsAt: number;
+	}[],
+	startMs: number,
+	endMs: number,
+): string | null {
+	const free = rooms.find(
+		(room) =>
+			!occupied.some(
+				(o) =>
+					o.roomId === room.id &&
+					intervalsOverlap(o.startsAt, o.endsAt, startMs, endMs),
+			),
+	);
+	return (free ?? rooms[0])?.id ?? null;
 }
 
 export type SessionFilters = {
