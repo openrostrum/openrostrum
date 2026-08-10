@@ -1,5 +1,5 @@
 import { asc, count, eq, sql } from "drizzle-orm";
-import { data, Form, redirect, useFetcher, useNavigation } from "react-router";
+import { data, Form, redirect, useFetcher } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { PIPELINE_STAGE } from "~/db/constants";
@@ -13,6 +13,7 @@ import {
 	type PipelineStage,
 } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -206,10 +207,13 @@ function MoveControl({
 	cardId,
 	name,
 	stage,
+	busy,
 }: {
 	cardId: string;
 	name: string;
 	stage: PipelineStage;
+	/** Screen-wide in-flight guard — a move must not race another mutation. */
+	busy: boolean;
 }) {
 	const fetcher = useFetcher();
 	const pending = fetcher.formData?.get("stage");
@@ -231,6 +235,7 @@ function MoveControl({
 				name="stage"
 				defaultValue={shown}
 				aria-label={`Move ${name} to another stage`}
+				disabled={busy}
 				onChange={(e) => fetcher.submit(e.currentTarget.form)}
 			>
 				{PIPELINE_STAGE.map((s) => (
@@ -249,7 +254,7 @@ export default function CrmPipeline({
 	actionData,
 }: Route.ComponentProps) {
 	const { columns, total } = loaderData;
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	const fieldErrors =
 		actionData && "fieldErrors" in actionData
 			? actionData.fieldErrors
@@ -346,6 +351,7 @@ export default function CrmPipeline({
 													cardId={card.id}
 													name={name}
 													stage={card.stage}
+													busy={busy}
 												/>
 											}
 										/>

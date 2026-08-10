@@ -384,30 +384,54 @@ export async function addCrmNote(
 
 /* ----------------------------------------------------------- add to event --- */
 
-export type AddToEventResult =
-	| { outcome: "added" | "already" | "missing"; eventName: string }
-	| { outcome: "foreign" };
+const FOREIGN_EVENT_ERROR = "That event does not belong to your organization.";
+
+export interface AddPeopleResult {
+	eventName: string;
+	added: number;
+	already: number;
+	missing: number;
+}
 
 /**
- * Push a directory person into an event as a contact: copies the latest
+ * Push directory people into an event as contacts: copies each latest
  * appearance's profile fields; idempotent — an existing contact with that
- * email is reported, never duplicated. The target event is verified to
- * belong to the org HERE (and its name returned for notices), so a
- * cross-tenant insert is impossible by construction no matter what a caller
- * passes ("foreign" = refused).
+ * email is counted, never duplicated. The target event is verified to belong
+ * to the org ONCE here, so a cross-tenant insert is impossible by
+ * construction no matter what a caller passes (null = refused), and the
+ * per-request work is bounded by the caller's capped, deduped email set.
  */
-export async function addPersonToEvent(
+export async function addPeopleToEvent(
 	db: Db,
 	orgId: string,
-	email: string,
+	emails: string[],
 	targetEventId: string,
-): Promise<AddToEventResult> {
+): Promise<AddPeopleResult | null> {
 	const [target] = await db
 		.select({ id: events.id, name: events.name })
 		.from(events)
 		.where(and(eq(events.id, targetEventId), eq(events.organizationId, orgId)))
 		.limit(1);
-	if (!target) return { outcome: "foreign" };
+	if (!target) return null;
+	const result: AddPeopleResult = {
+		eventName: target.name,
+		added: 0,
+		already: 0,
+		missing: 0,
+	};
+	for (const email of new Set(emails)) {
+		const outcome = await copyPersonIntoEvent(db, orgId, email, target.id);
+		result[outcome] += 1;
+	}
+	return result;
+}
+
+async function copyPersonIntoEvent(
+	db: Db,
+	orgId: string,
+	email: string,
+	targetEventId: string,
+): Promise<"added" | "already" | "missing"> {
 	const [src] = await db
 		.select({ contact: contacts })
 		.from(contacts)
@@ -415,13 +439,13 @@ export async function addPersonToEvent(
 		.where(and(eq(events.organizationId, orgId), eq(personEmail, email)))
 		.orderBy(desc(contacts.createdAt), desc(contacts.id))
 		.limit(1);
-	if (!src) return { outcome: "missing", eventName: target.name };
+	if (!src) return "missing";
 	const [existing] = await db
 		.select({ id: contacts.id })
 		.from(contacts)
 		.where(and(eq(contacts.eventId, targetEventId), eq(personEmail, email)))
 		.limit(1);
-	if (existing) return { outcome: "already", eventName: target.name };
+	if (existing) return "already";
 	const c = src.contact;
 	try {
 		await db.insert(contacts).values({
@@ -451,42 +475,54 @@ export async function addPersonToEvent(
 			status: "pending",
 		});
 	} catch (error) {
-		if (isUniqueViolation(error)) {
-			return { outcome: "already", eventName: target.name };
-		}
+		if (isUniqueViolation(error)) return "already";
 		throw error;
 	}
-	return { outcome: "added", eventName: target.name };
+	return "added";
 }
 
-/** The single-person add-to-event action shape shared by the profile and the
- * pipeline card — one outcome→message mapping so the surfaces agree. */
-export async function addPersonToEventNotice(
+type AddToEventActionResult = {
+	notice?: string;
+	formError?: string;
+	outcome: string;
+};
+
+/**
+ * The one outcome→message owner for BOTH add-to-event shapes: one email gets
+ * singular copy (profile, pipeline card), several get the aggregate summary
+ * (directory bulk) — so no surface can drift on wording or the org refusal.
+ */
+export async function addToEventNotice(
 	db: Db,
 	orgId: string,
-	email: string,
+	emails: string[],
 	targetEventId: string,
-): Promise<{ notice?: string; formError?: string; outcome: string }> {
-	const result = await addPersonToEvent(db, orgId, email, targetEventId);
-	if (result.outcome === "foreign") {
+): Promise<AddToEventActionResult> {
+	const result = await addPeopleToEvent(db, orgId, emails, targetEventId);
+	if (result === null) {
+		return { formError: FOREIGN_EVENT_ERROR, outcome: "foreign" };
+	}
+	if (emails.length === 1) {
+		if (result.missing > 0) {
+			return {
+				formError: "This person is no longer in the directory.",
+				outcome: "missing",
+			};
+		}
 		return {
-			formError: "That event does not belong to your organization.",
-			outcome: result.outcome,
+			notice:
+				result.added > 0
+					? `Added to ${result.eventName} — profile fields carried over; workflow status starts at pending.`
+					: `Already a contact in ${result.eventName}.`,
+			outcome: result.added > 0 ? "added" : "already",
 		};
 	}
-	if (result.outcome === "missing") {
-		return {
-			formError: "This person is no longer in the directory.",
-			outcome: result.outcome,
-		};
-	}
-	return {
-		notice:
-			result.outcome === "added"
-				? `Added to ${result.eventName} — profile fields carried over; workflow status starts at pending.`
-				: `Already a contact in ${result.eventName}.`,
-		outcome: result.outcome,
-	};
+	const parts = [
+		`${result.added} added to ${result.eventName}`,
+		result.already ? `${result.already} already there` : null,
+		result.missing ? `${result.missing} not found in the directory` : null,
+	].filter(Boolean);
+	return { notice: parts.join(" · "), outcome: "bulk" };
 }
 
 /* --------------------------------------------------------------- pipeline --- */

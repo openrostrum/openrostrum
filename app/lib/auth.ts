@@ -374,8 +374,6 @@ export async function getReviewerEventIds(
  * The organization the caller operates on: the active event's org when one is
  * set (getActiveEvent only returns the caller's orgs' events), else their
  * first membership (an org can predate its first event). Null = no org.
- * admin.settings.team + admin.events.new carry older inline copies of this
- * resolution — converging them here is an integration-sweep item.
  */
 export async function resolveActiveOrg(
 	env: Env,

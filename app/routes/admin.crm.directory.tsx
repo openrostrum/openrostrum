@@ -1,13 +1,13 @@
 import { and, asc, eq } from "drizzle-orm";
 import { useState } from "react";
-import { data, Form, Link, redirect, useNavigation } from "react-router";
+import { data, Form, Link, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { CONTACT_STATUS, PIPELINE_STAGE } from "~/db/constants";
 import { crmSegments, events } from "~/db/schema";
 import { CONTACT_STATUS_TONE } from "~/components/contact-status";
 import {
-	addPersonToEvent,
+	addToEventNotice,
 	countDirectory,
 	enrollInPipeline,
 	queryDirectoryPage,
@@ -21,6 +21,7 @@ import {
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { PIPELINE_STAGE_LABEL } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Avatar,
 	Button,
@@ -46,13 +47,21 @@ import type { Route } from "./+types/admin.crm.directory";
 
 const PER_PAGE = 50;
 
+const BULK_MAX = 50; // one directory page — bounds per-request D1 work
+
 const AddToEvent = z.object({
-	emails: z.array(z.string().min(1)).min(1, "Select at least one person."),
+	emails: z
+		.array(z.string().min(1))
+		.min(1, "Select at least one person.")
+		.max(BULK_MAX, "Add people in batches of up to 50 — narrow the selection."),
 	targetEventId: z.string().min(1, "Pick an event."),
 });
 
 const Enroll = z.object({
-	emails: z.array(z.string().min(1)).min(1, "Select at least one person."),
+	emails: z
+		.array(z.string().min(1))
+		.min(1, "Select at least one person.")
+		.max(BULK_MAX, "Enroll in batches of up to 50 — narrow the selection."),
 	stage: z.enum(PIPELINE_STAGE),
 });
 
@@ -172,40 +181,18 @@ async function addToEventAction(
 		return { formError: parsed.error.issues[0]?.message ?? "Invalid request." };
 	}
 	const timings = createTimings();
-	const result = await timings.time("db", async () => {
-		let added = 0;
-		let already = 0;
-		let missing = 0;
-		let eventName = "";
-		for (const raw of new Set(parsed.data.emails.map(normalizeEmail))) {
-			const outcome = await addPersonToEvent(
-				db,
-				orgId,
-				raw,
-				parsed.data.targetEventId,
-			);
-			if (outcome.outcome === "foreign") {
-				return {
-					formError: "That event does not belong to your organization.",
-				};
-			}
-			eventName = outcome.eventName;
-			if (outcome.outcome === "added") added += 1;
-			else if (outcome.outcome === "already") already += 1;
-			else missing += 1;
-		}
-		track("crm.added_to_event", {
+	const { outcome, ...result } = await timings.time("db", () =>
+		addToEventNotice(
+			db,
 			orgId,
-			eventId: parsed.data.targetEventId,
-			added,
-			already,
-		});
-		const parts = [
-			`${added} added to ${eventName}`,
-			already ? `${already} already there` : null,
-			missing ? `${missing} not found in the directory` : null,
-		].filter(Boolean);
-		return { notice: parts.join(" · ") };
+			[...new Set(parsed.data.emails.map(normalizeEmail))],
+			parsed.data.targetEventId,
+		),
+	);
+	track("crm.added_to_event", {
+		orgId,
+		eventId: parsed.data.targetEventId,
+		outcome,
 	});
 	return data(result, { headers: { "Server-Timing": timings.header() } });
 }
@@ -295,7 +282,7 @@ export default function CrmDirectory({
 	actionData,
 }: Route.ComponentProps) {
 	const { people, total, page, perPage, filters, events, segment } = loaderData;
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	const toggleSelected = (email: string, checked: boolean) => {
 		setSelected((prev) => {

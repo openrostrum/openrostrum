@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Panel } from "~/ui";
+import { SectionHeading } from "./section-heading";
 
 export function PipelineColumn({
 	label,
@@ -18,10 +19,17 @@ export function PipelineColumn({
 			aria-label={`${label} column`}
 			className="flex w-[230px] shrink-0 flex-col gap-2"
 		>
-			<h2 className="flex items-baseline gap-2 px-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-				{label}
-				<span className="font-mono text-[10.5px] tabular-nums">{count}</span>
-			</h2>
+			<div className="px-1">
+				<SectionHeading
+					aside={
+						<span className="font-mono text-[12px] font-medium tabular-nums text-fg-muted">
+							{count}
+						</span>
+					}
+				>
+					{label}
+				</SectionHeading>
+			</div>
 			{children}
 			{truncated > 0 && (
 				<span className="px-1 text-[12.5px] text-fg-faint">

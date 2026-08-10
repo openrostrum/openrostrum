@@ -171,21 +171,24 @@ describe("CRM directory", () => {
 		expect(page2.data.people).toHaveLength(10);
 	});
 
-	it("add-to-event copies the profile, is idempotent, and reports the duplicate", async () => {
+	it("add-to-event copies the profile, is idempotent, and summarizes a bulk mix", async () => {
 		await seedCrmBaseline();
 		const db = getDb(env);
-		const body = new URLSearchParams({
+		// Bulk mix: marcus is new to e2, priya is already there (fixture).
+		const bulk = new URLSearchParams({
 			intent: "add-to-event",
 			targetEventId: "e2",
 		});
-		body.append("emails", "marcus@example.com");
+		bulk.append("emails", "marcus@example.com");
+		bulk.append("emails", "priya@example.com");
 
 		const first = (await runAction(
 			"u_admin1",
 			"http://localhost/admin/crm/directory",
-			body,
+			bulk,
 		)) as { data?: { notice?: string } };
 		expect(first.data?.notice).toContain("1 added to AI Summit 2026");
+		expect(first.data?.notice).toContain("1 already there");
 		const [copy] = await db
 			.select()
 			.from(contacts)
@@ -197,12 +200,20 @@ describe("CRM directory", () => {
 		// Workflow state never carries over — the new event starts at pending.
 		expect(copy?.status).toBe("pending");
 
+		// A single re-add reads as one person, and never duplicates the row.
+		const single = new URLSearchParams({
+			intent: "add-to-event",
+			targetEventId: "e2",
+		});
+		single.append("emails", "marcus@example.com");
 		const second = (await runAction(
 			"u_admin1",
 			"http://localhost/admin/crm/directory",
-			body,
+			single,
 		)) as { data?: { notice?: string } };
-		expect(second.data?.notice).toContain("1 already there");
+		expect(second.data?.notice).toContain(
+			"Already a contact in AI Summit 2026",
+		);
 		const marcusRows = await db
 			.select({ id: contacts.id })
 			.from(contacts)

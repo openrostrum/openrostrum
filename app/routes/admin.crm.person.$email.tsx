@@ -1,5 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
-import { data, Form, redirect, useNavigation } from "react-router";
+import { data, Form, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { PIPELINE_STAGE } from "~/db/constants";
@@ -11,7 +11,7 @@ import { RichHtml } from "~/components/rich-html";
 import { SectionHeading } from "~/components/section-heading";
 import {
 	addCrmNote,
-	addPersonToEventNotice,
+	addToEventNotice,
 	enrollInPipeline,
 	queryNotes,
 	queryPerson,
@@ -20,6 +20,7 @@ import { normalizeEmail, requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { PIPELINE_STAGE_LABEL, PIPELINE_STAGE_TONE } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -142,7 +143,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			return { formError: parsed.error.issues[0]?.message ?? "Pick an event." };
 		}
 		const { outcome, ...result } = await timings.time("db", () =>
-			addPersonToEventNotice(db, org.id, email, parsed.data.targetEventId),
+			addToEventNotice(db, org.id, [email], parsed.data.targetEventId),
 		);
 		track("crm.added_to_event", {
 			orgId: org.id,
@@ -182,7 +183,7 @@ export default function CrmPerson({
 }: Route.ComponentProps) {
 	const { person, email, notes, noteCount, card, addableEvents } = loaderData;
 	const name = `${person.firstName} ${person.lastName}`.trim();
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	const formError =
 		actionData && "formError" in actionData ? actionData.formError : undefined;
 	const noteError =
