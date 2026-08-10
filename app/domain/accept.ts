@@ -16,6 +16,7 @@ import {
 	users,
 } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
+import { formatScheduleRange } from "~/lib/format-date";
 import { track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
 
@@ -617,8 +618,8 @@ function decisionDetailsHtml(
 ): string {
 	const lines = [`<p><strong>Session:</strong> ${escapeHtml(row.title)}</p>`];
 	if (decision === "accept") {
-		if (row.startsAt && row.endsAt) {
-			const when = `${formatInTimezone(row.startsAt, event.timezone)} – ${formatInTimezone(row.endsAt, event.timezone, true)}`;
+		const when = formatScheduleRange(row.startsAt, row.endsAt, event.timezone);
+		if (when) {
 			lines.push(
 				`<p><strong>When:</strong> ${escapeHtml(when)}${room ? ` · ${escapeHtml(room)}` : ""}</p>`,
 			);
@@ -629,19 +630,6 @@ function decisionDetailsHtml(
 		}
 	}
 	return `<hr>${lines.join("")}`;
-}
-
-function formatInTimezone(d: Date, timeZone: string, timeOnly = false): string {
-	try {
-		return new Intl.DateTimeFormat("en-US", {
-			timeZone,
-			...(timeOnly
-				? { timeStyle: "short" }
-				: { dateStyle: "medium", timeStyle: "short" }),
-		}).format(d);
-	} catch {
-		return d.toISOString();
-	}
 }
 
 function escapeHtml(s: string): string {

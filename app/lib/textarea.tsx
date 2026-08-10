@@ -2,8 +2,9 @@ import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "~/ui/cn";
 
 // app/ui (integration-owned) ships no multiline control; this composes the
-// SAME control tokens as its Input so a token re-skin covers it with zero
-// diffs here. Owner request filed: adopt a Textarea primitive into app/ui.
+// SAME control tokens as its Input, so a token-level re-skin covers it. A
+// structural change to the Input skin will not propagate here — this control
+// belongs in app/ui and only the integration owner can put it there.
 type TextareaProps = Omit<
 	ComponentPropsWithoutRef<"textarea">,
 	"className" | "style"

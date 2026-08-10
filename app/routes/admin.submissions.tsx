@@ -239,13 +239,6 @@ async function createSubmission(
 			await db.batch(
 				statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
 			);
-			if (desired === "accepted") {
-				const [row] = await db
-					.select()
-					.from(submissions)
-					.where(eq(submissions.id, id));
-				if (row) await transitionSubmissions(db, [row], "accepted");
-			}
 			return null;
 		});
 		if (refusal) {
@@ -269,9 +262,33 @@ async function createSubmission(
 		status: parsed.data.status,
 		participants: participantContactIds.length,
 	});
+	// The accept transition runs AFTER the committed create so a spine failure
+	// is reported as exactly what it is — the row exists; a retry must not
+	// re-create it.
+	let notice = `"${parsed.data.title}" created.`;
+	if (parsed.data.status === "accepted") {
+		try {
+			const [row] = await timings.time("db", () =>
+				db.select().from(submissions).where(eq(submissions.id, id)),
+			);
+			const [transition] = row
+				? await transitionSubmissions(db, [row], "accepted")
+				: [];
+			if (transition && !transition.ok) {
+				notice = `"${parsed.data.title}" created as pending — accepting it failed: ${transition.reason}`;
+			}
+		} catch (error) {
+			track("submission.create_accept_failed", {
+				eventId,
+				submissionId: id,
+				error: errorMessage(error),
+			});
+			notice = `"${parsed.data.title}" was created, but accepting it failed — set the status from its detail page.`;
+		}
+	}
 	if (form.get("drawer")) {
 		return data(
-			{ created: true, notice: `"${parsed.data.title}" created.` },
+			{ created: true, notice },
 			{ headers: { "Server-Timing": timings.header() } },
 		);
 	}

@@ -14,8 +14,8 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Admin shell (layout) | `admin.tsx` | `/admin/*` | 0 | done |
 | Dashboard | `admin._index.tsx` | `/admin` | 0/3 | stub |
 | Submissions (all) | `admin.submissions.tsx` | `/admin/submissions` | 0/1 | done (golden path) |
-| Abstracts / Sessions tabs | `admin.abstracts.tsx` · `admin.sessions.tsx` | `/admin/abstracts` · `/admin/sessions` | 1 | todo |
-| Submission detail/edit | `admin.submissions.$id.tsx` | `/admin/submissions/:id` | 1 | todo |
+| Abstracts / Sessions tabs | `admin.abstracts.tsx` · `admin.sessions.tsx` | `/admin/abstracts` · `/admin/sessions` | 1 | done |
+| Submission detail/edit | `admin.submissions_.$id.tsx` (flat `_`: `admin.submissions.tsx` is a page, not a layout) | `/admin/submissions/:id` | 1 | done |
 | Form builder (list) | `admin.forms.tsx` | `/admin/forms` | 1 | todo |
 | Form builder (editor) | `admin.forms.$formId.tsx` | `/admin/forms/:formId` | 1 | todo |
 | Evaluation | `admin.evaluation.tsx` | `/admin/evaluation` | 3 | todo |

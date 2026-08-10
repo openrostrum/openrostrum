@@ -30,3 +30,10 @@ export const DECISION_STATUS = [
 	"decline_queue",
 	"declined",
 ] as const;
+
+/**
+ * Content approval — SEPARATE from the decision pipeline: public surfaces
+ * render only `approved` content. schema.ts currently carries its own copy
+ * (integration-owned); the compiler flags any drift at the comparison sites.
+ */
+export const CONTENT_STATUS = ["draft", "in_review", "approved"] as const;

@@ -9,7 +9,7 @@ import {
 } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
-import { DECISION_STATUS } from "~/db/constants";
+import { CONTENT_STATUS, DECISION_STATUS } from "~/db/constants";
 import type { Submission } from "~/db/schema";
 import {
 	files,
@@ -29,7 +29,7 @@ import { transitionSubmissions } from "~/domain/accept";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
-import { CONTENT_STATUS_TONE } from "~/lib/submission-list";
+import { CONTENT_STATUS_TONE, humanStatus } from "~/lib/submission-list";
 import { Textarea } from "~/lib/textarea";
 import { createTimings, track } from "~/lib/track";
 import {
@@ -55,13 +55,9 @@ import {
 import type { BadgeTone } from "~/ui";
 import type { Route } from "./+types/admin.submissions_.$id";
 
-// Client-safe copies of server enums (importing their schema.ts values would
-// pull drizzle into the client bundle); `satisfies` pins them to the schema.
-const CONTENT_STATUS_OPTIONS = [
-	"draft",
-	"in_review",
-	"approved",
-] as const satisfies readonly Submission["contentStatus"][];
+// Pins the client-safe tuple to the schema's enum — drift fails compilation.
+const CONTENT_STATUS_OPTIONS =
+	CONTENT_STATUS satisfies readonly Submission["contentStatus"][];
 
 const ACCEPTANCE_TONE = {
 	pending: "warning",
@@ -380,7 +376,7 @@ async function setStatus(
 	const [transition] = await transitionSubmissions(db, [row], parsed.data);
 	if (transition && !transition.ok) return { formError: transition.reason };
 	return {
-		notice: `Status set to ${parsed.data.replaceAll("_", " ")}. Status changes never email speakers — send decision emails from the submissions list.`,
+		notice: `Status set to ${humanStatus(parsed.data)}. Status changes never email speakers — send decision emails from the submissions list.`,
 	};
 }
 
@@ -560,7 +556,7 @@ async function setContentStatus(
 		notice:
 			parsed.data === "approved"
 				? "Content approved — it can now appear on public pages."
-				: `Content status set to ${parsed.data.replaceAll("_", " ")} — it stays off public pages until approved.`,
+				: `Content status set to ${humanStatus(parsed.data)} — it stays off public pages until approved.`,
 	};
 }
 
@@ -713,7 +709,7 @@ export default function SubmissionDetail({
 				subtitle={`Source: ${s.sourceName}${s.submitterLabel ? ` · Submitted by ${s.submitterLabel}` : ""} · Created ${s.createdAt}`}
 				actions={
 					<StatusBadge tone={SUBMISSION_STATUS_TONE[s.status]}>
-						{s.status.replaceAll("_", " ")}
+						{humanStatus(s.status)}
 					</StatusBadge>
 				}
 			/>
@@ -912,7 +908,7 @@ export default function SubmissionDetail({
 									)}
 									{DECISION_STATUS.map((st) => (
 										<option key={st} value={st}>
-											{st.replaceAll("_", " ")}
+											{humanStatus(st)}
 										</option>
 									))}
 								</Select>
@@ -974,7 +970,7 @@ export default function SubmissionDetail({
 								>
 									{CONTENT_STATUS_OPTIONS.map((cs) => (
 										<option key={cs} value={cs}>
-											{cs.replaceAll("_", " ")}
+											{humanStatus(cs)}
 										</option>
 									))}
 								</Select>

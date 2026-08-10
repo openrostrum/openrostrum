@@ -4,7 +4,11 @@ import { Form, Link, useFetcher } from "react-router";
 // implementation rendered by two type-scoped routes (server half in
 // ./submission-list.server.ts). Enums come from ~/db/constants so no drizzle
 // code reaches the client bundle.
-import { DECISION_STATUS, type SUBMISSION_TYPE } from "~/db/constants";
+import {
+	CONTENT_STATUS,
+	DECISION_STATUS,
+	type SUBMISSION_TYPE,
+} from "~/db/constants";
 import { Textarea } from "~/lib/textarea";
 import {
 	Button,
@@ -57,8 +61,10 @@ export const TAB_LABELS: Record<ListTab, string> = {
 	draft: "Drafts",
 };
 
+// Keyed on the full enum so a new content status fails compilation here
+// instead of rendering an unstyled badge.
 export const CONTENT_STATUS_TONE: Record<
-	"draft" | "in_review" | "approved",
+	(typeof CONTENT_STATUS)[number],
 	BadgeTone
 > = {
 	draft: "faint",
@@ -66,11 +72,15 @@ export const CONTENT_STATUS_TONE: Record<
 	approved: "success",
 };
 
+export function humanStatus(status: string): string {
+	return status.replaceAll("_", " ");
+}
+
 export interface SubmissionListRow {
 	id: string;
 	title: string;
 	status: keyof typeof SUBMISSION_STATUS_TONE;
-	contentStatus: "draft" | "in_review" | "approved";
+	contentStatus: (typeof CONTENT_STATUS)[number];
 	schedule: string | null;
 	roomName: string | null;
 	speakerCount: number;
@@ -95,6 +105,8 @@ export interface SubmissionListData {
 	counts: Record<ListTab, number>;
 	rows: SubmissionListRow[];
 	contacts: DrawerContact[];
+	/** True when the drawer's contact list hit its server cap — never truncate silently. */
+	contactsTruncated: boolean;
 	notPublicCount: number;
 }
 
@@ -115,10 +127,6 @@ function hrefFor(tab: ListTab, q: string, page = 1): string {
 	return s ? `?${s}` : "?";
 }
 
-function humanStatus(status: string): string {
-	return status.replaceAll("_", " ");
-}
-
 /**
  * The manual "+ Add Submission / Add Session" drawer. It POSTs to the ONE
  * create action on /admin/submissions (never a second create path); the
@@ -130,10 +138,12 @@ function humanStatus(status: string): string {
 export function AddSubmissionDrawer({
 	kind,
 	contacts,
+	contactsTruncated,
 	onClose,
 }: {
 	kind: ListKind;
 	contacts: DrawerContact[];
+	contactsTruncated: boolean;
 	onClose: () => void;
 }) {
 	const [filter, setFilter] = useState("");
@@ -230,6 +240,12 @@ export function AddSubmissionDrawer({
 							{contacts.length > 0 && visibleContacts.length === 0 && (
 								<p>No contacts match &quot;{filter}&quot;.</p>
 							)}
+							{contactsTruncated && (
+								<p>
+									Showing the first {contacts.length} contacts — manage the full
+									roster from the speakers area.
+								</p>
+							)}
 						</div>
 					</div>
 					{fetcher.data?.formError && (
@@ -317,6 +333,7 @@ export function SubmissionListPage({
 				<AddSubmissionDrawer
 					kind={kind}
 					contacts={data.contacts}
+					contactsTruncated={data.contactsTruncated}
 					onClose={() => setDrawerOpen(false)}
 				/>
 			)}

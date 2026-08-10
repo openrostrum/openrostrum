@@ -235,6 +235,37 @@ describe("bulk status through the spine", () => {
 		expect(byId.get("a3")).toBe("draft");
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
+
+	it("refuses an oversized selection cleanly (D1 bind-variable cap)", async () => {
+		const db = await seedWorld();
+		await db.insert(submissions).values({
+			id: "a1",
+			eventId: "e1",
+			type: "abstract",
+			title: "One",
+			status: "pending",
+		});
+		const result = unwrapAction(
+			await abstractsAction({
+				context: CONTEXT,
+				request: await requestAs(
+					"http://localhost/admin/abstracts",
+					new URLSearchParams([
+						["intent", "bulk-set-status"],
+						...Array.from(
+							{ length: 101 },
+							(_, i) => ["submissionIds", `s${i}`] as [string, string],
+						),
+						["status", "accepted"],
+					]),
+				),
+				params: {},
+			} as unknown as ActionArgs),
+		);
+		expect(result.formError).toMatch(/batches of up to 100/i);
+		const [row] = await db.select().from(submissions);
+		expect(row?.status).toBe("pending");
+	});
 });
 
 describe("approve all accepted", () => {

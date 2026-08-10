@@ -7,6 +7,7 @@ import { contacts, type events, submissions } from "~/db/schema";
 import { transitionSubmissions } from "~/domain/accept";
 import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
 import {
+	humanStatus,
 	type ListActionData,
 	LIST_TABS,
 	type ListTab,
@@ -48,6 +49,7 @@ export async function loadSubmissionList(
 			counts: emptyCounts(),
 			rows: [],
 			contacts: [],
+			contactsTruncated: false,
 			notPublicCount: 0,
 		};
 		return data(payload);
@@ -111,6 +113,8 @@ export async function loadSubmissionList(
 				offset: (page - 1) * PAGE_SIZE,
 			});
 
+			// Fetch one past the cap so truncation is detectable, never silent.
+			const contactCap = 1000;
 			const contactRows = await db
 				.select({
 					id: contacts.id,
@@ -121,18 +125,24 @@ export async function loadSubmissionList(
 				.from(contacts)
 				.where(eq(contacts.eventId, event.id))
 				.orderBy(asc(contacts.lastName), asc(contacts.firstName))
-				.limit(1000);
+				.limit(contactCap + 1);
+			const contactsTruncated = contactRows.length > contactCap;
+			if (contactsTruncated) contactRows.length = contactCap;
 
-			const [notPublic] = await db
-				.select({ n: count() })
-				.from(submissions)
-				.where(
-					and(
-						eq(submissions.eventId, event.id),
-						eq(submissions.status, "accepted"),
-						ne(submissions.contentStatus, "approved"),
-					),
-				);
+			// The publish-gate banner renders on the Sessions tab only.
+			const [notPublic] =
+				type === "session"
+					? await db
+							.select({ n: count() })
+							.from(submissions)
+							.where(
+								and(
+									eq(submissions.eventId, event.id),
+									eq(submissions.status, "accepted"),
+									ne(submissions.contentStatus, "approved"),
+								),
+							)
+					: [{ n: 0 }];
 
 			return {
 				eventName: event.name,
@@ -163,6 +173,7 @@ export async function loadSubmissionList(
 					name: `${c.firstName} ${c.lastName}`,
 					email: c.email,
 				})),
+				contactsTruncated,
 				notPublicCount: notPublic?.n ?? 0,
 			};
 		},
@@ -173,7 +184,10 @@ export async function loadSubmissionList(
 const BulkSetStatus = z.object({
 	submissionIds: z
 		.array(z.string().min(1))
-		.min(1, "Select at least one submission."),
+		.min(1, "Select at least one submission.")
+		// D1 caps bind variables per statement — an oversized (forged) selection
+		// must refuse cleanly, not throw mid-transition.
+		.max(100, "Apply status in batches of up to 100 — narrow the selection."),
 	status: z.enum(DECISION_STATUS),
 });
 
@@ -240,7 +254,7 @@ async function bulkSetStatus(
 		}
 		const changed = results.filter((r) => r.ok).length;
 		return {
-			notice: `${changed} submission${changed === 1 ? "" : "s"} set to ${parsed.data.status.replaceAll("_", " ")}.`,
+			notice: `${changed} submission${changed === 1 ? "" : "s"} set to ${humanStatus(parsed.data.status)}.`,
 			skipped: skipped.length ? skipped : undefined,
 		};
 	});
@@ -253,9 +267,11 @@ async function approveAllAccepted(
 ) {
 	const timings = createTimings();
 	const result = await timings.time("db", async (): Promise<ListActionData> => {
-		const pending = await db
-			.select({ id: submissions.id })
-			.from(submissions)
+		// One predicate UPDATE: no id list to blow D1's bind-variable cap at
+		// real scale, and no select→update race window.
+		const updated = await db
+			.update(submissions)
+			.set({ contentStatus: "approved" })
 			.where(
 				and(
 					eq(submissions.eventId, eventId),
@@ -263,27 +279,16 @@ async function approveAllAccepted(
 					ne(submissions.contentStatus, "approved"),
 				),
 			);
-		if (pending.length === 0) {
+		const changed = updated.meta.changes ?? 0;
+		if (changed === 0) {
 			return {
 				notice:
 					"All accepted sessions are already approved for public display.",
 			};
 		}
-		await db
-			.update(submissions)
-			.set({ contentStatus: "approved" })
-			.where(
-				inArray(
-					submissions.id,
-					pending.map((p) => p.id),
-				),
-			);
-		track("submission.content_bulk_approved", {
-			eventId,
-			count: pending.length,
-		});
+		track("submission.content_bulk_approved", { eventId, count: changed });
 		return {
-			notice: `${pending.length} accepted session${pending.length === 1 ? "" : "s"} approved for public display.`,
+			notice: `${changed} accepted session${changed === 1 ? "" : "s"} approved for public display.`,
 		};
 	});
 	return timed(timings, result);
