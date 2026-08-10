@@ -637,9 +637,9 @@ describe("send decisions", () => {
 		}
 	});
 
-	// Judge/parity P0: the preview rendered merge tags but the SEND shipped the
-	// raw template — speakers received literal {{speaker_name}}. The sent
-	// payload must go through the same renderer the preview uses.
+	// The template editor previews rendered merge tags, so the send must run
+	// the same renderer — shipping the raw template means a speaker receives
+	// a literal {{first_name}} in a delivered email.
 	it("resolves merge tags in the SENT subject and body — never a literal {{tag}}", async () => {
 		const d = await seedBase();
 		await d.insert(portals).values({

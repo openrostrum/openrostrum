@@ -171,9 +171,10 @@ describe("email history log", () => {
 		expect(result.data.rows[0]?.kind).toBe("Transactional");
 	});
 
-	// Judge defect: system sends (reviewer invites, resets…) have no template
-	// row, and both audit columns showed "—". Their dedupe-key prefix is the
-	// send's identity — the columns must derive from it.
+	// System sends (reviewer invites, resets…) have no template row, so the
+	// audit columns cannot come from the template join. Their dedupe-key
+	// prefix is the send's identity — the columns must derive from it instead
+	// of showing "—".
 	it("labels template-less system sends from their dedupe-key prefix", async () => {
 		const cookie = await seed();
 		const db = getDb(env);

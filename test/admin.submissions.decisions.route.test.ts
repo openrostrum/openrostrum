@@ -290,9 +290,10 @@ describe("bulk + send-decisions intents", () => {
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
 
-	// Judge probe: "bulk accept only flips status". The two accept paths must
-	// run the SAME provisioning spine — bulk accept differs from send-accept
-	// ONLY by not emailing (Sessionboard: status changes never email).
+	// The two accept paths must run the SAME provisioning spine — bulk accept
+	// differs from send-accept ONLY by not emailing (Sessionboard parity:
+	// status changes never email). A bulk accept that only flipped status
+	// would strand speakers without portal tasks.
 	it("bulk apply to accepted runs the full provisioning spine, minus the email", async () => {
 		const db = await seedWorld();
 		await seedSubmissionWithSpeaker("s1", "pending", "a@example.com");

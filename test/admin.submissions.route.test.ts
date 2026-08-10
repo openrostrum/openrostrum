@@ -163,9 +163,9 @@ describe("admin submissions route", () => {
 		expect(result.eventName).toBeNull();
 	});
 
-	// The judge-confirmed defect: the Type/Status controls changed nothing —
-	// the loader ignored its search params. Each param must narrow BOTH the
-	// rows and the total, so "N total/matching" reflects the selection.
+	// A filter control that changes nothing is worse than none: each param
+	// must narrow BOTH the rows and the total, so "N total/matching" always
+	// reflects the selection (the loader once ignored its search params).
 	describe("type/status filters", () => {
 		async function loadWith(query: string) {
 			// adminRequest first — it mints u_admin, which the membership row needs.

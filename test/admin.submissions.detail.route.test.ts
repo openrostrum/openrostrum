@@ -638,8 +638,8 @@ describe("revision history stays bounded on the loader", () => {
 });
 
 describe("participant management", () => {
-	// Judge defect: organizer-composed submissions had NO way to attach a
-	// participant, so decision emails skipped them forever ("No speaker or
+	// Organizer-composed submissions start with no participants; without an
+	// attach path, decision emails skip them forever ("No speaker or
 	// submitter email"). These pin the attach/remove contract.
 	async function seedBareSubmission() {
 		const db = await seedWorld();
