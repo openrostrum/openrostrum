@@ -17,6 +17,22 @@ export default defineConfig({
 			"@dnd-kit/utilities",
 		],
 	},
+	// The SSR (workerd) environment runs its own optimizer; a dep it discovers
+	// MID-build triggers a reload the cloudflare plugin can't do headlessly
+	// (AssertionError: The WebSocket is undefined) — pin the same set there.
+	environments: {
+		ssr: {
+			optimizeDeps: {
+				include: [
+					"@tiptap/react",
+					"@tiptap/starter-kit",
+					"@dnd-kit/core",
+					"@dnd-kit/sortable",
+					"@dnd-kit/utilities",
+				],
+			},
+		},
+	},
 	plugins: [
 		cloudflare({ viteEnvironment: { name: "ssr" } }),
 		tailwindcss(),
