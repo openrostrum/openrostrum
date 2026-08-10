@@ -15,11 +15,9 @@ const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
 const MAX_ENTRIES = 10_000;
 
 /**
- * Bulk download: ONE folder per session, LATEST version of each selected
- * chain only (Sessionboard parity — older versions stay on the file detail).
- * `fileIds` narrows to the selected chains (any version's id selects its whole
- * chain); `all=1` exports every chain in the event. The archive streams —
- * download starts immediately, no "generating" wait state, no email hop.
+ * Bulk download: LATEST version of each selected chain, one folder per
+ * session. Any version's id selects its whole chain; `all=1` exports every
+ * chain. The archive streams — download starts immediately, no email hop.
  */
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;

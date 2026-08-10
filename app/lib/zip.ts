@@ -1,9 +1,7 @@
 /**
- * Minimal streaming ZIP writer (STORE method, data descriptors) so bulk file
- * exports never buffer whole archives in Worker memory — entry bodies stream
- * straight from R2 into the response. STORE keeps CPU flat (slide decks and
- * images are already compressed; deflating them again costs CPU for ~nothing).
- * No zip64: callers must keep archives under 4 GB / 65k entries.
+ * Minimal streaming ZIP writer (STORE + data descriptors): entry bodies
+ * stream from R2 into the response without buffering, and STORE keeps CPU
+ * flat (decks/images are already compressed). No zip64 — callers cap size.
  */
 
 export type ZipEntrySource = {

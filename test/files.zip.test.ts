@@ -3,10 +3,9 @@ import { describe, expect, it } from "vitest";
 import { files } from "../app/db/schema";
 import { crc32, zipStream } from "../app/lib/zip";
 import { loader as exportLoader } from "../app/routes/admin.files.export[.zip]";
-import { authedRequest } from "./tasks-fixtures";
+import { CONTEXT, authedRequest } from "./tasks-fixtures";
 import {
 	catchThrown,
-	CONTEXT,
 	parseZip,
 	seedFilesWorld,
 	thrownStatus,

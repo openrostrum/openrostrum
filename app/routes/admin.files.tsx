@@ -195,7 +195,7 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 						</Select>
 					</Field>
 					<Field label="Portal downloads">
-						<span className="flex h-[34px] items-center gap-2">
+						<span className="flex items-center gap-2 py-2">
 							<Input type="checkbox" name="sharedToPortal" />
 							Share with speakers
 						</span>

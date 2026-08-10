@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { redirect } from "react-router";
 import { getDb } from "~/db";
-import { contacts, submissions } from "~/db/schema";
+import { submissions } from "~/db/schema";
 import {
 	checkUpload,
 	insertDirectUpload,
@@ -43,10 +43,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 	const check = checkUpload(file);
 	if (!check.ok) return fail(check.code);
 
-	// Attachment targets resolve INSIDE the active event or not at all — a
-	// foreign submission/contact id is refused, never silently dropped.
+	// The attachment target resolves INSIDE the active event or not at all —
+	// a foreign submission id is refused, never silently dropped.
 	const submissionId = String(form.get("submissionId") ?? "") || null;
-	const contactId = String(form.get("contactId") ?? "") || null;
 	if (submissionId) {
 		const [row] = await db
 			.select({ id: submissions.id })
@@ -60,19 +59,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 			.limit(1);
 		if (!row) return fail("foreign-submission");
 	}
-	if (contactId) {
-		const [row] = await db
-			.select({ id: contacts.id })
-			.from(contacts)
-			.where(and(eq(contacts.id, contactId), eq(contacts.eventId, event.id)))
-			.limit(1);
-		if (!row) return fail("foreign-speaker");
-	}
 
 	const shared = form.get("sharedToPortal") === "on";
 	const timings = createTimings();
 	try {
-		const target = submissionId ?? contactId ?? "event";
+		const target = submissionId ?? "event";
 		const r2Key = `admin-files/${event.id}/${target}/${crypto.randomUUID()}`;
 		const bytes = await file.arrayBuffer();
 		await timings.time("r2", () =>
@@ -84,7 +75,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 			insertDirectUpload(db, {
 				eventId: event.id,
 				submissionId,
-				contactId,
 				r2Key,
 				fileName: file.name,
 				kind: check.kind,

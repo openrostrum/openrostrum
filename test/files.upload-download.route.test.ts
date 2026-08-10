@@ -2,14 +2,13 @@ import { env } from "cloudflare:test";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
-import { contacts, files } from "../app/db/schema";
-import { UPLOAD_MAX_BYTES } from "../app/domain/files";
+import { contacts, files, taskAssignments } from "../app/db/schema";
+import { insertTaskUpload, UPLOAD_MAX_BYTES } from "../app/domain/files";
 import { loader as downloadLoader } from "../app/routes/files.$id";
 import { action as uploadAction } from "../app/routes/files.upload";
-import { authedRequest } from "./tasks-fixtures";
+import { CONTEXT, authedRequest } from "./tasks-fixtures";
 import {
 	catchThrown,
-	CONTEXT,
 	makeUser,
 	requestAs,
 	seedFilesWorld,
@@ -136,18 +135,68 @@ describe("admin file upload", () => {
 	});
 });
 
+describe("task upload chain (shared with the portal loop)", () => {
+	it("versions per assignment and moves an admin-shared flag to the re-upload", async () => {
+		const db = await seedFilesWorld();
+		const put = (n: number) =>
+			insertTaskUpload(db, {
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: "ta_priya_slides",
+				r2Key: `t/task-v${n}`,
+				fileName: "slides.pdf",
+				kind: "slides",
+				contentType: "application/pdf",
+				sizeBytes: 9,
+			});
+		const v1 = await put(1);
+		expect(v1.version).toBe(1);
+		// organizer shares the current version from the admin detail page…
+		await db
+			.update(files)
+			.set({ sharedToPortal: true })
+			.where(eq(files.id, v1.id));
+		// …then the speaker re-uploads: the flag must FOLLOW the latest version,
+		// or the portal keeps serving the stale deck.
+		const v2 = await put(2);
+		expect(v2.version).toBe(2);
+		const rows = await db
+			.select({ version: files.version, shared: files.sharedToPortal })
+			.from(files)
+			.where(eq(files.taskAssignmentId, "ta_priya_slides"))
+			.orderBy(asc(files.version));
+		expect(rows).toEqual([
+			{ version: 1, shared: false },
+			{ version: 2, shared: true },
+		]);
+		const [assignment] = await db
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.id, "ta_priya_slides"));
+		expect(assignment?.status).toBe("pending_feedback");
+		expect(assignment?.fileKey).toBe("t/task-v2");
+	});
+});
+
 describe("file byte serving (/files/:id)", () => {
+	// Seeded the way the portal upload loop writes it: contact-owned bytes.
 	async function seedUpload(): Promise<string> {
 		const db = await seedFilesWorld();
-		await upload(
-			uploadForm(
-				{ name: "slides.pdf", content: "the deck bytes" },
-				{ submissionId: "s1", contactId: "c_priya" },
-			),
-		);
-		const [row] = await db.select({ id: files.id }).from(files).limit(1);
-		if (!row) throw new Error("seed upload failed");
-		return row.id;
+		await env.BLOBS.put("t/deck", "the deck bytes");
+		await db.insert(files).values({
+			id: "f_deck",
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			r2Key: "t/deck",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 14,
+			version: 1,
+		});
+		return "f_deck";
 	}
 
 	async function download(fileId: string, request: Request) {

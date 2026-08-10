@@ -11,14 +11,9 @@ import {
 import { createSession, hashPassword } from "../app/lib/auth";
 import { seedTasksBaseline } from "./tasks-fixtures";
 
-export const CONTEXT = { cloudflare: { env, ctx: {} } };
-
-/**
- * The tasks baseline (org1/e1, Priya/Bob/Carol, the slides file-request task,
- * accepted submissions s1/s2) PLUS a second tenant (org2/e2 with submission
- * s_e2) so cross-tenant probes fail against something real, and Priya's
- * slides assignment — the portal upload loop's anchor.
- */
+/** The tasks baseline (org1/e1, contacts, the slides file-request task,
+ * accepted submissions s1/s2) PLUS a second tenant (org2/e2, submission
+ * s_e2) for cross-tenant probes, and Priya's slides assignment. */
 export async function seedFilesWorld() {
 	const db = await seedTasksBaseline();
 	await db.insert(organizations).values({ id: "org2", name: "Other Org" });

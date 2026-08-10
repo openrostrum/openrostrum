@@ -14,8 +14,8 @@ export const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
 export const UPLOAD_CONSTRAINTS =
 	"PDF, PowerPoint, Keynote, Word, Excel, images, ZIP, or text — up to 25 MB.";
 
-/** Extension allowlist doubling as kind derivation — `accept=` is a hint, this
- * map is the enforcement. Shared by the admin and speaker-portal upload loops. */
+/** Extension allowlist doubling as kind derivation — `accept=` is a hint,
+ * this map is the enforcement (admin and portal upload loops share it). */
 export const EXT_KIND: Record<string, (typeof FILE_KIND)[number]> = {
 	pdf: "slides",
 	ppt: "slides",
@@ -37,15 +37,14 @@ export const UPLOAD_ACCEPT = Object.keys(EXT_KIND)
 	.map((ext) => `.${ext}`)
 	.join(",");
 
-/** Upload failures round-trip as CODES in a redirect query param (the upload
- * form posts to /files/upload, not the page, so actionData can't reach the
- * library) — pages map codes to copy, and no free text ever rides the URL. */
+/** Upload failures ride the redirect as CODES (the form posts to
+ * /files/upload, not the page, so actionData can't reach the library);
+ * pages map codes to copy — free text never rides a URL. */
 export const UPLOAD_ERRORS = {
 	"choose-file": "Choose a file first.",
 	"bad-type": "That file type isn't accepted — see the stated formats.",
 	"too-large": "Keep the file under 25 MB.",
 	"foreign-submission": "That submission does not belong to this event.",
-	"foreign-speaker": "That speaker does not belong to this event.",
 	"no-event": "No event is configured yet.",
 	failed: "The upload failed — please try again.",
 } as const;
@@ -93,14 +92,9 @@ export function checkUpload(file: File): UploadCheck {
 	return { ok: true, kind };
 }
 
-/**
- * A "version chain" is one deliverable slot re-uploaded over time. Portal
- * task uploads chain per task assignment (any filename replaces the prior
- * one); everything else chains per attachment target + case-insensitive
- * filename. Latest = highest version — there is no stored flag to drift.
- * This SQL expression is the ONLY encoding of chain identity; TS callers
- * resolve a row's key through SQL, never a re-implementation.
- */
+/** Chain identity: one deliverable slot re-uploaded over time — task uploads
+ * chain per assignment, everything else per target + lowercased filename.
+ * The ONLY encoding of the rule; TS callers resolve keys through SQL. */
 export const GROUP_KEY_SQL = sql<string>`case
 	when ${files.taskAssignmentId} is not null then 'a:' || ${files.taskAssignmentId}
 	when ${files.submissionId} is not null then 's:' || ${files.submissionId} || ':' || lower(${files.fileName})
@@ -110,11 +104,9 @@ end`;
 
 export type FileRow = typeof files.$inferSelect;
 
-/**
- * Every file of the event, ranked within its version chain (rn = 1 is the
- * latest; version_count spans the chain). The single source for "latest of a
- * chain" — the library and the ZIP export must never disagree on it.
- */
+/** Every file of the event, ranked within its chain (rn = 1 is latest,
+ * version_count spans the chain) — the single source of "latest", shared by
+ * the library and the ZIP export so they can never disagree. */
 export function rankedChainsSql(eventId: string): SQL {
 	return sql`(
 		select ${files}.*,
@@ -129,60 +121,43 @@ export function rankedChainsSql(eventId: string): SQL {
 	)`;
 }
 
-/** The direct (non-task) chain a new admin upload belongs to. */
-function directChain(target: {
+type ChainValues = {
 	eventId: string;
 	submissionId: string | null;
 	contactId: string | null;
-	fileName: string;
-}): SQL {
-	const scope = target.submissionId
-		? eq(files.submissionId, target.submissionId)
-		: target.contactId
-			? and(isNull(files.submissionId), eq(files.contactId, target.contactId))
-			: and(isNull(files.submissionId), isNull(files.contactId));
-	return and(
-		eq(files.eventId, target.eventId),
-		isNull(files.taskAssignmentId),
-		scope,
-		sql`lower(${files.fileName}) = lower(${target.fileName})`,
-	) as SQL;
-}
-
-export type DirectUploadInput = {
-	eventId: string;
-	submissionId: string | null;
-	contactId: string | null;
+	taskAssignmentId: string | null;
 	r2Key: string;
 	fileName: string;
 	kind: (typeof FILE_KIND)[number];
 	contentType: string;
 	sizeBytes: number;
+	reviewStatus: FileRow["reviewStatus"];
 	sharedToPortal: boolean;
 };
 
-/**
- * Inserts a direct upload at the chain's next version in ONE statement
- * (version = max+1 computed inside the INSERT, so a double-submit can't mint
- * two rows with the same version), then migrates the portal-shared flag to
- * this latest version: the portal lists shared rows flat, so the flag lives
- * on exactly one version per chain — inherited forward, cleared behind.
- */
-export async function insertDirectUpload(
+type BatchItem = Parameters<Db["batch"]>[0][number];
+
+/** Appends a row to its chain: version = max+1 computed INSIDE the insert
+ * (a double-submit can't mint duplicate versions on single-writer D1), then
+ * the portal-shared flag migrates to this latest version — the portal lists
+ * shared rows flat, so the flag lives on exactly one version per chain. */
+async function appendToChain(
 	db: Db,
-	input: DirectUploadInput,
+	chain: SQL,
+	values: ChainValues,
+	alongside: BatchItem[] = [],
 ): Promise<{ id: string; version: number }> {
 	const id = crypto.randomUUID();
-	const chain = directChain(input);
 	await db.run(sql`
 		insert into ${files} (id, event_id, submission_id, contact_id, task_assignment_id,
 			r2_key, file_name, kind, content_type, size_bytes, version, review_status,
 			shared_to_portal, created_at)
-		select ${id}, ${input.eventId}, ${input.submissionId}, ${input.contactId}, null,
-			${input.r2Key}, ${input.fileName}, ${input.kind}, ${input.contentType},
-			${input.sizeBytes},
+		select ${id}, ${values.eventId}, ${values.submissionId}, ${values.contactId},
+			${values.taskAssignmentId}, ${values.r2Key}, ${values.fileName}, ${values.kind},
+			${values.contentType}, ${values.sizeBytes},
 			coalesce((select max(${files.version}) from ${files} where ${chain}), 0) + 1,
-			'none', ${input.sharedToPortal ? 1 : 0}, ${Math.floor(Date.now() / 1000)}`);
+			${values.reviewStatus}, ${values.sharedToPortal ? 1 : 0},
+			${Math.floor(Date.now() / 1000)}`);
 	await db.batch([
 		db
 			.update(files)
@@ -198,22 +173,85 @@ export async function insertDirectUpload(
 			.update(files)
 			.set({ sharedToPortal: false })
 			.where(and(chain, ne(files.id, id))),
+		...alongside,
 	]);
 	const [row] = await db
 		.select({ id: files.id, version: files.version })
 		.from(files)
 		.where(eq(files.id, id))
 		.limit(1);
-	if (!row) throw new Error("direct upload insert failed");
+	if (!row) throw new Error("file insert failed");
 	return row;
 }
 
-/**
- * Review decision on an upload. Approve completes the owning task; deny
- * reopens it (status back to incomplete) so the speaker's portal offers the
- * re-upload path again, with the note rendered as "Changes requested".
- * Deny sends no email by design — Sessionboard parity.
- */
+export type DirectUploadInput = {
+	eventId: string;
+	submissionId: string | null;
+	r2Key: string;
+	fileName: string;
+	kind: (typeof FILE_KIND)[number];
+	contentType: string;
+	sizeBytes: number;
+	sharedToPortal: boolean;
+};
+
+/** Admin (non-task) upload: chains per submission-or-event + filename. */
+export async function insertDirectUpload(
+	db: Db,
+	input: DirectUploadInput,
+): Promise<{ id: string; version: number }> {
+	const scope = input.submissionId
+		? eq(files.submissionId, input.submissionId)
+		: and(isNull(files.submissionId), isNull(files.contactId));
+	const chain = and(
+		eq(files.eventId, input.eventId),
+		isNull(files.taskAssignmentId),
+		scope,
+		sql`lower(${files.fileName}) = lower(${input.fileName})`,
+	) as SQL;
+	return appendToChain(db, chain, {
+		...input,
+		contactId: null,
+		taskAssignmentId: null,
+		reviewStatus: "none",
+	});
+}
+
+export type TaskUploadInput = {
+	eventId: string;
+	submissionId: string | null;
+	contactId: string | null;
+	taskAssignmentId: string;
+	r2Key: string;
+	fileName: string;
+	kind: (typeof FILE_KIND)[number];
+	contentType: string;
+	sizeBytes: number;
+};
+
+/** Speaker file-request upload: chains per assignment, lands in the review
+ * queue, and flips the assignment to pending_feedback in the same batch. */
+export async function insertTaskUpload(
+	db: Db,
+	input: TaskUploadInput,
+): Promise<{ id: string; version: number }> {
+	const chain = eq(files.taskAssignmentId, input.taskAssignmentId) as SQL;
+	return appendToChain(
+		db,
+		chain,
+		{ ...input, reviewStatus: "pending", sharedToPortal: false },
+		[
+			db
+				.update(taskAssignments)
+				.set({ status: "pending_feedback", fileKey: input.r2Key })
+				.where(eq(taskAssignments.id, input.taskAssignmentId)),
+		],
+	);
+}
+
+/** Approve completes the owning task; deny reopens it (back to incomplete)
+ * so the portal offers the re-upload path with the note as "Changes
+ * requested". Deny sends no email by design — Sessionboard parity. */
 export async function setFileReview(
 	db: Db,
 	file: Pick<FileRow, "id" | "taskAssignmentId">,
@@ -269,11 +307,8 @@ export type FileLibraryFilters = {
 	pageSize?: number;
 };
 
-/**
- * The central library: ONE row per version chain, carrying the latest
- * version's metadata plus the chain's version count. Ranking happens in SQL
- * (window over the chain key) so pagination never splits a chain.
- */
+/** The central library: ONE row per version chain (latest metadata + chain
+ * version count), ranked in SQL so pagination never splits a chain. */
 export async function listFileGroups(
 	db: Db,
 	eventId: string,
@@ -351,35 +386,45 @@ export async function listFileGroups(
 	};
 }
 
-/** A file plus its whole version chain (descending — index 0 is latest). */
+/** A file's whole version chain, descending — index 0 is the latest.
+ * Null when the id doesn't resolve inside the event. */
 export async function getFileChain(
 	db: Db,
 	eventId: string,
 	fileId: string,
-): Promise<{ file: FileRow; versions: FileRow[] } | null> {
-	const [file] = await db
-		.select()
-		.from(files)
-		.where(and(eq(files.id, fileId), eq(files.eventId, eventId)))
-		.limit(1);
-	if (!file) return null;
-	// The subquery's `files` shadows the outer one, so both sides of the
-	// comparison evaluate the SAME chain-key expression on their own row.
+): Promise<{ versions: FileRow[] } | null> {
+	// The subquery's `files` shadows the outer one — both sides evaluate the
+	// same chain-key expression on their own row.
 	const versions = await db
 		.select()
 		.from(files)
 		.where(
 			and(
 				eq(files.eventId, eventId),
-				sql`${GROUP_KEY_SQL} = (select ${GROUP_KEY_SQL} from ${files} where ${files.id} = ${fileId})`,
+				sql`${GROUP_KEY_SQL} = (select ${GROUP_KEY_SQL} from ${files} where ${files.id} = ${fileId} and ${files.eventId} = ${eventId})`,
 			),
 		)
 		.orderBy(desc(files.version), desc(files.createdAt));
-	return { file, versions };
+	if (versions.length === 0) return null;
+	return { versions };
 }
 
 /** Windows-and-zip-safe display name (also used for Content-Disposition). */
 export function sanitizeFileName(name: string): string {
 	const safe = name.replace(/[^\w.\- ()]+/g, "_").trim();
 	return safe || "file";
+}
+
+/** The one shape file bytes leave the app in — attachment, private, no-store. */
+export function fileAttachmentResponse(
+	body: ReadableStream | null,
+	file: Pick<FileRow, "fileName" | "contentType">,
+): Response {
+	return new Response(body, {
+		headers: {
+			"Content-Type": file.contentType ?? "application/octet-stream",
+			"Content-Disposition": `attachment; filename="${sanitizeFileName(file.fileName)}"`,
+			"Cache-Control": "private, no-store",
+		},
+	});
 }

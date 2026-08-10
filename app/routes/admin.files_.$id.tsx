@@ -57,8 +57,9 @@ async function loadChain(env: Env, user: AdminUser, fileId: string) {
 	if (!event) throw data(null, { status: 404 });
 	const db = getDb(env);
 	const chain = await getFileChain(db, event.id, fileId);
-	if (!chain) throw data(null, { status: 404 });
-	return { event, db, ...chain };
+	const latest = chain?.versions[0];
+	if (!chain || !latest) throw data(null, { status: 404 });
+	return { event, db, versions: chain.versions, latest };
 }
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
@@ -66,10 +67,9 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	// Self-authenticate — never rely on the admin.tsx layout loader.
 	const user = await requireAdmin(env, request);
 	const timings = createTimings();
-	const { event, db, file, versions } = await timings.time("db", () =>
+	const { event, db, versions, latest } = await timings.time("db", () =>
 		loadChain(env, user, params.id),
 	);
-	const latest = versions[0] ?? file;
 
 	const [submission] = latest.submissionId
 		? await db
@@ -146,9 +146,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	// Actions MUST self-authenticate — a POST does not re-run the layout loader.
 	const user = await requireAdmin(env, request);
-	const { event, db, versions } = await loadChain(env, user, params.id);
-	const latest = versions[0];
-	if (!latest) throw data(null, { status: 404 });
+	const { event, db, latest } = await loadChain(env, user, params.id);
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "");
 	const timings = createTimings();

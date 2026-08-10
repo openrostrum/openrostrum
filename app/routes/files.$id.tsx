@@ -2,18 +2,16 @@ import { and, eq } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
 import { contacts, files } from "~/db/schema";
-import { sanitizeFileName } from "~/domain/files";
+import { fileAttachmentResponse } from "~/domain/files";
 import { requireUser, userCanAccessEvent } from "~/lib/auth";
 import { track } from "~/lib/track";
 import type { Route } from "./+types/files.$id";
 
 /**
- * The canonical authz-checked road to file bytes. The bucket is private and
- * r2 keys never reach a client, so every download passes this gate: an admin
- * MEMBER of the file's org (never admins of other orgs), or the user linked
- * to the file's owning contact. Everyone else gets a bodiless 404 — never a
- * hint that the id exists. Portal-shared downloads have their own
- * portal-scoped route.
+ * The canonical authz gate for file bytes (the bucket is private; r2 keys
+ * never reach clients): an admin MEMBER of the file's org, or the user linked
+ * to the owning contact. Everyone else gets a bodiless 404 — existence itself
+ * is data. Portal-shared downloads have their own portal-scoped route.
  */
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
@@ -48,11 +46,5 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		version: file.version,
 		byAdmin: user.role === "admin",
 	});
-	return new Response(object.body, {
-		headers: {
-			"Content-Type": file.contentType ?? "application/octet-stream",
-			"Content-Disposition": `attachment; filename="${sanitizeFileName(file.fileName)}"`,
-			"Cache-Control": "private, no-store",
-		},
-	});
+	return fileAttachmentResponse(object.body, file);
 }
