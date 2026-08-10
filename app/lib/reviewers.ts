@@ -1,6 +1,7 @@
 import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import type { Db } from "~/db";
 import { passwordResets, reviewerTracks, tracks, users } from "~/db/schema";
+import { sha256Hex } from "~/lib/api-token";
 import { normalizeEmail } from "~/lib/auth";
 import { fetchChunked } from "~/lib/evaluation";
 
@@ -117,19 +118,36 @@ export async function ensureReviewerUser(
 
 const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
+export const SEND_KEY_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Mint a set-password token for an invited reviewer. `organizationId` stays
  * NULL deliberately: the accept flow derives what a token grants from that
  * column, and a reviewer token must never create an org membership.
+ *
+ * Derived, not random: a replayed POST re-mints the SAME token, and the
+ * token-scoped email dedupeKey then suppresses the resend. Unpredictability
+ * rests on the sendKey being a server-minted UUID — anything else throws.
  */
-export async function mintInviteToken(db: Db, userId: string): Promise<string> {
-	const token = crypto.randomUUID();
-	await db.insert(passwordResets).values({
-		userId,
-		organizationId: null,
-		token,
-		expiresAt: new Date(Date.now() + INVITE_TTL_MS),
-	});
+export async function mintInviteToken(
+	db: Db,
+	userId: string,
+	sendKey: string,
+): Promise<string> {
+	if (!SEND_KEY_RE.test(sendKey)) {
+		throw new Error("Invite sendKey must be a UUID.");
+	}
+	const token = await sha256Hex(`reviewer-invite:${userId}:${sendKey}`);
+	await db
+		.insert(passwordResets)
+		.values({
+			userId,
+			organizationId: null,
+			token,
+			expiresAt: new Date(Date.now() + INVITE_TTL_MS),
+		})
+		.onConflictDoNothing({ target: passwordResets.token });
 	return token;
 }
 
