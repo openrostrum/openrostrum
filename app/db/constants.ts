@@ -32,6 +32,13 @@ export const DECISION_STATUS = [
 ] as const;
 
 /**
+ * Content approval — SEPARATE from the decision pipeline: public surfaces
+ * render only `approved` content. schema.ts currently carries its own copy
+ * (integration-owned); the compiler flags any drift at the comparison sites.
+ */
+export const CONTENT_STATUS = ["draft", "in_review", "approved"] as const;
+
+/**
  * Contact workflow statuses. The integration-owned schema.ts column enum is a
  * separate tuple; a lockstep test fails the build if the two ever diverge.
  */

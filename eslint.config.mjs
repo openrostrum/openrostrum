@@ -121,6 +121,14 @@ export default [
 		},
 	},
 
+	// Shared route views: when thin routes delegate their page JSX to app/lib,
+	// the design-system contract follows the JSX, not the file location.
+	{
+		files: ["app/lib/**/*.tsx"],
+		plugins: { openrostrum: openrostrumPlugin },
+		rules: { "openrostrum/ui-primitives-only": "error" },
+	},
+
 	// Nav modules are client-bundled — pure data only (no runtime imports).
 	{
 		files: ["app/nav/*.nav.ts"],
