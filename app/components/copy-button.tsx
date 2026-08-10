@@ -13,6 +13,22 @@ export type CopyButtonProps = {
 	onFailure?: () => void;
 };
 
+export function attemptClipboardWrite(
+	value: string,
+	onFailure?: () => void,
+): Promise<void> | undefined {
+	const clipboard = navigator.clipboard;
+	if (!clipboard) {
+		onFailure?.();
+		return;
+	}
+	try {
+		return clipboard.writeText(value);
+	} catch {
+		onFailure?.();
+	}
+}
+
 /** The shared copy-to-clipboard button — compose this one, never another one-off. */
 export function CopyButton({
 	value,
@@ -33,7 +49,7 @@ export function CopyButton({
 	}, [resetAfterMs, state]);
 
 	function copy() {
-		const write = navigator.clipboard?.writeText(value);
+		const write = attemptClipboardWrite(value, onFailure);
 		if (optimistic) setState("copied");
 		if (!write) return;
 		write
