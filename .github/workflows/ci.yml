@@ -45,6 +45,50 @@ jobs:
             exit 1
           fi
 
+  # DeepSeek code review (advisory). On every PR, diff the change and run it past
+  # the rule-doc agents in tooling/pr-review, then post ONE comment. Uses the
+  # `pull_request` trigger (NOT pull_request_target): same-repo PRs get the secret
+  # and a write token; fork PRs get neither, so the guard green-skips — no secret
+  # ever reaches untrusted code. Runs no PR-authored code (no install, no build);
+  # it only reads the diff as text and calls the API. Comment-only: never fails
+  # the PR. Skips until the DEEPSEEK_API_KEY secret exists — job stays green.
+  ai-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Guard — review only when configured
+        id: guard
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -z "${DEEPSEEK_API_KEY}" ]; then
+            echo "::warning::AI review skipped — set the DEEPSEEK_API_KEY repo secret to enable it."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.go == 'true'
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.go == 'true'
+        with:
+          node-version: 24
+      - name: Review the diff
+        if: steps.guard.outputs.go == 'true'
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node tooling/pr-review/ci-review.mjs
+
   quality:
     runs-on: ubuntu-latest
     steps:
