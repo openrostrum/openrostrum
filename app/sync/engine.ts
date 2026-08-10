@@ -7,9 +7,9 @@ import type {
 import { MERGE_FIELD } from "~/ports/airtable";
 
 /**
- * Snapshot three-way reconciliation, pure (docs/airtable-sync-design.md,
- * Decision 3): the caller loads/filters rows (the tenant guard happens
- * BEFORE this module) and applies the returned plan. Per mapped field vs the
+ * Snapshot three-way reconciliation, pure: the caller loads/filters rows
+ * (the tenant guard happens BEFORE this module) and applies the returned
+ * plan. Per mapped field vs the
  * last-synced snapshot: only-local-changed → push, only-remote-changed →
  * pull (class-routed), both changed → the class rule.
  */

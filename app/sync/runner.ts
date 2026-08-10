@@ -41,10 +41,10 @@ import {
 } from "./engine";
 
 /**
- * Background-only sync: pull → merge → push (docs/airtable-sync-design.md).
- * The env base is bound to the Demo organization — every row selection
- * filters `events.organizationId = 'org_demo'` (docs/multi-tenancy-design.md
- * §Airtable), so no other tenant's rows can reach the base or take edits.
+ * Background-only sync: pull → merge → push. The env base is bound to the
+ * Demo organization — every row selection filters
+ * `events.organizationId = 'org_demo'`, so no other tenant's rows can reach
+ * the base or take edits.
  */
 export const DEMO_ORG_ID = "org_demo";
 

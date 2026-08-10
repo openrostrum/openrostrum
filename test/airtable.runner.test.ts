@@ -15,11 +15,9 @@ import {
 import { createFakeAirtableBase, MERGE_FIELD } from "../app/ports/airtable";
 import { readSyncState, runAirtableSync } from "../app/sync/runner";
 
-// Functional oracle for both sync directions against the port fake
-// (docs/airtable-sync-design.md): Tier-1 push with snapshot change detection
-// and the Demo-org tenant guard, Tier-2 pull with three-way reconciliation
-// (Airtable wins team-editable conflicts), honor-the-delete semantics, and
-// the >20% mass-delete circuit breaker.
+// Both sync directions against the port fake: push with change detection +
+// the Demo-org tenant guard; pull with three-way reconciliation (Airtable
+// wins team-editable conflicts), honor-the-delete, and the >20% breaker.
 
 const db = () => getDb(env);
 const run = (fake: ReturnType<typeof createFakeAirtableBase>, ack = false) =>
