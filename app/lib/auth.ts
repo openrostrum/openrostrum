@@ -9,6 +9,7 @@ import {
 	tracks,
 	users,
 } from "~/db/schema";
+import { cookieHeader, readCookie } from "~/lib/cookies";
 
 type AppRole = (typeof users.$inferSelect)["role"];
 
@@ -169,32 +170,6 @@ export function isSecureRequest(request: Request): boolean {
 	return new URL(request.url).protocol === "https:";
 }
 
-function cookieHeader(
-	value: string,
-	maxAgeSeconds: number,
-	secure: boolean,
-): string {
-	const attrs = [
-		`${COOKIE}=${value}`,
-		"Path=/",
-		"HttpOnly",
-		"SameSite=Lax",
-		`Max-Age=${maxAgeSeconds}`,
-	];
-	if (secure) attrs.push("Secure");
-	return attrs.join("; ");
-}
-
-function readCookie(request: Request): string | null {
-	const header = request.headers.get("Cookie");
-	if (!header) return null;
-	for (const part of header.split(";")) {
-		const [name, ...rest] = part.trim().split("=");
-		if (name === COOKIE) return rest.join("=");
-	}
-	return null;
-}
-
 /**
  * Create a session row and return the `Set-Cookie` header value. Pass `secure`
  * from `isSecureRequest(request)` so the cookie isn't dropped on local http dev.
@@ -211,7 +186,12 @@ export async function createSession(
 		userId,
 		expiresAt: new Date(Date.now() + SESSION_TTL_MS),
 	});
-	return cookieHeader(sessionId, Math.floor(SESSION_TTL_MS / 1000), secure);
+	return cookieHeader(
+		COOKIE,
+		sessionId,
+		Math.floor(SESSION_TTL_MS / 1000),
+		secure,
+	);
 }
 
 /** Delete the current session (if any) and return a clearing `Set-Cookie`. */
@@ -219,11 +199,11 @@ export async function destroySession(
 	env: Env,
 	request: Request,
 ): Promise<string> {
-	const sessionId = readCookie(request);
+	const sessionId = readCookie(request, COOKIE);
 	if (sessionId) {
 		await getDb(env).delete(authSessions).where(eq(authSessions.id, sessionId));
 	}
-	return cookieHeader("", 0, isSecureRequest(request));
+	return cookieHeader(COOKIE, "", 0, isSecureRequest(request));
 }
 
 /** Resolve the logged-in user from the request cookie, or null. */
@@ -231,7 +211,7 @@ export async function getUser(
 	env: Env,
 	request: Request,
 ): Promise<AppUser | null> {
-	const sessionId = readCookie(request);
+	const sessionId = readCookie(request, COOKIE);
 	if (!sessionId) return null;
 	const db = getDb(env);
 	const [row] = await db

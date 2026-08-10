@@ -1,8 +1,10 @@
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, notExists } from "drizzle-orm";
 import { useState } from "react";
 import { data, Form, redirect } from "react-router";
 import { z } from "zod";
 import {
+	PORTAL_FIELD_TYPES,
+	type PortalFieldType,
 	PortalFormFields,
 	type PortalFormFieldDef,
 } from "~/components/portal-form-fields";
@@ -13,6 +15,7 @@ import { errorMessage } from "~/lib/errors";
 import { formatDateUTC } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import { FIELD_TYPE_LABELS } from "~/settings/event-form";
+import { RichText } from "~/ui/rich-text-lazy";
 import {
 	Button,
 	ButtonLink,
@@ -31,23 +34,12 @@ import {
 	Tabs,
 	TBody,
 	Td,
-	Textarea,
 	TextLink,
 	Th,
 	THead,
 	Tr,
 } from "~/ui";
 import type { Route } from "./+types/admin.portal-forms";
-
-/** The field types the portal task renderer knows how to draw. */
-const PORTAL_FIELD_TYPES = [
-	"text",
-	"textarea",
-	"dropdown",
-	"checkbox",
-	"number",
-	"date",
-] as const;
 
 const TARGET_LABELS: Record<(typeof PORTAL_FORM_TARGET)[number], string> = {
 	contact: "Contacts",
@@ -247,8 +239,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 			targetType: d.targetType,
 			schema: fieldsResult.fields,
 			sendConfirmationEmail: d.sendConfirmationEmail,
+			// The editor's empty document is markup (<p></p>) — treat text-empty
+			// HTML as unset so the default thank-you copy applies.
 			confirmationHtml:
-				d.sendConfirmationEmail && d.confirmationHtml !== ""
+				d.sendConfirmationEmail &&
+				d.confirmationHtml.replace(/<[^>]*>/g, "").trim() !== ""
 					? d.confirmationHtml
 					: null,
 		};
@@ -302,45 +297,62 @@ export async function action({ context, request }: Route.ActionArgs) {
 
 	if (intent === "delete-form") {
 		const formId = String(form.get("formId") ?? "");
-		const [existing] = await db
-			.select({ id: portalForms.id })
-			.from(portalForms)
-			.where(and(eq(portalForms.id, formId), eq(portalForms.eventId, event.id)))
-			.limit(1);
-		if (!existing) {
-			return {
-				formError: "That portal form no longer exists.",
-			} satisfies ActionResult;
-		}
 		// The task FK is SET NULL — an unguarded delete would silently turn
-		// "Fill in: <form>" tasks into bare mark-as-done tasks. Refuse instead.
-		const [used] = await db
-			.select({ n: count() })
-			.from(tasks)
-			.where(eq(tasks.portalFormId, existing.id));
-		if ((used?.n ?? 0) > 0) {
-			return {
-				formError: `In use by ${used?.n} task${used?.n === 1 ? "" : "s"} — point ${used?.n === 1 ? "it" : "them"} at another completion first (Tasks → definitions).`,
-			} satisfies ActionResult;
-		}
+		// "Fill in: <form>" tasks into bare mark-as-done tasks. The tenant guard
+		// AND the no-references condition live IN the delete statement (D1 has
+		// no transactions, so check-then-delete would race a concurrent attach);
+		// the refusal copy is computed only after a zero-row delete.
 		try {
-			await timings.time("db", () =>
-				db.delete(portalForms).where(eq(portalForms.id, existing.id)),
+			const gone = await timings.time("db", () =>
+				db
+					.delete(portalForms)
+					.where(
+						and(
+							eq(portalForms.id, formId),
+							eq(portalForms.eventId, event.id),
+							notExists(
+								db
+									.select({ one: tasks.id })
+									.from(tasks)
+									.where(eq(tasks.portalFormId, formId)),
+							),
+						),
+					)
+					.returning({ id: portalForms.id }),
 			);
+			if (gone.length > 0) {
+				track("portal_form.deleted", { eventId: event.id, formId });
+				return redirect("/admin/portal-forms", {
+					headers: { "Server-Timing": timings.header() },
+				});
+			}
 		} catch (error) {
 			track("portal_form.delete_failed", {
 				eventId: event.id,
-				formId: existing.id,
+				formId,
 				error: errorMessage(error),
 			});
 			return {
 				formError: "Could not delete the portal form — please try again.",
 			} satisfies ActionResult;
 		}
-		track("portal_form.deleted", { eventId: event.id, formId: existing.id });
-		return redirect("/admin/portal-forms", {
-			headers: { "Server-Timing": timings.header() },
-		});
+		const [owned] = await db
+			.select({ id: portalForms.id })
+			.from(portalForms)
+			.where(and(eq(portalForms.id, formId), eq(portalForms.eventId, event.id)))
+			.limit(1);
+		if (!owned) {
+			return {
+				formError: "That portal form no longer exists.",
+			} satisfies ActionResult;
+		}
+		const [used] = await db
+			.select({ n: count() })
+			.from(tasks)
+			.where(eq(tasks.portalFormId, formId));
+		return {
+			formError: `In use by ${used?.n ?? 0} task${used?.n === 1 ? "" : "s"} — point ${used?.n === 1 ? "it" : "them"} at another completion first (Tasks → definitions).`,
+		} satisfies ActionResult;
 	}
 
 	return { formError: "Unknown action." } satisfies ActionResult;
@@ -349,7 +361,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 type DraftField = {
 	key: number;
 	name: string;
-	type: (typeof PORTAL_FIELD_TYPES)[number];
+	type: PortalFieldType;
 	required: boolean;
 	options: string;
 };
@@ -358,54 +370,44 @@ function toDrafts(schema: PortalFormFieldDef[]): DraftField[] {
 	return schema.map((f, i) => ({
 		key: i,
 		name: f.name,
-		type: PORTAL_FIELD_TYPES.includes(
-			f.type as (typeof PORTAL_FIELD_TYPES)[number],
-		)
-			? (f.type as (typeof PORTAL_FIELD_TYPES)[number])
+		type: PORTAL_FIELD_TYPES.includes(f.type as PortalFieldType)
+			? (f.type as PortalFieldType)
 			: "text",
 		required: f.required,
 		options: (f.options ?? []).join(", "),
 	}));
 }
 
+/** THE draft→field conversion — the save payload and the speaker preview must
+ * come from the same function or the preview drifts from what gets saved. */
+function draftToField(f: DraftField): PortalFormFieldDef {
+	return {
+		name: f.name.trim(),
+		type: f.type,
+		required: f.required,
+		...(f.type === "dropdown"
+			? {
+					options: f.options
+						.split(",")
+						.map((o) => o.trim())
+						.filter((o) => o !== ""),
+				}
+			: {}),
+	};
+}
+
 function serializeDrafts(drafts: DraftField[]): string {
-	return JSON.stringify(
-		drafts.map((f) => ({
-			name: f.name.trim(),
-			type: f.type,
-			required: f.required,
-			...(f.type === "dropdown"
-				? {
-						options: f.options
-							.split(",")
-							.map((o) => o.trim())
-							.filter((o) => o !== ""),
-					}
-				: {}),
-		})),
-	);
+	return JSON.stringify(drafts.map(draftToField));
 }
 
 /** What the speaker will see, from the in-progress draft (nameless rows wait). */
 function previewSchema(drafts: DraftField[]): PortalFormFieldDef[] {
 	const seen = new Set<string>();
 	const out: PortalFormFieldDef[] = [];
-	for (const f of drafts) {
-		const name = f.name.trim();
-		if (name === "" || seen.has(name)) continue;
-		seen.add(name);
-		out.push({
-			name,
-			type: f.type,
-			required: f.required,
-			options:
-				f.type === "dropdown"
-					? f.options
-							.split(",")
-							.map((o) => o.trim())
-							.filter((o) => o !== "")
-					: undefined,
-		});
+	for (const f of drafts.map(draftToField)) {
+		if (f.name === "" || seen.has(f.name)) continue;
+		seen.add(f.name);
+		out.push(f);
 	}
 	return out;
 }
@@ -515,8 +517,7 @@ function FormEditor({
 										value={f.type}
 										onChange={(e) =>
 											patch(f.key, {
-												type: e.currentTarget
-													.value as (typeof PORTAL_FIELD_TYPES)[number],
+												type: e.currentTarget.value as PortalFieldType,
 											})
 										}
 									>
@@ -632,11 +633,9 @@ function FormEditor({
 							label="Confirmation message (optional — a default thank-you is sent if blank)"
 							error={errors?.confirmationHtml?.[0]}
 						>
-							<Textarea
+							<RichText
 								name="confirmationHtml"
-								rows={3}
 								defaultValue={editing?.confirmationHtml ?? ""}
-								placeholder="Thanks — the travel team will confirm your booking within a week."
 							/>
 						</Field>
 					)}

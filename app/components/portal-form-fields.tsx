@@ -1,5 +1,18 @@
 import { Checkbox, Field, Input, Select, Textarea } from "~/ui";
 
+/** The field types this renderer draws — the builder offers exactly these.
+ * Anything else (legacy rows) falls back to a plain text input below. */
+export const PORTAL_FIELD_TYPES = [
+	"text",
+	"textarea",
+	"dropdown",
+	"checkbox",
+	"number",
+	"date",
+] as const;
+
+export type PortalFieldType = (typeof PORTAL_FIELD_TYPES)[number];
+
 export type PortalFormFieldDef = {
 	name: string;
 	type: string;

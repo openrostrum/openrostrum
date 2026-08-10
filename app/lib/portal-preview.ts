@@ -7,28 +7,18 @@
  * auth session is never swapped.
  */
 
+import { and, eq } from "drizzle-orm";
+import type { Db } from "~/db";
+import { contacts } from "~/db/schema";
+import { cookieHeader, readCookie } from "~/lib/cookies";
+
 const COOKIE = "__portal_preview";
 const PREVIEW_TTL_SECONDS = 60 * 60 * 2;
-
-function cookieHeader(
-	value: string,
-	maxAgeSeconds: number,
-	secure: boolean,
-): string {
-	const attrs = [
-		`${COOKIE}=${value}`,
-		"Path=/",
-		"HttpOnly",
-		"SameSite=Lax",
-		`Max-Age=${maxAgeSeconds}`,
-	];
-	if (secure) attrs.push("Secure");
-	return attrs.join("; ");
-}
 
 /** `Set-Cookie` value that starts previewing the given contact. */
 export function startPreviewCookie(contactId: string, secure: boolean): string {
 	return cookieHeader(
+		COOKIE,
 		encodeURIComponent(contactId),
 		PREVIEW_TTL_SECONDS,
 		secure,
@@ -37,20 +27,30 @@ export function startPreviewCookie(contactId: string, secure: boolean): string {
 
 /** `Set-Cookie` value that ends the preview. */
 export function clearPreviewCookie(secure: boolean): string {
-	return cookieHeader("", 0, secure);
+	return cookieHeader(COOKIE, "", 0, secure);
+}
+
+/** The contact the preview cookie names, verified to belong to `eventId` —
+ * or null. Authorization is NOT checked here: callers must verify the session
+ * user may preview this event (admin role + org membership). */
+export async function previewContactForEvent(
+	db: Db,
+	request: Request,
+	eventId: string,
+): Promise<typeof contacts.$inferSelect | null> {
+	const contactId = readPreviewContactId(request);
+	if (!contactId) return null;
+	const [contact] = await db
+		.select()
+		.from(contacts)
+		.where(and(eq(contacts.id, contactId), eq(contacts.eventId, eventId)))
+		.limit(1);
+	return contact ?? null;
 }
 
 /** The contact id the preview cookie names, or null. Authorization is NOT
  * checked here — callers must verify the session user may preview it. */
 export function readPreviewContactId(request: Request): string | null {
-	const header = request.headers.get("Cookie");
-	if (!header) return null;
-	for (const part of header.split(";")) {
-		const [name, ...rest] = part.trim().split("=");
-		if (name === COOKIE) {
-			const value = rest.join("=");
-			return value === "" ? null : decodeURIComponent(value);
-		}
-	}
-	return null;
+	const value = readCookie(request, COOKIE);
+	return value ? decodeURIComponent(value) : null;
 }

@@ -4,12 +4,11 @@ import { data, Form, redirect } from "react-router";
 import { getDb } from "~/db";
 import { contacts, portals } from "~/db/schema";
 import { getActiveEvent, isSecureRequest, requireAdmin } from "~/lib/auth";
-import { errorMessage } from "~/lib/errors";
 import { formatDateUTC } from "~/lib/format";
 import { likeContains } from "~/lib/like";
 import {
 	clearPreviewCookie,
-	readPreviewContactId,
+	previewContactForEvent,
 	startPreviewCookie,
 } from "~/lib/portal-preview";
 import { portalUrl } from "~/lib/portal-url";
@@ -86,8 +85,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		: undefined;
 	const contactScope = and(eq(contacts.eventId, event.id), contactSearch);
 
-	const previewContactId = readPreviewContactId(request);
-
 	const result = await timings.time("db", async () => {
 		const portalRows = await db
 			.select({
@@ -114,21 +111,13 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			.select({ n: count() })
 			.from(contacts)
 			.where(contactScope);
-		let previewing: { contactName: string } | null = null;
-		if (previewContactId) {
-			const [c] = await db
-				.select({ firstName: contacts.firstName, lastName: contacts.lastName })
-				.from(contacts)
-				.where(
-					and(
-						eq(contacts.id, previewContactId),
-						eq(contacts.eventId, event.id),
-					),
-				)
-				.limit(1);
-			if (c)
-				previewing = { contactName: `${c.firstName} ${c.lastName}`.trim() };
-		}
+		const previewContact = await previewContactForEvent(db, request, event.id);
+		const previewing = previewContact
+			? {
+					contactName:
+						`${previewContact.firstName} ${previewContact.lastName}`.trim(),
+				}
+			: null;
 		const origin = url.origin;
 		return {
 			...empty,
@@ -204,7 +193,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			track("portal.preview_refused", {
 				userId: user.id,
 				eventId: event.id,
-				error: errorMessage("contact or portal outside the active event"),
+				reason: "contact or portal outside the active event",
 			});
 			return {
 				formError:

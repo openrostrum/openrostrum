@@ -20,7 +20,7 @@ import {
 } from "~/db/schema";
 import { normalizeEmail, userCanAccessEvent } from "~/lib/auth";
 import { formatDateUTC } from "~/lib/format";
-import { readPreviewContactId } from "~/lib/portal-preview";
+import { previewContactForEvent } from "~/lib/portal-preview";
 import { isOverdue } from "~/lib/task-status";
 import type { BadgeTone } from "~/ui";
 
@@ -123,15 +123,8 @@ export async function getPortalContext(
 		.limit(1);
 	if (!portal) throw data(null, { status: 404 });
 
-	const previewContactId = readPreviewContactId(request);
-	if (previewContactId && user.role === "admin") {
-		const [previewContact] = await db
-			.select()
-			.from(contacts)
-			.where(
-				and(eq(contacts.id, previewContactId), eq(contacts.eventId, event.id)),
-			)
-			.limit(1);
+	if (user.role === "admin") {
+		const previewContact = await previewContactForEvent(db, request, event.id);
 		if (previewContact && (await userCanAccessEvent(env, user.id, event.id))) {
 			if (request.method !== "GET" && request.method !== "HEAD") {
 				throw data(null, { status: 403 });
