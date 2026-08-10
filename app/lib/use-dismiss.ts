@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from "react";
 
-/** Popover dismissal: pointerdown outside `ref` or Escape closes it. Shared
- * by every popover-style component (EventSwitcher, ThemeToggle). */
+/** The one popover-dismissal implementation — extend it here, never as a
+ * private copy in a component. */
 export function useDismiss(
 	ref: RefObject<HTMLElement | null>,
 	open: boolean,
