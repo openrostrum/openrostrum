@@ -376,7 +376,7 @@ describe("accept auto-provisioning", () => {
 		expect(await d.select().from(taskAssignments)).toHaveLength(6);
 	});
 
-	it("a speaker's second accepted submission cannot re-mint a taken submission task — and says so", async () => {
+	it("a speaker's second accepted submission mints its own submission-task assignment; re-accepting either changes nothing", async () => {
 		const d = await seedBase();
 		await seedOnboardingTasks();
 		const first = await insertSubmission({ status: "pending", title: "First" });
@@ -394,16 +394,63 @@ describe("accept auto-provisioning", () => {
 		await transitionSubmissions(d, [first], "accepted");
 		await transitionSubmissions(d, [second], "accepted");
 
-		// unique(taskId, contactId) caps submission-scoped tasks at one per
-		// contact: the second accept keeps the first submission's assignment.
+		// Submission-scoped tasks are one per (task, contact, submission): each
+		// accepted talk carries its own slides upload.
 		const slides = await d
 			.select()
 			.from(taskAssignments)
 			.where(eq(taskAssignments.taskId, "task_slides"));
-		expect(slides).toHaveLength(1);
-		expect(slides[0]?.submissionId).toBe(first.id);
-		// Contact-scoped tasks are shared per person — still exactly one each.
-		expect(await d.select().from(taskAssignments)).toHaveLength(3);
+		expect(slides.map((a) => a.submissionId).sort()).toEqual(
+			[first.id, second.id].sort(),
+		);
+		expect(slides.every((a) => a.contactId === "c_marco")).toBe(true);
+		// Contact-scoped tasks stay shared per person — exactly one each.
+		expect(await d.select().from(taskAssignments)).toHaveLength(4);
+
+		// Re-accepting EITHER submission is an idempotent replay: nothing new.
+		const fresh = await d.select().from(submissions);
+		const byId = new Map(fresh.map((s) => [s.id, s]));
+		const fresh1 = byId.get(first.id);
+		const fresh2 = byId.get(second.id);
+		if (!fresh1 || !fresh2) throw new Error("missing fixture");
+		await transitionSubmissions(d, [fresh1], "accepted");
+		await transitionSubmissions(d, [fresh2], "accepted");
+		const after = await d.select().from(taskAssignments);
+		expect(after).toHaveLength(4);
+		expect(
+			after
+				.filter((a) => a.taskId === "task_slides")
+				.map((a) => a.id)
+				.sort(),
+		).toEqual(slides.map((a) => a.id).sort());
+	});
+
+	it("accepting a speaker's two submissions in ONE bulk call plans contact tasks once and submission tasks per talk", async () => {
+		const d = await seedBase();
+		await seedOnboardingTasks();
+		const first = await insertSubmission({ status: "pending", title: "First" });
+		const second = await insertSubmission({
+			status: "pending",
+			title: "Second",
+		});
+		await addSpeaker(first.id, "c_marco", "marco@example.com");
+		await d.insert(participants).values({
+			submissionId: second.id,
+			contactId: "c_marco",
+			role: "speaker",
+		});
+
+		await transitionSubmissions(d, [first, second], "accepted");
+
+		const assignments = await d.select().from(taskAssignments);
+		// hotel + flight (shared) + one slides row per accepted talk.
+		expect(assignments).toHaveLength(4);
+		expect(
+			assignments
+				.filter((a) => a.taskId === "task_slides")
+				.map((a) => a.submissionId)
+				.sort(),
+		).toEqual([first.id, second.id].sort());
 	});
 
 	it("the decline path keeps a withdrawal's who/when/why — including through the queue", async () => {
