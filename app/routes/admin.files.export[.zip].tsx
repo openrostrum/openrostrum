@@ -1,15 +1,17 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
-import { contacts, files, submissions } from "~/db/schema";
-import { GROUP_KEY_SQL, groupKeyOf, sanitizeFileName } from "~/domain/files";
+import { contacts, submissions } from "~/db/schema";
+import { rankedChainsSql, sanitizeFileName } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { errorMessage } from "~/lib/errors";
 import { track } from "~/lib/track";
 import { zipStream } from "~/lib/zip";
 import type { Route } from "./+types/admin.files.export[.zip]";
 
-// No zip64 support in the writer; cap what one archive may carry.
-const MAX_TOTAL_BYTES = 3.5 * 1024 * 1024 * 1024;
+// No zip64 in the writer, and CRC-32 is per-byte JS CPU — cap at what the
+// 30 s Worker CPU budget comfortably survives, not at the format's 4 GB edge.
+const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
 const MAX_ENTRIES = 10_000;
 
 /**
@@ -32,16 +34,24 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		throw data("Select at least one file to export.", { status: 400 });
 	}
 
-	// Selected ids (whatever version they point at) resolve to chain keys, and
-	// every resolution is scoped to the ACTIVE event — foreign ids drop out.
-	let selectedKeys: string[] | null = null;
+	const ranked = rankedChainsSql(event.id);
+	// Selected ids (whatever version they point at) resolve to chain keys —
+	// inside the event-scoped ranking, so foreign ids simply drop out.
+	let chainFilter = sql``;
 	if (!all) {
-		const selected = await db
-			.select()
-			.from(files)
-			.where(and(inArray(files.id, fileIds), eq(files.eventId, event.id)));
-		selectedKeys = [...new Set(selected.map(groupKeyOf))];
-		if (selectedKeys.length === 0) throw data(null, { status: 404 });
+		const idList = sql.join(
+			fileIds.map((id) => sql`${id}`),
+			sql`, `,
+		);
+		const keys = await db.all<{ grp: string }>(
+			sql`select distinct grp from ${ranked} r where r.id in (${idList})`,
+		);
+		if (keys.length === 0) throw data(null, { status: 404 });
+		const keyList = sql.join(
+			keys.map((k) => sql`${k.grp}`),
+			sql`, `,
+		);
+		chainFilter = sql` and r.grp in (${keyList})`;
 	}
 
 	const latest = await db.all<{
@@ -53,24 +63,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		contact_id: string | null;
 	}>(sql`
 		select id, r2_key, file_name, size_bytes, submission_id, contact_id
-		from (
-			select ${files}.*,
-				${GROUP_KEY_SQL} as grp,
-				row_number() over (
-					partition by ${GROUP_KEY_SQL}
-					order by ${files.version} desc, ${files.createdAt} desc, ${files.id} desc
-				) as rn
-			from ${files}
-			where ${files.eventId} = ${event.id}
-		) r
-		where r.rn = 1${
-			selectedKeys
-				? sql` and r.grp in (${sql.join(
-						selectedKeys.map((k) => sql`${k}`),
-						sql`, `,
-					)})`
-				: sql``
-		}
+		from ${ranked} r
+		where r.rn = 1${chainFilter}
 		order by r.submission_id, r.file_name`);
 	if (latest.length === 0) {
 		throw data("Nothing to export yet — no files match.", { status: 404 });
@@ -83,7 +77,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const totalBytes = latest.reduce((sum, f) => sum + (f.size_bytes ?? 0), 0);
 	if (totalBytes > MAX_TOTAL_BYTES) {
 		throw data(
-			"This selection exceeds the 3.5 GB archive limit — narrow the selection.",
+			"This selection exceeds the 1 GB archive limit — narrow the selection.",
 			{ status: 400 },
 		);
 	}
@@ -102,22 +96,32 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		),
 	}));
 
+	const eventId = event.id;
 	track("file.zip_export", {
-		eventId: event.id,
+		eventId,
 		files: entries.length,
 		totalBytes,
 		scope: all ? "all" : "selection",
 	});
 
 	async function* sources() {
-		for (const entry of entries) {
-			const object = await env.BLOBS.get(entry.r2Key);
-			// A row without its blob is corrupt state — surface it, never ship a
-			// silently incomplete archive.
-			if (!object) {
-				throw new Error(`missing blob for file ${entry.fileId}`);
+		try {
+			for (const entry of entries) {
+				const object = await env.BLOBS.get(entry.r2Key);
+				// A row without its blob is corrupt state — surface it, never ship
+				// a silently incomplete archive.
+				if (!object) {
+					throw new Error(`missing blob for file ${entry.fileId}`);
+				}
+				yield { path: entry.path, body: object.body };
 			}
-			yield { path: entry.path, body: object.body };
+		} catch (error) {
+			// The 200 already went out — this is the only trace the failure leaves.
+			track("file.zip_export_failed", {
+				eventId,
+				error: errorMessage(error),
+			});
+			throw error;
 		}
 	}
 

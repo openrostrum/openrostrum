@@ -153,6 +153,48 @@ describe("central files library", () => {
 		expect((await loadLibrary("?status=none")).total).toBe(1);
 	});
 
+	it("treats %/_ in the search term as literals, not wildcards", async () => {
+		const db = await seedFilesWorld();
+		await db.insert(files).values([
+			{
+				id: "f_kit",
+				eventId: "e1",
+				r2Key: "t/kit",
+				fileName: "speaker_kit.pdf",
+				kind: "doc",
+				version: 1,
+			},
+			{
+				id: "f_deck",
+				eventId: "e1",
+				r2Key: "t/deck",
+				fileName: "speakerXkit.pdf",
+				kind: "doc",
+				version: 1,
+			},
+		]);
+		// "_" must match ONLY the literal underscore, never act as single-char wildcard
+		const underscore = await loadLibrary("?q=speaker_kit");
+		expect(underscore.rows.map((r) => r.fileName)).toEqual(["speaker_kit.pdf"]);
+		// "%" is a literal too — no file contains one, so nothing matches
+		expect((await loadLibrary("?q=%25")).total).toBe(0);
+	});
+
+	it("filters to one session's files via ?submission=", async () => {
+		const db = await seedSlidesChain();
+		await db.insert(files).values({
+			id: "f_talkb",
+			eventId: "e1",
+			submissionId: "s2",
+			r2Key: "t/talkb",
+			fileName: "deck.pdf",
+			kind: "slides",
+			version: 1,
+		});
+		const filtered = await loadLibrary("?submission=s1");
+		expect(filtered.rows.map((r) => r.fileName)).toEqual(["slides.pdf"]);
+	});
+
 	it("never mixes another event's files into the library", async () => {
 		const db = await seedSlidesChain();
 		await db.insert(files).values({
@@ -273,6 +315,27 @@ describe("file detail — versions, review, comments", () => {
 		]);
 		// speaker's comment stays attributed to the version it was made on
 		expect(detail.comments[0]?.version).toBe(1);
+	});
+
+	it("rejects an over-long deny note without touching the file or the task", async () => {
+		const db = await seedSlidesChain();
+		const result = unwrap<{ fieldErrors?: Record<string, string[]> }>(
+			await postDetail("f_slides_v2", {
+				intent: "deny",
+				reviewNote: "x".repeat(2001),
+			}),
+		);
+		expect(result.fieldErrors?.reviewNote?.[0]).toBeTruthy();
+		const [file] = await db
+			.select()
+			.from(files)
+			.where(eq(files.id, "f_slides_v2"));
+		expect(file?.reviewStatus).toBe("pending");
+		const [assignment] = await db
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.id, "ta_priya_slides"));
+		expect(assignment?.status).toBe("pending_feedback");
 	});
 
 	it("rejects an empty comment without writing a row", async () => {

@@ -147,6 +147,9 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 		});
 	};
 	const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+	const filteredSession = submissionId
+		? (sessionOptions.find((s) => s.id === submissionId) ?? null)
+		: null;
 	const filterQuery = (target: number) => {
 		const params = new URLSearchParams();
 		if (q) params.set("q", q);
@@ -206,6 +209,9 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 			</Panel>
 
 			<Form method="get" className="flex flex-wrap items-end gap-3">
+				{submissionId && (
+					<Input type="hidden" name="submission" value={submissionId} />
+				)}
 				<SearchInput
 					name="q"
 					defaultValue={q}
@@ -222,6 +228,11 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 				<Button type="submit" variant="ghost" icon="filter">
 					Filter
 				</Button>
+				{filteredSession && (
+					<StatusBadge tone="info">
+						Session: {filteredSession.title}
+					</StatusBadge>
+				)}
 				{(q || status || submissionId) && (
 					<TextLink to="/admin/files">Clear filters</TextLink>
 				)}
@@ -277,7 +288,15 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 							<Td kind="strong">
 								<TextLink to={`/admin/files/${f.id}`}>{f.fileName}</TextLink>
 							</Td>
-							<Td>{f.submissionTitle ?? "—"}</Td>
+							<Td>
+								{f.submissionId ? (
+									<TextLink to={`/admin/files?submission=${f.submissionId}`}>
+										{f.submissionTitle ?? "Untitled session"}
+									</TextLink>
+								) : (
+									"—"
+								)}
+							</Td>
 							<Td>{f.speakerName ?? "—"}</Td>
 							<Td kind="mono">
 								v{f.version} · {f.versionCount} version

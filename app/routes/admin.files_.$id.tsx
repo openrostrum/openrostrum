@@ -28,6 +28,7 @@ import { createTimings, track } from "~/lib/track";
 import {
 	Button,
 	ButtonLink,
+	EmptyState,
 	ErrorText,
 	Field,
 	Input,
@@ -171,6 +172,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				});
 			}
 			const note = String(form.get("reviewNote") ?? "").trim();
+			if (note.length > 2000) {
+				return withTimings({
+					fieldErrors: {
+						reviewNote: ["Keep the note under 2,000 characters."],
+					},
+				});
+			}
 			await timings.time("db", () => setFileReview(db, latest, "denied", note));
 			track("file.denied", {
 				eventId: event.id,
@@ -346,10 +354,14 @@ export default function FileDetail({
 						)}
 						<Form method="post" className="flex flex-wrap items-end gap-2">
 							<Input type="hidden" name="intent" value="deny" />
-							<Field label="Note to the speaker (optional)">
+							<Field
+								label="Note to the speaker (optional)"
+								error={actionData?.fieldErrors?.reviewNote?.[0]}
+							>
 								<Input
 									name="reviewNote"
 									placeholder="Why it needs a re-upload"
+									maxLength={2000}
 								/>
 							</Field>
 							<Button type="submit" variant="ghost">
@@ -378,7 +390,7 @@ export default function FileDetail({
 						</THead>
 						<TBody>
 							{versions.map((v, i) => (
-								<Tr key={v.id} selected={i === 0}>
+								<Tr key={v.id}>
 									<Td kind="mono">
 										<div className="flex items-center gap-2">
 											v{v.version}
@@ -416,20 +428,19 @@ export default function FileDetail({
 				<div className="mt-3 flex flex-col gap-3">
 					{comments.map((c) => (
 						<div key={c.id} className="flex flex-col gap-1">
-							<div className="flex items-center gap-2">
-								<span>
-									<strong>{c.author}</strong>
-								</span>
-								<span>
-									{c.on}
-									{c.version ? ` · on v${c.version}` : ""}
-								</span>
-							</div>
+							<span>
+								{c.author} · {c.on}
+								{c.version ? ` · on v${c.version}` : ""}
+							</span>
 							<p>{c.body}</p>
 						</div>
 					))}
 					{comments.length === 0 && (
-						<p>No comments yet — start the thread below.</p>
+						<EmptyState
+							icon="mail"
+							title="No comments yet"
+							body="Start the thread below — the speaker sees replies on this file in their portal."
+						/>
 					)}
 					<Form method="post" className="flex flex-wrap items-end gap-3">
 						<Input type="hidden" name="intent" value="comment" />
