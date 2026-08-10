@@ -1,10 +1,10 @@
 import type { ComponentPropsWithoutRef } from "react";
 
 /**
- * Multi-line counterpart of ~/ui's Input, requested for adoption into app/ui
- * (integration-owned — feature lanes cannot edit it). It mirrors Input's
- * control recipe token-for-token, so a token re-skin restyles both
- * identically; adopt by moving this file, changing nothing.
+ * Multi-line counterpart of ~/ui's Input, mirroring its control recipe
+ * token-for-token so a token re-skin restyles both identically. It lives here
+ * only because app/ui is integration-owned and hook-guarded against feature
+ * worktrees.
  */
 type TextareaProps = Omit<
 	ComponentPropsWithoutRef<"textarea">,

@@ -6,7 +6,7 @@ import {
 	type RecipientSelection,
 	resolveRecipients,
 } from "~/domain/contacts";
-import { Textarea } from "~/features/contacts/textarea";
+import { Textarea } from "~/components/textarea";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import {
 	MERGE_TAGS,
@@ -441,22 +441,12 @@ export default function ComposeBulkEmail({
 
 					<Panel>
 						<Form method="post" className="flex flex-col gap-3">
+							{/* Snapshot the RESOLVED set: "Send to N speakers" targets exactly
+							    the names listed above, even if the roster changes mid-compose. */}
 							<Input
 								type="hidden"
 								name="ids"
-								value={selection.ids?.join(",") ?? ""}
-								readOnly
-							/>
-							<Input
-								type="hidden"
-								name="q"
-								value={selection.q ?? ""}
-								readOnly
-							/>
-							<Input
-								type="hidden"
-								name="status"
-								value={selection.status ?? ""}
+								value={recipients.map((r) => r.id).join(",")}
 								readOnly
 							/>
 							<Input type="hidden" name="sendKey" value={sendKey} readOnly />

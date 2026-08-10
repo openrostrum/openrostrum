@@ -15,8 +15,9 @@ import {
 	tasks,
 	users,
 } from "~/db/schema";
-import { ConfirmDialog } from "~/features/contacts/confirm-dialog";
-import { Textarea } from "~/features/contacts/textarea";
+import { ConfirmButton } from "~/components/confirm-button";
+import { RichTextEditor } from "~/components/rich-text";
+import { Textarea } from "~/components/textarea";
 import {
 	getActiveEvent,
 	hasSetPassword,
@@ -25,9 +26,10 @@ import {
 	requireAdmin,
 } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
-import { formatDateUTC } from "~/lib/format";
-import { escapeHtml } from "~/lib/html";
+import { formatDateUTC, textLength } from "~/lib/format";
+import { escapeHtml, sanitizeHtml } from "~/lib/html";
 import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
+import { TASK_STATUS_LABEL, TASK_STATUS_TONE } from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
 import {
@@ -329,12 +331,23 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			invited: false,
 		};
 	}
+	// Bio is rich text shared with the portal profile — sanitize on every
+	// write path, and cap by TEXT length (an HTML-length cap would let markup
+	// eat the allowance).
+	const bio = parsed.data.bio ? await sanitizeHtml(parsed.data.bio) : null;
+	if (bio && textLength(bio) > 5000) {
+		return {
+			fieldErrors: { bio: ["Keep the biography under 5,000 characters."] },
+			formError: undefined,
+			invited: false,
+		};
+	}
 	const timings = createTimings();
 	try {
 		await timings.time("db", () =>
 			db
 				.update(contacts)
-				.set(parsed.data)
+				.set({ ...parsed.data, bio: bio || null })
 				.where(
 					and(eq(contacts.id, contact.id), eq(contacts.eventId, event.id)),
 				),
@@ -390,7 +403,6 @@ export default function ContactRecord({
 		saved,
 	} = loaderData;
 	const name = `${contact.firstName} ${contact.lastName}`.trim();
-	const [confirmingDelete, setConfirmingDelete] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const fieldErrors = actionData?.fieldErrors;
 
@@ -425,13 +437,15 @@ export default function ContactRecord({
 								Send portal invite
 							</Button>
 						</Form>
-						<Button
-							type="button"
-							variant="ghost"
-							onClick={() => setConfirmingDelete(true)}
-						>
-							Delete
-						</Button>
+						<Form method="post">
+							<ConfirmButton
+								label="Delete"
+								prompt={`Delete ${name}? Their session roles and task assignments go too; sessions are kept. This cannot be undone.`}
+								confirmLabel="Delete contact"
+								name="intent"
+								value="delete"
+							/>
+						</Form>
 					</>
 				}
 			/>
@@ -565,9 +579,13 @@ export default function ContactRecord({
 							/>
 						</Field>
 					</div>
-					<Field label="Bio">
-						<Textarea name="bio" rows={5} defaultValue={contact.bio ?? ""} />
-					</Field>
+					<RichTextEditor
+						name="bio"
+						label="Bio"
+						defaultValue={contact.bio ?? ""}
+						maxLength={5000}
+						error={fieldErrors?.bio?.[0]}
+					/>
 					<Field label="Travel & logistics notes">
 						<Textarea
 							name="logisticsNotes"
@@ -625,10 +643,8 @@ export default function ContactRecord({
 								<Td kind="strong">{a.name}</Td>
 								<Td kind="mono">{formatDate(a.dueAt)}</Td>
 								<Td>
-									<StatusBadge
-										tone={a.status === "complete" ? "success" : "warning"}
-									>
-										{a.status.replace("_", " ")}
+									<StatusBadge tone={TASK_STATUS_TONE[a.status] ?? "neutral"}>
+										{TASK_STATUS_LABEL[a.status] ?? a.status}
 									</StatusBadge>
 								</Td>
 							</Tr>
@@ -671,21 +687,6 @@ export default function ContactRecord({
 					</TBody>
 				</Table>
 			</div>
-
-			{confirmingDelete && (
-				<ConfirmDialog
-					title={`Delete ${name}?`}
-					body="This removes their profile, session roles, and task assignments for this event. Their sessions themselves are kept. This cannot be undone."
-					onCancel={() => setConfirmingDelete(false)}
-					actions={
-						<Form method="post">
-							<Button type="submit" name="intent" value="delete">
-								Delete contact
-							</Button>
-						</Form>
-					}
-				/>
-			)}
 		</div>
 	);
 }
