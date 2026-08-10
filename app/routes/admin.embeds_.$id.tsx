@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { data, Form, redirect } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
 import { embeds } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
@@ -18,7 +19,6 @@ import {
 	StatusBadge,
 	TextLink,
 } from "~/ui";
-import { CopyFieldButton } from "~/widgets";
 import {
 	EMBED_HIDEABLE_FIELDS,
 	EMBED_TYPE_LABELS,
@@ -175,7 +175,13 @@ function SnippetRow({ label, value }: { label: string; value: string }) {
 					/>
 				</Field>
 			</div>
-			<CopyFieldButton value={value} />
+			<CopyButton
+				value={value}
+				copiedLabel="Copied"
+				failedLabel={null}
+				resetAfterMs={1600}
+				icon={null}
+			/>
 		</div>
 	);
 }

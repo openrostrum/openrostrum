@@ -16,6 +16,7 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { CopyButton } from "~/components/copy-button";
 import { RichText as RichTextInput } from "~/ui/rich-text-lazy";
 import {
 	and,
@@ -1418,34 +1419,6 @@ function ruleSummary(
 	return `${label} ${OPERATOR_LABEL[rule.operator] ?? rule.operator} “${valueLabel}”`;
 }
 
-function CopyLinkButton({ url }: { url: string }) {
-	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-	useEffect(() => {
-		if (state === "idle") return;
-		const t = setTimeout(() => setState("idle"), 2500);
-		return () => clearTimeout(t);
-	}, [state]);
-	return (
-		<Button
-			type="button"
-			variant="ghost"
-			icon="export"
-			onClick={() => {
-				navigator.clipboard
-					?.writeText(url)
-					.then(() => setState("copied"))
-					.catch(() => setState("failed"));
-			}}
-		>
-			{state === "copied"
-				? "Copied!"
-				: state === "failed"
-					? "Copy failed — select the link"
-					: "Copy link"}
-		</Button>
-	);
-}
-
 function FormTabs({
 	formId,
 	active,
@@ -2478,7 +2451,11 @@ function Builder({
 							/>
 						</Field>
 					</div>
-					<CopyLinkButton url={d.publicUrl} />
+					<CopyButton
+						value={d.publicUrl}
+						label="Copy link"
+						failedLabel="Copy failed — select the link"
+					/>
 					<ButtonLink variant="ghost" to={d.publicUrl}>
 						View form
 					</ButtonLink>

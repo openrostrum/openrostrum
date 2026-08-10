@@ -3,6 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { useState } from "react";
 import { data, Form, redirect } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
 import { embeds } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
@@ -26,7 +27,6 @@ import {
 	THead,
 	Tr,
 } from "~/ui";
-import { CopyFieldButton } from "~/widgets";
 import { EMBED_TYPE_LABELS } from "~/lib/program-types";
 import type { Route } from "./+types/admin.embeds";
 
@@ -254,7 +254,13 @@ export default function AdminEmbeds({
 								<Td kind="mono">
 									<span className="inline-flex items-center gap-2">
 										{`/embed/${row.publicId.slice(0, 8)}…`}
-										<CopyFieldButton value={shareUrl} />
+										<CopyButton
+											value={shareUrl}
+											copiedLabel="Copied"
+											failedLabel={null}
+											resetAfterMs={1600}
+											icon={null}
+										/>
 									</span>
 								</Td>
 								<Td>

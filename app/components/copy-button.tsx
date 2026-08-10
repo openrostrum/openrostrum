@@ -1,37 +1,60 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { Button } from "~/ui";
+import type { IconName } from "~/ui/icon";
+
+export type CopyButtonProps = {
+	value: string;
+	label?: string;
+	copiedLabel?: string;
+	failedLabel?: string | null;
+	resetAfterMs?: number | null;
+	icon?: IconName | null;
+	optimistic?: boolean;
+	onFailure?: () => void;
+};
 
 /** The shared copy-to-clipboard button — compose this one, never another one-off. */
 export function CopyButton({
 	value,
 	label = "Copy",
+	copiedLabel = "Copied!",
 	failedLabel = "Copy failed",
-}: {
-	value: string;
-	/** Idle label — name what gets copied (e.g. "Copy CFP link"). */
-	label?: string;
-	failedLabel?: string;
-}) {
+	resetAfterMs = 2500,
+	icon = "export",
+	optimistic = false,
+	onFailure,
+}: CopyButtonProps): JSX.Element {
 	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
 	useEffect(() => {
-		if (state === "idle") return;
-		const t = setTimeout(() => setState("idle"), 2500);
-		return () => clearTimeout(t);
-	}, [state]);
+		if (state === "idle" || resetAfterMs === null) return;
+		const timeout = setTimeout(() => setState("idle"), resetAfterMs);
+		return () => clearTimeout(timeout);
+	}, [resetAfterMs, state]);
+
+	function copy() {
+		const write = navigator.clipboard?.writeText(value);
+		if (optimistic) setState("copied");
+		if (!write) return;
+		write
+			.then(() => {
+				if (!optimistic) setState("copied");
+			})
+			.catch(() => {
+				onFailure?.();
+				if (!optimistic && failedLabel !== null) setState("failed");
+			});
+	}
+
 	return (
 		<Button
 			type="button"
 			variant="ghost"
-			icon="export"
-			onClick={() => {
-				navigator.clipboard
-					?.writeText(value)
-					.then(() => setState("copied"))
-					.catch(() => setState("failed"));
-			}}
+			icon={icon ?? undefined}
+			onClick={copy}
 		>
 			{state === "copied"
-				? "Copied!"
+				? copiedLabel
 				: state === "failed"
 					? failedLabel
 					: label}

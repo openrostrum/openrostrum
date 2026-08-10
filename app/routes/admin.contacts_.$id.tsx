@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
-import { useState } from "react";
 import { data, Form, isRouteErrorResponse, redirect } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { type Db, getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import {
@@ -464,7 +464,6 @@ export default function ContactRecord({
 		headshotUrl: headshotSrc,
 	} = loaderData;
 	const name = `${contact.firstName} ${contact.lastName}`.trim();
-	const [copied, setCopied] = useState(false);
 	const fieldErrors = actionData?.fieldErrors;
 
 	return (
@@ -551,16 +550,15 @@ export default function ContactRecord({
 									/>
 								</Field>
 							</div>
-							<Button
-								type="button"
-								variant="ghost"
-								onClick={() => {
-									void navigator.clipboard.writeText(inviteUrl);
-									setCopied(true);
-								}}
-							>
-								{copied ? "Copied" : "Copy link"}
-							</Button>
+							<CopyButton
+								value={inviteUrl}
+								label="Copy link"
+								copiedLabel="Copied"
+								failedLabel={null}
+								resetAfterMs={null}
+								icon={null}
+								optimistic
+							/>
 						</div>
 					)}
 				</div>

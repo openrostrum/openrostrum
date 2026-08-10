@@ -2,6 +2,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { useState } from "react";
 import { Form, data, redirect, useNavigation } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
 import {
 	organizationMembers,
@@ -513,7 +514,6 @@ async function removeMember(
 }
 
 function InviteLink({ id, link }: { id: string; link: string }) {
-	const [copied, setCopied] = useState(false);
 	const inputId = `invite-link-${id}`;
 	return (
 		<div className="flex items-center gap-2">
@@ -525,24 +525,18 @@ function InviteLink({ id, link }: { id: string; link: string }) {
 				aria-label="Invite link"
 				onFocus={(e) => e.currentTarget.select()}
 			/>
-			<Button
-				type="button"
-				variant="ghost"
-				onClick={async () => {
-					try {
-						await navigator.clipboard.writeText(link);
-						setCopied(true);
-						setTimeout(() => setCopied(false), 2000);
-					} catch {
-						// Clipboard is unavailable on insecure origins — select the
-						// text so a manual copy still works.
-						const el = document.getElementById(inputId);
-						if (el instanceof HTMLInputElement) el.select();
-					}
+			<CopyButton
+				value={link}
+				label="Copy link"
+				copiedLabel="Copied"
+				failedLabel={null}
+				resetAfterMs={2000}
+				icon={null}
+				onFailure={() => {
+					const input = document.getElementById(inputId);
+					if (input instanceof HTMLInputElement) input.select();
 				}}
-			>
-				{copied ? "Copied" : "Copy link"}
-			</Button>
+			/>
 		</div>
 	);
 }
