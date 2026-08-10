@@ -55,6 +55,9 @@ jobs:
   ai-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Required check that gates merge — cap the wall-clock so a stuck run can
+    # never block PRs indefinitely (the per-request timeout is in core.mjs).
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
