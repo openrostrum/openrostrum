@@ -7,6 +7,7 @@ import {
 	contacts,
 	events,
 	formats,
+	organizationMembers,
 	organizations,
 	participants,
 	rooms,
@@ -34,6 +35,11 @@ async function seedBaseline() {
 		role: "admin",
 	});
 	await db.insert(organizations).values({ id: "org1", name: "Org" });
+	// Membership gates admin event resolution (event → org → member).
+	await db.insert(organizationMembers).values({
+		organizationId: "org1",
+		userId: "u_admin",
+	});
 	await db.insert(events).values({
 		id: "e1",
 		organizationId: "org1",

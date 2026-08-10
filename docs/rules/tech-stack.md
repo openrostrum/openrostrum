@@ -28,7 +28,7 @@ The definitive stack for the Sessionboard clone. Cloudflare-native, TypeScript e
 | Data tables | **TanStack Table** (headless) | v8 |
 | Drag-and-drop | **dnd-kit** (agenda builder) | — |
 | Forms | **React Hook Form** + Zod resolver (pin resolver + zod together) | — |
-| Calendar files | **`ics`** (plain utility, not a port) | — |
+| Calendar files | **`app/lib/ics.ts`** — dependency-free RFC 5545 serializer, plain utility, not a port (the npm `ics` package's yup CJS chain fails to load in the workers vitest pool; owner may drop the unused dep) | — |
 | Auth | ownable session module in D1; hashing via **WebCrypto PBKDF2** (or native `node:crypto.scrypt`) | — |
 | Compat API (P1 #20) | **Hono** sub-app mounted on splat route `/api/v1/*` (one deployable, shared Drizzle/Zod) | — |
 | Package manager / bundler | **pnpm** / **Vite** | — |

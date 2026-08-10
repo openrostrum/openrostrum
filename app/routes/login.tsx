@@ -10,6 +10,7 @@ import {
 	homePathForRole,
 	isSecureRequest,
 	normalizeEmail,
+	safeRedirect,
 	verifyPassword,
 } from "~/lib/auth";
 import { Button, ErrorText, Field, Input, Panel, Wordmark } from "~/ui";
@@ -24,16 +25,6 @@ const Credentials = z.object({
 // exist, so the response time can't reveal whether an account exists.
 const DUMMY_HASH =
 	"pbkdf2$600000$nRz+NCgbip51gWKmrtbi5w==$aFZ0QBI/rzxCV3+hHj/erqG1ONnn4A2G4nQVWa5QGlM=";
-
-/** Same-origin internal path, or null if the target is external/unsafe
- * (blocks //host, /\host, scheme tricks). Caller falls back to the role home. */
-function safeRedirect(requested: string): string | null {
-	if (!requested.startsWith("/")) return null;
-	const resolved = new URL(requested, "http://sentinel.invalid");
-	return resolved.origin === "http://sentinel.invalid"
-		? resolved.pathname + resolved.search + resolved.hash
-		: null;
-}
 
 export async function loader({ context, request }: Route.LoaderArgs) {
 	if (await getUser(context.cloudflare.env, request)) throw redirect("/admin");
@@ -83,12 +74,18 @@ export default function Login({ actionData }: Route.ComponentProps) {
 						<Input
 							name="email"
 							type="email"
+							autoComplete="username"
 							required
 							placeholder="you@conference.org"
 						/>
 					</Field>
 					<Field label="Password">
-						<Input name="password" type="password" required />
+						<Input
+							name="password"
+							type="password"
+							autoComplete="current-password"
+							required
+						/>
 					</Field>
 					<Button type="submit">Sign in</Button>
 					{actionData?.error && <ErrorText>{actionData.error}</ErrorText>}

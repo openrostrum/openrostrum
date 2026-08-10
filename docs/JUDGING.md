@@ -10,6 +10,7 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
 |---|---|
 | App root (links every public surface) | `https://openrostrum.com/` |
 | Organizer admin | `/admin` (also `/dashboard`, `/organizer`) |
+| Organizer sign-up (own org + first event) | `/signup` → one-form onboarding → empty `/admin` |
 | Public CFP form | linked from the homepage; shape `/submit/<event-slug>/<form-id>` |
 | Speaker portal | `/portals/<event-slug>/<portal-id>` (linked from confirmation email + homepage) |
 | Reviewer dashboard | `/reviews` (reviewer role lands here after login) |
@@ -21,7 +22,7 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
 
 | Persona | Email | Notes |
 |---|---|---|
-| Organizer/admin | `admin@example.com` | Pre-seeded as a member of the "Demo" organization (the tenant the sandbox event lives in — multi-org per `docs/multi-tenancy-design.md`); organizer signup at `/signup` ships in a later wave and never exposes the Demo org to new sign-ups |
+| Organizer/admin | `admin@example.com` | Pre-seeded as a member of the "Demo" organization (the tenant the sandbox event lives in — multi-org per `docs/multi-tenancy-design.md`). Organizer sign-up is live at `/signup`: it creates a fresh account + its own organization + first event; new sign-ups never see the Demo org or its data, nor it theirs |
 | Reviewer | `reviewer@example.com` | Password login works; reviewer management also shows a **copyable invite link** for new reviewers |
 | Speaker | `speaker@example.com` pre-seeded, or sign up at the public CFP form | Email+password; no magic links anywhere |
 
@@ -38,6 +39,14 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
   widgets only when its content status is Approved (independent of the
   accept decision). The agenda/itinerary additionally require the agenda to be
   Published (button in the agenda builder).
+- **Org team invites carry a copyable link (no inbox needed).** At
+  `/admin/settings/team`, "Invite teammate" (name + email) creates a pending
+  invite whose full link is shown in the UI with a Copy button — the same link
+  is also emailed. Opening the link at `/set-password/<token>` sets a password
+  and lands the new member in `/admin` as an equal admin of the organization.
+  Any member may remove any member (in-app confirm, no native dialogs), except
+  the last one — that removal is refused with an inline message. Removing
+  yourself logs you out.
 - **Bot protection is disabled on this deployment** so browser agents can
   exercise the public form (the Turnstile port resolves to a no-op without
   keys).
