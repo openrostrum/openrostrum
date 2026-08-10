@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Form, Link, useNavigation } from "react-router";
+import { useDismiss } from "~/lib/use-dismiss";
 import { cn } from "~/ui/cn";
 import { Icon } from "~/ui";
 
@@ -28,21 +29,7 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 	// listMyEvents share one membership predicate), so no separate field.
 	const current = events.find((event) => event.isCurrent) ?? null;
 
-	useEffect(() => {
-		if (!open) return;
-		const onPointerDown = (e: PointerEvent) => {
-			if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") setOpen(false);
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [open]);
+	useDismiss(rootRef, open, setOpen);
 
 	return (
 		<div ref={rootRef} className="relative">

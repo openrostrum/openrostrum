@@ -50,9 +50,11 @@ export function Wordmark({
 
 export function Sidebar({
 	user,
+	themeControl,
 	children,
 }: {
 	user: { name: string | null; email: string };
+	themeControl?: ReactNode;
 	children: ReactNode;
 }) {
 	return (
@@ -71,6 +73,7 @@ export function Sidebar({
 						{user.email}
 					</div>
 				</div>
+				{themeControl}
 				<Form method="post" action="/logout">
 					<button
 						type="submit"
