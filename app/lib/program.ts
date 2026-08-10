@@ -158,16 +158,23 @@ export function stripHtml(html: string): string {
 
 const PUBLIC_ROLES = new Set(["speaker", "chairperson", "moderator"]);
 
+/** The two visibility literals — the predicate and the loadPublicSessions
+ * WHERE clause both consume these, so they cannot drift. */
+const PUBLIC_STATUS = "accepted";
+const PUBLIC_CONTENT_STATUS = "approved";
+
 /**
- * The public-visibility rule as a predicate — MUST stay the mirror of the
- * loadPublicSessions WHERE clause below. The agenda builder counts scheduled
- * rows this rejects to warn organizers what the published page withholds.
+ * The status/contentStatus slice of the public-visibility rule (event and
+ * parent/subsession scoping stay the query's own concern). The agenda counts
+ * scheduled rows this rejects to warn organizers what the page withholds.
  */
 export function isPubliclyVisible(s: {
 	status: string;
 	contentStatus: string;
 }): boolean {
-	return s.status === "accepted" && s.contentStatus === "approved";
+	return (
+		s.status === PUBLIC_STATUS && s.contentStatus === PUBLIC_CONTENT_STATUS
+	);
 }
 
 export async function loadPublicSessions(
@@ -191,8 +198,8 @@ export async function loadPublicSessions(
 		where: (s, { and: andOp, eq: eqOp, isNull }) =>
 			andOp(
 				eqOp(s.eventId, event.id),
-				eqOp(s.status, "accepted"),
-				eqOp(s.contentStatus, "approved"),
+				eqOp(s.status, PUBLIC_STATUS),
+				eqOp(s.contentStatus, PUBLIC_CONTENT_STATUS),
 				isNull(s.parentId),
 			),
 		with: {

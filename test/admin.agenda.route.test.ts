@@ -610,8 +610,8 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 	});
 
 	it("groups a speaker's changed sessions into ONE email whose .ics carries one VEVENT per session", async () => {
-		// K14's rationale: an afternoon of drag-and-drop must not fire an email
-		// per session — Marco speaks on both changed sessions and gets one message.
+		// An afternoon of drag-and-drop must not fire an email per session —
+		// Marco speaks on both changed sessions and gets one message.
 		const db = await invitedBaseline();
 		await db.insert(emailOutbox).values({
 			eventId: "e1",

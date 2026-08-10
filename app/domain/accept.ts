@@ -475,31 +475,7 @@ export async function sendDecisionEmails(
 	if (!template) throw new MissingTemplateError(decision);
 
 	const ids = rows.map((r) => r.id);
-	const speakerRows = await db
-		.select({
-			submissionId: participants.submissionId,
-			email: contacts.email,
-		})
-		.from(participants)
-		.innerJoin(contacts, eq(contacts.id, participants.contactId))
-		.where(
-			and(
-				inArray(participants.submissionId, ids),
-				eq(participants.role, "speaker"),
-			),
-		)
-		.orderBy(desc(participants.isPrimary), asc(participants.position));
-
-	const submitterIds = [
-		...new Set(rows.map((r) => r.submitterId).filter((v): v is string => !!v)),
-	];
-	const submitterRows = submitterIds.length
-		? await db
-				.select({ id: users.id, email: users.email })
-				.from(users)
-				.where(inArray(users.id, submitterIds))
-		: [];
-	const submitterEmail = new Map(submitterRows.map((u) => [u.id, u.email]));
+	const recipientById = await inviteRecipients(db, ids);
 
 	const roomIds = [
 		...new Set(rows.map((r) => r.roomId).filter((v): v is string => !!v)),
@@ -517,9 +493,7 @@ export async function sendDecisionEmails(
 	const newlySent: string[] = [];
 	const dedupedIds: string[] = [];
 	for (const row of rows) {
-		const to =
-			speakerRows.find((s) => s.submissionId === row.id)?.email ??
-			(row.submitterId ? submitterEmail.get(row.submitterId) : undefined);
+		const to = recipientById.get(row.id);
 		if (!to) {
 			results.push({
 				submissionId: row.id,
@@ -604,6 +578,51 @@ export async function sendDecisionEmails(
 /** Stable calendar identity per submission — schedule updates reuse it and bump SEQUENCE so clients revise the entry instead of duplicating it. */
 export function icsUidForSubmission(submissionId: string): string {
 	return `submission-${submissionId}@openrostrum`;
+}
+
+/**
+ * THE invite recipient rule, shared by decision and schedule-update emails:
+ * the primary speaker contact first, the submitter account as fallback.
+ * Missing entries mean nobody is emailable for that submission.
+ */
+export async function inviteRecipients(
+	db: Db,
+	submissionIds: readonly string[],
+): Promise<Map<string, string>> {
+	if (submissionIds.length === 0) return new Map();
+	const ids = [...submissionIds];
+	const [speakerRows, submitterRows] = await Promise.all([
+		db
+			.select({
+				submissionId: participants.submissionId,
+				email: contacts.email,
+			})
+			.from(participants)
+			.innerJoin(contacts, eq(contacts.id, participants.contactId))
+			.where(
+				and(
+					inArray(participants.submissionId, ids),
+					eq(participants.role, "speaker"),
+				),
+			)
+			.orderBy(desc(participants.isPrimary), asc(participants.position)),
+		db
+			.select({ submissionId: submissions.id, email: users.email })
+			.from(submissions)
+			.innerJoin(users, eq(users.id, submissions.submitterId))
+			.where(inArray(submissions.id, ids)),
+	]);
+	const submitterEmail = new Map(
+		submitterRows.map((r) => [r.submissionId, r.email]),
+	);
+	const out = new Map<string, string>();
+	for (const id of ids) {
+		const email =
+			speakerRows.find((s) => s.submissionId === id)?.email ??
+			submitterEmail.get(id);
+		if (email) out.set(id, email);
+	}
+	return out;
 }
 
 export type SubmissionInvite = {

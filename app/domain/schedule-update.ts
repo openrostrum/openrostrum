@@ -1,19 +1,12 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import type { Db } from "~/db";
-import {
-	contacts,
-	emailOutbox,
-	type events,
-	participants,
-	rooms,
-	submissions,
-	users,
-} from "~/db/schema";
+import { emailOutbox, type events, rooms, submissions } from "~/db/schema";
 import {
 	EMAIL_BATCH_LIMIT,
 	icsForInvites,
 	icsUidForSubmission,
 	inviteForSubmission,
+	inviteRecipients,
 	type SubmissionInvite,
 } from "~/domain/accept";
 import { errorMessage } from "~/lib/errors";
@@ -151,39 +144,13 @@ export async function computeScheduleChanges(
 	}
 	if (changed.length === 0) return { ...EMPTY, truncated };
 
-	// Same recipient rule as the decision email: primary speaker first,
-	// submitter account as fallback.
-	const ids = changed.map((c) => c.submissionId);
-	const [speakerRows, submitterRows] = await Promise.all([
-		db
-			.select({
-				submissionId: participants.submissionId,
-				email: contacts.email,
-			})
-			.from(participants)
-			.innerJoin(contacts, eq(contacts.id, participants.contactId))
-			.where(
-				and(
-					inArray(participants.submissionId, ids),
-					eq(participants.role, "speaker"),
-				),
-			)
-			.orderBy(desc(participants.isPrimary), asc(participants.position)),
-		db
-			.select({ submissionId: submissions.id, email: users.email })
-			.from(submissions)
-			.innerJoin(users, eq(users.id, submissions.submitterId))
-			.where(inArray(submissions.id, ids)),
-	]);
-	const submitterEmail = new Map(
-		submitterRows.map((r) => [r.submissionId, r.email]),
+	const recipientById = await inviteRecipients(
+		db,
+		changed.map((c) => c.submissionId),
 	);
 	const changes: ScheduleChange[] = changed.map((c) => ({
 		...c,
-		to:
-			speakerRows.find((s) => s.submissionId === c.submissionId)?.email ??
-			submitterEmail.get(c.submissionId) ??
-			null,
+		to: recipientById.get(c.submissionId) ?? null,
 	}));
 	const speakers = new Set(
 		changes.flatMap((c) => (c.to === null ? [] : [c.to])),

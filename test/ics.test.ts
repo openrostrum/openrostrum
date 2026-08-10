@@ -1,4 +1,3 @@
-import { createEvent } from "ics";
 import { describe, expect, it } from "vitest";
 import { buildIcs, parseIcsAttachment } from "../app/lib/ics";
 
@@ -98,26 +97,17 @@ describe("parseIcsAttachment (the outbox ledger reader)", () => {
 	});
 
 	it("reads the npm-ics payloads historic accept emails attached", () => {
-		// The accept spine built its invites with npm `ics` — prod outbox rows
-		// hold that format, and change detection must read them as a baseline.
-		const { error, value } = createEvent({
-			title: "Talk — DevFlow Conf",
-			start: [2027, 5, 12, 16, 30],
-			end: [2027, 5, 12, 17, 0],
-			startInputType: "utc",
-			endInputType: "utc",
-			uid: "submission-s1@openrostrum",
-			sequence: 0,
-			location: "Main Hall",
-			status: "CONFIRMED",
-		});
-		expect(error).toBeFalsy();
-		expect(parseIcsAttachment(value as string)).toEqual([
+		// Captured VERBATIM from the npm-ics output the accept spine attached
+		// before this serializer replaced it — what prod outbox rows hold (note
+		// the tab-folded SUMMARY). Change detection must read it as a baseline.
+		const historic =
+			"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nCALSCALE:GREGORIAN\r\nPRODID:adamgibbons/ics\r\nMETHOD:PUBLISH\r\nX-PUBLISHED-TTL:PT1H\r\nBEGIN:VEVENT\r\nUID:submission-s_keynote@openrostrum\r\nSUMMARY:AI.Engineer Sandbox Event (save the date): Closing Keynote: The Pos\r\n\tt-SaaS Stack\r\nDTSTAMP:20260810T205445Z\r\nDTSTART:20261012T150000Z\r\nDTEND:20261015T010000Z\r\nSEQUENCE:0\r\nSTATUS:CONFIRMED\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+		expect(parseIcsAttachment(historic)).toEqual([
 			{
-				uid: "submission-s1@openrostrum",
-				start: new Date("2027-05-12T16:30:00Z"),
-				end: new Date("2027-05-12T17:00:00Z"),
-				location: "Main Hall",
+				uid: "submission-s_keynote@openrostrum",
+				start: new Date("2026-10-12T15:00:00Z"),
+				end: new Date("2026-10-15T01:00:00Z"),
+				location: null,
 				sequence: 0,
 			},
 		]);
