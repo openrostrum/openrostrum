@@ -11,6 +11,7 @@ import {
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
+import { COMMENT_DEDUPE_WINDOW_MS } from "../app/domain/files";
 import {
 	action as taskAction,
 	loader as taskLoader,
@@ -421,8 +422,8 @@ describe("portal tasks", () => {
 				params: params("ta_slides"),
 			} as unknown as ActionArgs);
 
-		// The judge's repro: one submit that fires twice → the thread showed the
-		// comment twice. Both posts succeed, exactly one row lands.
+		// One submit firing twice must land once — both posts succeed as the
+		// same idempotent write.
 		const first = unwrap<{ ok?: boolean }>(
 			await comment("Speaker notes are on slide 12."),
 		);
@@ -453,6 +454,22 @@ describe("portal tasks", () => {
 				.from(fileComments)
 				.where(eq(fileComments.fileId, upload?.id ?? "")),
 		).toHaveLength(3);
+
+		// Past the dedupe window an identical re-post is a deliberate bump —
+		// comments send no notifications, so it must never silently vanish.
+		await db
+			.update(fileComments)
+			.set({
+				createdAt: new Date(Date.now() - COMMENT_DEDUPE_WINDOW_MS - 1000),
+			})
+			.where(eq(fileComments.fileId, upload?.id ?? ""));
+		await comment("Speaker notes are on slide 12.");
+		expect(
+			await db
+				.select()
+				.from(fileComments)
+				.where(eq(fileComments.fileId, upload?.id ?? "")),
+		).toHaveLength(4);
 	});
 
 	it("serializes comments with the author's real name, an isYou flag, and a date+time stamp", async () => {
@@ -518,7 +535,7 @@ describe("portal tasks", () => {
 			["Priya R", true],
 			["Olive Organizer", false],
 		]);
-		// Timestamps carry a time of day, not a bare date (judge finding).
+		// Timestamps carry a time of day, never a bare date.
 		const withTime = /\d{1,2}:\d{2}/;
 		expect(file?.uploadedOn).toMatch(withTime);
 		for (const c of file?.comments ?? []) expect(c.on).toMatch(withTime);

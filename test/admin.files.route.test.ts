@@ -339,6 +339,14 @@ describe("file detail — versions, review, comments", () => {
 		await replyTwice();
 		await replyTwice();
 		expect((await loadDetail("f_slides_v1")).comments).toHaveLength(3);
+
+		// A DIFFERENT teammate posting the identical text right after is a real
+		// comment — the dedupe discriminates on author, never on body alone.
+		await postDetail("f_slides_v2", {
+			intent: "comment",
+			body: "Ping - any update?",
+		});
+		expect((await loadDetail("f_slides_v1")).comments).toHaveLength(4);
 	});
 
 	it("rejects an over-long deny note without touching the file or the task", async () => {

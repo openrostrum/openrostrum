@@ -26,6 +26,7 @@ export type TaskDetailData = Awaited<ReturnType<typeof loader>>["data"];
 
 export type TaskDetailActionData = {
 	intent?: string;
+	ok?: boolean;
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
 };
@@ -39,7 +40,7 @@ function CommentThread({
 	fileId: string;
 	comments: CommentView[];
 }) {
-	const fetcher = useFetcher<TaskDetailActionData & { ok?: boolean }>();
+	const fetcher = useFetcher<TaskDetailActionData>();
 	const formRef = useRef<HTMLFormElement>(null);
 	const busy = fetcher.state !== "idle";
 	// A posted comment leaves the box empty — leftover text re-submitted is
