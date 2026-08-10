@@ -1,12 +1,8 @@
 /**
- * Event-calendar day math. `events.startsAt`/`endsAt` — like every other
- * instant here (`forms.closeAt`, createdAt stamps) — are real UTC instants
- * whose wall-clock meaning lives in the EVENT's timezone, so all day math
- * reads them as event-local dates: the calendar day an event starts is its
- * start instant's event-local date, not its UTC date. "Today" is always the
- * event-local date; mixing in the server's local zone would shift day math
- * around midnight. Rendering helpers live in `format.ts` — this module only
- * does zone-aware arithmetic.
+ * Event-calendar day math. Every stored instant (`events.startsAt/endsAt`,
+ * `forms.closeAt`, createdAt stamps) is a UTC epoch whose wall-clock meaning
+ * lives in the EVENT's timezone — so day math and "today" always resolve to
+ * event-local dates, never UTC's. Rendering helpers live in `format.ts`.
  */
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
