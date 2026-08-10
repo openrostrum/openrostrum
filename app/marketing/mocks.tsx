@@ -1,24 +1,30 @@
-import { Icon } from "~/ui";
+import { Icon, type IconName, Wordmark } from "~/ui";
 import { cn } from "~/ui/cn";
 
 // Faithful, static renderings of real product surfaces, built from the same
 // @theme tokens the live app uses — so the marketing page shows the actual
 // thing, not a stylized impression. Presentational only (aria-hidden).
+//
+// Status tones mirror StatusBadge exactly, minus the dark: variants — the
+// landing is pinned light, but Tailwind's `dark:` keys on the OS media query
+// and would leak dark fills through the pin on a dark machine.
 
 const STATUS = {
-	accepted: "bg-petrol-wash text-petrol",
-	pending: "bg-chip text-fg-muted",
-	declined: "bg-chip text-fg-faint",
+	accepted: "bg-emerald-100 text-emerald-800",
+	pending: "bg-amber-100 text-amber-800",
+	declined: "bg-rose-100 text-rose-800",
 } as const;
 
 function Pill({ status }: { status: keyof typeof STATUS }) {
 	return (
 		<span
 			className={cn(
-				"inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium capitalize",
+				"inline-flex items-center gap-[6px] whitespace-nowrap rounded-full py-[3px] pl-2 pr-[10px]",
+				"text-[11px] font-medium capitalize shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]",
 				STATUS[status],
 			)}
 		>
+			<i className="h-[5px] w-[5px] rounded-full bg-current opacity-85" />
 			{status}
 		</span>
 	);
@@ -26,112 +32,297 @@ function Pill({ status }: { status: keyof typeof STATUS }) {
 
 function Initials({ value }: { value: string }) {
 	return (
-		<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-chip text-[10px] font-semibold text-fg-muted">
+		<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-chip text-[9.5px] font-semibold text-fg-muted">
 			{value}
 		</span>
 	);
 }
 
-const SUB_TABS = [
-	{ label: "All", count: 12, active: true },
-	{ label: "Accepted", count: 4, active: false },
-	{ label: "Pending", count: 5, active: false },
-	{ label: "Declined", count: 3, active: false },
+// ---------------------------------------------------------------------------
+// Hero: the admin shell, whole — sidebar, tabs, table. The same composition as
+// the live-demo artifact, because the page's centerpiece is the product itself.
+// ---------------------------------------------------------------------------
+
+const NAV: { icon: IconName; label: string; count?: string; on?: boolean }[] = [
+	{ icon: "grid", label: "Dashboard" },
+	{ icon: "inbox", label: "Submissions", count: "128", on: true },
+	{ icon: "filter", label: "Review", count: "71" },
+	{ icon: "calendar", label: "Agenda" },
+	{ icon: "mic", label: "Speakers" },
+	{ icon: "star", label: "Tasks", count: "9" },
 ];
 
-const SUB_ROWS: {
+const TABS = [
+	{ label: "All", count: "128", on: true },
+	{ label: "Accepted", count: "34" },
+	{ label: "Pending", count: "71" },
+	{ label: "Declined", count: "23" },
+];
+
+const TRACKS = {
+	infra: { label: "Infrastructure", dot: "#5B7A9D" },
+	quality: { label: "Evals & Quality", dot: "#B08840" },
+	design: { label: "Design", dot: "#8A6E9E" },
+	community: { label: "Community", dot: "#5E8C6A" },
+} as const;
+
+const ROWS: {
 	title: string;
 	who: string;
 	initials: string;
+	track: keyof typeof TRACKS;
 	status: keyof typeof STATUS;
+	selected?: boolean;
 }[] = [
 	{
-		title: "Scaling agents in production",
+		title: "Scaling retrieval beyond the context window",
 		who: "Dana Ruiz",
 		initials: "DR",
+		track: "infra",
 		status: "accepted",
+		selected: true,
 	},
 	{
-		title: "The case for local-first data",
-		who: "Priya Nair",
-		initials: "PN",
+		title: "Ship evals before you ship agents",
+		who: "Marco Silva",
+		initials: "MS",
+		track: "quality",
 		status: "pending",
 	},
 	{
-		title: "Eval kits that actually catch bugs",
-		who: "Marco Silva",
-		initials: "MS",
+		title: "The unhappy path is the product",
+		who: "Lena Fischer",
+		initials: "LF",
+		track: "design",
 		status: "accepted",
 	},
 	{
-		title: "Designing for the unhappy path",
-		who: "Lena Fischer",
-		initials: "LF",
+		title: "Local-first sync for conference apps",
+		who: "Priya Nair",
+		initials: "PN",
+		track: "infra",
+		status: "pending",
+	},
+	{
+		title: "What 400 CFP reviews taught us about bios",
+		who: "Sam Okafor",
+		initials: "SO",
+		track: "community",
 		status: "declined",
+	},
+	{
+		title: "Live-patching a schedule at 8:55 AM",
+		who: "June Park",
+		initials: "JP",
+		track: "quality",
+		status: "pending",
 	},
 ];
 
-export function SubmissionsMock() {
+function Checkbox({ checked }: { checked?: boolean }) {
+	return (
+		<span
+			className={cn(
+				"relative inline-block h-[15px] w-[15px] shrink-0 rounded-[4px]",
+				checked
+					? "bg-petrol after:absolute after:left-[4.5px] after:top-[2px] after:h-[8px] after:w-[4px] after:rotate-[43deg] after:border-white after:border-b-[1.8px] after:border-r-[1.8px]"
+					: "bg-surface shadow-[inset_0_0_0_1.5px_var(--color-hair-strong)]",
+			)}
+		/>
+	);
+}
+
+export function AdminShellMock() {
 	return (
 		<div
 			aria-hidden="true"
-			className="w-full select-none overflow-hidden rounded-card border border-hair bg-surface shadow-card"
+			className="w-full select-none overflow-hidden rounded-card bg-canvas shadow-card"
 		>
-			<div className="flex items-center justify-between gap-3 border-b border-hair px-4 py-3">
-				<div className="flex items-center gap-2">
-					<span className="font-display text-[15px] font-semibold text-fg">
-						Submissions
-					</span>
-					<span className="rounded-full bg-chip px-1.5 font-mono text-[11px] tabular-nums text-fg-muted">
-						12
-					</span>
-				</div>
-				<span className="inline-flex items-center gap-1.5 rounded-full bg-petrol-wash px-2 py-0.5 font-mono text-[11px] tabular-nums text-petrol">
-					<span className="h-1.5 w-1.5 rounded-full bg-petrol" />
-					41&nbsp;ms
+			{/* browser chrome */}
+			<div className="flex items-center gap-1.5 border-b border-hair bg-surface px-4 py-2.5">
+				<span className="h-2.5 w-2.5 rounded-full bg-hair-strong" />
+				<span className="h-2.5 w-2.5 rounded-full bg-hair-strong" />
+				<span className="h-2.5 w-2.5 rounded-full bg-hair-strong" />
+				<span className="mx-auto rounded-[6px] bg-chip px-3 py-0.5 font-mono text-[11px] text-fg-muted">
+					openrostrum.com/admin/submissions
 				</span>
+				<span className="w-12" />
 			</div>
-			<div className="flex items-center gap-4 border-b border-hair px-4">
-				{SUB_TABS.map((tab) => (
-					<span
-						key={tab.label}
-						className={cn(
-							"flex items-center gap-1.5 border-b-2 py-2.5 text-[12.5px]",
-							tab.active
-								? "border-petrol text-fg"
-								: "border-transparent text-fg-muted",
-						)}
-					>
-						{tab.label}
-						<span
-							className={cn(
-								"font-mono text-[11px] tabular-nums",
-								tab.active ? "text-petrol" : "text-fg-faint",
-							)}
-						>
-							{tab.count}
-						</span>
-					</span>
-				))}
-			</div>
-			<div className="divide-y divide-hair">
-				{SUB_ROWS.map((row) => (
-					<div key={row.title} className="flex items-center gap-3 px-4 py-2.5">
-						<span className="h-3.5 w-3.5 shrink-0 rounded-[4px] border border-hair-strong" />
-						<span className="min-w-0 flex-1 truncate text-[13px] text-fg">
-							{row.title}
-						</span>
-						<span className="hidden items-center gap-2 sm:flex">
-							<Initials value={row.initials} />
-							<span className="text-[12px] text-fg-muted">{row.who}</span>
-						</span>
-						<Pill status={row.status} />
+			<div className="flex">
+				{/* sidebar */}
+				<div className="hidden w-[210px] shrink-0 flex-col gap-0 border-r border-hair px-3 pb-3 pt-4 md:flex">
+					<div className="px-2">
+						<Wordmark size={15} />
 					</div>
-				))}
+					<div className="mt-4 flex h-[32px] items-center gap-2 rounded-control bg-surface px-2.5 text-[12px] font-medium text-fg shadow-control">
+						<span className="h-2 w-2 rounded-[3px] bg-petrol" />
+						<span className="truncate">AI Engineer Summit</span>
+						<span className="ml-auto text-fg-faint">
+							<Icon name="chevron-down" size={12} />
+						</span>
+					</div>
+					<div className="mb-1.5 mt-4 px-2 font-mono text-[10px] font-medium uppercase tracking-[0.09em] text-fg-faint">
+						Program
+					</div>
+					<div className="flex flex-col gap-px">
+						{NAV.map((item) => (
+							<span
+								key={item.label}
+								className={cn(
+									"flex h-[30px] items-center gap-2.5 rounded-control px-2 text-[12.5px] font-medium",
+									item.on ? "bg-chip text-fg" : "text-fg-muted",
+								)}
+							>
+								<span className={cn(item.on ? "text-petrol" : "opacity-70")}>
+									<Icon name={item.icon} size={14} />
+								</span>
+								{item.label}
+								{item.count && (
+									<span className="ml-auto font-mono text-[10.5px] tabular-nums text-fg-faint">
+										{item.count}
+									</span>
+								)}
+							</span>
+						))}
+					</div>
+					<div className="mt-auto flex items-center gap-2 border-t border-hair px-2 pt-3">
+						<Initials value="AR" />
+						<span className="flex flex-col">
+							<span className="text-[11.5px] font-medium leading-tight text-fg">
+								Ada Reyes
+							</span>
+							<span className="text-[10.5px] text-fg-faint">Organizer</span>
+						</span>
+					</div>
+				</div>
+				{/* stage */}
+				<div className="min-w-0 flex-1 px-4 pb-4 pt-4 sm:px-5">
+					<div className="flex items-center gap-2.5">
+						<span className="font-display text-[17px] font-semibold tracking-[-0.01em] text-fg">
+							Submissions
+						</span>
+						<span className="rounded-full bg-chip px-2 py-px font-mono text-[10.5px] tabular-nums text-fg-muted">
+							128
+						</span>
+						<span className="ml-auto inline-flex h-[28px] items-center gap-1.5 rounded-control bg-ink px-2.5 text-[11.5px] font-medium text-on-ink shadow-btn">
+							<Icon name="plus" size={11} />
+							Add submission
+						</span>
+					</div>
+					<div className="mt-3 flex gap-1 border-b border-hair">
+						{TABS.map((tab) => (
+							<span
+								key={tab.label}
+								className={cn(
+									"-mb-px flex items-center gap-1.5 border-b-2 px-2 pb-2 pt-1 text-[12px] font-medium",
+									tab.on
+										? "border-petrol text-fg"
+										: "border-transparent text-fg-muted",
+								)}
+							>
+								{tab.label}
+								<span
+									className={cn(
+										"rounded-full px-1.5 font-mono text-[10px] tabular-nums",
+										tab.on ? "bg-petrol-wash text-petrol" : "text-fg-faint",
+									)}
+								>
+									{tab.count}
+								</span>
+							</span>
+						))}
+					</div>
+					<div className="mt-3 flex items-center gap-2">
+						<span className="flex h-[28px] w-full max-w-[220px] items-center gap-2 rounded-control bg-surface px-2.5 shadow-control">
+							<span className="text-fg-faint">
+								<Icon name="search" size={12} />
+							</span>
+							<span className="text-[11.5px] text-fg-faint">
+								Search submissions…
+							</span>
+						</span>
+						<span className="hidden h-[28px] items-center gap-1.5 rounded-control bg-surface px-2.5 text-[11.5px] font-medium text-fg shadow-control sm:inline-flex">
+							<Icon name="filter" size={12} />
+							Filter
+						</span>
+						<span className="hidden h-[28px] items-center gap-1.5 rounded-control bg-surface px-2.5 text-[11.5px] font-medium text-fg shadow-control sm:inline-flex">
+							<Icon name="export" size={12} />
+							Export
+						</span>
+					</div>
+					<div className="mt-3 overflow-hidden rounded-card bg-surface shadow-card">
+						<div className="hidden gap-3 border-b border-hair bg-thead px-3.5 py-2 sm:flex">
+							<span className="w-[15px]" />
+							<span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
+								Title
+							</span>
+							<span className="hidden w-[130px] text-[10px] font-semibold uppercase tracking-[0.06em] text-fg-muted lg:block">
+								Speaker
+							</span>
+							<span className="hidden w-[110px] text-[10px] font-semibold uppercase tracking-[0.06em] text-fg-muted md:block">
+								Track
+							</span>
+							<span className="w-[86px] text-[10px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
+								Status
+							</span>
+						</div>
+						<div className="divide-y divide-hair">
+							{ROWS.map((row) => (
+								<div
+									key={row.title}
+									className={cn(
+										"flex items-center gap-3 px-3.5 py-2.5",
+										row.selected &&
+											"bg-row-selected shadow-[inset_2px_0_0_var(--color-petrol)]",
+									)}
+								>
+									<Checkbox checked={row.selected} />
+									<span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-fg">
+										{row.title}
+									</span>
+									<span className="hidden w-[130px] items-center gap-2 lg:flex">
+										<Initials value={row.initials} />
+										<span className="truncate text-[11.5px] text-fg-muted">
+											{row.who}
+										</span>
+									</span>
+									<span className="hidden w-[110px] items-center gap-[7px] md:flex">
+										<span
+											className="h-[7px] w-[7px] rounded-[2.5px]"
+											style={{ background: TRACKS[row.track].dot }}
+										/>
+										<span className="truncate text-[11.5px] font-medium text-fg-muted">
+											{TRACKS[row.track].label}
+										</span>
+									</span>
+									<span className="w-[86px]">
+										<Pill status={row.status} />
+									</span>
+								</div>
+							))}
+						</div>
+						<div className="flex items-center border-t border-hair px-3.5 py-2 font-mono text-[10.5px] tabular-nums text-fg-muted">
+							1 — 6 of 128
+							<span className="ml-auto flex items-center gap-1">
+								<span className="rounded-[5px] bg-chip px-1.5 py-0.5 text-fg">
+									1
+								</span>
+								<span className="px-1">2</span>
+								<span className="px-1">3</span>
+								<span className="px-1">…</span>
+								<span className="px-1">22</span>
+							</span>
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 	);
 }
+
+// ---------------------------------------------------------------------------
+// Spotlights
+// ---------------------------------------------------------------------------
 
 const ROOMS = ["Room A", "Room B", "Room C"];
 const HOURS = ["9:00", "10:00", "11:00"];
@@ -238,7 +429,7 @@ export function InviteMock() {
 					one tap.
 				</p>
 				<div className="mt-3 flex items-center gap-3 rounded-control border border-hair bg-canvas px-3 py-2">
-					<span className="flex flex-col items-center rounded-[6px] bg-petrol px-2 py-1 text-on-ink">
+					<span className="flex flex-col items-center rounded-[6px] bg-petrol px-2 py-1 text-white">
 						<span className="font-mono text-[9px] font-semibold uppercase tracking-wide">
 							Oct
 						</span>

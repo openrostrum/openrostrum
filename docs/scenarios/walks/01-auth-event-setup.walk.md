@@ -466,3 +466,272 @@ account. **OK** (destination on success re-hits the step-5 BLOCKER).
 
 SCENARIO-ERRORs: none — every step maps to a SCOPE-committed tier (create-event = P1 #5,
 fields CRUD/scope = P1 #5, reviewer provisioning = P0 #5, taxonomies = wave 0 / P1 #5).
+
+---
+
+## Re-walk 2026-08-10 — tenancy migration (Wave A gate)
+
+Walked against the landed schema (`app/db/schema.ts`: `organizations`, `organization_members`,
+`events.organizationId` NOT NULL, `api_tokens.organizationId` NOT NULL + nullable `eventId`,
+`fields.scope` DROPPED → org/event XOR), the updated `drizzle/seed.sql` (org_demo / om_admin /
+e_demo backfill), `app/lib/auth.ts`, and `docs/multi-tenancy-design.md` (cited by line).
+Wave B/C/D commitments (design L129–134) are cited, not re-filed as gaps, per the gate rule.
+
+State notes (walk-record corrections observed DURING this walk — not tenancy verdicts):
+- The 2026-08-09 AE-S2.4 BLOCKER's root cause is gone: `users.activeEventId` +
+  `getActiveEvent()` (auth.ts L236–251) now exist and `admin.submissions.tsx` scopes by them.
+  The still-missing switcher **UI** remains the AE-S1.5 MAJOR, unchanged.
+- AE-S5.5's BLOCKER is half-resolved: `login.tsx` now redirects via `homePathForRole()`
+  (reviewer → `/reviews`); the `/reviews` route itself is still missing — pre-existing, on record.
+- AE-S5.1's sentinel-hash MAJOR is now documented in-schema (`passwordResets` doc comment,
+  schema.ts L73: "a sentinel-hash user + one of these tokens = set-password onboarding").
+- AE-S4.3's dual-encoding MINOR (`scope` vs `event_id NULL`) is **resolved by this migration**:
+  `scope='global' AND event_id='e_x'` is no longer expressible. Residual both-null/both-set rows
+  remain app-enforced XOR — exactly the committed design (L79–83, formFields precedent), not a gap.
+
+### AE-S1 step 1 — UNCHANGED
+`requireAdmin` → `getUser` reads `auth_sessions`/`users` only; neither gained tenancy columns,
+and the redirect throws before any event/org read.
+
+### AE-S1 step 2 — UNCHANGED
+Wrong-password path queries `users` by email and returns; no tenancy table is touched.
+
+### AE-S1 step 3 — UNCHANGED
+`auth_sessions` is untouched by the migration; the no-session-on-failure proof query is identical.
+
+### AE-S1 step 4 — UNCHANGED
+`createSession` inserts (`id`, `user_id`, `expires_at`) — no org column exists or is needed.
+(The 2026-08-09 autofill MINOR stands; it is not tenancy-related.)
+
+### AE-S1 step 5 — UNCHANGED
+The serving query is byte-identical; only the seed data grew an org spine, which satisfies it:
+```sql
+-- getActiveEvent(u_admin): users.active_event_id = 'e_demo' (seed.sql L98) →
+SELECT * FROM events WHERE id = 'e_demo' LIMIT 1;
+-- row now carries organization_id = 'org_demo' (NOT NULL FK satisfied, seed.sql L67–69);
+-- submissions list: WHERE event_id = 'e_demo' → the 8 seeded rows, as before.
+```
+`getActiveEvent` does not check membership today — u_admin IS org_demo's member (`om_admin`,
+seed.sql L64–65), so interim behavior is correct; the check itself is covered: Wave B
+membership check (design L92–96, wave table L132). The missing switcher/name display in the
+shell is the pre-existing AE-S1.5 MAJOR — unchanged by tenancy, except that when built it must
+serve the org-scoped list (artifact at AE-S2.4 below; covered: Wave B, design L100).
+
+### AE-S1 step 6 — UNCHANGED
+`destroySession` = `DELETE FROM auth_sessions WHERE id = <cookie>`; no tenancy surface.
+(Cache-control MINOR stands, unrelated.)
+
+### AE-S1 EXPERIENCE — UNCHANGED
+Sub-1s + autofill are runtime/markup concerns; no tenancy table is on the path.
+
+### AE-S2 step 1 — UNCHANGED
+AE-S1 step-4 artifact, verbatim.
+
+### AE-S2 step 2 — UNCHANGED
+Blank-name validation is the same `.min(1)` refinement; `createInsertSchema(events)` now also
+carries `organizationId`, but the form schema `.pick(...)` never included it (server-derived, like
+`eventId` everywhere else). The missing create-event route MAJOR (2026-08-09) stands, unrelated.
+
+### AE-S2 step 3 — CHANGED
+`events.organizationId` is a new NOT NULL FK — the insert artifact changes:
+```ts
+// create-event action (route still unassigned — the 2026-08-09 MAJOR stands):
+const memberships = await db
+  .select({ organizationId: organizationMembers.organizationId })
+  .from(organizationMembers)
+  .where(eq(organizationMembers.userId, user.id));
+// u_admin → [{ organizationId: 'org_demo' }] (seed row om_admin)
+await db.insert(events).values({
+  organizationId: memberships[0].organizationId, // NEW — NOT NULL FK
+  name: "DevOps Days Lyon 2027",
+  slug: "devops-days-lyon-2027",
+  type: "Conference",
+  websiteUrl: "https://devopsdays-lyon.example.com",
+  location: "Lyon, France",
+  timezone: "Europe/Paris",
+  startsAt: new Date(1812610800 * 1000),
+  endsAt: new Date(1812729600 * 1000),
+  theme: "Two days of DevOps war stories for platform teams.",
+});
+```
+Producible for the walked persona (single membership → unambiguous). Two edges at the derivation:
+a **multi-org member** (reachable once Wave D invites land) has no committed rule or picker for
+which org owns the new event — the design doc is silent on it; a **zero-org admin** dead-ends
+(cannot insert), but that path is explicitly deferred by decision (org creation for existing
+accounts → identity-unification follow-up, design L53–55) and is unreachable pre-Wave D.
+`GAP: create-event's organizationId derivation is undefined for a user with >1 membership — no committed rule/org-picker in the design doc; single-org walk unaffected, reachable only after Wave D invites [MINOR]`
+
+### AE-S2 step 4 — CHANGED
+The current-event mechanism now exists (state note above); tenancy changes what the switcher
+must LIST — org-scoped, not all-events:
+```sql
+-- the query the switcher must serve (covered: Wave B "event-switcher org scoping", design L100, L132):
+SELECT e.id, e.name, e.slug
+  FROM events e
+  JOIN organization_members om ON om.organization_id = e.organization_id
+ WHERE om.user_id = 'u_admin'
+ ORDER BY e.created_at;
+-- → 'AI.Engineer Sandbox Event' (e_demo) + 'DevOps Days Lyon 2027' — both org_demo, both listed.
+
+-- switch action (unchanged shape):
+UPDATE users SET active_event_id = :newEventId WHERE id = 'u_admin';
+```
+Interim (post-A, pre-B): a forged `active_event_id` pointing at a foreign org's event would be
+served, because `getActiveEvent` has no membership check yet — that is exactly the hole Wave B
+exists to close (design L92–96); only one org exists in seed, so not judge-visible. Covered, not a gap.
+
+### AE-S2 step 5 — UNCHANGED
+The isolation count queries are identical — no event-scoped table gained an org column; org is
+derived via `events.organizationId`, never denormalized downward:
+```sql
+SELECT COUNT(*) FROM submissions WHERE event_id = :newEventId; -- 0 (likewise forms/tracks/contacts)
+```
+Both events sit in org_demo, so the scenario's isolation axis stays event-level; the new org-level
+axis is exercised by the design's cross-tenant denial tests (design L140–143), not this step.
+
+### AE-S2 step 6 — UNCHANGED
+`UPDATE events SET location = …, ends_at = …` touches no tenancy column; `organization_id`
+is immutable through the settings form (it is never in the picked schema).
+
+### AE-S2 step 7 — UNCHANGED
+Loader re-read of the same row; the extra `organization_id` column rides along unread.
+
+### AE-S2 step 8 — CHANGED
+Same artifact as step 4 (org-scoped list + `active_event_id` update back to `'e_demo'`);
+same Wave B coverage citation.
+
+### AE-S3 step 1 — UNCHANGED
+Opening `/admin/settings/library` is a route/nav concern; no tenancy table on the path.
+
+### AE-S3 step 2 — UNCHANGED
+`tracks` gained no org column (`event_id` NOT NULL FK as before); the three inserts and the
+blank-name rejection are byte-identical to the 2026-08-09 artifacts.
+
+### AE-S3 step 3 — UNCHANGED
+`tags` — no tenancy columns; identical insert.
+
+### AE-S3 step 4 — UNCHANGED
+`formats` — no tenancy columns; identical insert.
+
+### AE-S3 step 5 — UNCHANGED
+`levels` — no tenancy columns; identical insert.
+
+### AE-S3 step 6 — UNCHANGED
+`rooms` — no tenancy columns; identical insert.
+
+### AE-S3 step 7 — UNCHANGED
+`UPDATE tracks SET name, color` — no tenancy surface.
+
+### AE-S3 step 8 — UNCHANGED
+`DELETE FROM levels` + the dropdown-feed query are event-scoped only; cascade semantics untouched.
+
+### AE-S3 step 9 — UNCHANGED
+Loader re-read; nothing tenancy-touched to persist differently.
+
+### AE-S3 EXPERIENCE — UNCHANGED
+Interaction-quality concern; the 2026-08-09 MINOR (binding lives only in EXPERIENCE lines) stands.
+
+### AE-S4 step 1 — UNCHANGED
+Route/nav only; the Fields list query changes at steps 6–7 below, not the navigation.
+
+### AE-S4 step 2 — UNCHANGED
+Same `.min(1)` + re-render pattern. Note `createInsertSchema(fields)` no longer emits a `scope`
+key — nothing references it in a committed artifact, so no validation contract breaks.
+
+### AE-S4 step 3 — CHANGED
+`fields.scope` is dropped; "GLOBAL" is now expressed as **org-wide** via the XOR (design L79–83):
+```ts
+const event = await getActiveEvent(env, user); // DevOps Days Lyon 2027 → organizationId 'org_demo'
+await db.insert(fields).values([
+  // scenario "scope GLOBAL" → org-wide: organizationId set, eventId null
+  { organizationId: event.organizationId, eventId: null, name: "T-shirt size", type: "dropdown", options: ["S", "M", "L", "XL"] },
+  // scenario "scope Event" → eventId set, organizationId null (org derived via event)
+  { organizationId: null, eventId: event.id, name: "Years of speaking experience", type: "number" },
+  { organizationId: null, eventId: event.id, name: "Requires visa letter", type: "checkbox" },
+  { organizationId: null, eventId: event.id, name: "Earliest arrival date", type: "date" },
+  { organizationId: null, eventId: event.id, name: "Scratch field", type: "text", maxLength: 255 },
+]);
+```
+Every scenario assertion still holds for the walked data (new event and seed event share
+org_demo), but the scenario/success-signal TEXT can no longer be executed literally: the DB
+check names a `scope` column that no longer exists, and "global" now means "this organization",
+not "this deployment".
+`GAP: AE-S4's step-3/6 wording and DB-check success signal reference the dropped fields.scope column ("scope GLOBAL", "carrying global scope") — scenario text is stale and must be re-expressed as organizationId IS NOT NULL / "org-wide"; semantics for the walked persona are preserved [MINOR]`
+
+### AE-S4 step 4 — UNCHANGED
+`UPDATE fields SET name = 'Years of experience'` — the rename touches no tenancy column;
+single-definition propagation via `field_id` references is as before.
+
+### AE-S4 step 5 — UNCHANGED
+`DELETE FROM fields WHERE id = :scratchFieldId` — cascade (`form_fields`) / restrict
+(`submission_answers`) semantics are untouched by the migration. (Restricted-delete-UX MINOR stands.)
+
+### AE-S4 step 6 — CHANGED
+The scope-boundary query is rewritten against the XOR:
+```sql
+-- seed event's picker (was: event_id = 'e_demo' OR (scope='global' AND event_id IS NULL)):
+SELECT f.id, f.name, f.type,
+       CASE WHEN f.organization_id IS NOT NULL THEN 'Org-wide' ELSE 'Event' END AS scope
+  FROM fields f
+ WHERE f.event_id = 'e_demo'
+    OR f.organization_id = (SELECT organization_id FROM events WHERE id = 'e_demo') -- 'org_demo'
+ ORDER BY f.name;
+-- 'T-shirt size' (organization_id 'org_demo', event_id NULL) IS returned;
+-- 'Requires visa letter' (event_id = :newEventId, organization_id NULL) is NOT. Both directions hold.
+```
+The boundary is now a real tenant boundary: a field org-wide in org_demo is invisible to every
+other organization by construction (no `WHERE` clause can accidentally leak it without joining
+through the org id).
+
+### AE-S4 step 7 — CHANGED
+Same rewritten query with `:newEventId` → the four survivors ("T-shirt size" labeled Org-wide,
+three labeled Event); the scope label renders from the `CASE` expression above instead of the
+dropped enum. Search "arriv" stays a client-side filter over the loaded rows. EXPERIENCE caveat
+identical to AE-S3's standing MINOR.
+
+### AE-S5 step 1 — UNCHANGED
+`users` + `reviewer_tracks` gained no tenancy columns. Deliberately so: reviewers are NOT org
+members — membership is the organizer capability; reviewers stay event-scoped via assignments
+(design L36–38). No `organization_members` row is minted for Nadia. The 2026-08-09 MAJORs
+(no reviewer-management route) stand; the sentinel-hash MAJOR is now schema-documented (state note).
+
+### AE-S5 step 2 — UNCHANGED
+The reviewer-list query joins `users`/`reviewer_tracks`/`tracks` and scopes by `t.event_id` —
+no org join required or possible; identical artifact. (Track-less-reviewer MINOR stands.)
+
+### AE-S5 step 3 — UNCHANGED
+`password_resets`, the EmailSender port, and `email_outbox` all carry no org column
+(`email_outbox.event_id` is unchanged). Identical artifact; the missing set-password route
+MAJOR and template-key MINOR stand, unrelated to tenancy.
+
+### AE-S5 step 4 — UNCHANGED
+Token lookup + `users.password_hash` update + `createSession` — none tenancy-touched.
+
+### AE-S5 step 5 — UNCHANGED
+The queue query (`submissions` ⋈ `submission_tracks` ⋈ `reviewer_tracks`) touches no tenancy
+column; reviewer surfaces are outside org membership by design (L36–38). State note: login now
+routes reviewers to `/reviews` via `homePathForRole`; the missing `/reviews` route is the
+pre-existing gap on record, not a tenancy effect.
+
+### AE-S5 step 6 — UNCHANGED
+Today: `requireAdmin` checks `users.role` — Nadia (`role='reviewer'`) → `/403`, as before;
+`users.role` deliberately survives this design (L107–109). Post-Wave B the guard becomes a
+membership check (design L97, L132) — Nadia has no `organization_members` row, so she is denied
+under both regimes; no interim window opens. (403-page MINOR stands.)
+
+### AE-S5 step 7 — UNCHANGED
+Real PBKDF2 hash verify + session mint — no tenancy surface.
+
+---
+
+### Re-walk gap summary
+
+| Step | Gap | Severity |
+|---|---|---|
+| AE-S2.3 | `events.organizationId` derivation at create-event undefined for a multi-org member (no committed rule/picker; reachable post-Wave D) | MINOR |
+| AE-S4.3/6 | Scenario text + DB-check signal still name the dropped `fields.scope` column / "global" wording — must be re-expressed as `organizationId` / org-wide | MINOR |
+
+37 steps walked (+2 EXPERIENCE lines): 6 CHANGED (AE-S2.3/4/8, AE-S4.3/6/7), 31 UNCHANGED,
+0 BLOCKER, 0 MAJOR. Everything the migration leaves open on this file's path is an explicit
+Wave B/C/D commitment, cited per step. One prior gap is resolved by the migration itself
+(AE-S4.3 dual encoding); three others changed status (see state notes).

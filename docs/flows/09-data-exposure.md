@@ -16,12 +16,12 @@ Legend used in all matrices: **R** read · **W** read + write · **M** masked/tr
 | **Form submitter** | email+password account created inline at the Account step ([02 §3](02-public-submission-and-portal.md)) | Public form wizard, own drafts hub, success page, own portal after submit | P0 |
 | **Speaker / portal user** (speaker, moderator, chairperson, session submitter; identity = Portal Username field, not Email) | email+password; one login URL per event, resolved to exactly one portal (first-match filter) ([07 §2a](07-portals-tasks.md)) | Portal: Home, Submissions (My Sessions), Profile, Tasks, Messages, Resources, Files; View Submission (form re-entry) | P0 (Home/Submissions/Profile/Tasks); Messages/Resources OUT |
 | **Evaluator** | event user; 2.0: passwordless login link via Program Site ([05 §2b](05-evaluations.md)) | My Reviews → assigned plans/rounds only; scoring UI. "Deliberately limited access… only have access to complete evaluation plans assigned to them" (https://learn.sessionboard.com/faq/will-evaluators-have-the-same-access-to-my-event-that-i-do-as-an-admin) | P0 (thin), rounds P1 |
-| **Event admin / team** | full login; per-role campaign permissions exist but otherwise full event access | Every module; sees the union of all data; "View portal as…" read-only impersonation ([07 §2f](07-portals-tasks.md)) | P0 |
+| **Event admin / team** | full login; access = **organization membership** (event → org → member, [`multi-tenancy-design.md`](../multi-tenancy-design.md)) — members are equal admins within their org's events, never across orgs | Every module of their org's events; sees the union of all data; "View portal as…" read-only impersonation ([07 §2f](07-portals-tasks.md)) | P0; tenancy P1 #22 |
 | **API token consumer** | `x-access-token` (org-generated, scoped, Hide-PII flag, event restrictions) or OAuth 2.1 read-only ([08 §2e](08-settings-data-api.md)) | 177-op public API; webhooks (push of full resource objects) | P1 #20 |
 | **Public site visitor via embeds** | none | 5 embed widgets + JSON/XML/iCal feeds; deep links `?sb-session-id=`, `?sb-speaker-id=` ([06 §2d](06-agenda-embeds.md)) | P1 #16 |
 | **Email recipient** | none (inbox) | Transactional + manual emails; merge-tag-rendered record data; portal links; form-results PDF; "file ready" download links ([03 §2a](03-emails-communications.md), [07 §2c](07-portals-tasks.md)) | P0 (confirmation "must have"), templates P1 |
 
-Not modeled further (OUT per SCOPE.md): sponsor/exhibitor group portal users, SMS recipients, Awards reviewers, org-level roles.
+Not modeled further (OUT per SCOPE.md): sponsor/exhibitor group portal users, SMS recipients, Awards reviewers, the custom-role permissions matrix. (Org-level membership itself IS modeled — P1 #22: every admin surface resolves through it, and the org boundary is a hard wall: no actor, token, or sync job reads across organizations.)
 
 ---
 

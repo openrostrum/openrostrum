@@ -27,6 +27,7 @@ One row per topic below, pointing to where the depth lives; an agent reads only 
 | Runtime truth — events, timings, log queries | debugging runtime behavior | `docs/observability.md` |
 | Verification oracles — how to self-verify each surface | before verifying any feature | `VERIFICATION-CAPABILITIES.md` |
 | Airtable sync design | sync work | `docs/airtable-sync-design.md` |
+| Multi-tenancy — orgs, sign-up, membership authz | tenancy, auth, signup, invites | `docs/multi-tenancy-design.md` |
 | Grader-facing deploy notes | deploy time | `docs/JUDGING.md` |
 
 ## Commands

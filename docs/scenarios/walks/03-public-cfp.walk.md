@@ -544,3 +544,264 @@ touches:
            login.tsx, logout.tsx, admin.forms.tsx, admin.forms.$formId.tsx,
            admin.settings.library.tsx, "portals.$eventSlug.$portalId.* (redirect/email target)"]
 ```
+
+---
+
+## Re-walk 2026-08-10 — tenancy migration (Wave A gate)
+
+Re-walked against: `app/db/schema.ts` (new `organizations` / `organization_members`;
+`events.organization_id` NOT NULL FK; `api_tokens.organization_id` NOT NULL + nullable
+`api_tokens.event_id`; `fields.scope` DROPPED → org/event XOR), migration
+`drizzle/migrations/0003_daily_chamber.sql`, `drizzle/seed.sql` (org `org_demo`, member
+`om_admin` = `u_admin`, `e_demo.organization_id = 'org_demo'`), `app/lib/auth.ts`,
+`docs/multi-tenancy-design.md`.
+
+**Verdict up front: 59 steps walked — 0 CHANGED, 59 UNCHANGED, 0 new GAPs.** The public CFP
+is tenancy-free by explicit design commitment ("No URL changes … public `$eventSlug` pages
+unchanged", design doc §Authorization, line 111), and no step in this suite INSERTs into
+`events`, `api_tokens`, or `fields` — the only tables whose write shape changed. Three
+determinations repeat across steps; made once here in full, applied per step below:
+
+- **(T1) Public event resolution is slug-keyed and org-blind.** Every public artifact resolves
+  the event via `events.slug` — `events_slug_unique` is recreated by migration 0003 on
+  `__new_events`, and the design records slugs as one global namespace (design doc lines 66–68).
+  Reads of the migrated `events` row (`name`, `timezone`, `submission_limit`) never touch
+  `organization_id`; a NOT NULL column added to a row being *read* can break nothing.
+- **(T2) Speaker signup mints NO org row — by design, not omission.** CFP account creation
+  writes `users.role='speaker'` only; `organization_members` gates *which events an admin
+  operates on*, `users.role` gates *which surface* (design doc lines 106–108), and the
+  regression contract pins "speaker/reviewer landing unchanged" (lines 144–145). A `users`
+  insert has no org column; nothing in the new schema requires a membership to exist.
+- **(T3) Admin steps keep today's artifact; the guard swap is Wave B, covered.** `requireAdmin`
+  (global role) + `getActiveEvent` (seed sets `u_admin.active_event_id='e_demo'`, so the
+  any-event fallback never fires for the seeded admin) serve every admin step identically.
+  Covered: Wave B membership check — "The admin guard swaps the global-role check for a
+  membership check" + `getActiveEvent` membership/fallback fix (design doc lines 92–97, Build
+  order row B, line 132). The interim window is not judge-visible: no second org can exist
+  before `/signup` ships in Wave C, which lands *after* B (§Build order). Post-B the steps keep
+  serving — seed proof:
+
+  ```sql
+  SELECT 1 FROM organization_members om
+  JOIN events e ON e.organization_id = om.organization_id
+  WHERE om.user_id = 'u_admin' AND e.id = 'e_demo';
+  -- om_admin (org_demo, u_admin) + e_demo.organization_id='org_demo' → 1 row
+  ```
+
+Baseline drift noted, NOT part of this gate's verdicts: since the 2026-08-09 walk, `schema.ts`
+gained `portals` and `languages` tables (+ seed rows `portal_demo`/`portal-demo-uuid`,
+`lang_en`), dissolving the schema-absence premise of **G1** and **G4**. Recorded here for
+accuracy; those gaps' register entries own the close-out. Prior gaps G2, G3, G5–G12 have no
+tenancy interaction and stand exactly as filed.
+
+### CFP-S1 step 1 — UNCHANGED
+The serving artifact is byte-identical (`UPDATE forms SET success_html=… WHERE id='form_sessions' AND event_id='e_demo'`); `forms` gained no org column (org derived via the event — the same never-store-the-derivable rule as the fields XOR). Guard: **(T3)**, covered: Wave B membership check (design doc line 97).
+
+### CFP-S1 step 2 — UNCHANGED
+**(T1)** — the logged-out loader join is untouched and org-blind against the migrated table:
+
+```sql
+SELECT f.*, e.name, e.timezone, e.submission_limit
+FROM forms f JOIN events e ON e.id = f.event_id
+WHERE f.public_id = 'form-sessions-uuid' AND e.slug = 'ai-engineer-sandbox';
+-- e.organization_id ('org_demo') is on the row and simply unread; no auth, no membership
+```
+
+### CFP-S1 step 3 — UNCHANGED
+`forms.welcome_html` / `forms.show_welcome` reads + `<Link>` nav; no tenancy column in the artifact.
+
+### CFP-S1 step 4 — UNCHANGED
+**(T2)** — the step the migration could plausibly bend, walked to its artifact: the signup
+insert is untouched and deliberately writes no org rows:
+
+```ts
+const [user] = await db.insert(users).values({
+  email: "priya@example.com", passwordHash, name: "Priya Raman", role: "speaker",
+}).returning();                          // users has no org column — nothing new to satisfy
+// NO organizationMembers insert: speakers are not org members (design lines 106–108)
+await db.insert(contacts).values({
+  eventId: event.id,                     // slug-resolved e_demo — a READ of events (T1)
+  userId: user.id, email: "priya@example.com", firstName: "Priya", lastName: "Raman",
+});
+```
+
+`events.organization_id` NOT NULL constrains event *inserts* only — none happen here. G11 (when the contact is minted) stands as filed, untouched by tenancy.
+
+### CFP-S1 step 5 — UNCHANGED
+Taxonomy queries (`formats`/`tags`/`tracks`/`levels` + now-seeded `languages`) all key on `event_id` — untouched. The library-fields query never read the dropped `scope` column, and the XOR serves both field kinds through the same join:
+
+```sql
+SELECT ff.position, ff.required, ff.question_rule,
+       f.name, f.type, f.max_length, f.options,
+       f.organization_id, f.event_id   -- the XOR pair; the public render reads neither
+FROM form_fields ff JOIN fields f ON f.id = ff.field_id
+WHERE ff.form_id = 'form_sessions' AND ff.section = 'session'
+ORDER BY ff.position;
+-- seed fields keep event_id set / organization_id NULL (event-scoped side of the XOR);
+-- an org-wide field placed on this form serves identically — placement (form_fields) is
+-- the only path onto a public form, so no cross-org field can render without a placement
+```
+
+G3 (built-in config home) stands as filed — no tenancy interaction.
+
+### CFP-S1 step 6 — UNCHANGED
+Prefill query `contacts WHERE user_id = :priya AND event_id = 'e_demo'` — contact identity stays event-keyed; no org column involved. G2 cross-ref stands.
+
+### CFP-S1 step 7 — UNCHANGED
+The submit batch writes `submissions.event_id` copied from `form.eventId` — submissions carry no org column (org derivable via event, never stored); every insert in the batch (`submissions`, `submissionTracks`, `submissionTags`, `participants`, `contacts` update) is on a table the migration did not touch.
+
+### CFP-S1 step 8 — UNCHANGED
+`forms.success_html` + `forms.auto_redirect` reads; no tenancy column.
+
+### CFP-S1 step 9 — UNCHANGED
+Tenancy adds nothing to the redirect: `portals` hangs off `event_id` (org derivable), and the seeded `portal_demo` (`public_id='portal-demo-uuid'`) makes `PORTAL_URL = /portals/ai-engineer-sandbox/portal-demo-uuid/…` mintable — G1's premise dissolved by the pre-tenancy `portals` table (baseline-drift note above), not by this migration.
+
+### CFP-S1 step 10 — UNCHANGED
+`emailTemplates`/`emailOutbox` stay event-keyed (`email_outbox.event_id` nullable ref — untouched). The gate determination matters: the portal login gate is `requireUser` (speaker), **not** an org-membership check — a membership-gated portal would lock out every speaker, and the design pins "speaker/reviewer landing unchanged" (Verification §Regression, lines 144–145). G5 (merge-tag renderer) stands as filed — no tenancy interaction.
+
+### CFP-S2 step 1 — UNCHANGED
+`SELECT id FROM users WHERE email = 'marcus.chen@example.com'` — `users` untouched by the migration; email stays globally unique (design doc lines 50–52 reconfirm it).
+
+### CFP-S2 step 2 — UNCHANGED
+Branch render + "Forgot your password?" presence — pure `users` lookup; no tenancy column.
+
+### CFP-S2 step 3 — UNCHANGED
+`verifyPassword` against `users.password_hash` — table untouched.
+
+### CFP-S2 step 4 — UNCHANGED
+No-session-on-failure is a property of `createSession` only running on success; `auth_sessions` untouched by the migration.
+
+### CFP-S2 step 5 — UNCHANGED
+Stateless retry — same artifact as step 4; no lockout table existed before or after the migration.
+
+### CFP-S2 step 6 — UNCHANGED
+`createSession` + redirect to the step route — `auth_sessions` untouched; `users.role`/`homePathForRole` explicitly retained through this design (design doc lines 47–49, 106–108).
+
+### CFP-S2 step 7 — UNCHANGED
+`destroySession` = `DELETE FROM auth_sessions WHERE id = :cookieSessionId` — untouched table.
+
+### CFP-S3 step 1 — UNCHANGED
+Zod validation returns before any insert — no table touched; nothing for tenancy to change.
+
+### CFP-S3 step 2 — UNCHANGED
+Action-data re-render preserving Description — client/RR7 behavior, schema-free.
+
+### CFP-S3 step 3 — UNCHANGED
+`SELECT COUNT(*) FROM submissions WHERE submitter_id = :marcus AND form_id = 'form_sessions'` — submissions untouched. G2 (wizard carrier vs phantom drafts) stands as filed — its resolution has no tenancy dimension.
+
+### CFP-S3 step 4 — UNCHANGED
+`maxLength={255}` client + `.max(255)` server — schema-free; G3 noted, untouched.
+
+### CFP-S3 step 5 — UNCHANGED
+Live counter — client-only.
+
+### CFP-S3 step 6 — UNCHANGED
+Same taxonomy + fields queries as CFP-S1.5 — event-keyed and XOR-agnostic at render (artifact there). Language now has an admin-configured list (`languages` seed — baseline drift, pre-tenancy); no phantom option is introduced by the migration.
+
+### CFP-S3 step 7 — UNCHANGED
+`INSERT INTO formats (id, event_id, name, …) VALUES ('fmt_lightning', 'e_demo', 'Lightning Talk', …)` — `formats` has no org column. Guard: **(T3)**, covered: Wave B (design doc line 97).
+
+### CFP-S3 step 8 — UNCHANGED
+Reload re-runs the CFP-S1.5 formats query — org-blind read; abandon-without-saving unchanged (G2 cross-ref stands).
+
+### CFP-S4 step 1 — UNCHANGED
+FORM_URL load (**T1**) + login (CFP-S2 artifacts) — no tenancy column in either.
+
+### CFP-S4 step 2 — UNCHANGED
+Draft insert writes `submissions(event_id='e_demo', status='draft', …)` — submissions untouched; event_id copied from the form, not re-derived.
+
+### CFP-S4 step 3 — UNCHANGED
+`submissions.updated_at` banner — untouched column.
+
+### CFP-S4 step 4 — UNCHANGED
+Closing the window serves nothing; server session row (`auth_sessions`) untouched.
+
+### CFP-S4 step 5 — UNCHANGED
+Resume discovery `WHERE form_id='form_sessions' AND submitter_id=:priya AND status='draft'` — ownership is submitter-keyed, not membership-keyed; untouched.
+
+### CFP-S4 step 6 — UNCHANGED
+Resume UPDATE with `eq(submissions.submitterId, user.id)` in the WHERE — speaker ownership predicate is orthogonal to org membership (T2); untouched.
+
+### CFP-S4 step 7 — UNCHANGED
+Portal draft listing is contact/user-scoped within the event; the portal gate stays `requireUser`, never membership (same determination as CFP-S1.10; design regression lines 144–145).
+
+### CFP-S4 step 8 — UNCHANGED
+No artifact — state carried forward, as before.
+
+### CFP-S5 step 1 — UNCHANGED
+Duplicate spreads `{...src}` including `eventId`; `forms` gained no org column, so the copy shape is identical. Guard: **(T3)**, covered: Wave B. PANEL_FORM_URL minting = slug + fresh `public_id` — org-blind (T1).
+
+### CFP-S5 step 2 — UNCHANGED
+Same submission-step artifacts as CFP-S1.5 against the panel form — event-keyed reads only.
+
+### CFP-S5 step 3 — UNCHANGED
+`roleSpeakerMin/Max` gate reads `forms` columns — untouched.
+
+### CFP-S5 step 4 — UNCHANGED
+Client blur validation via the shared zod schema — schema-free.
+
+### CFP-S5 step 5 — UNCHANGED
+Banner recount — client state; server re-check unchanged (step 3 artifact).
+
+### CFP-S5 step 6 — UNCHANGED
+Max-cap at 4 — same `roleSpeakerMax` artifact, both sides; untouched.
+
+### CFP-S5 step 7 — UNCHANGED
+Remove-participant recount — client state.
+
+### CFP-S5 step 8 — UNCHANGED
+`PARTICIPANT_ROLE` still carries `'secondary'`; participants table untouched.
+
+### CFP-S5 step 9 — UNCHANGED
+The contact upsert keys on `contacts_event_email_uq (event_id, email)` — the event key IS the tenant boundary for people data (a dana@ contact in another org's event is a different row under a different `event_id`; no org column needed, none added). The atomic batch touches only untouched tables. G10 stands as filed.
+
+### CFP-S6 step 1 — UNCHANGED
+Ravi's signup = the CFP-S1.4 artifact (**T2**): `users` insert + event-keyed contact, no membership row.
+
+### CFP-S6 step 2 — UNCHANGED
+Submit #1 = the CFP-S1.7 batch — untouched tables only.
+
+### CFP-S6 step 3 — UNCHANGED
+"Restarts clean" is G2's carrier question — no tenancy dimension; stands as filed.
+
+### CFP-S6 step 4 — UNCHANGED
+Draft #2 = the CFP-S4.2 insert — untouched.
+
+### CFP-S6 step 5 — UNCHANGED
+Submit #3 — same artifact as step 2.
+
+### CFP-S6 step 6 — UNCHANGED
+The counting query (`WHERE form_id=… AND submitter_id=… AND status IN (…)`) touches only `submissions`; the limit fallback `form.submissionLimit ?? event.submissionLimit` reads the same slug-resolved event row already loaded (**T1**) — `organization_id` sits unread beside it. G7 (counting rule) stands as filed — tenancy neither answers nor worsens it.
+
+### CFP-S6 step 7 — UNCHANGED
+Forged POST hits the same action: `requireUser` (role-based, retained — design lines 106–108) → count → 422 before insert. No membership check belongs here: submitters are not members (T2).
+
+### CFP-S7 step 1 — UNCHANGED
+`UPDATE forms SET close_at = …` — untouched table; guard **(T3)**, covered: Wave B. G8 (status vs close_at) stands as filed.
+
+### CFP-S7 step 2 — UNCHANGED
+Public loader runs `isClosed(form, clock)` on `forms` columns after the org-blind slug resolve (**T1**) — closed-state render carries `events.name`, a plain read.
+
+### CFP-S7 step 3 — UNCHANGED
+Deep-link probe re-runs the same layout-loader check — routing + `forms` reads only; the `.step.*` shared-check thinness folds into G8 exactly as before.
+
+### CFP-S7 step 4 — UNCHANGED
+Draft-resume block = `isClosed` first in loader/action — `forms` + `submissions` reads, both untouched.
+
+### CFP-S7 step 5 — UNCHANGED
+Forged POST → `throw data({...}, { status: 403 })` before parsing — same artifact, no tenancy column.
+
+### CFP-S7 step 6 — UNCHANGED
+Reopen UPDATE restores `close_at`/`status` — untouched columns; bidirectionality is G8's remedy, unchanged.
+
+### CFP-S8 step 1 — UNCHANGED
+Turnstile widget/config — G6 stands exactly as filed (missing `TURNSTILE_SITE_KEY`, throwing prod adapter, no binding rule). The design doc's Turnstile mention covers only Wave C's `/signup` (line 45) — it does NOT close G6's CFP-side binding hole, and doesn't widen it either.
+
+### CFP-S8 step 2 — UNCHANGED
+Signup-with-verify = CFP-S1.4's artifact (**T2**) plus the verify call — the DB signal ("a contact exists for human.check@example.com") is an event-keyed contact insert under a slug-resolved event; `events.organization_id` NOT NULL is irrelevant to it.
+
+### CFP-S8 step 3 — UNCHANGED
+Always-block rejection writes nothing — the zero-rows probes (`users`, `contacts`) hit untouched tables.
+
+### CFP-S8 step 4 — UNCHANGED
+Token-less forged POST → 4xx before any insert — same G6-blocked artifact; no tenancy interaction.

@@ -422,3 +422,287 @@ two scenarios).
 **EXPERIENCE.** Same gesture both ways = dnd-kit droppable panel + fetcher; counts update
 via loader revalidation without full reload. Binding statement: SCOPE performance prose
 only — noted, consistent with AG-S1/AG-S2.
+
+---
+
+## Re-walk 2026-08-10 — tenancy migration (Wave A gate)
+
+Re-walked per `docs/rules/process.md` design-time gate against: post-migration `app/db/schema.ts`
+(`organizations` L95, `organization_members` L101, `events.organizationId` NOT NULL FK
+L121–125, `fields` scope-XOR L390, `api_tokens.organizationId`+nullable `eventId` L1185),
+`docs/multi-tenancy-design.md`, `app/lib/auth.ts` (`getActiveEvent` L236–251, `requireAdmin`
+L226), `drizzle/seed.sql` (org backfill rows).
+
+Structural finding, established once and cited per step: **every serving artifact in the
+2026-08-09 walk above is scoped `WHERE event_id = :eventId`, and none of this module's
+touched tables gained an org column.** Verified in the new schema: `submissions` (L558),
+`formats` (L204), `rooms` (L233), `tracks` (L155), `submission_tracks` (L632),
+`participants` (L721), `contacts` (L498 — `event_id` NOT NULL survives; contacts did NOT
+move to org scope despite Sessionboard's org-level contacts endpoint) all still scope
+through `events`. Tenancy therefore enters this module at exactly one point — how
+`:eventId` is resolved (`requireAdmin` + `getActiveEvent`) — walked as the changed artifact
+at AG-S1 step 1. The `fields` XOR and `api_tokens` changes touch nothing in this file: the
+agenda uses no library fields, and these admin surfaces are cookie-auth, never token-auth.
+Public agenda/embeds are slug-resolved and logged-out, and this yaml excludes them anyway
+(header: "embeds are P2, not covered here") — nothing here for tenancy to gate.
+
+Carried-gap status (pre-existing, neither caused nor fixed by this migration — not
+re-filed):
+
+- **H1 [BLOCKER] still open.** The Wave A seed rewrite minted `org_demo`/`om_admin` and
+  attached `e_demo` (`organization_id = 'org_demo'`) but added no fixtures: still 2 rooms
+  (Room A/B), 2 formats (Featured Keynote 45 / Breakout 30), 2 accepted submissions — not
+  the baseline's 3 rooms / 4 formats / 47+11 sessions.
+- **H2 [MAJOR] premise shifted, gap still open.** `events.schedulableStatuses` now carries
+  a Drizzle `$defaultFn(() => ["accepted"])` (schema L142–144) — an app-side insert default
+  that covers Drizzle-created events (the create-event flow) but NOT the raw-SQL seed:
+  `drizzle/seed.sql`'s events INSERT names no `schedulable_statuses` column, so `e_demo`
+  still reads NULL and the `COALESCE(…,'["accepted"]')` rule remains this walk's invention.
+- H3–H9 carried unchanged (TZ write rule, drop-side status enforcement, duration rule,
+  detector spec, 15-min snap, settings route ownership, detection status scope) — none
+  interacts with an org column.
+
+**New tenancy gaps filed by this re-walk: none.** 39 steps walked: 1 CHANGED, 38 UNCHANGED,
+0 GAP.
+
+**AG-S1 — Unscheduled panel + real alert count**
+
+### AG-S1 step 1 — CHANGED
+
+Two artifacts change under `events.organizationId` NOT NULL. (1) "Reset to the seed
+baseline" now requires the org rows or the events INSERT violates NOT NULL/FK — landed in
+`drizzle/seed.sql`:
+
+```sql
+INSERT INTO organizations (id, name, created_at) VALUES
+ ('org_demo', 'Demo', unixepoch());
+INSERT INTO organization_members (id, organization_id, user_id, created_at) VALUES
+ ('om_admin', 'org_demo', 'u_admin', unixepoch());
+INSERT INTO events (id, organization_id, name, slug, type, timezone, starts_at, ends_at, created_at) VALUES
+ ('e_demo', 'org_demo', 'AI.Engineer Sandbox Event', 'ai-engineer-sandbox', 'Conference',
+  'America/Los_Angeles', unixepoch('2026-10-12'), unixepoch('2026-10-14'), unixepoch());
+```
+
+(2) "Log in as admin → Agenda" — event resolution. `requireAdmin` still checks the global
+role (auth.ts L226–228); `u_admin` has `role='admin'` and `users.role` is retained by
+design ("membership gates *which events*; the enum gates *which surface*" — design doc
+§Authorization). The seed's users INSERT names no `active_event_id` → NULL → today's
+`getActiveEvent` fallback (auth.ts L249) runs
+
+```sql
+SELECT * FROM events LIMIT 1;   -- e_demo, row now carrying organization_id = 'org_demo'
+```
+
+org-blind, but it cannot cross a tenant boundary at Wave A: the DB holds exactly one
+organization, and the only mint path for a second (`/signup`) is Wave C — which the build
+order lands AFTER Wave B replaces this exact query. Covered: Wave B ("The any-event
+fallback is the hole Wave B exists to close … first event across MY orgs, else null — with
+a test on the null-`activeEventId` path" — design doc §Authorization bullet 1 + build-order
+row B). Wave B's committed shape, for the record:
+
+```sql
+SELECT e.* FROM events e
+JOIN organization_members m
+  ON m.organization_id = e.organization_id AND m.user_id = :userId
+ORDER BY e.created_at LIMIT 1;   -- no row → null → create-event flow
+```
+
+The `user.activeEventId` branch gains the membership check (event → org → member) and the
+admin guard swaps role for membership in the same wave (design doc §Authorization bullets
+1–2, build-order row B) — covered, not gaps. The loader's settings/rooms/day queries
+themselves are walked at step 2. `OK` under the gate.
+
+### AG-S1 step 2 — UNCHANGED
+
+Panel-count SQL is `WHERE event_id = :eventId` on `submissions` (no org column, L558);
+tenancy enters upstream at step 1's resolution. H1/H2 carried.
+
+### AG-S1 step 3 — UNCHANGED
+
+Accepted-with-no-time query and DB cross-check are event-scoped on `submissions` — a table
+the migration did not touch.
+
+### AG-S1 step 4 — UNCHANGED
+
+Negative probes are status predicates over the same event-scoped rows; no org-aware
+predicate exists to add.
+
+### AG-S1 step 5 — UNCHANGED
+
+Alert COUNT shares step 3's predicate, recomputed per loader run against the resolved
+event; the resolved event is step 1's (covered) concern.
+
+### AG-S1 step 6 — UNCHANGED
+
+RV-S4's accept flips `status` on the same event-scoped `submissions` row; the review module
+resolves its event through the same `getActiveEvent` chokepoint, so no cross-org path
+exists for an accept to arrive from.
+
+### AG-S1 step 7 — UNCHANGED
+
+Same day query with shifted bounds; rendering/scale concern with no schema surface.
+
+**AG-S2 — Drag to schedule, auto-fill, move**
+
+### AG-S2 step 1 — UNCHANGED
+
+`formats` kept `event_id` NOT NULL and gained no org column (L204–217); the mapping query
+survives verbatim.
+
+### AG-S2 step 2 — UNCHANGED
+
+The drop payload (`intent/submissionId/roomId/day/startMinutes`) names no tenant data —
+the server derives everything tenant-relevant from the resolved event. H3 (TZ rule)
+carried.
+
+### AG-S2 step 3 — UNCHANGED
+
+The schedule action survives byte-identical: its row verification
+`and(eq(submissions.id, …), eq(submissions.eventId, event.id))` is exactly the row-level
+check the design keeps ("Row-level `eventId` verification continues per the data-exposure
+matrix" — design doc §Authorization bullet 5); a submission's org derives via its event,
+never stored, so there is no second column to verify. H4/H5 carried.
+
+### AG-S2 step 4 — UNCHANGED
+
+Recomputed panel/alert queries from AG-S1 steps 2/5 — event-scoped, see above.
+
+### AG-S2 step 5 — UNCHANGED
+
+Move UPDATE with the same `id + event_id` row verification; duration-preserve rule (H5)
+carried, no tenancy surface.
+
+### AG-S2 step 6 — UNCHANGED
+
+Committed UPDATE + loader re-read; persistence has no org dimension.
+
+**AG-S3 — Same-room overlap conflicts**
+
+### AG-S3 step 1 — UNCHANGED
+
+AG-S2 action artifact, event-scoped UPDATE — see AG-S2 step 3.
+
+### AG-S3 step 2 — UNCHANGED
+
+Same action, second row; 15-min snap (H7) carried.
+
+### AG-S3 step 3 — UNCHANGED
+
+Red-clock markers come from the detector query below run in the grid loader — event-scoped,
+see step 4.
+
+### AG-S3 step 4 — UNCHANGED
+
+The class-(a) self-join pairs rows only under
+`a.event_id = :eventId AND b.event_id = a.event_id` — cross-event, hence cross-org, pairing
+is impossible by construction, and no `organizations` join or predicate belongs in the
+detector (rooms and submissions both scope via the event). H6/H9 carried.
+
+### AG-S3 step 5 — UNCHANGED
+
+"Open" links to `/admin/submissions/:id`; that loader's existing eventId row check is the
+full tenancy story per design doc §Authorization bullet 5 (org derived via event, never
+stored where derivable).
+
+### AG-S3 step 6 — UNCHANGED
+
+Resolve is the move UPDATE — same event-scoped artifact as AG-S2 step 5.
+
+### AG-S3 step 7 — UNCHANGED
+
+Conflicts stay compute-on-read; nothing stored means nothing org-attributable to orphan.
+
+**AG-S4 — Speaker double-book across rooms; track/time is NOT a conflict**
+
+### AG-S4 step 1 — UNCHANGED
+
+Precondition state from AG-S3 — event-scoped rows, no new columns involved.
+
+### AG-S4 step 2 — UNCHANGED
+
+Schedule-action UPDATE, `id + event_id` verified — see AG-S2 step 3.
+
+### AG-S4 step 3 — UNCHANGED
+
+The class-(b) detector joins `participants` (submission_id/contact_id, L721) and `contacts`
+(L498) — neither gained an org column, `contacts.event_id` NOT NULL survives, and the join
+constrains `b.event_id = a.event_id` under `:eventId`. Cross-room by construction, still
+single-tenant by construction.
+
+### AG-S4 step 4 — UNCHANGED
+
+The negative probe is structural absence: `submission_tracks` appears nowhere in the
+detector, and the migration added no query that could reintroduce it.
+
+### AG-S4 step 5 — UNCHANGED
+
+Move UPDATE; the strict-inequality boundary argument is untouched by tenancy.
+
+### AG-S4 step 6 — UNCHANGED
+
+Both detector queries return zero rows for the resolved event; other orgs' rows were never
+in scope (step 4's join bounds).
+
+**AG-S5 — Settings drive the grid**
+
+### AG-S5 step 1 — UNCHANGED
+
+`SELECT agenda_day_start_min, agenda_day_end_min FROM events WHERE id = :eventId` names its
+columns; the new `organization_id` column is simply not read.
+
+### AG-S5 step 2 — UNCHANGED
+
+`UPDATE events SET agenda_day_start_min…` touches no new column — `organizationId` NOT NULL
+constrains INSERTs, and the settings action never inserts events. Preventing a cross-org
+settings write is resolution + admin guard, covered: Wave B (design doc §Authorization
+bullets 1–2). H8 (route ownership) carried.
+
+### AG-S5 step 3 — UNCHANGED
+
+Status gating is the AG-S1 step 3 predicate; H2 carried (see header note — `$defaultFn` now
+exists but the raw-SQL seed still leaves `e_demo` NULL).
+
+### AG-S5 step 4 — UNCHANGED
+
+`UPDATE events SET schedulable_statuses = '["accepted","accept_queue"]'` — JSON column
+update on the resolved event's row; no tenancy surface.
+
+### AG-S5 step 5 — UNCHANGED
+
+Same UPDATE restoring `'["accepted"]'`; symmetric to step 4.
+
+### AG-S5 step 6 — UNCHANGED
+
+'pending' never enters the JSON; predicate logic only.
+
+### AG-S5 step 7 — UNCHANGED
+
+Window-restore UPDATE, same shape as step 2.
+
+**AG-S6 — Unschedule round-trip**
+
+### AG-S6 step 1 — UNCHANGED
+
+Reads AG-S1 steps 2/5 queries — event-scoped, walked above.
+
+### AG-S6 step 2 — UNCHANGED
+
+Unschedule UPDATE clears `starts_at/ends_at/room_id` on the `id + event_id`-verified row —
+same row-verification story as AG-S2 step 3.
+
+### AG-S6 step 3 — UNCHANGED
+
+Card/cell/DB assertions all read the same single event-scoped row.
+
+### AG-S6 step 4 — UNCHANGED
+
+Recomputed counts — AG-S1 artifacts.
+
+### AG-S6 step 5 — UNCHANGED
+
+Committed UPDATE persists; no org dimension.
+
+### AG-S6 step 6 — UNCHANGED
+
+Re-drag is the AG-S2 schedule action with NULL `starts_at` ⇒ re-derive from format
+(H5 carried); `formats` untouched by the migration.

@@ -15,6 +15,27 @@
       "when": 1786324612343,
       "tag": "0001_supreme_peter_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786343526584,
+      "tag": "0002_hesitant_blonde_phantom",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786343561487,
+      "tag": "0003_daily_chamber",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786344720619,
+      "tag": "0004_rainy_falcon",
+      "breakpoints": true
     }
   ]
 }

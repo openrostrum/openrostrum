@@ -552,3 +552,341 @@ At ~300 rows a LIKE scan under `email_outbox_event_idx` is instant.
 EM-S1/EM-S2 → P0 #8 (+P1 #6 reply-to), EM-S3 → P0 #2/#8 + P1 #6 admin-notify,
 EM-S4 → P0 #8 reminders + P1 #4 drafts, EM-S5 → cross-cutting
 unsubscribe/suppression (SCOPE.md:176), EM-S6 → P1 #6 history log.
+
+---
+
+## Re-walk 2026-08-10 — tenancy migration (Wave A gate)
+
+Walked against: `docs/multi-tenancy-design.md`, the migrated `app/db/schema.ts`
+(`organizations` :95–99 · `organization_members` :101–117 ·
+`events.organizationId` NOT NULL :123–125 · `fields` XOR :390–411 ·
+`api_tokens.organizationId` NOT NULL + nullable `eventId` :1185–1202 ·
+`emailTemplates` :1234–1261 · `emailSuppressions` :1268–1273 ·
+`emailOutbox` :1281–1307), `app/lib/auth.ts` (`getActiveEvent` :236–251),
+`app/ports/email.ts`, `drizzle/seed.sql` (org_demo :61–65, e_demo→org_demo :68,
+templates :226–231, apitok_demo→org_demo :223–224), `app/routes/admin.submissions.tsx`,
+`docs/ROUTE-MAP.md`, SCOPE.md.
+
+**State drift since the 2026-08-09 walk, verified in code (affects gap
+citations below):** original **BLOCKER #1 is CLOSED** — `EmailMessage.kind`
+(email.ts:27), `EmailResult.suppressed` (:36), and the `withSuppression`
+wrapper both adapters inherit via `getEmailSender` (:95–111, :185–190) now
+exist; SCOPE K13 (SCOPE.md:190) records reminders/decisions as transactional.
+**BLOCKER #2 is PARTIALLY closed** — ROUTE-MAP:36 now assigns
+`unsubscribe.$token.tsx` → `/unsubscribe/:token` (signed token); token
+signing/secret + footer-injection point remain unspecified. **MAJOR #6 closed
+at the map level** (ROUTE-MAP:37 `admin.emails.history.tsx`). **Walk-07 #7
+(:portalId) is stale** — a `portals` table now exists (schema.ts:~275,
+seeded `portal_demo`). None of that is tenancy; recorded so the dup-citations
+below read correctly.
+
+Tenancy facts used throughout: `email_templates`, `email_outbox`, `forms`,
+`submissions` gained **no** org column — their tenant link is
+`eventId → events.organizationId`; `email_suppressions` has **no tenant column
+at all** (global `unique(email)`); `u_admin` is a member of `org_demo`
+(om_admin) with `active_event_id='e_demo'` (seed:98), so every demo-event
+artifact below resolves identically. Cross-tenant admin enforcement
+(membership in `getActiveEvent` + admin guard, any-event-fallback fix) is
+**covered: Wave B** — design doc §Authorization ("The any-event fallback is
+the hole Wave B exists to close", multi-tenancy-design.md:92–96; Wave B row
+:132) — cited per step below, not re-filed.
+
+### EM-S1 step 1 — GAP
+
+Demo-event artifact is byte-identical (loader SQL `WHERE event_id='e_demo'`
+unchanged — `email_templates` has no org column, event-scoped via
+`email_templates_event_idx`; event resolution via `getActiveEvent` → covered:
+Wave B membership check, design doc :92–96). But the migration's committed
+product model creates a tenant for whom this step has NO artifact:
+
+```sql
+-- Wave C tenant (design doc :56–58 — onboarding = org + first event, then
+-- "Land in /admin on their own empty event"):
+--   organizations('org_acme') · organization_members(org_acme, u_acme) ·
+--   events('e_acme', 'org_acme', …)
+SELECT * FROM email_templates WHERE event_id = 'e_acme';   -- 0 rows
+```
+
+The ONLY thing that mints per-event template rows is `drizzle/seed.sql:226–231`
+(grep: no `INSERT` into / drizzle insert of `emailTemplates` anywhere in
+`app/**`). For any non-seeded event there is no Accept template to edit here,
+and EM-S3's `key='submission_confirmation'` auto-send finds no row (its
+`trigger='auto'` sends silently never happen — the swyx "must have"). The
+design doc covers empty LIST states (:58) but never template provisioning; no
+wave (B/C/D, :129–134) mentions it; SCOPE P1 #5's create-event flow
+(SCOPE.md:129) doesn't either. Not BLOCKER only because the seeded event still
+walks; judge-visible the moment P1 #5's create-event (already committed,
+pre-tenancy) or Wave C onboarding produces a second event. Fix shape: mint the
+5 lifecycle templates (the seed's own rows) inside the create-event
+transaction — one decision line in P1 #5 / Wave C scope.
+**GAP — default email-template provisioning for new events/orgs specified
+nowhere; lifecycle emails silently vanish for every non-seeded event.
+[MAJOR — not covered by any committed wave]**
+
+### EM-S1 step 2 — UNCHANGED
+Pure zod refine + event-scoped UPDATE-guard; no tenant column in play, no org
+in the validation path.
+
+### EM-S1 step 3 — UNCHANGED
+Same `UPDATE email_templates … WHERE event_id='e_demo' AND key='accept'` —
+the table gained no org column; UTF-8/Tiptap/useFetcher facts are
+schema-independent.
+
+### EM-S1 step 4 — UNCHANGED
+Send-site artifact identical; `admin.submissions.tsx` already scopes via
+`requireAdmin` + `getActiveEvent` (verified :50–51, :57) → cross-tenant
+enforcement covered: Wave B (design doc :92–97). Status note: the send now
+also carries `kind: "transactional"` (accept decisions per SCOPE K13,
+SCOPE.md:190) — that field exists (email.ts:27) but came from the
+prod-adapters-safety merge, not this migration. Renderer MAJOR #3 persists,
+untouched by tenancy.
+
+### EM-S1 step 5 — UNCHANGED
+Verification SQL identical — `email_outbox` gained no org column; the row's
+tenant link stays `event_id='e_demo'`. Renderer gap persists [dup MAJOR #3].
+
+### EM-S2 step 1 — UNCHANGED
+`submissions`/`rooms` are event-scoped exactly as before (no org columns);
+the UPDATE is byte-identical.
+
+### EM-S2 step 2 — UNCHANGED
+The inputs join touches `events` — which gained `organization_id` — but the
+select list (`title, starts_at, ends_at, room, timezone`) doesn't read it;
+same rows return.
+
+### EM-S2 step 3 — UNCHANGED
+`emailOutbox.icsAttachment` untouched by the migration; port mapping
+unchanged (email.ts:61).
+
+### EM-S2 step 4 — UNCHANGED
+Library-guaranteed `ics` output; no schema surface at all.
+
+### EM-S2 step 5 — UNCHANGED
+NULL `starts_at`/`ends_at` branch is org-free; pre-existing MAJOR #4
+(unscheduled-accept decision unrecorded) persists, unaffected by tenancy.
+
+### EM-S2 step 6 — UNCHANGED
+Same as step 5 — the missing recorded decision is still missing; nothing in
+the tenancy design speaks to it.
+
+### EM-S3 step 1 — UNCHANGED
+`forms.config` JSON overflow untouched (forms carry `eventId` NOT NULL as
+before, no org column); MINOR #9 (config shape) persists.
+
+### EM-S3 step 2 — UNCHANGED
+Public CFP resolves the event by globally-unique slug — the design doc
+KEEPS one global slug namespace as a recorded trade-off (:66–68), so
+`/submit/ai-engineer-sandbox/…` resolution is identical. Determination made
+explicit: Dana's new `users` row gets NO `organization_members` row —
+membership is an organizer concept; speaker access continues via
+`submitter_id`/`contacts`, which the design leaves untouched (§Authorization,
+:100–104 row-level rules). Write set unchanged.
+
+### EM-S3 step 3 — GAP
+Demo-event artifact unchanged (seeded `et_confirm` on `e_demo`; dedupeKey +
+local-adapter mechanics org-free). But the auto confirmation send loads
+`WHERE event_id = :eventId AND key='submission_confirmation'` — for any
+Wave-C org's event that row does not exist, so the "must have" confirmation
+silently never sends. **GAP [dup EM-S1 step 1 — MAJOR: template provisioning
+for non-seeded events].** Suppression-exemption cross-ref from the 08-09 walk
+is RESOLVED (kind defaults transactional, email.ts:18–27, :99–108).
+
+### EM-S3 step 4 — UNCHANGED
+Tenancy leaves speaker auth alone: `requireUser` redirect + `redirectTo`
+deep-link (auth.ts:202–214) have no membership dimension, and Dana's portal
+query keys on `submitter_id`, not org. Renderer MAJOR #3 persists. Stale-dup
+note: the `:portalId` half of the 08-09 citation is fixed — `portals` exists
+(schema.ts:~275–289, seeded `portal-demo-uuid`), so the email CAN mint
+`/portals/ai-engineer-sandbox/portal-demo-uuid`.
+
+### EM-S3 step 5 — UNCHANGED
+Admin-notify recipients are plain addresses in `forms.config` — no tenant
+surface; zero-rows-when-unconfigured guard unchanged. MINOR #10 (no
+admin-notify template) persists.
+
+### EM-S3 step 6 — UNCHANGED
+Double-submit surfaces carry no org columns; the confirmation dedupeKey
+embeds the submission id (globally-unique uuid) so keys cannot collide
+across tenants. MINOR #11 persists (primary owner: 03 walk).
+
+### EM-S4 step 1 — UNCHANGED
+Same event-scoped `UPDATE forms … WHERE id='form_sessions' AND
+event_id='e_demo'`; timezone facts identical (close 2026-09-15 23:59 PDT =
+09-16 06:59Z).
+
+### EM-S4 step 2 — UNCHANGED
+Draft INSERT is event/form-scoped; no org column on `submissions`.
+
+### EM-S4 step 3 — CHANGED
+The cron job is the one emails artifact that is inherently CROSS-TENANT: it
+runs with no user context and must now serve every organization's forms. The
+due query gains a mandatory `events` join — the event timezone (and the
+outbox `eventId`) can no longer be treated as "the" event's:
+
+```sql
+SELECT f.id AS form_id, f.internal_name, f.close_at,
+       e.id AS event_id, e.timezone,            -- NEW: per-event tz + outbox eventId
+       u.id AS user_id, u.email
+FROM forms f
+JOIN events e      ON e.id = f.event_id          -- NEW: one tz per row, not global
+JOIN submissions s ON s.form_id = f.id AND s.status = 'draft'
+JOIN users u       ON u.id = s.submitter_id
+WHERE f.send_reminders = 1
+  AND f.status = 'open'
+  AND f.close_at IS NOT NULL
+  AND :daysUntilClose(f.close_at, e.timezone) = 5   -- computed app-side PER EVENT TZ
+GROUP BY f.id, u.id;
+-- Deliberately NO organizationId filter: every tenant's reminders fire. The
+-- Demo-org guard in the design doc is scoped to the AIRTABLE SYNC job's row
+-- selection only ("WHERE event.organizationId = demoOrg in the sync job",
+-- multi-tenancy-design.md:115–118) — it does NOT apply to reminders.
+```
+
+Pre-existing MAJOR #5 (occurrence arithmetic) persists and is now structural:
+day-difference math MUST be computed in each row's `e.timezone` — a single
+global-tz shortcut that happened to work with one seeded event is no longer
+even expressible. Suppression cross-ref from 08-09 is resolved the other way:
+SCOPE K13 (SCOPE.md:190) classes draft-close reminders as TRANSACTIONAL —
+no suppression check applies (port default, email.ts:18–27).
+
+### EM-S4 step 4 — UNCHANGED
+`dedupeKey = 'reminder_5day:form_sessions:dana.wu@example.com'` embeds the
+form id, which is globally unique — two orgs' forms can never mint the same
+key, so the dedupe invariant holds tenant-free. Count SQL identical.
+
+### EM-S4 step 5 — UNCHANGED
+Structural proof intact: `email_outbox.dedupe_key` UNIQUE + adapter
+`onConflictDoNothing` (email.ts:67) — neither touched by the migration.
+
+### EM-S4 step 6 — UNCHANGED
+Distinct occurrence key → second row; same org-free proof.
+
+### EM-S4 step 7 — UNCHANGED
+Body content still blocked by renderer MAJOR #3; resume-draft deep-link MINOR
+#12 persists — neither has a tenancy dimension (the draft link is
+slug+publicId based, both globally unique).
+
+### EM-S5 step 1 — UNCHANGED
+Fixture is an outbox INSERT; org-free.
+
+### EM-S5 step 2 — GAP
+The click→suppression write is mechanically unchanged (same idempotent
+INSERT … ON CONFLICT(email) DO NOTHING; remaining unspecified pieces —
+token signing/secret, footer injection — are the pre-existing BLOCKER #2
+residue, not tenancy). What the migration ADDS is an unrecorded scope
+decision:
+
+```sql
+-- schema.ts:1268–1273 — the suppression key is the ADDRESS, tenant-free:
+--   email: text('email').notNull().unique()     (no organizationId, no eventId)
+INSERT INTO email_suppressions (id, email, reason, created_at)
+VALUES ('sup_leo', 'leo@example.com', 'unsubscribe_link', unixepoch())
+ON CONFLICT (email) DO NOTHING;
+-- withSuppression (email.ts:99–108) matches on address alone, so org A's
+-- footer click silences EVERY organization's kind:'bulk' sends to Leo —
+-- org B's announcements are suppressed by a click it never sent.
+```
+
+Global-by-address is a defensible (conservative, over-suppress) reading and
+CAN-SPAM-safe, but it is a product decision the design doc never makes —
+§Airtable is its only per-org-boundary discussion; `email_suppressions`
+appears nowhere in it. If the decision flips to per-org, the schema needs an
+`organizationId` column + `unique(organizationId, email)` AND the signed
+`/unsubscribe/:token` payload must carry the org. One recorded sentence
+either way. Judges operate a single org → interim-invisible.
+**GAP — suppression scope under multi-tenancy (global-per-address vs per-org)
+undecided and unrecorded; current schema silently commits to global. [MINOR]**
+
+### EM-S5 step 3 — UNCHANGED
+Same SELECT; the row is global by design of the current schema (see step 2's
+filed decision gap).
+
+### EM-S5 step 4 — UNCHANGED
+By tenancy. Status note (verified, closes 08-09 BLOCKER #1): the suppression
+gate now EXISTS — `withSuppression` wraps both adapters via `getEmailSender`
+(email.ts:95–111, :185–190), returns `{id:"", suppressed:true}` with NO
+outbox row, and queries `email_suppressions` by normalized address only —
+consistent with the (unrecorded) global scope, cross-ref step 2.
+
+### EM-S5 step 5 — UNCHANGED
+Oracle SQL identical: rows for Priya/Mallory, none for Leo — skip happens
+before the adapter INSERT, org-free.
+
+### EM-S5 step 6 — UNCHANGED
+`kind` defaults to transactional (email.ts:18–27) and the gate only checks
+`kind === "bulk"` (:99) → Leo's confirmation delivers. The 08-09 dup-BLOCKER
+here is resolved; no tenancy surface.
+
+### EM-S5 step 7 — UNCHANGED
+Footer-injection point still unspecified (BLOCKER #2 residue + renderer #3 —
+both pre-existing). Tenancy cross-ref only: if step 2's scope decision goes
+per-org, the footer token must embed the sending org.
+
+### EM-S6 step 1 — UNCHANGED
+History-log loader stays `WHERE event_id = :activeEventId` — outbox is
+event-scoped, org derived via the event. Event resolution covered: Wave B
+(design doc :92–97). Status note: ROUTE-MAP:37 now assigns
+`admin.emails.history.tsx` → `/admin/emails/history` (08-09 MAJOR #6 closed
+at the map level).
+
+### EM-S6 step 2 — GAP
+Row-for-row equality on `e_demo` holds unchanged. But the migration makes
+`email_outbox`'s tenant boundary load-bearing, and it is only the NULLABLE
+`eventId` (set-null FK, schema.ts:1285–1287 — no `organizationId` column):
+
+```sql
+SELECT COUNT(*) FROM email_outbox WHERE event_id IS NULL;
+-- Every such row is tenant-ORPHANED: it appears in no org's history log
+-- (invisible to its own organizer), and any future admin/global listing that
+-- doesn't filter by the caller's orgs' events would leak it cross-tenant.
+-- ON DELETE SET NULL means deleting an event converts its entire send
+-- history into orphans instead of keeping them attributable.
+```
+
+This aggravates 08-09 MINOR #14 ("always pass eventId" convention unstated):
+pre-tenancy a NULL-eventId row was merely mis-filed; post-migration it has no
+tenant. Cheapest fix stays one sentence — make `EmailMessage.eventId`
+required in the port contract — plus a decision on whether outbox rows should
+survive event deletion (cascade vs an org column).
+**GAP — outbox tenant boundary is the nullable `eventId` only; orphaned rows
+are unattributable to any org [MINOR — aggravates 08-09 #14]**
+
+### EM-S6 step 3 — UNCHANGED
+Snapshot columns (`subject`/`html` copied at send) and the nullable
+`templateId` grouping FK are untouched; the non-retroactivity invariant is
+structural and org-free.
+
+### EM-S6 step 4 — UNCHANGED
+Zero-recipient guard precedes any template load or send; auth prelude
+(`requireAdmin` + `getActiveEvent`) covered: Wave B (design doc :92–97).
+
+### EM-S6 step 5 — UNCHANGED
+Count-unchanged proof is positional (early return before every
+`sender.send`); no schema surface.
+
+### EM-S6 step 6 — UNCHANGED
+Search SQL identical. MINOR #15 (`(event_id, created_at)` composite index)
+persists and gains weight: post-migration ONE outbox table carries every
+tenant's sends, so the per-event ordered scan is the norm, not the edge —
+still MINOR for the scenario's ~300 rows.
+
+### Re-walk verdict — 08-emails × tenancy Wave A
+
+**37 steps walked · 1 CHANGED · 32 UNCHANGED · 4 GAP entries (3 distinct
+gaps + 1 dup).** No step loses its demo-event artifact under the migrated
+schema; Wave B's committed membership enforcement covers every admin-surface
+auth prelude touched here.
+
+| # | Where | New gap (tenancy walk) | Severity |
+|---|---|---|---|
+| T1 | EM-S1 step 1 (+EM-S3 step 3 dup) | Default email-template provisioning for new events/orgs specified nowhere — only `drizzle/seed.sql:226–231` mints template rows, so every non-seeded event (P1 #5 create-event today, Wave C onboarding tomorrow) has no Accept template to edit and its auto `submission_confirmation` silently never sends; not covered by any committed wave | MAJOR |
+| T2 | EM-S5 step 2 | Suppression scope under multi-tenancy unrecorded — `email_suppressions` is global `unique(email)` with no tenant column, so one org's unsubscribe silences every org's bulk sends to that address; conservative but undecided (design doc silent); flipping to per-org would also require org context in the signed unsubscribe token | MINOR |
+| T3 | EM-S6 step 2 | `email_outbox`'s only tenant link is nullable `eventId` (set-null FK) — NULL rows are tenant-orphaned, invisible in every org's history log; aggravates 08-09 MINOR #14 ("eventId required" convention) and adds an event-deletion attribution question | MINOR |
+
+Pre-existing 08-09 gaps #3 (renderer), #4 (unscheduled .ics), #5 (occurrence
+arithmetic — now structurally per-event-tz, see EM-S4 step 3), #8–#13, #15
+persist unchanged by tenancy. Closed since 08-09 (verified in code, not
+tenancy work): BLOCKER #1 (suppression gate + `kind` live in
+`app/ports/email.ts`), MAJOR #6 (history route mapped), BLOCKER #2 partially
+(unsubscribe route mapped; token/footer still open), walk-07 #7 (portals
+table exists).
