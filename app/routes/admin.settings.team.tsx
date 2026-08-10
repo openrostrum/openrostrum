@@ -51,31 +51,22 @@ type AppUser = typeof users.$inferSelect;
 type Org = typeof organizations.$inferSelect;
 
 /**
- * The org an admin manages is the active event's — but only when they are a
- * member of it; otherwise their own first membership. Resolving through
- * membership (never the bare event row) is what makes cross-org member
- * management structurally impossible: an activeEventId pointing into another
- * org can never grant access to that org's roster.
+ * The org an admin manages: the active event's org — `getActiveEvent` is the
+ * shared membership chokepoint and only ever returns events of orgs the user
+ * belongs to — else the user's first membership (an org can exist before its
+ * first event). Null = no membership at all. This derivation is what makes
+ * cross-org member management structurally impossible.
  */
 async function resolveOrg(env: Env, user: AppUser): Promise<Org | null> {
 	const db = getDb(env);
 	const event = await getActiveEvent(env, user);
 	if (event) {
-		const [viaEvent] = await db
-			.select({ org: organizations })
-			.from(organizationMembers)
-			.innerJoin(
-				organizations,
-				eq(organizations.id, organizationMembers.organizationId),
-			)
-			.where(
-				and(
-					eq(organizationMembers.organizationId, event.organizationId),
-					eq(organizationMembers.userId, user.id),
-				),
-			)
+		const [org] = await db
+			.select()
+			.from(organizations)
+			.where(eq(organizations.id, event.organizationId))
 			.limit(1);
-		if (viaEvent) return viaEvent.org;
+		if (org) return org;
 	}
 	const [first] = await db
 		.select({ org: organizations })
