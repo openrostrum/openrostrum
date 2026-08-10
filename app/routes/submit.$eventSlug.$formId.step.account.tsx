@@ -330,7 +330,10 @@ export default function AccountStep({
 								<TextLink to="/forgot-password">Forgot your password?</TextLink>
 							</div>
 						</div>
-						<TurnstileWidget siteKey={loaderData.turnstileSiteKey} />
+						<TurnstileWidget
+							siteKey={loaderData.turnstileSiteKey}
+							resetSignal={actionData}
+						/>
 						<div className="flex flex-wrap items-center gap-3">
 							<Button type="submit" name="intent" value="login">
 								Log In →
@@ -383,7 +386,10 @@ export default function AccountStep({
 							)}
 						</div>
 						{result?.error && <ErrorText>{result.error}</ErrorText>}
-						<TurnstileWidget siteKey={loaderData.turnstileSiteKey} />
+						<TurnstileWidget
+							siteKey={loaderData.turnstileSiteKey}
+							resetSignal={actionData}
+						/>
 						<div className="flex flex-wrap items-center gap-3">
 							<Button type="submit" name="intent" value="signup">
 								Create account

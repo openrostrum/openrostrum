@@ -1,6 +1,7 @@
 import {
 	isFieldVisible,
 	isInputField,
+	splitMultiValue,
 	ROLE_LABELS,
 	type WizardField,
 	type WizardParticipant,
@@ -22,6 +23,12 @@ function DisplayValue({ field, value }: { field: WizardField; value: string }) {
 	if (field.type === "dropdown") {
 		const label = field.options?.find((o) => o.value === value)?.label ?? value;
 		return <span className="text-[13.5px] text-fg">{label}</span>;
+	}
+	if (field.type === "multi_dropdown") {
+		const labels = splitMultiValue(value).map(
+			(v) => field.options?.find((o) => o.value === v)?.label ?? v,
+		);
+		return <span className="text-[13.5px] text-fg">{labels.join(", ")}</span>;
 	}
 	if (field.type === "checkbox") {
 		return (

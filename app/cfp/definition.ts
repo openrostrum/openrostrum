@@ -1,65 +1,28 @@
 /**
  * Public CFP wizard — form definition + validation, shared by the client
  * (instant show/hide + inline errors) and the server (the authoritative check
- * on submit). Pure data/functions only: this module is client-bundled, so it
- * must never import drizzle or ~/db/schema at runtime.
+ * on submit). Only TYPES come from ~/db/schema (erased at build), so this
+ * client-bundled module never pulls the drizzle runtime.
  */
+import type { BUILTIN_FIELD, FIELD_TYPE, QuestionRule } from "~/db/schema";
+
+export type BuiltinRef = (typeof BUILTIN_FIELD)[number];
 
 export type WizardFieldType =
-	| "text"
-	| "textarea"
-	| "wysiwyg"
-	| "dropdown"
-	| "checkbox"
-	| "number"
-	| "email"
-	| "phone"
-	| "date"
-	| "section_header"
-	| "divider"
+	| (typeof FIELD_TYPE)[number]
+	/** Multi-value taxonomy (tags): value = comma-joined ids. */
+	| "multi_dropdown"
 	/** Non-input explainer for a built-in this surface collects elsewhere. */
 	| "note";
 
-/**
- * Mirror of the schema's BUILTIN_FIELD enum (this module is client-bundled and
- * must not pull the schema's runtime). app/cfp/server.ts holds a compile-time
- * assertion that BUILTIN_META covers the schema enum exactly, so adding a
- * built-in without wizard support fails the build instead of silently
- * dropping the question.
- */
-export type BuiltinRef =
-	| "title"
-	| "description"
-	| "format"
-	| "tags"
-	| "track"
-	| "level"
-	| "language"
-	| "first_name"
-	| "last_name"
-	| "email"
-	| "mobile_phone"
-	| "home_phone"
-	| "biography"
-	| "company_name"
-	| "job_title"
-	| "headshot"
-	| "zip";
-
-export type WizardRule = {
-	trigger:
-		| { kind: "field"; fieldId: string }
-		| { kind: "builtin"; ref: string };
-	operator: "equals" | "not_equals" | "gt" | "lt";
-	value: string;
-} | null;
+export type WizardRule = QuestionRule;
 
 export type WizardOption = { value: string; label: string };
 
 export type WizardField = {
 	/** Value key in WizardValues: `b_<builtinRef>` or `f_<fieldId>`. */
 	key: string;
-	builtinRef?: string;
+	builtinRef?: BuiltinRef;
 	fieldId?: string;
 	label: string;
 	type: WizardFieldType;
@@ -92,6 +55,15 @@ export type WizardParticipant = {
 	self?: boolean;
 };
 
+/** The submitter's own profile snapshot used to prefill their person row. */
+export type SelfContact = {
+	firstName: string;
+	lastName: string;
+	email: string;
+	mobilePhone: string;
+	bio: string;
+};
+
 export type RoleLimits = { min: number; max: number | null };
 export type RoleConfig = Partial<Record<ParticipantRole, RoleLimits>>;
 
@@ -105,6 +77,11 @@ export type WizardState = {
 	values: WizardValues;
 	participants: WizardParticipant[];
 };
+
+/** True when the loaded row was already submitted (edit-until-close mode). */
+export function isEditingSubmitted(state: WizardState): boolean {
+	return state.loadedStatus !== undefined && state.loadedStatus !== "draft";
+}
 
 export function builtinKey(ref: string): string {
 	return `b_${ref}`;
@@ -124,7 +101,7 @@ export const BUILTIN_META: Record<
 	title: { label: "Title", type: "text", maxLength: 255 },
 	description: { label: "Description", type: "wysiwyg", maxLength: 5000 },
 	format: { label: "Format", type: "dropdown" },
-	tags: { label: "Tags", type: "dropdown" },
+	tags: { label: "Tags", type: "multi_dropdown" },
 	track: { label: "Track", type: "dropdown" },
 	level: { label: "Level", type: "dropdown" },
 	language: { label: "Language", type: "dropdown" },
@@ -178,7 +155,7 @@ export function participantRequirements(
  * required, Level/Language optional.
  */
 export const DEFAULT_SESSION_BUILTINS: ReadonlyArray<{
-	ref: string;
+	ref: BuiltinRef;
 	required: boolean;
 	locked: boolean;
 }> = [
@@ -192,7 +169,7 @@ export const DEFAULT_SESSION_BUILTINS: ReadonlyArray<{
 ];
 
 export const DEFAULT_PARTICIPANT_BUILTINS: ReadonlyArray<{
-	ref: string;
+	ref: BuiltinRef;
 	required: boolean;
 	locked: boolean;
 }> = [
@@ -207,6 +184,17 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function isValidEmail(value: string): boolean {
 	return EMAIL_RE.test(value.trim());
+}
+
+/** Comma-joined multi-value codec for multi_dropdown values (tags). */
+export function splitMultiValue(value: string): string[] {
+	return value
+		.split(",")
+		.map((v) => v.trim())
+		.filter(Boolean);
+}
+export function joinMultiValue(values: string[]): string {
+	return values.join(",");
 }
 
 /** Visible-text length of a rich-text value (counters, caps, empty checks). */
@@ -273,8 +261,7 @@ export function isInputField(field: WizardField): boolean {
 
 /**
  * Validate one wizard section. Required/format checks apply to VISIBLE input
- * fields only — a rule-hidden field never blocks. `textLength` lets the server
- * pass an HTML-stripped length for wysiwyg values; the client passes its own.
+ * fields only — a rule-hidden field never blocks.
  */
 export function validateSection(
 	fields: WizardField[],
@@ -315,6 +302,14 @@ export function validateSection(
 			!field.options.some((o) => o.value === raw)
 		) {
 			errors[field.key] = `Choose a valid ${field.label}`;
+			continue;
+		}
+		if (field.type === "multi_dropdown" && field.options !== undefined) {
+			const chosen = splitMultiValue(raw);
+			const valid = new Set(field.options.map((o) => o.value));
+			if (chosen.some((v) => !valid.has(v))) {
+				errors[field.key] = `Choose valid ${field.label}`;
+			}
 		}
 	}
 	return errors;

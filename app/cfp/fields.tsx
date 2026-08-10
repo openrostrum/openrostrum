@@ -2,7 +2,9 @@ import { Field, Input, Select } from "~/ui";
 import {
 	isFieldVisible,
 	isInputField,
+	joinMultiValue,
 	plainTextLength,
+	splitMultiValue,
 	type WizardField,
 	type WizardValues,
 } from "./definition";
@@ -52,6 +54,31 @@ function FieldControl({
 					<span className="text-[12px] text-fg-muted">{field.description}</span>
 				)}
 				{error && <span className="text-[11.5px] text-danger">{error}</span>}
+			</div>
+		);
+	}
+
+	if (field.type === "multi_dropdown") {
+		const chosen = new Set(splitMultiValue(value));
+		return (
+			<div className="flex flex-col gap-1">
+				<Field label={label} error={error}>
+					<div className="flex flex-wrap gap-x-5 gap-y-2 py-1">
+						{(field.options ?? []).map((o) => (
+							<Checkbox
+								key={o.value}
+								label={o.label}
+								checked={chosen.has(o.value)}
+								onChange={(e) => {
+									const next = new Set(chosen);
+									if (e.target.checked) next.add(o.value);
+									else next.delete(o.value);
+									onChange(field.key, joinMultiValue([...next]));
+								}}
+							/>
+						))}
+					</div>
+				</Field>
 			</div>
 		);
 	}

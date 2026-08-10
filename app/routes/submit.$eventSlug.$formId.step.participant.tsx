@@ -10,6 +10,7 @@ import {
 	useRouteLoaderData,
 } from "react-router";
 import {
+	isEditingSubmitted,
 	isValidEmail,
 	type ParticipantErrors,
 	participantExtraFields,
@@ -212,6 +213,13 @@ export default function ParticipantStep({
 	};
 
 	const saveDraft = () => {
+		if (!(state.values.b_title ?? "").trim()) {
+			setErrors((e) => ({
+				...e,
+				form: ["Add a title on the Submission step to save your draft."],
+			}));
+			return;
+		}
 		saveFetcher.submit(wizardPayload("save-draft", state), {
 			method: "post",
 			encType: "application/json",
@@ -219,8 +227,7 @@ export default function ParticipantStep({
 		});
 	};
 	const saveResult = saveFetcher.data;
-	const editingSubmitted =
-		state.loadedStatus !== undefined && state.loadedStatus !== "draft";
+	const editingSubmitted = isEditingSubmitted(state);
 
 	return (
 		<div className="flex flex-col gap-4">

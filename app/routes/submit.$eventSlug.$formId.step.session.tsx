@@ -13,6 +13,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
+	isEditingSubmitted,
 	roleMaxErrors,
 	validateSection,
 	type WizardState,
@@ -87,6 +88,25 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const db = getDb(env);
 	const closed = isFormClosed(form, systemClock.now());
 	const timings = createTimings();
+	const sid = url.searchParams.get("sid");
+
+	if (closed && !sid) {
+		// The layout renders the closed state in place of this step — don't do
+		// the definition/prefill work nothing will render.
+		return data({
+			mode: "closed" as const,
+			readOnly: true,
+			initial: null,
+			definition: { session: [], participant: [], roles: {} },
+			selfContact: null,
+			sectionTitle: "",
+			sectionHtml: null,
+			drafts: [],
+			limit: null as number | null,
+			used: 0,
+			limitReached: false,
+		});
+	}
 
 	const definition = await timings.time("definition", () =>
 		resolveFormDefinition(db, form),
@@ -95,8 +115,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const sectionTitle =
 		form.sessionSectionTitle || "Tell us about your submission";
 	const sectionHtml = form.sessionSectionHtml;
-
-	const sid = url.searchParams.get("sid");
 	if (sid) {
 		const initial = await timings.time("draft", () =>
 			loadWizardInitial(db, form, user.id, sid),
@@ -118,23 +136,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			},
 			{ headers: { "Server-Timing": timings.header() } },
 		);
-	}
-
-	if (closed) {
-		// The layout renders the closed state in place of this step.
-		return data({
-			mode: "closed" as const,
-			readOnly: true,
-			initial: null,
-			definition,
-			selfContact,
-			sectionTitle,
-			sectionHtml,
-			drafts: [],
-			limit: null as number | null,
-			used: 0,
-			limitReached: false,
-		});
 	}
 
 	const drafts = await timings.time("drafts", () =>
@@ -381,6 +382,13 @@ export default function SessionStep({
 	// show their content immediately); the shared wizard context adopts it on
 	// mount and carries edits across steps.
 	const seeded = useMemo<WizardState>(() => {
+		const prefill = selfContact ?? {
+			firstName: "",
+			lastName: "",
+			email: "",
+			mobilePhone: "",
+			bio: "",
+		};
 		if (initial) {
 			return {
 				wizardId: initial.sid,
@@ -390,10 +398,10 @@ export default function SessionStep({
 				participants:
 					initial.participants.length > 0
 						? initial.participants
-						: newWizardState(selfContact).participants,
+						: newWizardState(prefill).participants,
 			};
 		}
-		return newWizardState(selfContact);
+		return newWizardState(prefill);
 	}, [initial, selfContact]);
 
 	// The context's state wins unless the URL points at a DIFFERENT submission
@@ -532,8 +540,7 @@ export default function SessionStep({
 	};
 
 	const saveResult = saveFetcher.data;
-	const editingSubmitted =
-		state.loadedStatus !== undefined && state.loadedStatus !== "draft";
+	const editingSubmitted = isEditingSubmitted(state);
 
 	return (
 		<div className="flex flex-col gap-4">

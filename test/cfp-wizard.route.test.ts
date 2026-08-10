@@ -10,7 +10,10 @@ import {
 	submissionAnswers,
 	submissionRevisions,
 	submissions,
+	submissionTags,
 	submissionTracks,
+	tags,
+	tracks,
 } from "../app/db/schema";
 import { action as sessionAction } from "../app/routes/submit.$eventSlug.$formId.step.session";
 import { action as submitAction } from "../app/routes/submit.$eventSlug.$formId.step.review";
@@ -577,6 +580,53 @@ describe("edit until close", () => {
 			"dana@example.com",
 			"priya@example.com",
 		]);
+	});
+
+	it("preserves organizer-applied tags and tracks through a speaker edit", async () => {
+		await seedCfp();
+		const speaker = await createSpeaker();
+		const db = getDb(env);
+		await callSubmit(speaker.cookie, submitBody());
+
+		// Organizer applies a second tag and a second track after submission.
+		await db
+			.insert(tags)
+			.values({ id: "tag2", eventId: FIX.eventId, name: "Tag B" });
+		await db
+			.insert(tracks)
+			.values({ id: "tr2", eventId: FIX.eventId, name: "Topic B" });
+		await db
+			.insert(submissionTags)
+			.values({ submissionId: WIZARD_ID, tagId: "tag2" });
+		await db
+			.insert(submissionTracks)
+			.values({ submissionId: WIZARD_ID, trackId: "tr2" });
+
+		// The speaker edits the title; the wizard round-trips the loaded tag set
+		// (both tags) and leaves the unchanged track selection alone.
+		const response = (await callSubmit(
+			speaker.cookie,
+			submitBody({
+				sid: WIZARD_ID,
+				values: {
+					...validValues(),
+					b_title: "Edited without touching taxonomy",
+					b_tags: `${FIX.tagId},tag2`,
+				},
+			}),
+		)) as Response;
+		expect(response.status).toBe(302);
+
+		const tagRows = await db
+			.select()
+			.from(submissionTags)
+			.where(eq(submissionTags.submissionId, WIZARD_ID));
+		expect(tagRows.map((t) => t.tagId).sort()).toEqual(["tag1", "tag2"]);
+		const trackRows = await db
+			.select()
+			.from(submissionTracks)
+			.where(eq(submissionTracks.submissionId, WIZARD_ID));
+		expect(trackRows.map((t) => t.trackId).sort()).toEqual(["tr1", "tr2"]);
 	});
 
 	it("refuses edits by anyone but the submitter", async () => {

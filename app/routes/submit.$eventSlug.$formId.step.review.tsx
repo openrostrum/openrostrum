@@ -10,6 +10,7 @@ import {
 } from "react-router";
 import { z } from "zod";
 import {
+	isEditingSubmitted,
 	participantExtraFields,
 	participantRequirements,
 	validateParticipants,
@@ -290,8 +291,7 @@ export default function ReviewStep({
 		);
 	}
 
-	const editingSubmitted =
-		state.loadedStatus !== undefined && state.loadedStatus !== "draft";
+	const editingSubmitted = isEditingSubmitted(state);
 	const busy = navigation.state !== "idle";
 
 	const doSubmit = () => {

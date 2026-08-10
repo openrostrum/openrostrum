@@ -1,7 +1,6 @@
 import { and, count, eq, isNull, ne } from "drizzle-orm";
 import { getDb } from "~/db";
 import {
-	BUILTIN_FIELD,
 	contacts,
 	emailTemplates,
 	events,
@@ -31,8 +30,11 @@ import {
 	DEFAULT_SESSION_BUILTINS,
 	fieldKey,
 	isFieldVisible,
+	joinMultiValue,
 	participantExtraFields,
 	type RoleConfig,
+	type SelfContact,
+	splitMultiValue,
 	type WizardField,
 	type WizardParticipant,
 	type WizardRule,
@@ -179,24 +181,14 @@ const TAXONOMY_BUILTINS = new Set([
 	"language",
 ]);
 
-// Compile-time: BUILTIN_META must cover the schema's BUILTIN_FIELD enum
-// exactly — a new built-in without wizard support fails the build here
-// instead of silently dropping the organizer's question from the form.
-const _builtinCoverage: Record<(typeof BUILTIN_FIELD)[number], unknown> =
-	BUILTIN_META;
-void _builtinCoverage;
-
 function builtinField(
-	ref: string,
+	ref: BuiltinRef,
 	required: boolean,
 	locked: boolean,
 	rule: WizardRule,
 	taxonomies: Awaited<ReturnType<typeof eventTaxonomies>>,
 ): WizardField {
-	const meta = BUILTIN_META[ref as BuiltinRef];
-	if (!meta) {
-		throw new Error(`Unknown built-in field placement: ${ref}`);
-	}
+	const meta = BUILTIN_META[ref];
 	return {
 		key: builtinKey(ref),
 		builtinRef: ref,
@@ -414,13 +406,7 @@ export async function linkUserToContacts(
 		);
 }
 
-export type SelfContact = {
-	firstName: string;
-	lastName: string;
-	email: string;
-	mobilePhone: string;
-	bio: string;
-};
+export type { SelfContact };
 
 export async function loadSelfContact(
 	db: Db,
@@ -686,7 +672,18 @@ export async function writeSubmission(
 	const formatId = taxonomyValue(values, "format", definition, visibleKeys);
 	const levelId = taxonomyValue(values, "level", definition, visibleKeys);
 	const trackId = taxonomyValue(values, "track", definition, visibleKeys);
-	const tagId = taxonomyValue(values, "tags", definition, visibleKeys);
+	// Tags are multi-valued: the wizard round-trips the FULL tag set (including
+	// organizer-applied tags loaded on resume), so an edit never narrows it to
+	// the one value a single dropdown could hold.
+	const tagIds = (() => {
+		const key = builtinKey("tags");
+		const field = definition.session.find((f) => f.key === key);
+		if (field && !visibleKeys.has(key)) return [];
+		const chosen = splitMultiValue(values[key] ?? "");
+		if (!field?.options) return chosen;
+		const valid = new Set(field.options.map((o) => o.value));
+		return chosen.filter((id) => valid.has(id));
+	})();
 	const language = taxonomyValue(values, "language", definition, visibleKeys);
 
 	const submissionId = existing?.id ?? input.wizardId;
@@ -741,11 +738,6 @@ export async function writeSubmission(
 		);
 		statements.push(
 			db
-				.delete(submissionTracks)
-				.where(eq(submissionTracks.submissionId, submissionId)),
-		);
-		statements.push(
-			db
 				.delete(submissionTags)
 				.where(eq(submissionTags.submissionId, submissionId)),
 		);
@@ -755,12 +747,30 @@ export async function writeSubmission(
 			db.insert(submissionAnswers).values({ submissionId, ...answer }),
 		);
 	}
-	if (trackId) {
+	// Track is single-select: rewrite it only when the selection actually
+	// changed, so an unrelated edit never strips tracks an organizer added for
+	// reviewer routing.
+	const existingTrackIds = existing
+		? (
+				await db
+					.select({ trackId: submissionTracks.trackId })
+					.from(submissionTracks)
+					.where(eq(submissionTracks.submissionId, submissionId))
+			).map((r) => r.trackId)
+		: [];
+	if (trackId && !existingTrackIds.includes(trackId)) {
+		if (existing) {
+			statements.push(
+				db
+					.delete(submissionTracks)
+					.where(eq(submissionTracks.submissionId, submissionId)),
+			);
+		}
 		statements.push(
 			db.insert(submissionTracks).values({ submissionId, trackId }),
 		);
 	}
-	if (tagId) {
+	for (const tagId of tagIds) {
 		statements.push(db.insert(submissionTags).values({ submissionId, tagId }));
 	}
 
@@ -945,7 +955,7 @@ export async function loadWizardInitial(
 		[builtinKey("level")]: row.levelId ?? "",
 		[builtinKey("language")]: row.language,
 		[builtinKey("track")]: trackRows[0]?.trackId ?? "",
-		[builtinKey("tags")]: tagRows[0]?.tagId ?? "",
+		[builtinKey("tags")]: joinMultiValue(tagRows.map((r) => r.tagId)),
 	};
 	for (const answer of answers) {
 		values[fieldKey(answer.fieldId)] = answer.value ?? "";

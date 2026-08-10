@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { WizardParticipant, WizardState } from "./definition";
+import type { SelfContact, WizardParticipant, WizardState } from "./definition";
 
 /**
  * Client-side wizard carrier: values live in React state owned by the wizard
@@ -14,15 +14,7 @@ export type WizardCtx = {
 	reset: () => void;
 };
 
-export type SelfPrefill = {
-	firstName: string;
-	lastName: string;
-	email: string;
-	mobilePhone: string;
-	bio: string;
-};
-
-export function selfParticipant(prefill: SelfPrefill): WizardParticipant {
+export function selfParticipant(prefill: SelfContact): WizardParticipant {
 	return {
 		key: "self",
 		role: "speaker",
@@ -35,7 +27,7 @@ export function selfParticipant(prefill: SelfPrefill): WizardParticipant {
 	};
 }
 
-export function newWizardState(prefill: SelfPrefill): WizardState {
+export function newWizardState(prefill: SelfContact): WizardState {
 	return {
 		wizardId: crypto.randomUUID(),
 		values: {},

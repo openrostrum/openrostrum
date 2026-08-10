@@ -486,9 +486,23 @@ export function LinkishButton({
  * Renders Cloudflare's managed challenge widget when a site key is configured;
  * without keys the port verifies as a pass, so nothing renders and nothing
  * blocks. The widget writes its token into a hidden `cf-turnstile-response`
- * input inside the surrounding form.
+ * input inside the surrounding form. Tokens are single-use: when `resetSignal`
+ * changes (a rejected attempt), the widget resets so the retry gets a fresh
+ * token instead of looping on the consumed one.
  */
-export function TurnstileWidget({ siteKey }: { siteKey: string | null }) {
+export function TurnstileWidget({
+	siteKey,
+	resetSignal,
+}: {
+	siteKey: string | null;
+	resetSignal?: unknown;
+}) {
+	useEffect(() => {
+		if (!siteKey || resetSignal === undefined) return;
+		const turnstile = (window as { turnstile?: { reset: () => void } })
+			.turnstile;
+		turnstile?.reset();
+	}, [siteKey, resetSignal]);
 	if (!siteKey) return null;
 	return (
 		<>
