@@ -62,8 +62,9 @@ export function canReceiveDecision(
  * Transition rows to a decision status — single or bulk, one code path;
  * illegal rows are skipped and reported per-row. On `accepted` it also
  * provisions the speaker side (see `planAcceptProvisioning`); leaving
- * `accepted` never un-provisions. Leaving `withdrawn` for anything but
- * `declined` clears the withdrawal metadata (the withdrawal was undone).
+ * `accepted` never un-provisions. Leaving `withdrawn` clears the withdrawal
+ * metadata ONLY on a genuine undo — the decline path (`decline_queue`,
+ * `declined`) keeps who/when/why as the record of why it ended declined.
  * All writes per call run in one `db.batch`.
  */
 export async function transitionSubmissions(
@@ -95,7 +96,11 @@ export async function transitionSubmissions(
 	for (const row of legal) {
 		const set: Partial<typeof submissions.$inferInsert> = { status: to };
 		if (row.status !== to) set.statusChangedAt = now;
-		if (row.status === "withdrawn" && to !== "declined") {
+		if (
+			row.status === "withdrawn" &&
+			to !== "declined" &&
+			to !== "decline_queue"
+		) {
 			set.withdrawnAt = null;
 			set.withdrawnById = null;
 			set.withdrawnReason = null;
@@ -176,21 +181,26 @@ async function planAcceptProvisioning(
 			),
 		);
 
-	const existing = taskDefs.length
-		? await db
-				.select({
-					taskId: taskAssignments.taskId,
-					contactId: taskAssignments.contactId,
-					submissionId: taskAssignments.submissionId,
-				})
-				.from(taskAssignments)
-				.where(
-					inArray(
-						taskAssignments.taskId,
-						taskDefs.map((t) => t.id),
-					),
-				)
-		: [];
+	const speakerContactIds = [...new Set(speakerRows.map((s) => s.contactId))];
+	const existing =
+		taskDefs.length && speakerContactIds.length
+			? await db
+					.select({
+						taskId: taskAssignments.taskId,
+						contactId: taskAssignments.contactId,
+						submissionId: taskAssignments.submissionId,
+					})
+					.from(taskAssignments)
+					.where(
+						and(
+							inArray(
+								taskAssignments.taskId,
+								taskDefs.map((t) => t.id),
+							),
+							inArray(taskAssignments.contactId, speakerContactIds),
+						),
+					)
+			: [];
 	const existingByKey = new Map(
 		existing.map((e) => [`${e.taskId}:${e.contactId}`, e]),
 	);

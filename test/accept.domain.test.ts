@@ -406,20 +406,31 @@ describe("accept auto-provisioning", () => {
 		expect(await d.select().from(taskAssignments)).toHaveLength(3);
 	});
 
-	it("declining a withdrawn submission keeps the who/when/why record", async () => {
+	it("the decline path keeps a withdrawal's who/when/why — including through the queue", async () => {
 		const d = await seedBase();
 		const row = await insertSubmission({
 			status: "withdrawn",
 			withdrawnAt: new Date(),
 			withdrawnReason: "Visa denied",
 		});
-		await transitionSubmissions(d, [row], "declined");
+		// The ordinary resolution routes through the decline queue first; the
+		// record must survive both hops.
+		await transitionSubmissions(d, [row], "decline_queue");
+		const [queued] = await d
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, row.id));
+		expect(queued?.status).toBe("decline_queue");
+		expect(queued?.withdrawnReason).toBe("Visa denied");
+		if (!queued) throw new Error("missing fixture");
+		await transitionSubmissions(d, [queued], "declined");
 		const [after] = await d
 			.select()
 			.from(submissions)
 			.where(eq(submissions.id, row.id));
 		expect(after?.status).toBe("declined");
 		expect(after?.withdrawnReason).toBe("Visa denied");
+		expect(after?.withdrawnAt).toBeInstanceOf(Date);
 	});
 });
 

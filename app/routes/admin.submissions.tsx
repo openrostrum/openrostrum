@@ -92,10 +92,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	// lets a client run this loader alone via `?_routes=`, skipping the layout.
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
-	// Minted per render: decision sends carry it as their idempotency key, so a
-	// double-submit dedupes while a fresh page (fresh key) can re-send.
-	const sendKey = crypto.randomUUID();
-	if (!event) return { submissions: [], eventName: null, sendKey };
+	if (!event) return { submissions: [], eventName: null };
 	const db = getDb(env);
 	const timings = createTimings();
 	const rows = await timings.time("db", () =>
@@ -111,7 +108,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		}),
 	);
 	return data(
-		{ submissions: rows, eventName: event.name, sendKey },
+		{ submissions: rows, eventName: event.name },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
@@ -304,8 +301,9 @@ async function sendDecisionsAction(
 		if (check.ok) eligible.push(row);
 		else skipped.push(`"${row.title}": ${check.reason}`);
 	}
+	let sent: Awaited<ReturnType<typeof sendDecisionEmails>>;
 	try {
-		const sent = await timings.time("send", () =>
+		sent = await timings.time("send", () =>
 			sendDecisionEmails(db, env, {
 				event,
 				rows: eligible,
@@ -313,9 +311,24 @@ async function sendDecisionsAction(
 				idempotencyKey,
 			}),
 		);
-		const sendable = new Set(
-			sent.filter((s) => s.ok).map((s) => s.submissionId),
-		);
+	} catch (error) {
+		track("email.decision_send_failed", {
+			eventId: event.id,
+			decision,
+			error: errorMessage(error),
+		});
+		// Missing template is product state the admin can fix; anything else is
+		// infrastructure and gets the generic copy (never leak provider detail).
+		// Retrying re-uses the form's key, so partial sends never deliver twice.
+		return timed(timings, {
+			formError:
+				error instanceof MissingTemplateError
+					? error.message
+					: "Sending failed partway — try again; emails already sent will not go out twice.",
+		});
+	}
+	const sendable = new Set(sent.filter((s) => s.ok).map((s) => s.submissionId));
+	try {
 		const transitions = await timings.time("db", () =>
 			transitionSubmissions(
 				db,
@@ -334,18 +347,15 @@ async function sendDecisionsAction(
 			skipped: skipped.length ? skipped : undefined,
 		});
 	} catch (error) {
-		track("email.decision_send_failed", {
+		// The emails DID go out — say so, and point at the safe remediation.
+		track("submission.transition_failed", {
 			eventId: event.id,
 			decision,
 			error: errorMessage(error),
 		});
-		// Missing template is product state the admin can fix; anything else is
-		// infrastructure and gets the generic copy (never leak provider detail).
 		return timed(timings, {
 			formError:
-				error instanceof MissingTemplateError
-					? error.message
-					: "Could not send the decision emails — please try again.",
+				"Decision emails were sent, but updating statuses failed — send again to finish; duplicates are prevented.",
 		});
 	}
 }
@@ -426,15 +436,22 @@ export default function Submissions({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { submissions: rows, sendKey } = loaderData;
+	const { submissions: rows } = loaderData;
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-	const toggleSelected = (id: string, checked: boolean) =>
+	// The send idempotency key is minted per SELECTION and held in client
+	// state, so loader revalidation can't rotate it: retrying a failed (or
+	// double-clicked) send re-uses the key and dedupes — nothing delivers
+	// twice — while a deliberate re-send (fresh page or reselect) goes out.
+	const [sendKey, setSendKey] = useState("");
+	const toggleSelected = (id: string, checked: boolean) => {
 		setSelected((prev) => {
 			const next = new Set(prev);
 			if (checked) next.add(id);
 			else next.delete(id);
 			return next;
 		});
+		setSendKey(crypto.randomUUID());
+	};
 	const fieldErrors =
 		actionData && "fieldErrors" in actionData
 			? actionData.fieldErrors
@@ -485,7 +502,7 @@ export default function Submissions({
 					id="bulk-actions"
 					className="flex flex-wrap items-end gap-3"
 				>
-					<Input type="hidden" name="idempotencyKey" value={sendKey} />
+					<Input type="hidden" name="idempotencyKey" value={sendKey} readOnly />
 					<Field
 						label={`${selected.size} selected submission${selected.size === 1 ? "" : "s"}`}
 					>
@@ -511,7 +528,7 @@ export default function Submissions({
 						name="intent"
 						value="send-accept"
 						icon="mail"
-						disabled={selected.size === 0}
+						disabled={selected.size === 0 || !sendKey}
 					>
 						Send accept emails + finalize
 					</Button>
@@ -521,7 +538,7 @@ export default function Submissions({
 						value="send-decline"
 						variant="ghost"
 						icon="mail"
-						disabled={selected.size === 0}
+						disabled={selected.size === 0 || !sendKey}
 					>
 						Send decline emails + finalize
 					</Button>
