@@ -1,4 +1,5 @@
-import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { useState } from "react";
 import {
 	data,
@@ -898,11 +899,14 @@ async function removeParticipant(
 	if (!target) {
 		return { formError: "That participant is not on this submission." };
 	}
-	await db.delete(participants).where(eq(participants.id, target.id));
 	// Removing the primary must promote the next speaker: primary-less
 	// submissions silently drop out of task provisioning and lose their
-	// first-choice decision-email recipient.
+	// first-choice decision-email recipient. Delete + promotion commit as ONE
+	// batch — a failure between them must never strand a primary-less row.
 	let promoted: string | null = null;
+	const statements: BatchItem<"sqlite">[] = [
+		db.delete(participants).where(eq(participants.id, target.id)),
+	];
 	if (target.isPrimary) {
 		const [next] = await db
 			.select({ id: participants.id })
@@ -911,18 +915,22 @@ async function removeParticipant(
 				and(
 					eq(participants.submissionId, row.id),
 					eq(participants.role, "speaker"),
+					ne(participants.id, target.id),
 				),
 			)
 			.orderBy(asc(participants.position), asc(participants.id))
 			.limit(1);
 		if (next) {
-			await db
-				.update(participants)
-				.set({ isPrimary: true })
-				.where(eq(participants.id, next.id));
+			statements.push(
+				db
+					.update(participants)
+					.set({ isPrimary: true })
+					.where(eq(participants.id, next.id)),
+			);
 			promoted = next.id;
 		}
 	}
+	await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 	track("submission.participant_removed", {
 		submissionId: row.id,
 		eventId: row.eventId,
