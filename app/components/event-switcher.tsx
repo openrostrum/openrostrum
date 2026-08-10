@@ -16,17 +16,17 @@ export type SwitcherEvent = {
  * Sidebar current-event indicator + switcher. Selecting an event POSTs to the
  * membership-guarded /admin/events/switch action; the redirect's revalidation
  * refreshes every open loader, so the whole admin area flips to the new event.
+ * Every skin value here is copied from an existing surface — the trigger is
+ * the ghost-Button control, the popover is Panel's card, rows take Tr's
+ * selected treatment, and type sizes are the Sidebar's own voices.
  */
-export function EventSwitcher({
-	activeEventName,
-	events,
-}: {
-	activeEventName: string | null;
-	events: SwitcherEvent[];
-}) {
+export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const busy = useNavigation().state !== "idle";
+	// The current event is always an element of the list (getActiveEvent and
+	// listMyEvents share one membership predicate), so no separate field.
+	const current = events.find((event) => event.isCurrent) ?? null;
 
 	useEffect(() => {
 		if (!open) return;
@@ -61,7 +61,7 @@ export function EventSwitcher({
 						Event
 					</span>
 					<span className="truncate text-[13px] font-medium text-fg">
-						{activeEventName ?? "No event yet"}
+						{current?.name ?? "No event yet"}
 					</span>
 				</span>
 				<span className="text-fg-faint">
@@ -86,7 +86,7 @@ export function EventSwitcher({
 											"transition-colors duration-150 hover:bg-row-hover disabled:text-fg-faint",
 											"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
 											event.isCurrent &&
-												"bg-petrol-wash shadow-[inset_2px_0_0_var(--color-petrol)]",
+												"bg-row-selected shadow-[inset_2px_0_0_var(--color-petrol)]",
 										)}
 									>
 										<span className="w-full truncate text-[13px] font-medium text-fg">

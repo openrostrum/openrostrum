@@ -287,33 +287,6 @@ describe("admin.settings loader", () => {
 		// Round-trips back to the wall-clock the admin typed, not UTC.
 		expect(result.values?.startsAt).toBe("2027-06-10T09:00");
 	});
-
-	it("lists the org's events for the switch panel — own-org only, active one flagged", async () => {
-		await seed();
-		// Another tenant's event must never surface in the panel.
-		const db = getDb(env);
-		await db.insert(organizations).values({ id: "org_b", name: "Org B" });
-		await db.insert(events).values({
-			id: "e_b1",
-			organizationId: "org_b",
-			name: "B1",
-			slug: "b1",
-		});
-		const headers = new Headers({ Cookie: await cookieFor("u1") });
-		const result = unwrap<{
-			myEvents: Array<{ id: string; isCurrent: boolean }>;
-		}>(
-			await loader({
-				context: CONTEXT,
-				request: new Request("http://localhost/admin/settings", { headers }),
-				params: {},
-			} as unknown as Parameters<typeof loader>[0]),
-		);
-		expect(result.myEvents.map((e) => e.id).sort()).toEqual(["e1", "e2"]);
-		expect(result.myEvents.filter((e) => e.isCurrent).map((e) => e.id)).toEqual(
-			["e1"],
-		);
-	});
 });
 
 describe("zoned datetime conversion", () => {

@@ -1,11 +1,10 @@
 import { eq } from "drizzle-orm";
-import { Form, data, useNavigation } from "react-router";
+import { Form, data, useNavigation, useRouteLoaderData } from "react-router";
 import { getDb } from "~/db";
 import { events } from "~/db/schema";
-import { getActiveEvent, listMyEvents, requireAdmin } from "~/lib/auth";
+import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { bytesToBase64 } from "~/lib/base64";
 import { errorMessage } from "~/lib/errors";
-import { toSwitcherEvents } from "~/lib/event-switcher.server";
 import { createTimings, track } from "~/lib/track";
 import {
 	eventDetailsValues,
@@ -38,6 +37,7 @@ import {
 	THead,
 	Tr,
 } from "~/ui";
+import type { Route as AdminRoute } from "./+types/admin";
 import type { Route } from "./+types/admin.settings._index";
 
 type ImagePreview = { dataUri: string; fileName: string; sizeLabel: string };
@@ -88,20 +88,18 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
 	if (!event) {
-		return { event: null, values: null, images: null, myEvents: [] };
+		return { event: null, values: null, images: null };
 	}
 	const timings = createTimings();
 	const images = await timings.time("r2", async () => ({
 		logo: await imagePreview(env, event.logoKey),
 		background: await imagePreview(env, event.backgroundKey),
 	}));
-	const myEvents = toSwitcherEvents(await listMyEvents(env, user.id), event.id);
 	return data(
 		{
 			event: { id: event.id },
 			values: eventDetailsValues(event),
 			images,
-			myEvents,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -364,7 +362,12 @@ export default function EventDetails({
 	actionData,
 }: Route.ComponentProps) {
 	const busy = useNavigation().state !== "idle";
-	const { event, values, images, myEvents } = loaderData;
+	const { event, values, images } = loaderData;
+	// The admin layout already loads the switcher listing on every admin
+	// navigation — read it instead of re-querying the same rows here.
+	const layout =
+		useRouteLoaderData<AdminRoute.ComponentProps["loaderData"]>("routes/admin");
+	const myEvents = layout?.events ?? [];
 	const details = actionData?.intent === "details" ? actionData : undefined;
 
 	// The layout renders the no-event empty state; nothing to show here.
@@ -440,15 +443,11 @@ export default function EventDetails({
 										"Current event"
 									) : (
 										<Form method="post" action="/admin/events/switch">
-											<Input
-												type="hidden"
-												name="eventId"
-												defaultValue={row.id}
-											/>
+											<Input type="hidden" name="eventId" value={row.id} />
 											<Input
 												type="hidden"
 												name="redirectTo"
-												defaultValue="/admin/settings"
+												value="/admin/settings"
 											/>
 											<Button type="submit" variant="ghost" disabled={busy}>
 												Switch to

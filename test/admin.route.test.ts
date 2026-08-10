@@ -78,7 +78,6 @@ describe("admin shell loader (event switcher data)", () => {
 	it("lists ONLY my orgs' events, oldest first, with the sticky active event marked current", async () => {
 		await seed("e_a2");
 		const result = await runLoader("u_a");
-		expect(result.activeEvent).toEqual({ id: "e_a2", name: "A2" });
 		expect(result.events.map((e) => e.id)).toEqual(["e_a1", "e_a2"]);
 		expect(result.events.filter((e) => e.isCurrent).map((e) => e.id)).toEqual([
 			"e_a2",
@@ -98,13 +97,12 @@ describe("admin shell loader (event switcher data)", () => {
 	it("falls back to my oldest event when activeEventId is null and marks it current", async () => {
 		await seed(null);
 		const result = await runLoader("u_a");
-		expect(result.activeEvent).toEqual({ id: "e_a1", name: "A1" });
 		expect(result.events.filter((e) => e.isCurrent).map((e) => e.id)).toEqual([
 			"e_a1",
 		]);
 	});
 
-	it("serves the shell with no active event and an empty list for a membership-less admin", async () => {
+	it("serves the shell with an empty listing (no current mark) for a membership-less admin", async () => {
 		await seed(null);
 		const db = getDb(env);
 		await db.insert(users).values({
@@ -114,7 +112,6 @@ describe("admin shell loader (event switcher data)", () => {
 			role: "admin",
 		});
 		const result = await runLoader("u_lone");
-		expect(result.activeEvent).toBeNull();
 		expect(result.events).toEqual([]);
 	});
 });

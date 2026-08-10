@@ -1,6 +1,5 @@
 import type { SwitcherEvent } from "~/components/event-switcher";
-import type { events, users } from "~/db/schema";
-import { getActiveEvent, listMyEvents } from "~/lib/auth";
+import type { events } from "~/db/schema";
 import { formatDateUTC } from "~/lib/format";
 
 type EventRow = typeof events.$inferSelect;
@@ -14,6 +13,9 @@ function eventDatesLabel(row: EventRow): string | null {
 	return start ?? end;
 }
 
+/** View model for the event switcher: shape `listMyEvents` rows, marking the
+ * event resolved by `getActiveEvent` — always pair those two helpers so the
+ * listing and the current mark share one membership predicate. */
 export function toSwitcherEvents(
 	rows: EventRow[],
 	currentEventId: string | null,
@@ -25,25 +27,4 @@ export function toSwitcherEvents(
 		dates: eventDatesLabel(row),
 		isCurrent: row.id === currentEventId,
 	}));
-}
-
-/**
- * The admin shell's switcher data: the resolved current event plus every event
- * the user may operate on (their orgs' only). `activeEvent` is null exactly
- * when the user has no org with an event — the sidebar then shows the
- * no-event indicator with the create link.
- */
-export async function getSwitcherData(
-	env: Env,
-	user: typeof users.$inferSelect,
-): Promise<{
-	activeEvent: { id: string; name: string } | null;
-	events: SwitcherEvent[];
-}> {
-	const active = await getActiveEvent(env, user);
-	const mine = await listMyEvents(env, user.id);
-	return {
-		activeEvent: active ? { id: active.id, name: active.name } : null,
-		events: toSwitcherEvents(mine, active?.id ?? null),
-	};
 }
