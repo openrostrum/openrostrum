@@ -17,6 +17,7 @@ House conventions only. The **mandatory platform rules** (D1 batch, react-router
 - **A new primitive is an integration-owner request** — exactly like a schema column (same pre-commit guard on `app/ui/` + `app.css`; owner overrides with `ALLOW_SCHEMA_CHANGE=1`). Never build a one-off in a route; never fork a primitive.
 - **Reviewer obligation:** *"could the whole look change by editing `app/ui` + tokens only, with zero route diffs?"* Any "no" names the violation.
 - **The marketing surface is the one place outside the tool.** `app/marketing/` (composed by the `_index.tsx` landing route) builds the public homepage — *not* the 8-hour admin tool the petrol-law and `ui-primitives-only` govern, so it gets the scale and layout a landing page needs. It stays honest by construction: it lives outside `app/routes/` (so `ui-primitives-only` never fires) yet is still bound by `no-raw-tailwind-colors`, so every color is a `@theme` token and light/dark come free — petrol stays the only accent. Nothing else may follow it out; a second styling surface is an integration-owner decision.
+- **Shared route views follow the contract, not the folder.** When two routes render one page (e.g. type-scoped tabs), the shared JSX module lives in `app/lib/*.tsx` and carries the same `ui-primitives-only` rule as routes [lint-enforced] — moving JSX out of `app/routes/` never moves it out of the design system.
 
 ## Auth [lint-enforced: `require-auth-in-actions`]
 
