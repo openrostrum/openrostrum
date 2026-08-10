@@ -43,16 +43,22 @@ import type { Route } from "./+types/admin._index";
 
 const RECENT_LIMIT = 8;
 
-/** Pipeline order first, then the two non-decision states. */
-const STATUS_ROW_ORDER = [
-	"pending",
-	"accept_queue",
-	"accepted",
-	"decline_queue",
-	"declined",
-	"withdrawn",
-	"draft",
-] as const;
+/** Pipeline order first, then the two non-decision states. The Record forces
+ * a compile error when SUBMISSION_STATUS grows, so a new status can't
+ * silently vanish from the breakdown row. */
+const STATUS_ROW_POSITION: Record<(typeof SUBMISSION_STATUS)[number], number> =
+	{
+		pending: 0,
+		accept_queue: 1,
+		accepted: 2,
+		decline_queue: 3,
+		declined: 4,
+		withdrawn: 5,
+		draft: 6,
+	};
+const STATUS_ROW_ORDER = [...SUBMISSION_STATUS].sort(
+	(a, b) => STATUS_ROW_POSITION[a] - STATUS_ROW_POSITION[b],
+);
 
 // Without this export RR7 drops loader headers from DOCUMENT responses —
 // Server-Timing would silently vanish on full page loads.
@@ -198,7 +204,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					: f.status === "draft"
 						? ("draft" as const)
 						: ("closed" as const),
-				closeDate: f.closeAt ? formatDateUTC(f.closeAt) : null,
+				// closeAt is a real instant: the day a form stops accepting is its
+				// EVENT-local date (formIsOpen flips at that wall clock), not UTC's.
+				closeDate: f.closeAt ? formatInTz(f.closeAt, tz, "date") : null,
 				closesInDays:
 					isOpen && f.closeAt ? calendarDaysUntil(now, f.closeAt, tz) : null,
 				submitted: counts?.submitted ?? 0,

@@ -91,11 +91,12 @@ describe("eventCountdown", () => {
 });
 
 describe("calendarDaysUntil", () => {
-	it("measures from the event-local today", () => {
-		// 01:00 UTC Aug 11 = Aug 10 in LA → 8 days to Aug 18; from UTC's Aug 11 → 7.
-		const now = new Date("2026-08-11T01:00:00Z");
-		const target = new Date("2026-08-18T00:00:00Z");
-		expect(calendarDaysUntil(now, target, LA)).toBe(8);
+	it("reads BOTH endpoints in the given zone — a close instant's day is its event-local day", () => {
+		// Target 05:00 UTC on Aug 18 is 22:00 Aug 17 in LA; "now" is Aug 11 in
+		// both zones. LA sees 6 days, UTC sees 7.
+		const now = new Date("2026-08-11T12:00:00Z");
+		const target = new Date("2026-08-18T05:00:00Z");
+		expect(calendarDaysUntil(now, target, LA)).toBe(6);
 		expect(calendarDaysUntil(now, target, "UTC")).toBe(7);
 	});
 });

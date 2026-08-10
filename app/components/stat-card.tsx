@@ -5,6 +5,8 @@ import { SectionHeading } from "./section-heading";
 // Stat values render in the table-data mono voice — counts are data
 // literals, and composing existing voices keeps this re-skinnable from
 // app/ui + tokens alone.
+const STAT_VALUE = "font-mono text-[12px] font-medium tabular-nums text-fg";
+
 export function StatCard({
 	label,
 	value,
@@ -18,9 +20,7 @@ export function StatCard({
 		<Panel>
 			<div className="flex flex-col gap-[6px]">
 				<SectionHeading>{label}</SectionHeading>
-				<span className="font-mono text-[12px] font-medium tabular-nums text-fg">
-					{value}
-				</span>
+				<span className={STAT_VALUE}>{value}</span>
 				{hint != null && (
 					<span className="text-[12.5px] text-fg-muted">{hint}</span>
 				)}
@@ -41,9 +41,7 @@ export function StatCell({
 	return (
 		<div className="flex flex-col items-start gap-[6px]">
 			{label}
-			<span className="pl-1 font-mono text-[12px] font-medium tabular-nums text-fg">
-				{count}
-			</span>
+			<span className={`pl-1 ${STAT_VALUE}`}>{count}</span>
 		</div>
 	);
 }
