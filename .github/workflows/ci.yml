@@ -10,6 +10,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Every PR MUST target main. No stacked PRs onto integration/* or any other
+  # branch: a PR based on unmerged work auto-closes if its base merges first
+  # (and its commits silently ride along in whatever else descends from it).
+  # Keeps history flat and every PR independently reviewable+mergeable.
+  require-base-main:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: PRs must target main
+        if: github.base_ref != 'main'
+        run: |
+          echo "::error::This PR targets '${{ github.base_ref }}', not 'main'. Change the PR base to main."
+          exit 1
+
   # Server-side twin of scripts/guard-schema.sh: pre-commit hooks are bypassable
   # (--no-verify), this is not. Fails any PR from a feature branch that touches
   # an integration-owned shared file. The integration owner ships those changes
