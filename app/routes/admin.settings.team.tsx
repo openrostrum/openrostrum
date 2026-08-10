@@ -1,10 +1,9 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { useState } from "react";
 import { Form, data, redirect, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import {
-	events,
 	organizationMembers,
 	organizations,
 	passwordResets,
@@ -13,7 +12,6 @@ import {
 import {
 	destroySession,
 	getActiveEvent,
-	hashPassword,
 	normalizeEmail,
 	requireAdmin,
 } from "~/lib/auth";
@@ -41,6 +39,11 @@ import type { Route } from "./+types/admin.settings.team";
 
 const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
+// Provenance for invite-minted accounts: never verifiable (non-pbkdf2 scheme),
+// and read back as "this account has never had a usable credential" — the fact
+// that makes re-inviting and revoke-GC safe. Accept overwrites it atomically.
+const SENTINEL_HASH_PREFIX = "invite-pending$";
+
 const InviteSchema = z.object({
 	name: z.string().trim().min(1, "Name is required").max(200),
 	email: z.string().trim().email("Enter a valid email address"),
@@ -50,13 +53,9 @@ type Db = ReturnType<typeof getDb>;
 type AppUser = typeof users.$inferSelect;
 type Org = typeof organizations.$inferSelect;
 
-/**
- * The org an admin manages: the active event's org — `getActiveEvent` is the
- * shared membership chokepoint and only ever returns events of orgs the user
- * belongs to — else the user's first membership (an org can exist before its
- * first event). Null = no membership at all. This derivation is what makes
- * cross-org member management structurally impossible.
- */
+// The org an admin manages: the active event's org (getActiveEvent is the
+// membership chokepoint — it only returns the caller's orgs' events), else
+// their first membership (an org can predate its first event). Null = none.
 async function resolveOrg(env: Env, user: AppUser): Promise<Org | null> {
 	const db = getDb(env);
 	const event = await getActiveEvent(env, user);
@@ -89,40 +88,43 @@ function escapeHtml(value: string): string {
 		.replaceAll('"', "&quot;");
 }
 
-/**
- * Mints (or re-mints) the invite token and emails the link. Prior unused
- * tokens for the same person+org die first, so "Resend" never leaves a
- * forgotten live link behind. `organizationId` on the token is the mint-time
- * intent: the accept flow creates the membership because this column is set —
- * never because of which route redeems the token.
- */
-async function mintInvite(
-	env: Env,
+// (Re)mints the invite token — run in ONE batch (with the user insert when the
+// account is new) so a failure can never strand a token-less sentinel. Old
+// unused tokens die first; `organizationId` on the token is the mint-time
+// intent the accept flow derives the membership grant from.
+function inviteTokenStatements(
 	db: Db,
 	org: Org,
-	invitee: { id: string; email: string; name: string | null },
-	inviterName: string,
-	origin: string,
-): Promise<{ emailFailed: boolean }> {
-	const token = crypto.randomUUID();
-	await db.batch([
+	userId: string,
+	token: string,
+) {
+	return [
 		db
 			.delete(passwordResets)
 			.where(
 				and(
-					eq(passwordResets.userId, invitee.id),
+					eq(passwordResets.userId, userId),
 					eq(passwordResets.organizationId, org.id),
 					isNull(passwordResets.usedAt),
 				),
 			),
 		db.insert(passwordResets).values({
-			userId: invitee.id,
+			userId,
 			organizationId: org.id,
 			token,
 			expiresAt: new Date(Date.now() + INVITE_TTL_MS),
 		}),
-	]);
+	] as const;
+}
 
+async function sendInviteEmail(
+	env: Env,
+	org: Org,
+	invitee: { id: string; email: string },
+	inviterName: string,
+	origin: string,
+	token: string,
+): Promise<{ emailFailed: boolean }> {
 	const link = `${origin}/set-password/${token}`;
 	let emailFailed = false;
 	try {
@@ -217,6 +219,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const memberIds = new Set(members.map((m) => m.userId));
 	const now = Date.now();
 	const invites = inviteRows
+		// Display hygiene only: hides a row whose accept raced between the two
+		// queries above; every reachable path already voids such tokens.
 		.filter((i) => !memberIds.has(i.userId))
 		.map(({ token, ...i }) => ({
 			...i,
@@ -311,6 +315,7 @@ async function inviteMember(
 		};
 	}
 	const email = normalizeEmail(parsed.data.email);
+	const token = crypto.randomUUID();
 	const [existing] = await db
 		.select()
 		.from(users)
@@ -337,26 +342,10 @@ async function inviteMember(
 				formError: undefined,
 			};
 		}
-		// The invite link is shown on-screen to the INVITER, and redeeming it
-		// resets the account's password — safe only for accounts this flow
-		// itself minted (sentinel hash, no usable credential). An email that
-		// already has an account must never get an on-screen-resettable token,
-		// or inviting becomes account takeover. The one exception is a still-
-		// pending invite from this org: that account has never had a usable
-		// credential (redeeming ANY token voids all others), so re-inviting it
-		// is a resend.
-		const [pending] = await db
-			.select({ id: passwordResets.id })
-			.from(passwordResets)
-			.where(
-				and(
-					eq(passwordResets.userId, existing.id),
-					eq(passwordResets.organizationId, org.id),
-					isNull(passwordResets.usedAt),
-				),
-			)
-			.limit(1);
-		if (!pending) {
+		// The on-screen link resets the account password on redeem — minting one
+		// for a credentialed account would be takeover. Only the sentinel marker
+		// (= never had a usable credential) may be re-invited; that is a resend.
+		if (!existing.passwordHash.startsWith(SENTINEL_HASH_PREFIX)) {
 			return {
 				fieldErrors: {
 					email: [
@@ -367,29 +356,31 @@ async function inviteMember(
 			};
 		}
 		invitee = existing;
+		await db.batch([...inviteTokenStatements(db, org, existing.id, token)]);
 	} else {
-		// Sentinel-hash user: an unguessable placeholder password, so the invite
-		// link (which proves email ownership) is the only way into the account.
-		const [created] = await db
-			.insert(users)
-			.values({
+		const userId = crypto.randomUUID();
+		// One batch: a failure between user insert and token mint must never
+		// strand a credential-less account that blocks re-inviting this email.
+		await db.batch([
+			db.insert(users).values({
+				id: userId,
 				email,
 				name: parsed.data.name,
 				role: "admin",
-				passwordHash: await hashPassword(crypto.randomUUID()),
-			})
-			.returning({ id: users.id, email: users.email, name: users.name });
-		if (!created) throw new Error("invite user insert returned no row");
-		invitee = created;
+				passwordHash: `${SENTINEL_HASH_PREFIX}${crypto.randomUUID()}`,
+			}),
+			...inviteTokenStatements(db, org, userId, token),
+		]);
+		invitee = { id: userId, email, name: parsed.data.name };
 	}
 
-	const { emailFailed } = await mintInvite(
+	const { emailFailed } = await sendInviteEmail(
 		env,
-		db,
 		org,
 		invitee,
 		inviter.name ?? inviter.email,
 		origin,
+		token,
 	);
 	return invitedRedirect(email, emailFailed);
 }
@@ -420,20 +411,23 @@ async function resendInvite(
 			formError: "That invite no longer exists — it may have been accepted.",
 		};
 	}
-	const { emailFailed } = await mintInvite(
+	const token = crypto.randomUUID();
+	await db.batch([...inviteTokenStatements(db, org, row.id, token)]);
+	const { emailFailed } = await sendInviteEmail(
 		env,
-		db,
 		org,
 		row,
 		inviter.name ?? inviter.email,
 		origin,
+		token,
 	);
 	return invitedRedirect(row.email, emailFailed);
 }
 
 async function revokeInvite(db: Db, org: Org, inviteId: string) {
-	const deleted = await db
-		.delete(passwordResets)
+	const [invite] = await db
+		.select({ id: passwordResets.id, userId: passwordResets.userId })
+		.from(passwordResets)
 		.where(
 			and(
 				eq(passwordResets.id, inviteId),
@@ -441,29 +435,28 @@ async function revokeInvite(db: Db, org: Org, inviteId: string) {
 				isNull(passwordResets.usedAt),
 			),
 		)
-		.returning({ id: passwordResets.id, userId: passwordResets.userId });
-	const revoked = deleted[0];
-	if (!revoked) {
+		.limit(1);
+	if (!invite) {
 		return {
 			fieldErrors: undefined,
 			formError: "That invite no longer exists — it may have been accepted.",
 		};
 	}
-	// Garbage-collect the sentinel account the invite minted once nothing
-	// references it (no membership, session, or other token) — an orphaned row
-	// would read as "an existing account" and permanently refuse re-inviting
-	// this email. The NOT EXISTS guards make it a no-op for any account that
-	// ever became real.
-	await db
-		.delete(users)
-		.where(
-			and(
-				eq(users.id, revoked.userId),
-				sql`NOT EXISTS (SELECT 1 FROM organization_members om WHERE om.user_id = users.id)`,
-				sql`NOT EXISTS (SELECT 1 FROM auth_sessions s WHERE s.user_id = users.id)`,
-				sql`NOT EXISTS (SELECT 1 FROM password_resets pr WHERE pr.user_id = users.id)`,
+	// One batch: also garbage-collect the sentinel account (marker = never had
+	// a usable credential) once no other invite references it — an orphaned row
+	// would read as "an existing account" and block re-inviting this email.
+	await db.batch([
+		db.delete(passwordResets).where(eq(passwordResets.id, invite.id)),
+		db
+			.delete(users)
+			.where(
+				and(
+					eq(users.id, invite.userId),
+					sql`${users.passwordHash} LIKE ${`${SENTINEL_HASH_PREFIX}%`}`,
+					sql`NOT EXISTS (SELECT 1 FROM password_resets pr WHERE pr.user_id = users.id AND pr.used_at IS NULL)`,
+				),
 			),
-		);
+	]);
 	track("team.invite_revoked", { orgId: org.id, inviteId });
 	return redirect("/admin/settings/team");
 }
@@ -476,11 +469,9 @@ async function removeMember(
 	request: Request,
 	{ membershipId }: { membershipId: string },
 ) {
-	// The last-member invariant rides the DELETE itself (single atomic
-	// statement — D1 has no interactive transactions, and a separate
-	// count-then-delete would let two concurrent removals empty the org).
-	// The org scoping in the WHERE is also the cross-org denial: another
-	// org's membership id can never match.
+	// The last-member invariant rides the DELETE itself — atomic, so two
+	// concurrent removals can't empty the org (D1 has no transactions). The
+	// org scoping in the WHERE is also the cross-org denial.
 	const deleted = await db
 		.delete(organizationMembers)
 		.where(
@@ -512,22 +503,6 @@ async function removeMember(
 				: "That member wasn't found in this organization.",
 		};
 	}
-	// A removed member must not keep operating on this org's events.
-	await db
-		.update(users)
-		.set({ activeEventId: null })
-		.where(
-			and(
-				eq(users.id, removed.userId),
-				inArray(
-					users.activeEventId,
-					db
-						.select({ id: events.id })
-						.from(events)
-						.where(eq(events.organizationId, org.id)),
-				),
-			),
-		);
 	track("team.member_removed", {
 		orgId: org.id,
 		removedUserId: removed.userId,

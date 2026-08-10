@@ -209,7 +209,7 @@ describe("team invites", () => {
 		await db.insert(users).values({
 			id: "u_inv",
 			email: "invitee@test.co",
-			passwordHash: await hashPassword("sentinel"),
+			passwordHash: "invite-pending$fixture",
 			role: "admin",
 		});
 		await db.insert(passwordResets).values({
@@ -239,7 +239,7 @@ describe("team invites", () => {
 		await db.insert(users).values({
 			id: "u_inv",
 			email: "invitee@test.co",
-			passwordHash: await hashPassword("sentinel"),
+			passwordHash: "invite-pending$fixture",
 			role: "admin",
 		});
 		await db.insert(passwordResets).values({
@@ -272,7 +272,7 @@ describe("team invites", () => {
 		await db.insert(users).values({
 			id: "u_inv",
 			email: "invitee@test.co",
-			passwordHash: await hashPassword("sentinel"),
+			passwordHash: "invite-pending$fixture",
 			role: "admin",
 		});
 		await db.insert(passwordResets).values({
@@ -341,7 +341,7 @@ describe("team member removal", () => {
 		expect(await db.select().from(organizationMembers)).toHaveLength(1);
 	});
 
-	it("removes another member and clears their active event", async () => {
+	it("removes another member (their event access dies with the membership)", async () => {
 		const db = await seedOrgA();
 		await db.insert(users).values({
 			id: "u_two",
@@ -363,8 +363,6 @@ describe("team member removal", () => {
 		const remaining = await db.select().from(organizationMembers);
 		expect(remaining).toHaveLength(1);
 		expect(remaining[0]?.userId).toBe("u_admin");
-		const [two] = await db.select().from(users).where(eq(users.id, "u_two"));
-		expect(two?.activeEventId).toBeNull();
 	});
 
 	it("removing yourself destroys the session and redirects to login", async () => {
