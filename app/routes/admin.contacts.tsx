@@ -1,0 +1,411 @@
+import { count, sql } from "drizzle-orm";
+import { data, Form, Link, redirect } from "react-router";
+import { z } from "zod";
+import { getDb } from "~/db";
+import { CONTACT_STATUS } from "~/db/constants";
+import { contacts, insertContactSchema } from "~/db/schema";
+import { contactFilter, isContactStatus } from "~/domain/contacts";
+import { CONTACT_STATUS_TONE } from "~/features/contacts/status";
+import { Textarea } from "~/features/contacts/textarea";
+import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
+import { errorMessage, isUniqueViolation } from "~/lib/errors";
+import { createTimings, track } from "~/lib/track";
+import {
+	Avatar,
+	Button,
+	ButtonLink,
+	EmptyRow,
+	ErrorText,
+	Field,
+	Input,
+	PageHeader,
+	Panel,
+	SearchInput,
+	StatusBadge,
+	Tab,
+	Table,
+	TableFooter,
+	Tabs,
+	TBody,
+	Td,
+	Th,
+	THead,
+	Tr,
+} from "~/ui";
+import type { Route } from "./+types/admin.contacts";
+
+const PER_PAGE = 50;
+
+const NewContact = insertContactSchema
+	.pick({
+		firstName: true,
+		lastName: true,
+		email: true,
+		jobTitle: true,
+		companyName: true,
+		bio: true,
+	})
+	.extend({
+		firstName: z.string().min(1, "First name is required"),
+		lastName: z.string().min(1, "Last name is required"),
+		email: z.email("Enter a valid email address"),
+	});
+
+export function headers({ loaderHeaders }: Route.HeadersArgs) {
+	return loaderHeaders;
+}
+
+export async function loader({ context, request }: Route.LoaderArgs) {
+	const env = context.cloudflare.env;
+	const user = await requireAdmin(env, request);
+	const event = await getActiveEvent(env, user);
+	if (!event) {
+		return {
+			rows: [],
+			counts: { all: 0, pending: 0, invited: 0, confirmed: 0, declined: 0 },
+			total: 0,
+			page: 1,
+			perPage: PER_PAGE,
+			q: "",
+			status: null,
+			eventName: null as string | null,
+		};
+	}
+	const url = new URL(request.url);
+	const q = url.searchParams.get("q") ?? "";
+	const statusParam = url.searchParams.get("status");
+	const status = isContactStatus(statusParam) ? statusParam : null;
+	const db = getDb(env);
+	const timings = createTimings();
+
+	const byStatus = await timings.time("counts", () =>
+		db
+			.select({ status: contacts.status, n: count() })
+			.from(contacts)
+			.where(contactFilter(event.id, { q }))
+			.groupBy(contacts.status),
+	);
+	const counts = { all: 0, pending: 0, invited: 0, confirmed: 0, declined: 0 };
+	for (const row of byStatus) {
+		counts[row.status] = row.n;
+		counts.all += row.n;
+	}
+	const total = status ? counts[status] : counts.all;
+	const lastPage = Math.max(1, Math.ceil(total / PER_PAGE));
+	const page = Math.min(
+		Math.max(1, Number(url.searchParams.get("page")) || 1),
+		lastPage,
+	);
+
+	const rows = await timings.time("db", () =>
+		db
+			.select({
+				id: contacts.id,
+				firstName: contacts.firstName,
+				lastName: contacts.lastName,
+				email: contacts.email,
+				jobTitle: contacts.jobTitle,
+				companyName: contacts.companyName,
+				status: contacts.status,
+				sessionCount: sql<number>`(
+					SELECT COUNT(*) FROM participants
+					WHERE participants.contact_id = ${contacts.id}
+				)`,
+			})
+			.from(contacts)
+			.where(contactFilter(event.id, { q, status }))
+			.orderBy(contacts.lastName, contacts.firstName)
+			.limit(PER_PAGE)
+			.offset((page - 1) * PER_PAGE),
+	);
+
+	return data(
+		{
+			rows,
+			counts,
+			total,
+			page,
+			perPage: PER_PAGE,
+			q,
+			status: status as string | null,
+			eventName: event.name,
+		},
+		{ headers: { "Server-Timing": timings.header() } },
+	);
+}
+
+export async function action({ context, request }: Route.ActionArgs) {
+	const env = context.cloudflare.env;
+	const user = await requireAdmin(env, request);
+	const event = await getActiveEvent(env, user);
+	if (!event) {
+		return { fieldErrors: undefined, formError: "No event is configured yet." };
+	}
+	const db = getDb(env);
+	const form = await request.formData();
+	const parsed = NewContact.safeParse({
+		firstName: form.get("firstName"),
+		lastName: form.get("lastName"),
+		email: normalizeEmail(String(form.get("email") ?? "")),
+		jobTitle: form.get("jobTitle") || null,
+		companyName: form.get("companyName") || null,
+		bio: form.get("bio") || null,
+	});
+	if (!parsed.success) {
+		return {
+			fieldErrors: z.flattenError(parsed.error).fieldErrors,
+			formError: undefined,
+		};
+	}
+	const timings = createTimings();
+	try {
+		const [created] = await timings.time("db", () =>
+			db
+				.insert(contacts)
+				.values({ ...parsed.data, eventId: event.id })
+				.returning({ id: contacts.id }),
+		);
+		track("contact.created", { eventId: event.id, contactId: created?.id });
+		return redirect(`/admin/contacts/${created?.id}`, {
+			headers: { "Server-Timing": timings.header() },
+		});
+	} catch (error) {
+		if (isUniqueViolation(error)) {
+			return {
+				fieldErrors: {
+					email: ["A contact with this email already exists for this event."],
+				},
+				formError: undefined,
+			};
+		}
+		track("contact.create_failed", {
+			eventId: event.id,
+			error: errorMessage(error),
+		});
+		return {
+			fieldErrors: undefined,
+			formError: "Could not save the contact — please try again.",
+		};
+	}
+}
+
+function pageUrl(q: string, status: string | null, page?: number): string {
+	const params = new URLSearchParams();
+	if (q) params.set("q", q);
+	if (status) params.set("status", status);
+	if (page && page > 1) params.set("page", String(page));
+	const query = params.toString();
+	return `/admin/contacts${query ? `?${query}` : ""}`;
+}
+
+export default function ContactsRoster({
+	loaderData,
+	actionData,
+}: Route.ComponentProps) {
+	const { rows, counts, total, page, perPage, q, status } = loaderData;
+	const composeParams = new URLSearchParams();
+	if (q) composeParams.set("q", q);
+	if (status) composeParams.set("status", status);
+	const from = total === 0 ? 0 : (page - 1) * perPage + 1;
+	const to = Math.min(page * perPage, total);
+
+	return (
+		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
+			<PageHeader
+				title="Speakers"
+				count={`${total} contacts`}
+				subtitle="The event roster — every person on a submission, imported, or added by hand."
+				actions={
+					<>
+						<ButtonLink
+							to={`/admin/contacts/compose?${composeParams.toString()}`}
+							variant="ghost"
+							icon="mail"
+						>
+							Email speakers
+						</ButtonLink>
+						<ButtonLink
+							to="/admin/contacts/import"
+							variant="ghost"
+							icon="export"
+						>
+							Import CSV
+						</ButtonLink>
+					</>
+				}
+			/>
+
+			<Panel>
+				<Form method="post" className="flex flex-col gap-3">
+					<div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+						<Field
+							label="First name"
+							error={actionData?.fieldErrors?.firstName?.[0]}
+						>
+							<Input
+								name="firstName"
+								autoComplete="off"
+								invalid={Boolean(actionData?.fieldErrors?.firstName?.[0])}
+							/>
+						</Field>
+						<Field
+							label="Last name"
+							error={actionData?.fieldErrors?.lastName?.[0]}
+						>
+							<Input
+								name="lastName"
+								autoComplete="off"
+								invalid={Boolean(actionData?.fieldErrors?.lastName?.[0])}
+							/>
+						</Field>
+						<Field label="Email" error={actionData?.fieldErrors?.email?.[0]}>
+							<Input
+								name="email"
+								type="email"
+								autoComplete="off"
+								invalid={Boolean(actionData?.fieldErrors?.email?.[0])}
+							/>
+						</Field>
+						<Field label="Job title">
+							<Input name="jobTitle" autoComplete="off" />
+						</Field>
+						<Field label="Company">
+							<Input name="companyName" autoComplete="off" />
+						</Field>
+					</div>
+					<Field label="Bio">
+						<Textarea name="bio" rows={3} />
+					</Field>
+					<div className="flex items-center gap-3">
+						<Button type="submit" icon="plus">
+							Add speaker
+						</Button>
+						{actionData?.formError && (
+							<ErrorText>{actionData.formError}</ErrorText>
+						)}
+					</div>
+				</Form>
+			</Panel>
+
+			<Tabs>
+				<Tab to={pageUrl(q, null)} active={status === null} count={counts.all}>
+					All
+				</Tab>
+				{CONTACT_STATUS.map((s) => (
+					<Tab
+						key={s}
+						to={pageUrl(q, s)}
+						active={status === s}
+						count={counts[s] ?? 0}
+					>
+						{s.charAt(0).toUpperCase() + s.slice(1)}
+					</Tab>
+				))}
+			</Tabs>
+
+			<Form method="get" className="flex items-center gap-2">
+				<SearchInput
+					name="q"
+					defaultValue={q}
+					placeholder="Search name, email, company…"
+					aria-label="Search contacts"
+				/>
+				{status && (
+					<Input type="hidden" name="status" value={status} readOnly />
+				)}
+				<Button type="submit" variant="ghost" icon="search">
+					Search
+				</Button>
+				{q && (
+					<ButtonLink to={pageUrl("", status)} variant="ghost">
+						Clear
+					</ButtonLink>
+				)}
+			</Form>
+
+			<Table>
+				<THead>
+					<Th>Name</Th>
+					<Th>Email</Th>
+					<Th>Title · Company</Th>
+					<Th>Status</Th>
+					<Th>Sessions</Th>
+					<Th />
+				</THead>
+				<TBody>
+					{rows.map((c) => {
+						const name = `${c.firstName} ${c.lastName}`.trim();
+						return (
+							<Tr key={c.id}>
+								<Td kind="strong">
+									<Link
+										to={`/admin/contacts/${c.id}`}
+										className="flex items-center gap-2"
+									>
+										<Avatar name={name} />
+										{name}
+									</Link>
+								</Td>
+								<Td kind="mono">{c.email}</Td>
+								<Td>
+									{[c.jobTitle, c.companyName].filter(Boolean).join(" · ") ||
+										"—"}
+								</Td>
+								<Td>
+									<StatusBadge tone={CONTACT_STATUS_TONE[c.status]}>
+										{c.status}
+									</StatusBadge>
+								</Td>
+								<Td kind="mono">{c.sessionCount}</Td>
+								<Td>
+									<ButtonLink to={`/admin/contacts/${c.id}`} variant="ghost">
+										Open
+									</ButtonLink>
+								</Td>
+							</Tr>
+						);
+					})}
+					{rows.length === 0 && (
+						<EmptyRow colSpan={6}>
+							{q || status
+								? "No contacts match this search or filter — clear it to see the full roster."
+								: "No speakers yet — add one above, or import your roster from a CSV file."}
+						</EmptyRow>
+					)}
+				</TBody>
+			</Table>
+
+			{total > 0 && (
+				<TableFooter>
+					<span>
+						{from}–{to} of {total}
+					</span>
+					<span className="ml-auto flex items-center gap-2">
+						{page > 1 && (
+							<ButtonLink to={pageUrl(q, status, page - 1)} variant="ghost">
+								Previous
+							</ButtonLink>
+						)}
+						{to < total && (
+							<ButtonLink to={pageUrl(q, status, page + 1)} variant="ghost">
+								Next
+							</ButtonLink>
+						)}
+					</span>
+				</TableFooter>
+			)}
+		</div>
+	);
+}
+
+export function ErrorBoundary() {
+	return (
+		<div className="mx-auto max-w-5xl px-7 py-6">
+			<PageHeader
+				title="Failed to load the speaker roster"
+				tone="danger"
+				subtitle="Something went wrong. Please refresh or try again."
+			/>
+		</div>
+	);
+}

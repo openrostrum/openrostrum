@@ -17,3 +17,15 @@ export const SUBMISSION_STATUS = [
 ] as const;
 
 export const SUBMISSION_TYPE = ["abstract", "session"] as const;
+
+/**
+ * Contact workflow statuses. schema.ts carries its own copy of this tuple
+ * (integration-owned — flagged to fold into an import of this one); the
+ * lockstep test in test/admin.contacts.route.test.ts fails if they diverge.
+ */
+export const CONTACT_STATUS = [
+	"pending",
+	"invited",
+	"confirmed",
+	"declined",
+] as const;

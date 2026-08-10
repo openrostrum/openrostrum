@@ -1,0 +1,227 @@
+import { env } from "cloudflare:test";
+import { eq } from "drizzle-orm";
+import { describe, expect, it } from "vitest";
+import { getDb } from "../app/db";
+import {
+	contacts,
+	events,
+	organizationMembers,
+	organizations,
+	users,
+} from "../app/db/schema";
+import { createSession, hashPassword } from "../app/lib/auth";
+import { action } from "../app/routes/admin.contacts_.import";
+
+async function adminRequest(url: string, init?: RequestInit): Promise<Request> {
+	const db = getDb(env);
+	await db.insert(users).values({
+		id: "u_admin",
+		email: "admin@test.co",
+		passwordHash: await hashPassword("pw"),
+		role: "admin",
+	});
+	const setCookie = await createSession(env, "u_admin");
+	const headers = new Headers(init?.headers);
+	headers.set("Cookie", setCookie.split(";")[0] ?? "");
+	return new Request(url, { ...init, headers });
+}
+
+async function seedEvent(): Promise<void> {
+	const db = getDb(env);
+	await db.insert(organizations).values({ id: "org1", name: "Org" });
+	await db
+		.insert(organizationMembers)
+		.values({ id: "om1", organizationId: "org1", userId: "u_admin" });
+	await db
+		.insert(events)
+		.values({ id: "e1", organizationId: "org1", name: "E", slug: "e" });
+}
+
+const CONTEXT = { cloudflare: { env, ctx: {} } };
+
+function run(request: Request) {
+	return action({
+		context: CONTEXT,
+		request,
+		params: {},
+	} as unknown as Parameters<typeof action>[0]);
+}
+
+function importBody(csv: string, mapping: Record<string, string>): FormData {
+	const form = new FormData();
+	form.set("intent", "import");
+	form.set("csvB64", btoa(csv));
+	for (const [key, value] of Object.entries(mapping)) {
+		form.set(`map_${key}`, value);
+	}
+	return form;
+}
+
+const FIXTURE_CSV = [
+	"First,Surname,E-mail,Company,Status,Bio",
+	"Dana,Kowalski,dana@example.com,Acme,invited,New person",
+	"Priya,Raman,PRIYA@Example.com,Latticework,,Updated bio",
+	"Bob,Jones,not-an-email,,,",
+	"Jane,Doe,,,,",
+	"Dana,Duplicate,dana@example.com,,,",
+	",,orphan@example.com,,,",
+	"Vip,Person,vip@example.com,,VIP,",
+].join("\n");
+
+const FIXTURE_MAPPING = {
+	email: "2",
+	firstName: "0",
+	lastName: "1",
+	companyName: "3",
+	status: "4",
+	bio: "5",
+};
+
+describe("CSV import", () => {
+	it("maps uploaded headers with guesses before importing", async () => {
+		const form = new FormData();
+		form.set("intent", "upload");
+		form.set(
+			"file",
+			new File(["Email,First Name\na@b.co,Ann"], "roster.csv", {
+				type: "text/csv",
+			}),
+		);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{ method: "POST", body: form },
+		);
+		await seedEvent();
+
+		const result = (await run(request)) as {
+			step: string;
+			headers?: string[];
+			rowCount?: number;
+			guesses?: Record<string, number | null>;
+		};
+
+		expect(result.step).toBe("map");
+		expect(result.headers).toEqual(["Email", "First Name"]);
+		expect(result.rowCount).toBe(1);
+		expect(result.guesses?.email).toBe(0);
+		expect(result.guesses?.firstName).toBe(1);
+	});
+
+	it("accounts for every row: added, merged by email, or skipped with a reason", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{ method: "POST", body: importBody(FIXTURE_CSV, FIXTURE_MAPPING) },
+		);
+		await seedEvent();
+		// Existing contact the file repeats (different case) → merge target.
+		await db.insert(contacts).values({
+			id: "c_priya",
+			eventId: "e1",
+			email: "priya@example.com",
+			firstName: "Priya",
+			lastName: "Raman",
+			status: "confirmed",
+		});
+		// Same email in ANOTHER org's event — dedupe is per event, so the file's
+		// Dana must be ADDED here, never merged into the foreign row.
+		await db.insert(organizations).values({ id: "org2", name: "Other" });
+		await db
+			.insert(events)
+			.values({ id: "e2", organizationId: "org2", name: "F", slug: "f" });
+		await db.insert(contacts).values({
+			id: "c_foreign",
+			eventId: "e2",
+			email: "dana@example.com",
+			firstName: "Foreign",
+			lastName: "Dana",
+		});
+
+		const result = (await run(request)) as {
+			step: string;
+			added: number;
+			merged: number;
+			skipped: number;
+			results: Array<{ row: number; outcome: string; reason: string }>;
+		};
+
+		expect(result.step).toBe("done");
+		expect(result.added).toBe(2); // Dana + Vip
+		expect(result.merged).toBe(1); // Priya, case-insensitively
+		expect(result.skipped).toBe(4);
+		expect(result.results).toHaveLength(7);
+
+		const byRow = new Map(result.results.map((r) => [r.row, r]));
+		expect(byRow.get(4)?.reason).toMatch(/invalid email/i);
+		expect(byRow.get(5)?.reason).toMatch(/no email/i);
+		expect(byRow.get(6)?.reason).toMatch(/duplicate of row 2/i);
+		expect(byRow.get(7)?.reason).toMatch(/missing a name/i);
+		expect(byRow.get(8)?.outcome).toBe("added");
+		expect(byRow.get(8)?.reason).toMatch(/unknown status "vip" ignored/i);
+
+		// Dana landed in THIS event with her mapped fields and valid status.
+		const [dana] = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.id, "c_foreign"));
+		expect(dana?.firstName).toBe("Foreign"); // foreign row untouched
+		const eventRows = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.eventId, "e1"));
+		expect(eventRows).toHaveLength(3); // priya + dana + vip
+		const newDana = eventRows.find((c) => c.email === "dana@example.com");
+		expect(newDana?.companyName).toBe("Acme");
+		expect(newDana?.status).toBe("invited");
+
+		// Merge overwrote mapped non-empty fields and kept the rest.
+		const [priya] = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.id, "c_priya"));
+		expect(priya?.bio).toBe("Updated bio");
+		expect(priya?.companyName).toBe("Latticework");
+		expect(priya?.status).toBe("confirmed"); // blank status column → unchanged
+
+		// Unknown status never reaches the DB — the row lands as pending.
+		const vip = eventRows.find((c) => c.email === "vip@example.com");
+		expect(vip?.status).toBe("pending");
+	});
+
+	it("refuses an unmapped email column — dedupe would be meaningless", async () => {
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{
+				method: "POST",
+				body: importBody("a,b\nx,y", { firstName: "0" }),
+			},
+		);
+		await seedEvent();
+
+		const result = (await run(request)) as { step: string; formError?: string };
+		expect(result.step).toBe("map");
+		expect(result.formError).toMatch(/map the email column/i);
+		expect(await getDb(env).select().from(contacts)).toHaveLength(0);
+	});
+
+	it("rejects files over the 1000-row limit outright", async () => {
+		const rows = Array.from({ length: 1001 }, (_, i) => `P${i},L,p${i}@x.co`);
+		const form = new FormData();
+		form.set("intent", "upload");
+		form.set(
+			"file",
+			new File([`first,last,email\n${rows.join("\n")}`], "big.csv", {
+				type: "text/csv",
+			}),
+		);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{ method: "POST", body: form },
+		);
+		await seedEvent();
+
+		const result = (await run(request)) as { step: string; formError?: string };
+		expect(result.step).toBe("upload");
+		expect(result.formError).toMatch(/limit is 1000/i);
+	});
+});
