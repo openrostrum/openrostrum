@@ -20,6 +20,8 @@ export default [
 			"build/**",
 			".react-router/**",
 			".wrangler/**",
+			".claude/**", // nested git worktrees lint themselves, never from the parent
+
 			"drizzle/**",
 			"docs/**",
 			".agents/**",
