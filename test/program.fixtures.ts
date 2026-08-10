@@ -170,8 +170,4 @@ export function unwrap<T>(result: unknown): { data: T; status: number } {
 	return { data: r.data, status: r.init?.status ?? 200 };
 }
 
-export function thrownStatus(error: unknown): number | undefined {
-	if (error instanceof Response) return error.status;
-	const e = error as { init?: { status?: number } | null };
-	return e.init?.status;
-}
+export { thrownStatus } from "./thrown";

@@ -10,7 +10,10 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import type { SubmissionListData } from "../app/lib/submission-list";
+import type {
+	SubmissionListData,
+	SubmissionListLoaded,
+} from "../app/lib/submission-list";
 import {
 	action as abstractsAction,
 	loader as abstractsLoader,
@@ -22,9 +25,17 @@ import {
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
-function unwrapLoader(result: unknown): SubmissionListData {
+function unwrapRaw(result: unknown): SubmissionListData {
 	const r = result as { data?: SubmissionListData } & SubmissionListData;
 	return (r.data ?? r) as SubmissionListData;
+}
+
+/** Loaded-arm unwrap — for tests that seed an active event. */
+function unwrapLoader(result: unknown): SubmissionListLoaded {
+	const data = unwrapRaw(result);
+	if (data.eventName === null)
+		throw new Error("loader returned no-event state");
+	return data;
 }
 
 function unwrapAction(result: unknown) {
@@ -68,6 +79,8 @@ async function requestAs(url: string, body?: URLSearchParams) {
 
 type LoaderArgs = Parameters<typeof abstractsLoader>[0];
 type ActionArgs = Parameters<typeof abstractsAction>[0];
+type SessionsLoaderArgs = Parameters<typeof sessionsLoader>[0];
+type SessionsActionArgs = Parameters<typeof sessionsAction>[0];
 
 describe("abstracts / sessions type partition", () => {
 	it("each tab lists only its own type, with counts excluding drafts from All", async () => {
@@ -121,7 +134,7 @@ describe("abstracts / sessions type partition", () => {
 				context: CONTEXT,
 				request: await requestAs("http://localhost/admin/sessions"),
 				params: {},
-			} as unknown as LoaderArgs),
+			} as unknown as SessionsLoaderArgs),
 		);
 		expect(sessions.counts.all).toBe(1);
 		expect(sessions.rows.map((r) => r.id)).toEqual(["s1"]);
@@ -321,7 +334,7 @@ describe("approve all accepted", () => {
 					new URLSearchParams({ intent: "approve-all-accepted" }),
 				),
 				params: {},
-			} as unknown as ActionArgs),
+			} as unknown as SessionsActionArgs),
 		);
 		// accepted abstracts are sessions-side too — the gate opener covers them
 		expect(result.notice).toContain("3 accepted submissions approved");
@@ -341,7 +354,7 @@ describe("approve all accepted", () => {
 					new URLSearchParams({ intent: "approve-all-accepted" }),
 				),
 				params: {},
-			} as unknown as ActionArgs),
+			} as unknown as SessionsActionArgs),
 		);
 		expect(again.notice).toMatch(/already approved/i);
 	});
@@ -371,7 +384,7 @@ describe("approve all accepted", () => {
 				context: CONTEXT,
 				request: await requestAs("http://localhost/admin/sessions"),
 				params: {},
-			} as unknown as LoaderArgs),
+			} as unknown as SessionsLoaderArgs),
 		);
 		expect(data.notPublicCount).toBe(1);
 	});
@@ -424,12 +437,12 @@ describe("auth + empty event", () => {
 			passwordHash: await hashPassword("pw"),
 			role: "admin",
 		});
-		const data = unwrapLoader(
+		const data = unwrapRaw(
 			await sessionsLoader({
 				context: CONTEXT,
 				request: await requestAs("http://localhost/admin/sessions"),
 				params: {},
-			} as unknown as LoaderArgs),
+			} as unknown as SessionsLoaderArgs),
 		);
 		expect(data.eventName).toBeNull();
 		// the no-event payload carries NO rows at all — nothing to leak

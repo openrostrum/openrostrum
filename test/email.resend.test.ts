@@ -32,7 +32,10 @@ describe("Resend email adapter", () => {
 			deduped: false,
 			suppressed: false,
 		});
-		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
 		expect(url).toBe("https://api.resend.com/emails");
 		expect((init.headers as Record<string, string>)["Idempotency-Key"]).toBe(
 			"k1",
@@ -65,7 +68,8 @@ describe("Resend email adapter", () => {
 		});
 
 		const body = JSON.parse(
-			(fetchMock.mock.calls[0][1] as RequestInit).body as string,
+			(fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+				.body as string,
 		);
 		expect(body.attachments).toHaveLength(1);
 		expect(body.attachments[0]).toMatchObject({

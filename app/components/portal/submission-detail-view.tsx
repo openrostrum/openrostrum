@@ -4,6 +4,7 @@ import {
 	Avatar,
 	Button,
 	Chip,
+	ConfirmButton,
 	ErrorText,
 	Field,
 	Input,
@@ -13,7 +14,6 @@ import {
 	TextLink,
 } from "~/ui";
 import { CheckboxGroup } from "../checkbox-group";
-import { ConfirmButton } from "../confirm-button";
 import { RichHtml } from "../rich-html";
 import { RichTextEditor } from "../rich-text";
 import { Card, MetaGrid, Muted, Notice, Row, RowList, Strong } from "./bits";

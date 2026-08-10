@@ -1,6 +1,6 @@
 import { useFetcher } from "react-router";
-import { StatusBadge } from "~/ui";
-import { ConfirmButton } from "../confirm-button";
+import { ConfirmButton, StatusBadge } from "~/ui";
+
 import { Muted } from "./bits";
 import type { ParticipationView } from "./types";
 

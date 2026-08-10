@@ -22,11 +22,13 @@ export default {
 		});
 	},
 
-	// Cron Triggers (daily tick; wired in wrangler.json). Dispatches to every
-	// `app/jobs/*.scheduled.ts` — reminder/other jobs add a file, not an edit
-	// here (see app/jobs/registry.ts).
-	async scheduled(_controller, env, ctx) {
-		await runScheduledJobs(env, ctx);
+	// Cron Triggers (wired in wrangler.json `triggers.crons`). Cloudflare
+	// invokes this once per matching trigger with `controller.cron` set to the
+	// expression; the registry routes it to the `app/jobs/*.scheduled.ts` jobs
+	// declaring that cadence — jobs add a file, not an edit here (see
+	// app/jobs/registry.ts).
+	async scheduled(controller, env, ctx) {
+		await runScheduledJobs(controller.cron, env, ctx);
 	},
 
 	// Queue consumer. Same rationale; a feature that needs a queue declares the

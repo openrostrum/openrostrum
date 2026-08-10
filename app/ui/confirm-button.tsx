@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react";
-import { Button } from "~/ui";
+import { Button } from "./button";
 
 /**
  * Two-step inline confirmation. Never a native confirm(): the judging harness

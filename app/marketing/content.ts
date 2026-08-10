@@ -57,9 +57,19 @@ export const PUBLIC_PAGES: PublicPage[] = [
 		to: "/sessions",
 	},
 	{
-		label: "Agenda",
+		label: "Itinerary",
 		description: "Chronological day-by-day view with a personal itinerary.",
-		to: "/agenda",
+		to: "/itinerary",
+	},
+	{
+		label: "Gallery",
+		description: "The speaker photo wall — the whole lineup on one page.",
+		to: "/gallery",
+	},
+	{
+		label: "Call for speakers",
+		description: "The live CFP form — submit a talk to this event.",
+		to: "/cfp",
 	},
 ];
 

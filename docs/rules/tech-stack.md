@@ -11,7 +11,7 @@ The definitive stack for the Sessionboard clone. Cloudflare-native, TypeScript e
 | Object storage | Cloudflare **R2** |
 | Async jobs | Cloudflare **Queues** (email/sync) + **Cron Triggers** (5-day / 1-day reminders) |
 | Outbound email | **Resend** |
-| Bot protection | Cloudflare **Turnstile** (public CFP form) |
+| Bot protection | Cloudflare **Turnstile** (public CFP form + `/signup`) |
 | Local dev | `wrangler dev` |
 
 ## Language & libraries
@@ -58,14 +58,14 @@ Everything that differs between local and cloud sits behind a typed interface wi
 - **`nodejs_compat`** is enabled globally.
 - **Passwords:** WebCrypto PBKDF2 or native `node:crypto.scrypt`. Never native bcrypt (won't run on Workers) or pure-JS scrypt (blows the CPU budget).
 - **File uploads/downloads:** Worker-mediated through the R2 binding — a POST to a `files.upload` route streams to `env.BLOBS.put(...)`; a GET to `files/:id` streams `env.BLOBS.get(...)` back after an authz check. (The R2 binding works identically in local Miniflare and prod; presigned direct-to-R2 needs S3 creds that don't exist locally and gives no authz'd read-back path — verified by the scenario walk. Speaker uploads are small: headshots/slides, well under the 100 MB request cap. If a future need exceeds that, add presigned PUT for that path only.)
-- **Email:** outbound only — no inbound `email()` handler. Deduplicate with the D1 `email_outbox.dedupe_key` (template + recipient + occurrence) plus Resend idempotency keys; failed sends go to a Queue DLQ. Do not use the rate-limit binding for idempotency.
+- **Email:** outbound only — no inbound `email()` handler. Deduplicate with the D1 `email_outbox.dedupe_key` (template + recipient + occurrence) plus Resend idempotency keys. Failed sends use the ACCEPTED bounded-retry model (owner ruling 2026-08-10, GAP-REGISTER T1/C3): every send path is idempotent-keyed so a retry resumes without duplicating; Queue+DLQ infra is the registered post-submission follow-up (GAP-REGISTER S1). Do not use the rate-limit binding for idempotency.
 - **React Router imports:** import from `react-router` only — never `react-router-dom` or `@remix-run/*`, and never the `json()`/`defer()` helpers (return plain objects). An ESLint `no-restricted-imports` rule fails lint on violations; `react-router typegen` is wired into the typecheck script.
 - **Client bundle:** public and schedule pages render SSR and stay light; Tiptap and dnd-kit are lazy-loaded / code-split so they never ship to public visitors. (They don't count against the 10 MB Worker script cap — they're static assets — but they hurt public-page load if shipped everywhere, and load speed is judged.)
 - **Tailwind v4:** CSS-first config (`@import "tailwindcss"` + `@theme`). No `tailwind.config.js`.
 - **No shadcn:** the planned shadcn substrate was removed 2026-08-10 (never imported; its `cn` conflicted with `app/ui/cn.ts`). UI composes the hand-rolled `app/ui` primitives exclusively — enforced by the `ui-primitives-only` ESLint rule; agents never run `npx shadcn add`.
 - **Routing:** file-based (`@react-router/fs-routes` `flatRoutes()`). Each feature owns a file in `app/routes/` per `docs/ROUTE-MAP.md`; nobody edits `app/routes.ts`. `admin.tsx` is the admin shell layout; `admin.*.tsx` are its children.
 - **Nav:** each feature contributes one `app/nav/<feature>.nav.ts` (pure data); the shell auto-discovers via `import.meta.glob` — no shared nav file to edit.
-- **Async jobs:** the daily cron is pre-declared (`wrangler.json` `triggers.crons`) and `workers/app.ts` dispatches to `app/jobs/*.scheduled.ts`; reminder/other jobs add a file, not an entrypoint edit.
+- **Async jobs:** two cron cadences are pre-declared (`wrangler.json` `triggers.crons`: daily `0 9 * * *` + hourly `0 * * * *`) and `workers/app.ts` routes each tick to the `app/jobs/*.scheduled.ts` jobs declaring that cadence (`ScheduledJob.cron` matched against `controller.cron`); reminder/other jobs add a file, not an entrypoint edit. A new cadence = a new `triggers.crons` entry (integration-owned) — `test/scheduled.dispatch.test.ts` pins the lockstep.
 - **Auth:** protect routes with `requireUser`/`requireAdmin`/`requireRole` from `app/lib/auth.ts`. A layout loader gates GET navigation for its children; **every `action` must self-authenticate** (a POST doesn't re-run parent loaders) — enforced by the `require-auth-in-actions` ESLint rule (opt out a genuinely public mutation with a `// @public` comment).
 - **Shared files are integration-owned + guarded:** `schema.ts`, `drizzle/migrations`, `drizzle/seed.sql`, `package.json`, `pnpm-lock.yaml`, `wrangler.json` (see `scripts/guard-schema.sh`). All stack deps are pre-installed/frozen — no `pnpm add` in worktrees.
 

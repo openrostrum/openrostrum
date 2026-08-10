@@ -6,7 +6,6 @@ import {
 	type RecipientSelection,
 	resolveRecipients,
 } from "~/domain/contacts";
-import { Textarea } from "~/components/textarea";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import {
 	CAMPAIGN_MERGE_TAGS,
@@ -34,6 +33,7 @@ import {
 	Table,
 	TBody,
 	Td,
+	Textarea,
 	Th,
 	THead,
 	Tr,

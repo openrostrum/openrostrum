@@ -1,28 +1,9 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import { Checkbox } from "~/ui";
 
 /**
- * Labeled checkbox. No Checkbox primitive exists in app/ui, so the skin is
- * defined exactly once, here.
+ * Checkbox list bound to one form field name — composes the ~/ui Checkbox
+ * (app/components composes primitives, it never defines skins).
  */
-export function CheckboxOption({
-	label,
-	...props
-}: Omit<ComponentPropsWithoutRef<"input">, "type" | "className" | "style"> & {
-	label: ReactNode;
-}) {
-	return (
-		<label className="inline-flex items-center gap-2 text-[13px] text-fg">
-			<input
-				{...props}
-				type="checkbox"
-				className="h-[15px] w-[15px]"
-				style={{ accentColor: "var(--color-petrol)" }}
-			/>
-			{label}
-		</label>
-	);
-}
-
 export function CheckboxGroup({
 	name,
 	options,
@@ -35,7 +16,7 @@ export function CheckboxGroup({
 	return (
 		<div className="flex flex-wrap gap-x-4 gap-y-2">
 			{options.map((o) => (
-				<CheckboxOption
+				<Checkbox
 					key={o.value}
 					name={name}
 					value={o.value}

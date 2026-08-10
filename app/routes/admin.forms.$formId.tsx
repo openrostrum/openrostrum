@@ -16,8 +16,7 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
+import { RichText as RichTextInput } from "~/ui/rich-text-lazy";
 import {
 	and,
 	asc,
@@ -1473,6 +1472,8 @@ function FormTabs({
 	);
 }
 
+// Builder rich-text fields render OUTSIDE the <form id="builder-form"> —
+// the canonical editor's hidden input reattaches via the `form` attribute.
 function RichText({
 	label,
 	name,
@@ -1482,110 +1483,15 @@ function RichText({
 	name: string;
 	defaultValue: string;
 }) {
-	const [html, setHtml] = useState(defaultValue);
-	const [linkOpen, setLinkOpen] = useState(false);
-	const [linkUrl, setLinkUrl] = useState("");
-	const editor = useEditor({
-		extensions: [StarterKit],
-		content: defaultValue,
-		immediatelyRender: false,
-		shouldRerenderOnTransaction: true,
-		onUpdate: ({ editor: e }) => setHtml(e.isEmpty ? "" : e.getHTML()),
-	});
-	type Chain = ReturnType<Editor["chain"]>;
-	const mark = (fn: (chain: Chain) => { run: () => boolean }) => {
-		if (editor) fn(editor.chain().focus());
-	};
-	const toolbar: Array<{
-		label: string;
-		key: string;
-		toggle: (c: Chain) => { run: () => boolean };
-	}> = [
-		{ label: "B", key: "bold", toggle: (c) => c.toggleBold() },
-		{ label: "I", key: "italic", toggle: (c) => c.toggleItalic() },
-		{ label: "U", key: "underline", toggle: (c) => c.toggleUnderline() },
-		{ label: "• List", key: "bulletList", toggle: (c) => c.toggleBulletList() },
-		{
-			label: "1. List",
-			key: "orderedList",
-			toggle: (c) => c.toggleOrderedList(),
-		},
-	];
 	return (
-		<div className="flex flex-col gap-[5px]">
-			<Field label={label}>
-				<Input
-					type="hidden"
-					name={name}
-					value={html}
-					readOnly
-					form="builder-form"
-				/>
-			</Field>
-			<div className="flex flex-wrap items-center gap-1">
-				{toolbar.map((tool) => (
-					<Button
-						key={tool.key}
-						type="button"
-						variant={editor?.isActive(tool.key) ? "primary" : "ghost"}
-						disabled={!editor}
-						aria-pressed={editor?.isActive(tool.key) ?? false}
-						onClick={() => mark(tool.toggle)}
-					>
-						{tool.label}
-					</Button>
-				))}
-				{editor?.isActive("link") ? (
-					<Button
-						type="button"
-						variant="ghost"
-						onClick={() => mark((c) => c.unsetLink())}
-					>
-						Remove link
-					</Button>
-				) : (
-					<Button
-						type="button"
-						variant={linkOpen ? "primary" : "ghost"}
-						disabled={!editor}
-						onClick={() => setLinkOpen((v) => !v)}
-					>
-						Link
-					</Button>
-				)}
-				{linkOpen && (
-					<>
-						<Input
-							aria-label="Link URL"
-							placeholder="https://…"
-							value={linkUrl}
-							onChange={(e) => setLinkUrl(e.target.value)}
-						/>
-						<Button
-							type="button"
-							variant="ghost"
-							onClick={() => {
-								if (linkUrl.trim()) {
-									mark((c) =>
-										c.extendMarkRange("link").setLink({ href: linkUrl.trim() }),
-									);
-								}
-								setLinkOpen(false);
-								setLinkUrl("");
-							}}
-						>
-							Apply link
-						</Button>
-					</>
-				)}
-			</div>
-			<Panel>
-				<EditorContent
-					editor={editor}
-					className="min-h-24 [&_.ProseMirror]:min-h-24 [&_ol]:pl-5 [&_ul]:pl-5"
-				/>
-			</Panel>
-		</div>
+		<Field label={label}>
+			<RichTextInput
+				name={name}
+				form="builder-form"
+				defaultValue={defaultValue}
+				ariaLabel={label}
+			/>
+		</Field>
 	);
 }
 

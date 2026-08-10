@@ -75,7 +75,11 @@ export async function requestAs(
 
 /** Multipart body for the upload action. */
 export function uploadForm(
-	file: { name: string; content: string | Uint8Array; type?: string },
+	file: {
+		name: string;
+		content: string | Uint8Array<ArrayBuffer>;
+		type?: string;
+	},
 	fields: Record<string, string> = {},
 ): FormData {
 	const form = new FormData();
@@ -97,22 +101,7 @@ export function unwrap<T>(result: unknown): T {
 		: (result as T);
 }
 
-/** Runs fn and returns the thrown value (fails the test if nothing throws). */
-export async function catchThrown(
-	fn: () => Promise<unknown>,
-): Promise<unknown> {
-	try {
-		await fn();
-	} catch (thrown) {
-		return thrown;
-	}
-	throw new Error("expected the call to throw, but it returned");
-}
-
-export function thrownStatus(thrown: unknown): number | undefined {
-	if (thrown instanceof Response) return thrown.status;
-	return (thrown as { init?: { status?: number } }).init?.status;
-}
+export { catchThrown, thrownStatus } from "./thrown";
 
 /**
  * Minimal ZIP reader driven by the APPNOTE layout (EOCD → central directory →

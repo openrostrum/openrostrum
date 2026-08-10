@@ -5,7 +5,7 @@ import { data, useFetcher } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { emailTemplates, forms, portals } from "~/db/schema";
-import { RichText } from "~/emails/rich-text";
+import { RichText } from "~/ui/rich-text-lazy";
 import { TemplatePreview } from "~/emails/template-preview";
 import { Hint } from "~/emails/text";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
@@ -252,6 +252,7 @@ export default function EmailTemplateEditor({
 						<Field label="Body" error={fieldErrors?.bodyHtml?.[0]}>
 							<RichText
 								name="bodyHtml"
+								size="lg"
 								defaultValue={template.bodyHtml}
 								invalid={Boolean(fieldErrors?.bodyHtml?.[0])}
 								onChange={setBody}
