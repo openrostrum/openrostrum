@@ -82,10 +82,47 @@ export const passwordResets = sqliteTable("password_resets", {
 	createdAt: createdAt(),
 });
 
+/* ---------------------------------------------------------- organizations --- */
+
+/**
+ * The tenant (docs/multi-tenancy-design.md). Events, api tokens, and org-wide
+ * fields hang off an organization; every admin surface resolves access through
+ * organization_members. No owner/role column — members are equal admins
+ * (verified Sessionboard parity, docs/data-model.md → Organization & Event
+ * Team); the one invariant is that an org never loses its last member
+ * (enforced at the member-remove action, Wave D).
+ */
+export const organizations = sqliteTable("organizations", {
+	id: id(),
+	name: text("name").notNull(),
+	createdAt: createdAt(),
+});
+
+export const organizationMembers = sqliteTable(
+	"organization_members",
+	{
+		id: id(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		unique("organization_members_org_user_uq").on(t.organizationId, t.userId),
+		index("organization_members_user_idx").on(t.userId),
+	],
+);
+
 /* ----------------------------------------------------------------- event --- */
 
 export const events = sqliteTable("events", {
 	id: id(),
+	organizationId: text("organization_id")
+		.notNull()
+		.references(() => organizations.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
 	slug: text("slug").notNull().unique(),
 	type: text("type").notNull().default("Conference"),
@@ -341,14 +378,22 @@ export const FIELD_TYPE = [
 	"section_header",
 	"divider",
 ] as const;
-export const FIELD_SCOPE = ["event", "global"] as const;
 export const FORM_FIELD_SECTION = ["session", "participant"] as const;
 
-/** Reusable field library (Create New Field / Add Question). eventId null = global. */
+/**
+ * Reusable field library (Create New Field / Add Question). Scope is an XOR
+ * (the formFields fieldId/builtinRef precedent): an org-wide field sets
+ * `organizationId` (eventId null); an event field sets `eventId`
+ * (organizationId null — the org is derived via the event, never stored where
+ * derivable, so the two can never disagree).
+ */
 export const fields = sqliteTable(
 	"fields",
 	{
 		id: id(),
+		organizationId: text("organization_id").references(() => organizations.id, {
+			onDelete: "cascade",
+		}),
 		eventId: text("event_id").references(() => events.id, {
 			onDelete: "cascade",
 		}),
@@ -357,10 +402,12 @@ export const fields = sqliteTable(
 		description: text("description"),
 		maxLength: integer("max_length"),
 		options: text("options", { mode: "json" }).$type<string[]>(),
-		scope: text("scope", { enum: FIELD_SCOPE }).notNull().default("event"),
 		createdAt: createdAt(),
 	},
-	(t) => [index("fields_event_idx").on(t.eventId)],
+	(t) => [
+		index("fields_event_idx").on(t.eventId),
+		index("fields_org_idx").on(t.organizationId),
+	],
 );
 
 /**
@@ -1129,15 +1176,30 @@ export const embeds = sqliteTable(
 
 /* -------------------------------------------------- compat API + Airtable --- */
 
-/** Bearer tokens for the Sessionboard-compatible read API (`x-access-token`). */
-export const apiTokens = sqliteTable("api_tokens", {
-	id: id(),
-	name: text("name").notNull(),
-	/** SHA-256 of the token — raw value is shown once at mint time, never stored. */
-	tokenHash: text("token_hash").notNull().unique(),
-	createdAt: createdAt(),
-	lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
-});
+/**
+ * Bearer tokens for the Sessionboard-compatible read API (`x-access-token`).
+ * Organization-scoped (Sessionboard parity: tokens mint at Organization
+ * Settings); `eventId` set = restricted to that one event (flows/09 rule p),
+ * null = all the org's events. Never readable across organizations.
+ */
+export const apiTokens = sqliteTable(
+	"api_tokens",
+	{
+		id: id(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		eventId: text("event_id").references(() => events.id, {
+			onDelete: "cascade",
+		}),
+		name: text("name").notNull(),
+		/** SHA-256 of the token — raw value is shown once at mint time, never stored. */
+		tokenHash: text("token_hash").notNull().unique(),
+		createdAt: createdAt(),
+		lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+	},
+	(t) => [index("api_tokens_org_idx").on(t.organizationId)],
+);
 
 /**
  * One row per synced D1 record ⇄ Airtable record, holding the last-synced
@@ -1250,9 +1312,35 @@ export const usersRelations = relations(users, ({ many }) => ({
 	contacts: many(contacts),
 	reviews: many(reviews),
 	reviewerTracks: many(reviewerTracks),
+	organizationMemberships: many(organizationMembers),
 }));
 
-export const eventsRelations = relations(events, ({ many }) => ({
+export const organizationsRelations = relations(organizations, ({ many }) => ({
+	events: many(events),
+	members: many(organizationMembers),
+	apiTokens: many(apiTokens),
+	fields: many(fields),
+}));
+
+export const organizationMembersRelations = relations(
+	organizationMembers,
+	({ one }) => ({
+		organization: one(organizations, {
+			fields: [organizationMembers.organizationId],
+			references: [organizations.id],
+		}),
+		user: one(users, {
+			fields: [organizationMembers.userId],
+			references: [users.id],
+		}),
+	}),
+);
+
+export const eventsRelations = relations(events, ({ one, many }) => ({
+	organization: one(organizations, {
+		fields: [events.organizationId],
+		references: [organizations.id],
+	}),
 	submissions: many(submissions),
 	tracks: many(tracks),
 	sessionStatuses: many(sessionStatuses),
@@ -1286,8 +1374,20 @@ export const formsRelations = relations(forms, ({ one, many }) => ({
 }));
 
 export const fieldsRelations = relations(fields, ({ one, many }) => ({
+	organization: one(organizations, {
+		fields: [fields.organizationId],
+		references: [organizations.id],
+	}),
 	event: one(events, { fields: [fields.eventId], references: [events.id] }),
 	formFields: many(formFields),
+}));
+
+export const apiTokensRelations = relations(apiTokens, ({ one }) => ({
+	organization: one(organizations, {
+		fields: [apiTokens.organizationId],
+		references: [organizations.id],
+	}),
+	event: one(events, { fields: [apiTokens.eventId], references: [events.id] }),
 }));
 
 export const formFieldsRelations = relations(formFields, ({ one }) => ({
