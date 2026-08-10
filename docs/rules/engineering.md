@@ -70,6 +70,10 @@ The litmus (reviewer agents MUST answer all three for every new test):
 
 When to write: a bug fix ships with the regression test that fails without the fix (non-negotiable); real branching/boundaries get unit tests; persistence-as-contract (idempotency, uniqueness, scoping, ordering) gets integration tests against real local D1 (our default — the whole suite runs in workerd). **No test** for pass-through wiring, UI copy, trivial mappers, or anything the type system / Zod already guarantees.
 
+Where: all tests live in `test/`, named `<surface>.test.ts` — never colocated under `app/`. Nested worktrees under `.claude/` are excluded from discovery (`vitest.config.ts`): each runs its own suite, never the parent's.
+
+Hermeticity: the workers pool feeds the developer's `.dev.vars` into tests, and ports resolve adapters by capability (key present = real provider) — so `vitest.config.ts` blanks every key `.dev.vars` defines before binding. No local secret can flip the suite onto live Resend/Airtable/Turnstile; `test/hermeticity.test.ts` fails by name on a keyed checkout if that seal ever breaks.
+
 Assertions: every test asserts at least one **observable outcome** (return value, thrown error, response, DB state). Mock-call assertions may corroborate, never stand alone — except the load-bearing negative ("403 AND the write never happened"), which still pairs with an outcome. Mock only at **process boundaries** (email/Airtable/Turnstile providers, the clock — that's what the ports' local adapters are for); never mock a sibling app module — use the real one or test against real D1.
 
 Anti-patterns (delete on sight): pass-through tautology (`toHaveBeenCalledWith(input)` on unchanged input) · mock theater (everything mocked, assertions confirm the wiring) · re-derived oracle (expected value computed by the logic under test) · copy/prompt literal (`expect(IMPORTED).toContain("<its own source string>")`) · snapshot-as-coverage. The lint rule catches the mechanical subset; the litmus catches the rest. The true mechanical backstop is mutation testing (Stryker) — post-deadline.
