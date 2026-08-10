@@ -5,15 +5,14 @@ import { cn } from "~/ui/cn";
 import {
 	COMPARE,
 	type CompareCell,
-	DEMO_EMAIL,
-	DEMO_PASSWORD,
-	DEPLOY_STEPS,
+	DEPLOY_GUIDE_URL,
 	GITHUB_URL,
-	REQUIREMENTS,
-	STACK,
+	ISSUES_URL,
+	JOBS,
+	PUBLIC_PAGES,
 } from "./content";
 import { AdminShellMock, AgendaMock, InviteMock } from "./mocks";
-import { CopyValue, Cta, Eyebrow } from "./primitives";
+import { Cta, Eyebrow } from "./primitives";
 
 const SHELL = "mx-auto w-full max-w-[1120px] px-6";
 const H2 =
@@ -35,14 +34,14 @@ function TopNav() {
 					<Wordmark />
 				</Link>
 				<nav className="hidden items-center gap-8 md:flex">
-					<a href="#parity" className={NAV_LINK}>
+					<a href="#features" className={NAV_LINK}>
 						Features
 					</a>
 					<a href="#compare" className={NAV_LINK}>
 						Compare
 					</a>
-					<a href="#self-host" className={NAV_LINK}>
-						Self-host
+					<a href="#open-source" className={NAV_LINK}>
+						Open source
 					</a>
 					<a
 						href={GITHUB_URL}
@@ -53,7 +52,16 @@ function TopNav() {
 						GitHub
 					</a>
 				</nav>
-				<Cta to="/login">Sign in</Cta>
+				<div className="flex items-center gap-2.5">
+					<span className="hidden sm:contents">
+						<Cta to="/login" variant="ghost" size="sm">
+							Sign in
+						</Cta>
+					</span>
+					<Cta to="/signup" size="sm">
+						Get started
+					</Cta>
+				</div>
 			</div>
 		</header>
 	);
@@ -70,24 +78,14 @@ function Hero() {
 				<p className="text-[16.5px] leading-relaxed text-fg-muted">
 					Call for speakers, submission review, speaker portals, agenda
 					building, and speaker comms — the whole program side of your
-					conference, on software you host and own. MIT-licensed, free of
-					per-seat anything.
+					conference in one place. Free and open source: use it here, or run
+					your own.
 				</p>
 				<div className="flex flex-wrap items-center gap-3">
-					<Cta to="/login">Sign in to the sandbox event</Cta>
-					<Cta href="#self-host" variant="ghost">
-						Deploy your own
+					<Cta to="/signup">Create your event</Cta>
+					<Cta to="/schedule" variant="ghost">
+						See a live schedule
 					</Cta>
-				</div>
-				<div className="flex flex-col gap-2">
-					<span className="text-[13px] leading-relaxed text-fg-muted">
-						This site runs a real instance, seeded with a sandbox event and a
-						shared organizer seat — walk in and try it:
-					</span>
-					<span className="flex flex-wrap items-center gap-2">
-						<CopyValue value={DEMO_EMAIL} />
-						<CopyValue value={DEMO_PASSWORD} />
-					</span>
 				</div>
 			</div>
 			{/* The product is the hero shot — and it stands on a petrol platform,
@@ -105,30 +103,31 @@ function Hero() {
 	);
 }
 
-function Requirements() {
+function Jobs() {
 	return (
-		<section id="parity" className="scroll-mt-16">
+		<section id="features" className="scroll-mt-16">
 			<div className={cn(SHELL, "py-20 md:py-28")}>
 				<div className="flex flex-col gap-4">
-					<Eyebrow>Feature parity</Eyebrow>
-					<h2 className={H2}>Sessionboard&rsquo;s whole job, covered.</h2>
+					<Eyebrow>What it does</Eyebrow>
+					<h2 className={H2}>From first submission to final schedule.</h2>
 					<p className={LEAD}>
-						An event team needs six things from the program side. All six, in
-						one place — from the first submission to the final schedule.
+						Open the call, review what arrives, confirm your speakers, and build
+						the agenda — with the follow-up work tracked in the same place, not
+						in a spreadsheet on the side.
 					</p>
 				</div>
 				<div className="mt-12 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
-					{REQUIREMENTS.map((req, index) => (
+					{JOBS.map((job, index) => (
 						<div
-							key={req.title}
+							key={job.title}
 							className="flex flex-col gap-2.5 border-t border-hair pt-5"
 						>
 							<span className="font-mono text-[11px] font-medium tabular-nums text-fg-faint">
 								0{index + 1}
 							</span>
-							<h3 className="text-[15px] font-semibold text-fg">{req.title}</h3>
+							<h3 className="text-[15px] font-semibold text-fg">{job.title}</h3>
 							<p className="text-[13.5px] leading-relaxed text-fg-muted">
-								{req.body}
+								{job.body}
 							</p>
 						</div>
 					))}
@@ -167,7 +166,10 @@ function Spotlight({
 	return (
 		<div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
 			<div
-				className={cn("flex flex-col items-start gap-5", flip && "lg:order-2")}
+				className={cn(
+					"flex min-w-0 flex-col items-start gap-5",
+					flip && "lg:order-2",
+				)}
 			>
 				<Eyebrow>{eyebrow}</Eyebrow>
 				<h2 className={H2}>{title}</h2>
@@ -178,7 +180,7 @@ function Spotlight({
 					))}
 				</ul>
 			</div>
-			<div className={cn("flex justify-center", flip && "lg:order-1")}>
+			<div className={cn("flex min-w-0 justify-center", flip && "lg:order-1")}>
 				{children}
 			</div>
 		</div>
@@ -192,9 +194,9 @@ function Spotlights() {
 				className={cn(SHELL, "flex flex-col gap-20 py-20 md:gap-28 md:py-24")}
 			>
 				<Spotlight
-					eyebrow="Beyond parity"
+					eyebrow="Speaker comms"
 					title="Calendar invites that actually land."
-					body="Sessionboard can't send a speaker a calendar invite. OpenRostrum attaches a real .ics to every acceptance and schedule change."
+					body="Every acceptance and schedule change goes out with a real .ics attached — one tap and the session is on the speaker's calendar, correctly, in their timezone."
 					points={[
 						"One stable calendar entry per session — updates move it in place instead of duplicating it.",
 						"A day of drag-and-drop batches into one send per speaker, never fifteen.",
@@ -216,6 +218,47 @@ function Spotlights() {
 				>
 					<AgendaMock />
 				</Spotlight>
+			</div>
+		</section>
+	);
+}
+
+function PublicPages() {
+	return (
+		<section id="public-pages" className="scroll-mt-16 border-t border-hair">
+			<div className={cn(SHELL, "py-20 md:py-24")}>
+				<div className="flex flex-col gap-4">
+					<Eyebrow>Public pages</Eyebrow>
+					<h2 className={H2}>The pages your attendees see, published live.</h2>
+					<p className={LEAD}>
+						Schedule, speakers, and sessions render straight from the data your
+						team edits — no export step, no stale copy on the event site. Embeds
+						and JSON, XML, and iCal feeds included. These are the live pages of
+						an event running on this site:
+					</p>
+				</div>
+				<div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+					{PUBLIC_PAGES.map((page) => (
+						<Link
+							key={page.to}
+							to={page.to}
+							className="group flex flex-col gap-1.5 rounded-card border border-hair bg-surface p-5 shadow-card transition-colors duration-150 ease-out hover:bg-chip focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+						>
+							<span className="flex items-center gap-2 text-[15px] font-semibold text-fg">
+								{page.label}
+								<span
+									aria-hidden="true"
+									className="text-fg-faint transition-colors group-hover:text-petrol"
+								>
+									→
+								</span>
+							</span>
+							<span className="text-[13px] leading-relaxed text-fg-muted">
+								{page.description}
+							</span>
+						</Link>
+					))}
+				</div>
 			</div>
 		</section>
 	);
@@ -260,11 +303,11 @@ function Comparison() {
 		<section id="compare" className="scroll-mt-16 border-t border-hair">
 			<div className={cn(SHELL, "py-20 md:py-24")}>
 				<div className="flex flex-col gap-4">
-					<Eyebrow>Honestly compared</Eyebrow>
+					<Eyebrow>Compared with Sessionboard</Eyebrow>
 					<h2 className={H2}>Same job. Yours to keep.</h2>
 					<p className={LEAD}>
-						OpenRostrum covers the program side of Sessionboard — and hands you
-						the source, the data, and the bill.
+						OpenRostrum covers the program side Sessionboard is sold for — with
+						the source open and the data in your hands.
 					</p>
 				</div>
 				<div className="mt-10 overflow-hidden rounded-card border border-hair">
@@ -303,69 +346,68 @@ function Comparison() {
 	);
 }
 
-function CodeBlock() {
+function OpenSource() {
 	return (
-		<div className="overflow-hidden rounded-card border border-hair bg-surface shadow-card">
-			<div className="flex items-center gap-1.5 border-b border-hair px-4 py-2.5">
-				<span className="h-2.5 w-2.5 rounded-full bg-hair-strong" />
-				<span className="h-2.5 w-2.5 rounded-full bg-hair-strong" />
-				<span className="h-2.5 w-2.5 rounded-full bg-hair-strong" />
-				<span className="ml-2 font-mono text-[11px] text-fg-faint">
-					deploy your own
-				</span>
-			</div>
-			<div className="flex flex-col gap-3.5 bg-chip p-4">
-				{DEPLOY_STEPS.map((step) => (
-					<div key={step.command} className="flex flex-col gap-0.5">
-						<span className="font-mono text-[11px] text-fg-faint">
-							# {step.comment}
-						</span>
-						<span className="font-mono text-[12.5px] text-fg">
-							<span className="text-petrol">$ </span>
-							{step.command}
-						</span>
-					</div>
-				))}
-			</div>
-		</div>
-	);
-}
-
-function Deploy() {
-	return (
-		<section id="self-host" className="scroll-mt-16 border-t border-hair">
+		<section id="open-source" className="scroll-mt-16 border-t border-hair">
 			<div className={cn(SHELL, "py-20 md:py-24")}>
 				<div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
 					<div className="flex flex-col items-start gap-5">
-						<Eyebrow>Self-host</Eyebrow>
-						<h2 className={H2}>
-							Your instance. Your Cloudflare account. Four commands.
-						</h2>
+						<Eyebrow>Open source</Eyebrow>
+						<h2 className={H2}>Own the software your event runs on.</h2>
 						<p className={LEAD}>
-							Every event team runs its own instance and owns the database, the
-							files, and every speaker&rsquo;s data. Nothing is hardcoded to our
-							sandbox — the repo deploys clean to any Cloudflare account.
+							OpenRostrum is MIT-licensed and built in the open. Use the hosted
+							app here, or deploy your own instance and hold the database, the
+							files, and every speaker record yourself — the step-by-step guide
+							is in the README.
 						</p>
-						<div className="flex flex-wrap gap-2">
-							{STACK.map((item) => (
-								<span
-									key={item}
-									className="rounded-full border border-hair bg-surface px-3 py-1 font-mono text-[11px] text-fg-muted"
-								>
-									{item}
-								</span>
-							))}
-						</div>
 						<div className="flex flex-wrap gap-3 pt-2">
 							<Cta href={GITHUB_URL} external>
 								View on GitHub
 							</Cta>
-							<Cta to="/login" variant="ghost">
-								Try the sandbox event
+							<Cta href={DEPLOY_GUIDE_URL} variant="ghost" external>
+								Self-hosting guide
 							</Cta>
 						</div>
 					</div>
-					<CodeBlock />
+					<ul className="flex flex-col gap-4 rounded-card border border-hair bg-surface p-6 shadow-card sm:p-8">
+						<Bullet>
+							One codebase, no gated edition — self-hosted runs everything the
+							hosted app runs.
+						</Bullet>
+						<Bullet>
+							Your data stays portable: CSV exports, file bundles, and JSON,
+							XML, and iCal feeds.
+						</Bullet>
+						<Bullet>
+							MIT license — inspect it, extend it, and never lose access to the
+							tool your event depends on.
+						</Bullet>
+					</ul>
+				</div>
+			</div>
+		</section>
+	);
+}
+
+function ClosingCta() {
+	return (
+		<section className="border-t border-hair">
+			<div
+				className={cn(
+					SHELL,
+					"flex flex-col items-start gap-6 py-20 md:items-center md:py-24 md:text-center",
+				)}
+			>
+				<h2 className={H2}>Run your next event on OpenRostrum.</h2>
+				<p className={LEAD}>
+					Create your organization, open a call for speakers, and take the
+					program from first submission to published schedule.
+				</p>
+				<div className="flex flex-wrap items-center gap-3 md:justify-center">
+					<Cta to="/signup">Create your event</Cta>
+					<Cta to="/schedule" variant="ghost">
+						See a live schedule
+					</Cta>
 				</div>
 			</div>
 		</section>
@@ -420,33 +462,38 @@ function Footer() {
 						<FooterCol
 							title="Product"
 							links={[
-								{ label: "Sandbox event", to: "/login" },
+								{ label: "Get started", to: "/signup" },
 								{ label: "Sign in", to: "/login" },
+								{ label: "Features", href: "#features" },
+								{ label: "Compare", href: "#compare" },
 							]}
+						/>
+						<FooterCol
+							title="Live event"
+							links={PUBLIC_PAGES.map((page) => ({
+								label: page.label,
+								to: page.to,
+							}))}
 						/>
 						<FooterCol
 							title="Open source"
 							links={[
 								{ label: "GitHub", href: GITHUB_URL, external: true },
-								{ label: "Self-host", href: "#self-host" },
-							]}
-						/>
-						<FooterCol
-							title="Explore"
-							links={[
-								{ label: "Features", href: "#parity" },
-								{ label: "Compare", href: "#compare" },
+								{
+									label: "Self-hosting guide",
+									href: DEPLOY_GUIDE_URL,
+									external: true,
+								},
+								{ label: "Report an issue", href: ISSUES_URL, external: true },
 							]}
 						/>
 					</div>
 				</div>
 				<div className="mt-12 flex flex-col gap-3 border-t border-hair pt-6 sm:flex-row sm:items-center sm:justify-between">
 					<span className="text-[12px] text-fg-faint">
-						Built for Kill My SaaS 1 · MIT licensed
+						Free and open source · MIT license
 					</span>
-					<span className="text-[12px] text-fg-faint">
-						Runs on Cloudflare Workers, D1 &amp; R2
-					</span>
+					<span className="text-[12px] text-fg-faint">OpenRostrum</span>
 				</div>
 			</div>
 		</footer>
@@ -455,9 +502,9 @@ function Footer() {
 
 export function Landing() {
 	// data-theme="light" pins every light-dark() token below it to the light
-	// "Gallery" skin — the marketing page presents the product the way the demo
-	// does, regardless of the visitor's OS theme. app.css lifts the pin to the
-	// <html> element so overscroll never flashes the dark canvas.
+	// "Gallery" skin — the marketing page presents the product in its canonical
+	// light form regardless of the visitor's OS theme. app.css lifts the pin to
+	// the <html> element so overscroll never flashes the dark canvas.
 	return (
 		<div
 			data-theme="light"
@@ -467,10 +514,12 @@ export function Landing() {
 			<TopNav />
 			<main>
 				<Hero />
-				<Requirements />
+				<Jobs />
 				<Spotlights />
+				<PublicPages />
 				<Comparison />
-				<Deploy />
+				<OpenSource />
+				<ClosingCta />
 			</main>
 			<Footer />
 		</div>

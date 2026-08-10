@@ -1,7 +1,14 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { redirect } from "react-router";
 import { getDb } from "~/db";
-import { authSessions, events, users } from "~/db/schema";
+import {
+	authSessions,
+	events,
+	organizationMembers,
+	reviewerTracks,
+	tracks,
+	users,
+} from "~/db/schema";
 
 type AppRole = (typeof users.$inferSelect)["role"];
 
@@ -16,6 +23,17 @@ export function homePathForRole(role: AppRole): string {
 	if (role === "admin") return "/admin";
 	if (role === "reviewer") return "/reviews";
 	return "/portal";
+}
+
+/** Same-origin internal path, or null if the target is external/unsafe
+ * (blocks //host, /\host, scheme tricks) — the open-redirect guard for every
+ * user-supplied redirectTo. Callers fall back to their own default. */
+export function safeRedirect(requested: string): string | null {
+	if (!requested.startsWith("/")) return null;
+	const resolved = new URL(requested, "http://sentinel.invalid");
+	return resolved.origin === "http://sentinel.invalid"
+		? resolved.pathname + resolved.search + resolved.hash
+		: null;
 }
 
 /**
@@ -247,11 +265,30 @@ export function requireAdmin(env: Env, request: Request): Promise<AppUser> {
 	return requireUser(env, request, ["admin"]);
 }
 
+/** Events joined to the caller's org memberships — the ONE access predicate
+ * for admin event resolution (event → org → member). */
+function memberEvents(db: ReturnType<typeof getDb>, userId: string) {
+	return db
+		.select({ event: events })
+		.from(events)
+		.innerJoin(
+			organizationMembers,
+			and(
+				eq(organizationMembers.organizationId, events.organizationId),
+				eq(organizationMembers.userId, userId),
+			),
+		);
+}
+
 /**
- * The "current event" an admin operates on — `users.activeEventId`, falling
- * back to the first event (fresh admins). NEVER hardcode `findMany({limit:1})`
- * in a feature — call this so the event switcher works. Returns null only when
- * no event exists yet (send the admin to the create-event flow).
+ * The "current event" an admin operates on — `users.activeEventId` when it
+ * points at an event of an org the user belongs to, else the first event
+ * across the user's orgs. NEVER hardcode `findMany({limit:1})` in a feature —
+ * call this so the event switcher works. A stale/forged `activeEventId`
+ * (another org's event) is ignored, never served. Returns null when the user
+ * has no org with an event — membership-less users (reviewers resolve via
+ * `getReviewerEventIds`) and brand-new organizers (send them to /onboarding);
+ * consumers must render an empty state or redirect, never assume non-null.
  */
 export async function getActiveEvent(
 	env: Env,
@@ -259,13 +296,57 @@ export async function getActiveEvent(
 ): Promise<typeof events.$inferSelect | null> {
 	const db = getDb(env);
 	if (user.activeEventId) {
-		const [ev] = await db
-			.select()
-			.from(events)
+		const [row] = await memberEvents(db, user.id)
 			.where(eq(events.id, user.activeEventId))
 			.limit(1);
-		if (ev) return ev;
+		if (row) return row.event;
 	}
-	const [first] = await db.select().from(events).limit(1);
-	return first ?? null;
+	const [first] = await memberEvents(db, user.id)
+		.orderBy(asc(events.createdAt), asc(events.id))
+		.limit(1);
+	return first?.event ?? null;
+}
+
+/** Every event the user may operate on — their orgs' events only (the event
+ * switcher's listing; another org's events must never appear here). */
+export async function listMyEvents(
+	env: Env,
+	userId: string,
+): Promise<Array<typeof events.$inferSelect>> {
+	const rows = await memberEvents(getDb(env), userId).orderBy(
+		asc(events.createdAt),
+		asc(events.id),
+	);
+	return rows.map((r) => r.event);
+}
+
+/** Membership check for one event (event → org → member) — the row-level
+ * guard for writes/reads that target an explicit eventId. */
+export async function userCanAccessEvent(
+	env: Env,
+	userId: string,
+	eventId: string,
+): Promise<boolean> {
+	const [row] = await memberEvents(getDb(env), userId)
+		.where(eq(events.id, eventId))
+		.limit(1);
+	return row !== undefined;
+}
+
+/**
+ * Event scope for reviewers. Reviewers hold NO organization membership
+ * (a membership row would make them org admins) — their events derive from
+ * track assignments: reviewer_tracks → tracks.event_id. Reviewer surfaces
+ * resolve through this, never through getActiveEvent (null for them).
+ */
+export async function getReviewerEventIds(
+	env: Env,
+	userId: string,
+): Promise<string[]> {
+	const rows = await getDb(env)
+		.selectDistinct({ eventId: tracks.eventId })
+		.from(reviewerTracks)
+		.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
+		.where(eq(reviewerTracks.userId, userId));
+	return rows.map((r) => r.eventId);
 }

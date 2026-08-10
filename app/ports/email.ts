@@ -175,6 +175,11 @@ export function createResendEmailSender(env: Env): EmailSender {
 	};
 }
 
+/** THE provider predicate — anything gating on "is real mail configured" asks here. */
+export function hasRealEmailProvider(env: Env): boolean {
+	return Boolean(env.RESEND_API_KEY);
+}
+
 /**
  * Resolve the adapter by CAPABILITY, not by APP_ENV. The local D1 sink is used
  * only when there is no real provider key configured; prod (with RESEND_API_KEY)
@@ -183,7 +188,7 @@ export function createResendEmailSender(env: Env): EmailSender {
  * production silently swallow mail into a table nobody reads.
  */
 export function getEmailSender(env: Env): EmailSender {
-	const adapter = env.RESEND_API_KEY
+	const adapter = hasRealEmailProvider(env)
 		? createResendEmailSender(env)
 		: createLocalEmailSender(env);
 	return withSuppression(env, adapter);

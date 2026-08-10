@@ -10,6 +10,7 @@ import {
 	homePathForRole,
 	isSecureRequest,
 	normalizeEmail,
+	safeRedirect,
 	verifyPasswordTimingEqual,
 } from "~/lib/auth";
 import { Button, ErrorText, Field, Input, Panel, Wordmark } from "~/ui";
@@ -19,16 +20,6 @@ const Credentials = z.object({
 	email: z.string().email(),
 	password: z.string().min(1),
 });
-
-/** Same-origin internal path, or null if the target is external/unsafe
- * (blocks //host, /\host, scheme tricks). Caller falls back to the role home. */
-function safeRedirect(requested: string): string | null {
-	if (!requested.startsWith("/")) return null;
-	const resolved = new URL(requested, "http://sentinel.invalid");
-	return resolved.origin === "http://sentinel.invalid"
-		? resolved.pathname + resolved.search + resolved.hash
-		: null;
-}
 
 export async function loader({ context, request }: Route.LoaderArgs) {
 	if (await getUser(context.cloudflare.env, request)) throw redirect("/admin");
@@ -50,6 +41,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 		.from(users)
 		.where(eq(users.email, normalizeEmail(parsed.data.email)))
 		.limit(1);
+	// Always run the (expensive) verify — against a dummy hash when the email
+	// doesn't exist — so timing can't reveal whether the account exists.
 	const ok = await verifyPasswordTimingEqual(
 		parsed.data.password,
 		user?.passwordHash,
@@ -76,12 +69,18 @@ export default function Login({ actionData }: Route.ComponentProps) {
 						<Input
 							name="email"
 							type="email"
+							autoComplete="username"
 							required
 							placeholder="you@conference.org"
 						/>
 					</Field>
 					<Field label="Password">
-						<Input name="password" type="password" required />
+						<Input
+							name="password"
+							type="password"
+							autoComplete="current-password"
+							required
+						/>
 					</Field>
 					<Button type="submit">Sign in</Button>
 					{actionData?.error && <ErrorText>{actionData.error}</ErrorText>}
