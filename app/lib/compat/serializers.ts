@@ -509,8 +509,8 @@ export function serializeSession(
 			type: a.field.type,
 		})),
 		track: nestedTrack(row.submissionTracks[0]?.track, ctx),
-		// Extension beyond the Sessionboard shape: tracks are many-to-many here
-		// (confirmed requirement); `track` above keeps single-track parity.
+		// Extension beyond the Sessionboard shape: tracks are many-to-many here;
+		// `track` above keeps single-track parity.
 		tracks: row.submissionTracks.map((st) => serializeTrack(st.track)),
 		subsessions: row.subsessions.map((s) => serializeSubsession(s, ctx)),
 		admin_url: `${ctx.origin}/admin/submissions/${row.id}`,

@@ -110,55 +110,43 @@ export const apiStatusSchema = z.enum([
 	"withdrawn",
 ]);
 
-const pageFields = {
+const baseFilterFields = {
+	createdAt: dateRangeSchema.optional(),
+	updatedAt: dateRangeSchema.optional(),
+	status: apiStatusSchema.optional(),
+};
+
+const baseSearchFields = {
+	sort: sortSchema.optional(),
+	expand: z.array(z.string()).optional(),
 	page: z.unknown().optional(),
 	pageSize: z.unknown().optional(),
 };
 
 export const recordSearchSchema = z.object({
-	filters: z
-		.object({
-			createdAt: dateRangeSchema.optional(),
-			updatedAt: dateRangeSchema.optional(),
-			status: apiStatusSchema.optional(),
-		})
-		.optional(),
-	sort: sortSchema.optional(),
-	expand: z.array(z.string()).optional(),
-	...pageFields,
+	filters: z.object(baseFilterFields).optional(),
+	...baseSearchFields,
 });
+export type RecordSearchBody = z.infer<typeof recordSearchSchema>;
 
 export const sessionSearchSchema = z.object({
 	filters: z
-		.object({
-			createdAt: dateRangeSchema.optional(),
-			updatedAt: dateRangeSchema.optional(),
-			status: apiStatusSchema.optional(),
-			isAbstract: z.boolean().optional(),
-		})
+		.object({ ...baseFilterFields, isAbstract: z.boolean().optional() })
 		.optional(),
-	sort: sortSchema.optional(),
-	expand: z.array(z.string()).optional(),
-	...pageFields,
+	...baseSearchFields,
 });
 
 export const sessionStatusSearchSchema = z.object({
 	filters: z
-		.object({
-			createdAt: dateRangeSchema.optional(),
-			updatedAt: dateRangeSchema.optional(),
-			deletedAt: dateRangeSchema.optional(),
-			status: apiStatusSchema.optional(),
-		})
+		.object({ ...baseFilterFields, deletedAt: dateRangeSchema.optional() })
 		.optional(),
+	...baseSearchFields,
 	sort: z
 		.object({
 			order: z.enum(["createdAt", "updatedAt", "deletedAt"]).optional(),
 			sort: z.enum(["asc", "desc"]).optional(),
 		})
 		.optional(),
-	expand: z.array(z.string()).optional(),
-	...pageFields,
 });
 
 /** Expand values from query (`?expand=a&expand=b` or comma-separated) plus body. */

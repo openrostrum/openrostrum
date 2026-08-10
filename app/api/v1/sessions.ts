@@ -85,7 +85,7 @@ const sessionInclude = {
 } as const;
 
 /** Attachments for a page of sessions (parents + their subsessions), one query. */
-export async function filesForSessions(
+async function filesForSessions(
 	env: Env,
 	rows: SessionWithRelations[],
 ): Promise<Map<string, FileWithContact[]>> {

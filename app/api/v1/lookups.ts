@@ -1,6 +1,5 @@
 import { and, asc, count, desc, eq, type SQL } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
-import type { z } from "zod";
 import { getDb } from "~/db";
 import {
 	formats,
@@ -28,6 +27,7 @@ import {
 	dateRangeConds,
 	parseBody,
 	readJsonBody,
+	type RecordSearchBody,
 	recordSearchSchema,
 	requireCreatedAtOnly,
 } from "./context";
@@ -46,7 +46,7 @@ import {
  * tables track no updates), and body page/pageSize. A status filter is
  * accepted and ignored, as the spec scopes it to session searches.
  */
-type LookupSpec<Row> = {
+type LookupSearchSpec<Row> = {
 	path: string;
 	table: SQLiteTable;
 	eventIdColumn: SQLiteColumn;
@@ -55,23 +55,20 @@ type LookupSpec<Row> = {
 	serialize: (row: Row) => unknown;
 };
 
-type RecordSearchBody = z.infer<typeof recordSearchSchema>;
-
-function searchConds(
+function searchConds<Row>(
 	c: ApiContext,
-	spec: { eventIdColumn: SQLiteColumn; createdAtColumn: SQLiteColumn },
+	spec: LookupSearchSpec<Row>,
 	body: RecordSearchBody,
-	entity: string,
 ): SQL | undefined {
-	requireCreatedAtOnly(body.filters, entity);
+	requireCreatedAtOnly(body.filters, "These records");
 	return and(
 		eq(spec.eventIdColumn, c.get("event").id),
 		...dateRangeConds(spec.createdAtColumn, body.filters?.createdAt),
 	);
 }
 
-function searchOrder(
-	spec: { createdAtColumn: SQLiteColumn; orderBy: (SQLiteColumn | SQL)[] },
+function searchOrder<Row>(
+	spec: LookupSearchSpec<Row>,
 	body: RecordSearchBody,
 ): (SQLiteColumn | SQL)[] {
 	if (!body.sort) return spec.orderBy;
@@ -79,20 +76,15 @@ function searchOrder(
 	return [dir(spec.createdAtColumn), ...spec.orderBy];
 }
 
-function registerLookup<Row>(app: ApiApp, spec: LookupSpec<Row>): void {
-	app.get(`/event/:eventId/${spec.path}`, async (c) => {
-		const rows = (await getDb(c.env)
-			.select()
-			.from(spec.table)
-			.where(eq(spec.eventIdColumn, c.get("event").id))
-			.orderBy(...spec.orderBy)) as Row[];
-		return c.json(rows.map(spec.serialize));
-	});
-
+/** The POST half of a catalog: paginated `results` envelope over the search body. */
+function registerLookupSearch<Row>(
+	app: ApiApp,
+	spec: LookupSearchSpec<Row>,
+): void {
 	app.post(`/event/:eventId/${spec.path}`, async (c) => {
 		const body = parseBody(recordSearchSchema, await readJsonBody(c));
 		const pageParams = parsePageParams(new URL(c.req.url), body);
-		const where = searchConds(c, spec, body, "These records");
+		const where = searchConds(c, spec, body);
 		const db = getDb(c.env);
 		const { total, rows } = await runPaged(
 			db.select({ n: count() }).from(spec.table).where(where),
@@ -108,6 +100,18 @@ function registerLookup<Row>(app: ApiApp, spec: LookupSpec<Row>): void {
 			searchEnvelope((rows as Row[]).map(spec.serialize), pageParams, total),
 		);
 	});
+}
+
+function registerLookup<Row>(app: ApiApp, spec: LookupSearchSpec<Row>): void {
+	app.get(`/event/:eventId/${spec.path}`, async (c) => {
+		const rows = (await getDb(c.env)
+			.select()
+			.from(spec.table)
+			.where(eq(spec.eventIdColumn, c.get("event").id))
+			.orderBy(...spec.orderBy)) as Row[];
+		return c.json(rows.map(spec.serialize));
+	});
+	registerLookupSearch(app, spec);
 }
 
 export function registerLookupRoutes(app: ApiApp): void {
@@ -176,29 +180,14 @@ export function registerLookupRoutes(app: ApiApp): void {
 	});
 
 	// POST /session-statuses searches the custom definitions only (spec text:
-	// "custom session status definitions").
-	app.post("/event/:eventId/session-statuses", async (c) => {
-		const body = parseBody(recordSearchSchema, await readJsonBody(c));
-		const pageParams = parsePageParams(new URL(c.req.url), body);
-		const spec = {
-			eventIdColumn: sessionStatuses.eventId,
-			createdAtColumn: sessionStatuses.createdAt,
-			orderBy: [asc(sessionStatuses.position), asc(sessionStatuses.name)],
-		};
-		const where = searchConds(c, spec, body, "Session statuses");
-		const db = getDb(c.env);
-		const { total, rows } = await runPaged(
-			db.select({ n: count() }).from(sessionStatuses).where(where),
-			db
-				.select()
-				.from(sessionStatuses)
-				.where(where)
-				.orderBy(...searchOrder(spec, body))
-				.limit(pageParams.pageSize)
-				.offset(offsetOf(pageParams)),
-		);
-		return c.json(
-			searchEnvelope(rows.map(serializeCustomStatus), pageParams, total),
-		);
+	// "custom session status definitions"; the spec has no GET at this path —
+	// the full catalog lives at GET /statuses above).
+	registerLookupSearch(app, {
+		path: "session-statuses",
+		table: sessionStatuses,
+		eventIdColumn: sessionStatuses.eventId,
+		createdAtColumn: sessionStatuses.createdAt,
+		orderBy: [asc(sessionStatuses.position), asc(sessionStatuses.name)],
+		serialize: serializeCustomStatus,
 	});
 }

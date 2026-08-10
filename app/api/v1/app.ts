@@ -66,7 +66,7 @@ apiV1.use("*", async (c, next) => {
 		throw new ApiError(
 			401,
 			"unauthorized",
-			"Missing x-access-token header. Generate a token under Settings → API tokens.",
+			"Missing x-access-token header. Send your organization's API token with every request.",
 		);
 	}
 	let waitUntil: ((promise: Promise<unknown>) => void) | undefined;

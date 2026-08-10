@@ -1,5 +1,4 @@
 import { and, asc, count, desc, eq, inArray, ne, type SQL } from "drizzle-orm";
-import type { z } from "zod";
 import { getDb } from "~/db";
 import { contacts, participants, submissions } from "~/db/schema";
 import { serializeContact } from "~/lib/compat/serializers";
@@ -10,6 +9,7 @@ import {
 	notFound,
 	parseBody,
 	readJsonBody,
+	type RecordSearchBody,
 	recordSearchSchema,
 	requireCreatedAtOnly,
 	type SortOptions,
@@ -20,8 +20,6 @@ import {
 	runPaged,
 	searchEnvelope,
 } from "./pagination";
-
-type RecordSearchBody = z.infer<typeof recordSearchSchema>;
 
 function contactFilterConds(body: RecordSearchBody): SQL[] {
 	requireCreatedAtOnly(body.filters, "Contacts");
