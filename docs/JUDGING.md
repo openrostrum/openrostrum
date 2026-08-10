@@ -10,6 +10,7 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
 |---|---|
 | App root (links every public surface) | `https://openrostrum.com/` |
 | Organizer admin | `/admin` (also `/dashboard`, `/organizer`) |
+| Organizer sign-up (own org + first event) | `/signup` → one-form onboarding → empty `/admin` |
 | Public CFP form | linked from the homepage; shape `/submit/<event-slug>/<form-id>` |
 | Speaker portal | `/portals/<event-slug>/<portal-id>` (linked from confirmation email + homepage) |
 | Reviewer dashboard | `/reviews` (reviewer role lands here after login) |
@@ -21,7 +22,7 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
 
 | Persona | Email | Notes |
 |---|---|---|
-| Organizer/admin | `admin@example.com` | Pre-seeded as a member of the "Demo" organization (the tenant the sandbox event lives in — multi-org per `docs/multi-tenancy-design.md`); organizer signup at `/signup` ships in a later wave and never exposes the Demo org to new sign-ups |
+| Organizer/admin | `admin@example.com` | Pre-seeded as a member of the "Demo" organization (the tenant the sandbox event lives in — multi-org per `docs/multi-tenancy-design.md`). Organizer sign-up is live at `/signup`: it creates a fresh account + organization + first event, and new sign-ups can never see the Demo org, nor it them (membership-scoped tenancy) |
 | Reviewer | `reviewer@example.com` | Password login works; reviewer management also shows a **copyable invite link** for new reviewers |
 | Speaker | `speaker@example.com` pre-seeded, or sign up at the public CFP form | Email+password; no magic links anywhere |
 
