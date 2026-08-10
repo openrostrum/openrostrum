@@ -1,7 +1,7 @@
 # WALK — 04-speaker-portal.yaml (design-side, pre-swarm)
 
 Walked 2026-08-09 against: `app/db/schema.ts`, `app/lib/auth.ts`, `app/ports/{email,clock}.ts`,
-`app/routes/*` + `docs/ROUTE-MAP.md`, `docs/tech-stack.md` (R2/upload rules), `SCOPE.md`,
+`app/routes/*` + `docs/ROUTE-MAP.md`, `docs/rules/tech-stack.md` (R2/upload rules), `SCOPE.md`,
 `drizzle/seed.sql`, `wrangler.json` (R2 binding `BLOBS`), `docs/flows/02`, `docs/flows/07`,
 `docs/flows/09` (exposure rules e/o/cc + §5 server-side mandates).
 

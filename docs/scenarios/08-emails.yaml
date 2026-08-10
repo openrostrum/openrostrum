@@ -30,7 +30,7 @@ touches:
   jobs: [app/jobs/reminders.scheduled.ts] # EM-S4; file yet to be added per app/jobs/registry.ts pattern
   utils:
     [
-      "ics (npm, per docs/tech-stack.md)",
+      "ics (npm, per docs/rules/tech-stack.md)",
       "merge-tag renderer (UNSPECIFIED — walk gap #3)",
     ]
   # UNASSIGNED in docs/ROUTE-MAP.md but required by these scenarios (see walk):

@@ -1,18 +1,18 @@
 # Engineering conventions — how code is written here
 
-House conventions only. The **mandatory platform rules** (D1 batch, react-router-only imports, WebCrypto hashing, R2, email, Tailwind, routing) live in [`tech-stack.md`](tech-stack.md) — read that first; nothing there is restated here. For RR7 framework-mode idioms (loaders/actions/typegen), consult the vendored [`react-router` skill](../.agents/skills/react-router/SKILL.md) before guessing from memory.
+House conventions only. The **mandatory platform rules** (D1 batch, react-router-only imports, WebCrypto hashing, R2, email, Tailwind, routing) live in [`tech-stack.md`](tech-stack.md) — read that first; nothing there is restated here. For RR7 framework-mode idioms (loaders/actions/typegen), consult the vendored [`react-router` skill](../../.agents/skills/react-router/SKILL.md) before guessing from memory.
 
 ## The pattern to copy [lint-assisted]
 
 `app/routes/admin.submissions.tsx` is the **golden path** — a FULL feature slice, copy its whole shape:
-`loader` (SELF-authenticate → scope reads to the ACTIVE event) → `action` (SELF-authenticate → parse `FormData` through the drizzle-zod schema, **`.min(1)`-refined so required strings can't be blank** → server-derive tenant fields, never trust client `eventId`/`status` → `db` write → typed field errors OR `redirect`; never leak raw errors) → `<Form>` + typed component (`./+types/*`) → route `ErrorBoundary`. Both halves instrument: DB work wrapped in `createTimings().time()` surfaced as a `Server-Timing` header, mutation outcomes emitted as `track()` events ([`observability.md`](observability.md)). The view composes `~/ui` primitives exclusively (see Design system below). Its functional oracle is `test/admin.submissions.route.test.ts`.
+`loader` (SELF-authenticate → scope reads to the ACTIVE event) → `action` (SELF-authenticate → parse `FormData` through the drizzle-zod schema, **`.min(1)`-refined so required strings can't be blank** → server-derive tenant fields, never trust client `eventId`/`status` → `db` write → typed field errors OR `redirect`; never leak raw errors) → `<Form>` + typed component (`./+types/*`) → route `ErrorBoundary`. Both halves instrument: DB work wrapped in `createTimings().time()` surfaced as a `Server-Timing` header, mutation outcomes emitted as `track()` events ([`observability.md`](../observability.md)). The view composes `~/ui` primitives exclusively (see Design system below). Its functional oracle is `test/admin.submissions.route.test.ts`.
 
 ## Design system — routes compose, `app/ui` constructs [lint-enforced: `ui-primitives-only`]
 
 **Every visual decision — color, border, radius, shadow, typography — lives in `app/ui/` primitives and the `@theme` tokens in `app/app.css`. Routes speak layout only** (flex/grid/gap/padding/margin/width) and compose primitives: raw `<button>/<input>/<select>/<table>…`, skin utilities, and inline `style` are lint-banned in `app/routes/`. Primitives expose typed variants (`variant="ghost"`, `kind="numeric"`), **never a `className` prop** — the type-checker enforces it. Spacing between siblings is the parent's `gap`, never a primitive's margin.
 
 - The skin is **locked**: "Gallery" — full contract (tokens, type, grid, states, the petrol law) in [`design-system.md`](design-system.md). Chrome colors are semantic tokens resolved via `light-dark()` — components never write `dark:` variants for chrome (`StatusBadge`'s conventional status hues are the one sanctioned exception). Re-skinning edits tokens + `app/ui` **with zero route diffs** — that property is the point, keep it true.
-- **Motion is skin too**: `transition-`/`duration-`/`ease-`/`animate-` are banned in routes like any other skin utility — animation lives in primitives. When primitives gain motion (skin-design time), the law is the vendored [`emil-design-eng` skill](../.agents/skills/emil-design-eng/SKILL.md): ease-out for enter/exit (never ease-in), UI under 300ms, `scale(0.97)` press feedback, never animate keyboard-initiated actions, `prefers-reduced-motion` respected.
+- **Motion is skin too**: `transition-`/`duration-`/`ease-`/`animate-` are banned in routes like any other skin utility — animation lives in primitives. When primitives gain motion (skin-design time), the law is the vendored [`emil-design-eng` skill](../../.agents/skills/emil-design-eng/SKILL.md): ease-out for enter/exit (never ease-in), UI under 300ms, `scale(0.97)` press feedback, never animate keyboard-initiated actions, `prefers-reduced-motion` respected.
 - `app/app.css` itself is lint-guarded [`global-css-only`]: only the Tailwind import, `@theme` tokens, `@keyframes`, and `html`/`body`/`:root` rules — it can never become a second component-styling system.
 - **A new primitive is an integration-owner request** — exactly like a schema column (same pre-commit guard on `app/ui/` + `app.css`; owner overrides with `ALLOW_SCHEMA_CHANGE=1`). Never build a one-off in a route; never fork a primitive.
 - **Reviewer obligation:** *"could the whole look change by editing `app/ui` + tokens only, with zero route diffs?"* Any "no" names the violation.
@@ -28,7 +28,7 @@ House conventions only. The **mandatory platform rules** (D1 batch, react-router
 
 ## Routes, nav, seams
 
-Add your route as a **new file** in `app/routes/` per [`ROUTE-MAP.md`](ROUTE-MAP.md) — never edit `app/routes.ts`. Sidebar entries are one `app/nav/<feature>.nav.ts` each [lint-enforced: `pure-nav-modules`] — never a shared nav file. External seams go behind a port (`app/ports/*`). Login/logout/403 references live in `app/routes/{login,logout,403}.tsx`.
+Add your route as a **new file** in `app/routes/` per [`ROUTE-MAP.md`](../ROUTE-MAP.md) — never edit `app/routes.ts`. Sidebar entries are one `app/nav/<feature>.nav.ts` each [lint-enforced: `pure-nav-modules`] — never a shared nav file. External seams go behind a port (`app/ports/*`). Login/logout/403 references live in `app/routes/{login,logout,403}.tsx`.
 
 ## No shortcuts — build it right, or raise it [lint-assisted: `no-deferral-comments`]
 

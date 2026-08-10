@@ -3,7 +3,7 @@
  * `app/jobs/<name>.scheduled.ts` exporting a default ScheduledJob; the worker
  * entry dispatches to all of them on the cron tick, so the shared `scheduled()`
  * body in workers/app.ts never becomes a merge chokepoint. A job decides for
- * itself what (if anything) is due this tick. See docs/tech-stack.md.
+ * itself what (if anything) is due this tick. See docs/rules/tech-stack.md.
  */
 export interface ScheduledJob {
 	name: string;

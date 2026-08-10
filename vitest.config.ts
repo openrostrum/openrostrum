@@ -8,7 +8,7 @@ import { defineConfig } from "vitest/config";
 
 // Runs tests INSIDE workerd against a real (local, isolated) D1 — the same
 // runtime and DB as prod. Applies the same drizzle/migrations the app uses, so
-// "green test" genuinely means "works on Workers". See docs/tech-stack.md.
+// "green test" genuinely means "works on Workers". See docs/rules/tech-stack.md.
 export default defineConfig(async () => {
 	const migrations = await readD1Migrations(
 		path.join(import.meta.dirname, "drizzle/migrations"),

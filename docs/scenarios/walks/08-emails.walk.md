@@ -4,7 +4,7 @@ Walked against: `app/db/schema.ts` (emailTemplates / emailOutbox /
 emailSuppressions / forms / submissions), `app/ports/email.ts` (EmailSender
 contract + local adapter), `app/ports/clock.ts`, `app/jobs/registry.ts` +
 `workers/app.ts` + `wrangler.json` (`"crons": ["0 9 * * *"]`),
-`docs/ROUTE-MAP.md`, `docs/tech-stack.md`, `drizzle/seed.sql`, `SCOPE.md`
+`docs/ROUTE-MAP.md`, `docs/rules/tech-stack.md`, `drizzle/seed.sql`, `SCOPE.md`
 P0 #8, P1 #4/#6, cross-cutting unsubscribe/suppression lines, and
 `docs/flows/03-emails-communications.md`. Artifacts per step or a filed gap.
 

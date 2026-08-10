@@ -34,7 +34,7 @@ Acceptance is the P0 spine (auto-provision speaker + session + onboarding tasks
 corrupts the app's own invariants. Therefore:
 
 - Inbound changes are applied via the same shared domain functions the UI
-  actions call (see `docs/process.md` → Build sequencing: the accept spine is built as
+  actions call (see `docs/rules/process.md` → Build sequencing: the accept spine is built as
   `app/domain/accept.ts`, not inlined in a route action).
 - The sync engine never contains business rules; it maps field changes onto
   domain calls (or validated writes for side-effect-free fields).

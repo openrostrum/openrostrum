@@ -1,6 +1,6 @@
 // Routes compose ~/ui primitives; every visual decision (color, border,
 // radius, shadow, typography) lives in app/ui + the @theme tokens, so a
-// re-skin needs zero route diffs (docs/engineering.md → Design system).
+// re-skin needs zero route diffs (docs/rules/engineering.md → Design system).
 // Routes may only speak layout: flex/grid/gap/padding/margin/width/position.
 const BANNED_ELEMENTS = new Set([
 	"button",
@@ -59,11 +59,11 @@ export const uiPrimitivesOnly = {
 		schema: [],
 		messages: {
 			rawElement:
-				"Raw <{{name}}> in a route — compose the ~/ui primitive instead (Button, Input, Select, Table…). Need one that doesn't exist? Request it from the integration owner, like a schema column. See docs/engineering.md → Design system.",
+				"Raw <{{name}}> in a route — compose the ~/ui primitive instead (Button, Input, Select, Table…). Need one that doesn't exist? Request it from the integration owner, like a schema column. See docs/rules/engineering.md → Design system.",
 			skinClass:
-				'Skin utility "{{match}}" in a route — visual decisions live in app/ui + the @theme tokens; routes speak layout only (flex/grid/gap/p-/m-/w-). Move the styling into a ~/ui primitive or variant. See docs/engineering.md → Design system.',
+				'Skin utility "{{match}}" in a route — visual decisions live in app/ui + the @theme tokens; routes speak layout only (flex/grid/gap/p-/m-/w-). Move the styling into a ~/ui primitive or variant. See docs/rules/engineering.md → Design system.',
 			styleProp:
-				"Inline style in a route — pass the data to a primitive that owns the styling (e.g. Chip's color prop). See docs/engineering.md → Design system.",
+				"Inline style in a route — pass the data to a primitive that owns the styling (e.g. Chip's color prop). See docs/rules/engineering.md → Design system.",
 		},
 	},
 	create(context) {

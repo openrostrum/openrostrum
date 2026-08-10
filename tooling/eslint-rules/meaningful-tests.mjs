@@ -1,4 +1,4 @@
-// The mechanical subset of the test rule (docs/engineering.md → Tests). A test
+// The mechanical subset of the test rule (docs/rules/engineering.md → Tests). A test
 // that asserts nothing, only asserts mock calls, snapshots to a file, checks an
 // imported constant against its own literal, or mocks a sibling module can
 // never catch a regression — it re-proves the implementation to itself.
@@ -64,15 +64,15 @@ export const meaningfulTests = {
 		schema: [],
 		messages: {
 			noAssertions:
-				"Test has no expect() — it can never fail, so it proves nothing. Assert an observable outcome (return value, thrown error, response, DB state). See docs/engineering.md → Tests.",
+				"Test has no expect() — it can never fail, so it proves nothing. Assert an observable outcome (return value, thrown error, response, DB state). See docs/rules/engineering.md → Tests.",
 			callAssertionsOnly:
-				"Every assertion here is a mock-call check — that verifies wiring, not behavior, and passes while the behavior is broken. Add an outcome assertion; call checks may only corroborate it. See docs/engineering.md → Tests.",
+				"Every assertion here is a mock-call check — that verifies wiring, not behavior, and passes while the behavior is broken. Add an outcome assertion; call checks may only corroborate it. See docs/rules/engineering.md → Tests.",
 			externalSnapshot:
-				"File snapshots are banned — they rubber-stamp whatever the code produced. Use an explicit assertion, or toMatchInlineSnapshot only where the full wire shape IS the contract. See docs/engineering.md → Tests.",
+				"File snapshots are banned — they rubber-stamp whatever the code produced. Use an explicit assertion, or toMatchInlineSnapshot only where the full wire shape IS the contract. See docs/rules/engineering.md → Tests.",
 			importedLiteral:
-				"This asserts an imported constant contains its own source literal — it fires on every deliberate edit and catches nothing. Test behavior (shape, leak, budget invariants), not copy. See docs/engineering.md → Tests.",
+				"This asserts an imported constant contains its own source literal — it fires on every deliberate edit and catches nothing. Test behavior (shape, leak, budget invariants), not copy. See docs/rules/engineering.md → Tests.",
 			siblingMock:
-				"vi.mock of a local module fakes the thing you should be testing. Mock only process boundaries (providers, third-party SDKs, the clock); use the real module or promote to an integration test against real D1. See docs/engineering.md → Tests.",
+				"vi.mock of a local module fakes the thing you should be testing. Mock only process boundaries (providers, third-party SDKs, the clock); use the real module or promote to an integration test against real D1. See docs/rules/engineering.md → Tests.",
 		},
 	},
 	create(context) {

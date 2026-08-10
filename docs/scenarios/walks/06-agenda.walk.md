@@ -2,7 +2,7 @@
 
 Walked 2026-08-09 against: `app/db/schema.ts` (events agenda columns, submissions
 scheduling columns, formats, rooms, participants, contacts), `docs/ROUTE-MAP.md`
-(`admin.agenda.tsx`, Wave 3), `docs/tech-stack.md` (dnd-kit, D1 rules), `SCOPE.md` P0 #6,
+(`admin.agenda.tsx`, Wave 3), `docs/rules/tech-stack.md` (dnd-kit, D1 rules), `SCOPE.md` P0 #6,
 `docs/flows/06-agenda-embeds.md` (agenda parts), `docs/flows/verification/D`,
 `docs/reference/discord/CLARIFICATIONS.md` #8, `drizzle/seed.sql`.
 
@@ -427,7 +427,7 @@ only — noted, consistent with AG-S1/AG-S2.
 
 ## Re-walk 2026-08-10 — tenancy migration (Wave A gate)
 
-Re-walked per `docs/process.md` design-time gate against: post-migration `app/db/schema.ts`
+Re-walked per `docs/rules/process.md` design-time gate against: post-migration `app/db/schema.ts`
 (`organizations` L95, `organization_members` L101, `events.organizationId` NOT NULL FK
 L121–125, `fields` scope-XOR L390, `api_tokens.organizationId`+nullable `eventId` L1185),
 `docs/multi-tenancy-design.md`, `app/lib/auth.ts` (`getActiveEvent` L236–251, `requireAdmin`

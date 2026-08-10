@@ -4,7 +4,7 @@ import { Icon, type IconName } from "~/ui";
 import { cn } from "~/ui/cn";
 
 // The marketing surface is not the 8-hour admin tool the "Gallery" petrol-law
-// governs (docs/design-system.md): a landing page gets scale and expression the
+// governs (docs/rules/design-system.md): a landing page gets scale and expression the
 // tool doesn't. It stays on the same @theme tokens so it reads as one product —
 // petrol is still the only accent, and the headline stays ink.
 
