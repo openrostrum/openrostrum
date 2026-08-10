@@ -6,6 +6,7 @@ import {
 	loadPublicSessions,
 	toProgramEvent,
 } from "~/lib/program";
+import { AddToCalendar } from "~/components/add-to-calendar";
 import { createTimings } from "~/lib/track";
 import {
 	AgendaSurface,
@@ -38,28 +39,34 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 	if (!event) throw data("Event not found", { status: 404 });
 	if (!event.agendaPublishedAt) {
 		return data(
-			{ event: toProgramEvent(event), surface: null },
+			{ event: toProgramEvent(event), surface: null, calendarHref: null },
 			{ headers: { "Server-Timing": timings.header() } },
 		);
 	}
 	const sessions = await timings.time("db", () =>
 		loadPublicSessions(db, event),
 	);
+	const surface = buildAgendaData(sessions, event, new URL(request.url));
+	// Unscheduled sessions have no times to put on a calendar; the agenda is
+	// already published on this branch (the unpublished gate returned above).
+	const calendarHref = surface.detail?.scheduled
+		? `/feeds/${event.slug}/agenda.ics?ids=${surface.detail.id}`
+		: null;
 	return data(
-		{
-			event: toProgramEvent(event),
-			surface: buildAgendaData(sessions, event, new URL(request.url)),
-		},
+		{ event: toProgramEvent(event), surface, calendarHref },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
 
 export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
-	const { event, surface } = loaderData;
+	const { event, surface, calendarHref } = loaderData;
 	return (
 		<ProgramShell event={event} active="schedule">
 			{surface ? (
-				<AgendaSurface data={surface} base={`/schedule/${event.slug}`} />
+				<div className="flex flex-col gap-4">
+					{calendarHref && <AddToCalendar href={calendarHref} />}
+					<AgendaSurface data={surface} base={`/schedule/${event.slug}`} />
+				</div>
 			) : (
 				<AgendaUnpublished event={event} />
 			)}

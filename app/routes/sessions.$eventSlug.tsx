@@ -6,6 +6,7 @@ import {
 	loadPublicSessions,
 	toProgramEvent,
 } from "~/lib/program";
+import { AddToCalendar } from "~/components/add-to-calendar";
 import { createTimings } from "~/lib/track";
 import { ProgramErrorScreen, ProgramShell, SessionsSurface } from "~/widgets";
 import type { Route } from "./+types/sessions.$eventSlug";
@@ -36,11 +37,16 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 	const sessions = await timings.time("db", () =>
 		loadPublicSessions(db, event),
 	);
+	const surface = buildSessionsData(sessions, new URL(request.url));
+	// Only offered when the .ics endpoint would actually serve it: the agenda
+	// feed 404s until the organizer publishes, and an unscheduled session has
+	// no times to put on a calendar.
+	const calendarHref =
+		event.agendaPublishedAt && surface.detail?.scheduled
+			? `/feeds/${event.slug}/agenda.ics?ids=${surface.detail.id}`
+			: null;
 	return data(
-		{
-			event: toProgramEvent(event),
-			surface: buildSessionsData(sessions, new URL(request.url)),
-		},
+		{ event: toProgramEvent(event), surface, calendarHref },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
@@ -48,10 +54,15 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 export default function PublicSessions({ loaderData }: Route.ComponentProps) {
 	return (
 		<ProgramShell event={loaderData.event} active="sessions">
-			<SessionsSurface
-				data={loaderData.surface}
-				base={`/sessions/${loaderData.event.slug}`}
-			/>
+			<div className="flex flex-col gap-4">
+				{loaderData.calendarHref && (
+					<AddToCalendar href={loaderData.calendarHref} />
+				)}
+				<SessionsSurface
+					data={loaderData.surface}
+					base={`/sessions/${loaderData.event.slug}`}
+				/>
+			</div>
 		</ProgramShell>
 	);
 }

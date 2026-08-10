@@ -50,6 +50,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Embeds admin | `admin.embeds.tsx` · `admin.embeds_.$id.tsx` (trailing `_`: the editor renders standalone, not nested under the list) | `/admin/embeds` · `/admin/embeds/:id` (P1 #16, EMB-15) | 2 | done |
 | Files ZIP bundle (resource) | `admin.files.export[.zip].tsx` | `/admin/files/export.zip` (latest versions, grouped) | 2 | done |
 | Team admins (org members) | `admin.settings.team.tsx` | `/admin/settings/team` (org-member invite + remove w/ last-member guard, P1 #21/#22 Wave D) | 1 | done |
+| API tokens (org) | `admin.settings.api.tsx` | `/admin/settings/api` (list/create/revoke org API tokens; show-once mint, per-token event restriction; flows/09 rule p) | 3 | done |
 | Organizer sign-up | `signup.tsx` | `/signup` (`// @public`; existing-email → decided sign-in message; P1 #22 Wave C) | 2 | done |
 | Org onboarding | `onboarding.tsx` | `/onboarding` (one form: org name + first event; auth'd, membership-less users only; P1 #22 Wave C) | 2 | done |
 | Public sessions list | `sessions.$eventSlug.tsx` | `/sessions/:eventSlug` (P1 #16a) | 2 | done |
