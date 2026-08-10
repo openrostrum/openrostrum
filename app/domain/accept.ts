@@ -641,6 +641,34 @@ export function inviteForSubmission(
 	};
 }
 
+/**
+ * The one invite→VEVENT mapping. Change detection compares parsed ledger
+ * payloads against `inviteForSubmission` output, which only holds if every
+ * sender serializes the shape identically — so both come through here.
+ */
+export function icsForInvites(
+	event: typeof events.$inferSelect,
+	items: readonly {
+		submissionId: string;
+		invite: SubmissionInvite;
+		sequence: number;
+	}[],
+): string {
+	return buildIcs({
+		calendarName: event.name,
+		method: "PUBLISH",
+		events: items.map((item) => ({
+			uid: icsUidForSubmission(item.submissionId),
+			start: item.invite.start,
+			end: item.invite.end,
+			title: item.invite.title,
+			location: item.invite.location ?? undefined,
+			sequence: item.sequence,
+			status: "CONFIRMED",
+		})),
+	});
+}
+
 function buildDecisionIcs(
 	row: Submission,
 	event: typeof events.$inferSelect,
@@ -648,21 +676,7 @@ function buildDecisionIcs(
 ): string | undefined {
 	const invite = inviteForSubmission(row, event, room);
 	if (!invite) return undefined;
-	return buildIcs({
-		calendarName: event.name,
-		method: "PUBLISH",
-		events: [
-			{
-				uid: icsUidForSubmission(row.id),
-				start: invite.start,
-				end: invite.end,
-				title: invite.title,
-				location: invite.location ?? undefined,
-				sequence: 0,
-				status: "CONFIRMED",
-			},
-		],
-	});
+	return icsForInvites(event, [{ submissionId: row.id, invite, sequence: 0 }]);
 }
 
 /** Appended below the template body so the recipient knows WHICH submission the decision covers (a speaker can have several in flight). */

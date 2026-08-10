@@ -243,7 +243,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		...new Set<SubmissionStatus>([...schedulable, "accepted", "draft"]),
 	];
 
-	const [roomRows, trackRows, formatRows, sessionRows, scheduleChanges] =
+	const [roomRows, trackRows, formatRows, sessionRows, changeSet] =
 		await timings.time("db", () =>
 			Promise.all([
 				db.query.rooms.findMany({
@@ -284,7 +284,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				publishedAt: event.agendaPublishedAt?.getTime() ?? null,
 				days,
 				hiddenFromPublic,
-				scheduleChanges: scheduleChanges.length,
+				staleSpeakers: changeSet.speakers,
+				scheduleScanTruncated: changeSet.truncated,
 			},
 			rooms: roomRows.map((r) => ({
 				id: r.id,
@@ -549,7 +550,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 		}
 
 		if (intent === "schedule-updates") {
-			const changes = await timings.time("db", () =>
+			const { changes } = await timings.time("db", () =>
 				computeScheduleChanges(db, event),
 			);
 			const outcome = await timings.time("send", () =>
@@ -932,14 +933,16 @@ export default function Agenda({
 					<TextLink to="/admin/sessions">Approve content in Sessions</TextLink>
 				</InfoBar>
 			)}
-			{event.scheduleChanges > 0 && (
+			{event.staleSpeakers > 0 && (
 				<InfoBar>
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<span>
-							<Strong>{event.scheduleChanges}</Strong>{" "}
-							{event.scheduleChanges === 1 ? "session" : "sessions"} changed
-							time or room since speakers last received a calendar invite —
-							their calendars are out of date.
+							<Strong>{event.staleSpeakers}</Strong>{" "}
+							{event.staleSpeakers === 1 ? "speaker has" : "speakers have"}{" "}
+							unsent schedule updates — their calendars still show the last
+							invite they were emailed.
+							{event.scheduleScanTruncated &&
+								" (Detection window exceeded — some changes may not be counted yet; sending advances the window.)"}
 						</span>
 						<updatesFetcher.Form method="post">
 							<Button
@@ -957,10 +960,17 @@ export default function Agenda({
 					</div>
 				</InfoBar>
 			)}
+			{event.staleSpeakers === 0 && event.scheduleScanTruncated && (
+				<InfoBar>
+					Schedule-change detection scanned its window of recent invites and
+					found none stale — older invites beyond the window are not checked.
+				</InfoBar>
+			)}
 			{updatesFetcher.data?.updates && updatesFetcher.state === "idle" && (
 				<InfoBar>
-					Sent <Strong>{updatesFetcher.data.updates.sent}</Strong> schedule{" "}
-					{updatesFetcher.data.updates.sent === 1 ? "update" : "updates"}
+					Sent <Strong>{updatesFetcher.data.updates.sent}</Strong>{" "}
+					schedule-update{" "}
+					{updatesFetcher.data.updates.sent === 1 ? "email" : "emails"}
 					{updatesFetcher.data.updates.deduped > 0 && (
 						<> — {updatesFetcher.data.updates.deduped} already delivered</>
 					)}

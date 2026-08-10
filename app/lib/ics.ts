@@ -17,7 +17,7 @@ export type IcsEvent = {
 	 * makes a schedule-update email move the invite instead of duplicating it.
 	 */
 	sequence?: number;
-	status?: "CONFIRMED" | "CANCELLED";
+	status?: "CONFIRMED";
 };
 
 function escapeText(value: string): string {

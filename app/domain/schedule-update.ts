@@ -11,6 +11,7 @@ import {
 } from "~/db/schema";
 import {
 	EMAIL_BATCH_LIMIT,
+	icsForInvites,
 	icsUidForSubmission,
 	inviteForSubmission,
 	type SubmissionInvite,
@@ -18,7 +19,7 @@ import {
 import { errorMessage } from "~/lib/errors";
 import { formatScheduleRange } from "~/lib/format-date";
 import { escapeHtml } from "~/lib/html";
-import { buildIcs, parseIcsAttachment } from "~/lib/ics";
+import { parseIcsAttachment } from "~/lib/ics";
 import { track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
 
@@ -39,22 +40,34 @@ export type ScheduleChange = {
 	invite: SubmissionInvite;
 	/** Last sent SEQUENCE + 1 — what the update email must carry. */
 	nextSequence: number;
+	/** Primary speaker (submitter fallback) — null when nobody is emailable. */
+	to: string | null;
 };
+
+export type ScheduleChangeSet = {
+	changes: ScheduleChange[];
+	/** Distinct emailable recipients — the "N speakers" the agenda banner shows. */
+	speakers: number;
+	/** The ledger scan hit its cap — some stale calendars may not be counted. */
+	truncated: boolean;
+};
+
+const EMPTY: ScheduleChangeSet = { changes: [], speakers: 0, truncated: false };
 
 /** Newest rows first + max-SEQUENCE-per-UID keeps truncation safe: a UID whose
  * invites all fell outside the window reads as never-invited (skipped), never
- * as a spurious change. */
+ * as a spurious change — and `truncated` lets the UI say so. */
 const LEDGER_SCAN_LIMIT = 1000;
 
 /**
  * Every accepted, already-notified submission whose current slot differs from
- * the last invite in the outbox ledger. Never-notified rows are skipped — the
- * decision email itself will carry their current schedule when it goes out.
+ * the last invite in the outbox ledger, with its recipient resolved. Rows
+ * never notified are skipped — their decision email will carry the schedule.
  */
 export async function computeScheduleChanges(
 	db: Db,
 	event: EventRow,
-): Promise<ScheduleChange[]> {
+): Promise<ScheduleChangeSet> {
 	const candidates = await db
 		.select({
 			id: submissions.id,
@@ -72,7 +85,7 @@ export async function computeScheduleChanges(
 				isNull(submissions.parentId),
 			),
 		);
-	if (candidates.length === 0) return [];
+	if (candidates.length === 0) return EMPTY;
 
 	// Narrowed to the ics column (html is the heavy one) and capped. A "failed"
 	// attempt never reached a calendar so it must not advance the ledger;
@@ -89,7 +102,8 @@ export async function computeScheduleChanges(
 		)
 		.orderBy(desc(emailOutbox.createdAt))
 		.limit(LEDGER_SCAN_LIMIT);
-	if (ledgerRows.length === 0) return [];
+	const truncated = ledgerRows.length === LEDGER_SCAN_LIMIT;
+	if (ledgerRows.length === 0) return { ...EMPTY, truncated };
 	const lastSent = new Map<
 		string,
 		{ start: Date; end: Date; location: string | null; sequence: number }
@@ -112,7 +126,7 @@ export async function computeScheduleChanges(
 		: [];
 	const roomName = new Map(roomRows.map((r) => [r.id, r.name]));
 
-	const changes: ScheduleChange[] = [];
+	const changed: Omit<ScheduleChange, "to">[] = [];
 	for (const row of candidates) {
 		const last = lastSent.get(icsUidForSubmission(row.id));
 		if (!last) continue;
@@ -127,7 +141,7 @@ export async function computeScheduleChanges(
 			last.end.getTime() === invite.end.getTime() &&
 			(last.location ?? null) === (invite.location ?? null);
 		if (unchanged) continue;
-		changes.push({
+		changed.push({
 			submissionId: row.id,
 			submissionTitle: row.title,
 			scheduled: Boolean(row.startsAt && row.endsAt),
@@ -135,66 +149,11 @@ export async function computeScheduleChanges(
 			nextSequence: last.sequence + 1,
 		});
 	}
-	return changes;
-}
+	if (changed.length === 0) return { ...EMPTY, truncated };
 
-export type ScheduleUpdateSendResult = {
-	sent: number;
-	deduped: number;
-	failed: number;
-	/** Changes beyond the batch cap — still pending after this call. */
-	remaining: number;
-};
-
-function updateEmailHtml(change: ScheduleChange, event: EventRow): string {
-	const when = formatScheduleRange(
-		change.invite.start,
-		change.invite.end,
-		event.timezone,
-	);
-	const lines = [
-		`<p>The schedule for your session at ${escapeHtml(event.name)} has been updated.</p>`,
-		`<p><strong>Session:</strong> ${escapeHtml(change.submissionTitle)}</p>`,
-	];
-	if (change.scheduled) {
-		lines.push(`<p><strong>When:</strong> ${escapeHtml(when ?? "")}</p>`);
-		if (change.invite.location) {
-			lines.push(
-				`<p><strong>Where:</strong> ${escapeHtml(change.invite.location)}</p>`,
-			);
-		}
-	} else {
-		lines.push(
-			"<p>Your session's exact time slot is being rearranged — the attached invite holds the event dates until the new slot is confirmed.</p>",
-		);
-	}
-	lines.push(
-		"<p>The attached calendar invite updates the previous one in place.</p>",
-	);
-	return lines.join("");
-}
-
-/**
- * Send the update emails for `changes` (first EMAIL_BATCH_LIMIT; the ledger
- * advances per batch, so a further click sends the next slice). Transactional
- * — a schedule change is about the recipient's own session. Same recipient
- * rule as the decision email: primary speaker, submitter account fallback.
- * The dedupe key carries the SEQUENCE: a double-click can't send the same
- * revision twice, while the next real change (higher sequence) delivers.
- */
-export async function sendScheduleUpdates(
-	db: Db,
-	env: Env,
-	event: EventRow,
-	changes: readonly ScheduleChange[],
-): Promise<ScheduleUpdateSendResult> {
-	const batch = changes.slice(0, EMAIL_BATCH_LIMIT);
-	const remaining = changes.length - batch.length;
-	if (batch.length === 0) {
-		return { sent: 0, deduped: 0, failed: 0, remaining: 0 };
-	}
-
-	const ids = batch.map((c) => c.submissionId);
+	// Same recipient rule as the decision email: primary speaker first,
+	// submitter account as fallback.
+	const ids = changed.map((c) => c.submissionId);
 	const [speakerRows, submitterRows] = await Promise.all([
 		db
 			.select({
@@ -219,62 +178,145 @@ export async function sendScheduleUpdates(
 	const submitterEmail = new Map(
 		submitterRows.map((r) => [r.submissionId, r.email]),
 	);
+	const changes: ScheduleChange[] = changed.map((c) => ({
+		...c,
+		to:
+			speakerRows.find((s) => s.submissionId === c.submissionId)?.email ??
+			submitterEmail.get(c.submissionId) ??
+			null,
+	}));
+	const speakers = new Set(
+		changes.flatMap((c) => (c.to === null ? [] : [c.to])),
+	).size;
+	return { changes, speakers, truncated };
+}
 
-	const sender = getEmailSender(env);
+export type ScheduleUpdateSendResult = {
+	/** Units are EMAILS (one per speaker), not sessions. */
+	sent: number;
+	deduped: number;
+	failed: number;
+	/** Speakers beyond the batch cap — still pending after this call. */
+	remaining: number;
+};
+
+function sessionBlockHtml(change: ScheduleChange, event: EventRow): string {
+	const lines = [
+		`<p><strong>Session:</strong> ${escapeHtml(change.submissionTitle)}</p>`,
+	];
+	if (change.scheduled) {
+		const when = formatScheduleRange(
+			change.invite.start,
+			change.invite.end,
+			event.timezone,
+		);
+		lines.push(`<p><strong>When:</strong> ${escapeHtml(when ?? "")}</p>`);
+		if (change.invite.location) {
+			lines.push(
+				`<p><strong>Where:</strong> ${escapeHtml(change.invite.location)}</p>`,
+			);
+		}
+	} else {
+		lines.push(
+			"<p>This session's exact time slot is being rearranged — the attached invite holds the event dates until the new slot is confirmed.</p>",
+		);
+	}
+	return lines.join("");
+}
+
+function updateEmailHtml(
+	items: readonly ScheduleChange[],
+	event: EventRow,
+): string {
+	const plural = items.length !== 1;
+	return [
+		`<p>The schedule for ${plural ? `${items.length} of your sessions` : "your session"} at ${escapeHtml(event.name)} has been updated.</p>`,
+		...items.map((c) => sessionBlockHtml(c, event)),
+		`<p>The attached calendar invite updates the previous ${plural ? "entries" : "entry"} in place.</p>`,
+	].join("");
+}
+
+/**
+ * One update email PER SPEAKER (an afternoon of drag-and-drop must never fire
+ * an email per move — nor one per session): all of a recipient's changed
+ * sessions ride in one message whose .ics carries one VEVENT per session,
+ * same UID + SEQUENCE+1 each. The dedupe key encodes every (submission,
+ * revision) in the email, so a double-click can't re-send while the next real
+ * change always delivers. First EMAIL_BATCH_LIMIT speakers per call.
+ */
+export async function sendScheduleUpdates(
+	db: Db,
+	env: Env,
+	event: EventRow,
+	changes: readonly ScheduleChange[],
+): Promise<ScheduleUpdateSendResult> {
 	const result: ScheduleUpdateSendResult = {
 		sent: 0,
 		deduped: 0,
 		failed: 0,
-		remaining,
+		remaining: 0,
 	};
-	for (const change of batch) {
-		const to =
-			speakerRows.find((s) => s.submissionId === change.submissionId)?.email ??
-			submitterEmail.get(change.submissionId);
-		if (!to) {
+	const byRecipient = new Map<string, ScheduleChange[]>();
+	for (const change of changes) {
+		if (change.to === null) {
+			// No speaker or submitter email — surfaced as a failure, not skipped
+			// silently; the row stays flagged for a later retry.
 			result.failed += 1;
 			continue;
 		}
-		const ics = buildIcs({
-			calendarName: event.name,
-			method: "PUBLISH",
-			events: [
-				{
-					uid: icsUidForSubmission(change.submissionId),
-					start: change.invite.start,
-					end: change.invite.end,
-					title: change.invite.title,
-					location: change.invite.location ?? undefined,
-					sequence: change.nextSequence,
-					status: "CONFIRMED",
-				},
-			],
-		});
+		const list = byRecipient.get(change.to) ?? [];
+		list.push(change);
+		byRecipient.set(change.to, list);
+	}
+	const recipients = [...byRecipient.keys()].sort();
+	const batch = recipients.slice(0, EMAIL_BATCH_LIMIT);
+	result.remaining = recipients.length - batch.length;
+
+	const sender = getEmailSender(env);
+	for (const to of batch) {
+		const items = (byRecipient.get(to) ?? []).sort((a, b) =>
+			a.submissionId.localeCompare(b.submissionId),
+		);
+		const first = items[0];
+		if (!first) continue;
+		const ics = icsForInvites(
+			event,
+			items.map((c) => ({
+				submissionId: c.submissionId,
+				invite: c.invite,
+				sequence: c.nextSequence,
+			})),
+		);
+		const revisionKey = items
+			.map((c) => `${c.submissionId}@${c.nextSequence}`)
+			.join(",");
 		try {
 			const sent = await sender.send({
 				to,
-				subject: `Schedule update: ${change.submissionTitle} — ${event.name}`,
-				html: updateEmailHtml(change, event),
+				subject:
+					items.length === 1
+						? `Schedule update: ${first.submissionTitle} — ${event.name}`
+						: `Schedule updates: ${items.length} of your sessions — ${event.name}`,
+				html: updateEmailHtml(items, event),
 				ics,
-				dedupeKey: `schedule-update:${change.submissionId}:${change.nextSequence}`,
+				dedupeKey: `schedule-update:${revisionKey}`,
 				eventId: event.id,
 				kind: "transactional",
 			});
 			if (sent.deduped) result.deduped += 1;
 			else result.sent += 1;
 			track("email.schedule_update_sent", {
-				submissionId: change.submissionId,
 				eventId: event.id,
-				sequence: change.nextSequence,
+				sessions: items.length,
 				deduped: sent.deduped,
 			});
 		} catch (error) {
-			// One undeliverable recipient must not sink the batch — the row stays
-			// detected as changed and a retry click re-sends it.
+			// One undeliverable recipient must not sink the batch — their rows stay
+			// detected as changed and a retry click re-sends them.
 			result.failed += 1;
 			track("email.schedule_update_failed", {
-				submissionId: change.submissionId,
 				eventId: event.id,
+				sessions: items.length,
 				error: errorMessage(error),
 			});
 		}

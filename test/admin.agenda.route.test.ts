@@ -1,6 +1,5 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
-import { createEvent } from "ics";
 import { describe, expect, it } from "vitest";
 import { detectConflicts } from "../app/agenda/lib";
 import { getDb } from "../app/db";
@@ -17,7 +16,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { parseIcsAttachment } from "../app/lib/ics";
+import { buildIcs, parseIcsAttachment } from "../app/lib/ics";
 import { action, loader } from "../app/routes/admin.agenda";
 
 // A 3-day event in America/Los_Angeles with named rooms/formats and one
@@ -167,7 +166,7 @@ type LoaderData = {
 		dayEndMin: number;
 		publishedAt: number | null;
 		hiddenFromPublic: number;
-		scheduleChanges: number;
+		staleSpeakers: number;
 	} | null;
 	sessions: {
 		id: string;
@@ -470,31 +469,27 @@ describe("published-but-hidden affordance", () => {
 });
 
 /**
+ * Captured VERBATIM from the npm-ics payload the accept spine attached before
+ * this serializer replaced it — what prod outbox rows actually hold (note the
+ * tab-folded SUMMARY). A save-the-date hold spanning the event, SEQUENCE 0.
+ */
+const HISTORIC_NPM_ICS_INVITE =
+	"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nCALSCALE:GREGORIAN\r\nPRODID:adamgibbons/ics\r\nMETHOD:PUBLISH\r\nX-PUBLISHED-TTL:PT1H\r\nBEGIN:VEVENT\r\nUID:submission-s_keynote@openrostrum\r\nSUMMARY:AI.Engineer Sandbox Event (save the date): Closing Keynote: The Pos\r\n\tt-SaaS Stack\r\nDTSTAMP:20260810T205445Z\r\nDTSTART:20261012T150000Z\r\nDTEND:20261015T010000Z\r\nSEQUENCE:0\r\nSTATUS:CONFIRMED\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+/**
  * On top of seedBaseline: the keynote was ACCEPTED AND NOTIFIED before any
- * slot existed — the outbox ledger holds the npm-ics save-the-date invite the
- * accept spine attached (prod rows are in that format), and Marco is its
- * speaker so the update email has a recipient.
+ * slot existed — the outbox ledger holds the historic npm-ics save-the-date
+ * invite (prod rows are in that format), and Marco is its speaker so the
+ * update email has a recipient.
  */
 async function invitedBaseline() {
 	const db = await seedBaseline();
-	const { error, value } = createEvent({
-		title:
-			"AI.Engineer Sandbox Event (save the date): Closing Keynote: The Post-SaaS Stack",
-		start: [2026, 10, 12, 15, 0],
-		end: [2026, 10, 15, 1, 0],
-		startInputType: "utc",
-		endInputType: "utc",
-		uid: "submission-s_keynote@openrostrum",
-		sequence: 0,
-		status: "CONFIRMED",
-	});
-	if (error || !value) throw new Error("baseline ics build failed");
 	await db.insert(emailOutbox).values({
 		eventId: "e1",
 		to: "marco@test.co",
 		subject: "Your session was accepted",
 		html: "<p>you're in</p>",
-		icsAttachment: value,
+		icsAttachment: HISTORIC_NPM_ICS_INVITE,
 		status: "sent",
 		sentAt: new Date(),
 	});
@@ -526,7 +521,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 	it("accept-then-schedule-later: flags the change, sends the same UID with a higher SEQUENCE, then goes quiet", async () => {
 		const db = await invitedBaseline();
 		// The save-the-date hold still matches the event dates — nothing stale.
-		expect((await callLoader()).event?.scheduleChanges).toBe(0);
+		expect((await callLoader()).event?.staleSpeakers).toBe(0);
 		await callAction({
 			intent: "schedule",
 			submissionId: "s_keynote",
@@ -534,13 +529,13 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			day: "2026-10-12",
 			startMinutes: "570",
 		});
-		expect((await callLoader()).event?.scheduleChanges).toBe(1);
+		expect((await callLoader()).event?.staleSpeakers).toBe(1);
 		const result = await callAction({ intent: "schedule-updates" });
 		expect(result.ok).toBe(true);
 		expect(result.updates).toMatchObject({ sent: 1, failed: 0, remaining: 0 });
 		const { row, vevent } = await latestUpdateInvite(
 			db,
-			"schedule-update:s_keynote:1",
+			"schedule-update:s_keynote@1",
 		);
 		expect(row?.to).toBe("marco@test.co");
 		expect(vevent).toMatchObject({
@@ -551,7 +546,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			sequence: 1, // higher than the invite's 0 → clients replace in place
 		});
 		// The ledger advanced: nothing is flagged and a repeat click sends nothing.
-		expect((await callLoader()).event?.scheduleChanges).toBe(0);
+		expect((await callLoader()).event?.staleSpeakers).toBe(0);
 		const repeat = await callAction({ intent: "schedule-updates" });
 		expect(repeat.updates).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
 	});
@@ -577,7 +572,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		expect(second.updates?.sent).toBe(1);
 		const { vevent } = await latestUpdateInvite(
 			db,
-			"schedule-update:s_keynote:2",
+			"schedule-update:s_keynote@2",
 		);
 		expect(vevent).toMatchObject({
 			uid: "submission-s_keynote@openrostrum",
@@ -598,12 +593,12 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		});
 		await callAction({ intent: "schedule-updates" });
 		await callAction({ intent: "unschedule", submissionId: "s_keynote" });
-		expect((await callLoader()).event?.scheduleChanges).toBe(1);
+		expect((await callLoader()).event?.staleSpeakers).toBe(1);
 		const result = await callAction({ intent: "schedule-updates" });
 		expect(result.updates?.sent).toBe(1);
 		const { vevent } = await latestUpdateInvite(
 			db,
-			"schedule-update:s_keynote:2",
+			"schedule-update:s_keynote@2",
 		);
 		// Same UID, still a higher revision — back to the event-wide hold.
 		expect(vevent).toMatchObject({
@@ -612,6 +607,68 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			start: utc(2026, 10, 12, 15, 0),
 			end: utc(2026, 10, 15, 1, 0),
 		});
+	});
+
+	it("groups a speaker's changed sessions into ONE email whose .ics carries one VEVENT per session", async () => {
+		// K14's rationale: an afternoon of drag-and-drop must not fire an email
+		// per session — Marco speaks on both changed sessions and gets one message.
+		const db = await invitedBaseline();
+		await db.insert(emailOutbox).values({
+			eventId: "e1",
+			to: "marco@test.co",
+			subject: "Your session was accepted",
+			html: "<p>you're in</p>",
+			icsAttachment: buildIcs({
+				calendarName: "AI.Engineer Sandbox Event",
+				method: "PUBLISH",
+				events: [
+					{
+						uid: "submission-s_live@openrostrum",
+						start: utc(2026, 10, 12, 15, 0),
+						end: utc(2026, 10, 15, 1, 0),
+						title:
+							"AI.Engineer Sandbox Event (save the date): Live Demo: Agent Swarms in Production",
+						sequence: 0,
+						status: "CONFIRMED",
+					},
+				],
+			}),
+			status: "sent",
+			sentAt: new Date(),
+		});
+		await db
+			.update(submissions)
+			.set({ notifiedAt: new Date() })
+			.where(eq(submissions.id, "s_live"));
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_live",
+			roomId: "room_305",
+			day: "2026-10-13",
+			startMinutes: "600",
+		});
+		// Two changed sessions, ONE stale speaker.
+		expect((await callLoader()).event?.staleSpeakers).toBe(1);
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0, remaining: 0 });
+		const { row } = await latestUpdateInvite(
+			db,
+			"schedule-update:s_keynote@1,s_live@1",
+		);
+		expect(row?.to).toBe("marco@test.co");
+		const vevents = parseIcsAttachment(row?.icsAttachment ?? "");
+		expect(vevents).toHaveLength(2);
+		expect(vevents.map((v) => [v.uid, v.sequence])).toEqual([
+			["submission-s_keynote@openrostrum", 1],
+			["submission-s_live@openrostrum", 1],
+		]);
 	});
 
 	it("sessions that never received an invite are not flagged — their decision email will carry the slot", async () => {
@@ -623,7 +680,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			day: "2026-10-12",
 			startMinutes: "600",
 		});
-		expect((await callLoader()).event?.scheduleChanges).toBe(0);
+		expect((await callLoader()).event?.staleSpeakers).toBe(0);
 		const result = await callAction({ intent: "schedule-updates" });
 		expect(result.updates).toMatchObject({ sent: 0, failed: 0 });
 	});
