@@ -1287,7 +1287,7 @@ export const airtableLinks = sqliteTable(
  * the directory stays the live profile.
  */
 export const pipelineCards = sqliteTable(
-	"pipeline_cards",
+	"crm_pipeline_cards",
 	{
 		id: id(),
 		organizationId: text("organization_id")
@@ -1307,14 +1307,14 @@ export const pipelineCards = sqliteTable(
 		updatedAt: updatedAt(),
 	},
 	(t) => [
-		unique("pipeline_cards_org_email_uq").on(t.organizationId, t.email),
-		index("pipeline_cards_org_stage_idx").on(t.organizationId, t.stage),
+		unique("crm_pipeline_cards_org_email_uq").on(t.organizationId, t.email),
+		index("crm_pipeline_cards_org_stage_idx").on(t.organizationId, t.stage),
 	],
 );
 
 /** Append-only stage-transition history; a null fromStage = the enrollment. */
 export const pipelineStageChanges = sqliteTable(
-	"pipeline_stage_changes",
+	"crm_stage_history",
 	{
 		id: id(),
 		cardId: text("card_id")
@@ -1329,7 +1329,7 @@ export const pipelineStageChanges = sqliteTable(
 		changedByName: text("changed_by_name").notNull(),
 		createdAt: createdAt(),
 	},
-	(t) => [index("pipeline_stage_changes_card_idx").on(t.cardId)],
+	(t) => [index("crm_stage_history_card_idx").on(t.cardId)],
 );
 
 /**
@@ -1338,7 +1338,7 @@ export const pipelineStageChanges = sqliteTable(
  * to the person so removing a card never destroys the org's knowledge.
  */
 export const crmNotes = sqliteTable(
-	"crm_notes",
+	"person_notes",
 	{
 		id: id(),
 		organizationId: text("organization_id")
@@ -1352,7 +1352,7 @@ export const crmNotes = sqliteTable(
 		body: text("body").notNull(),
 		createdAt: createdAt(),
 	},
-	(t) => [index("crm_notes_org_email_idx").on(t.organizationId, t.email)],
+	(t) => [index("person_notes_org_email_idx").on(t.organizationId, t.email)],
 );
 
 /**

@@ -592,8 +592,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "crm_notes": {
-      "name": "crm_notes",
+    "person_notes": {
+      "name": "person_notes",
       "columns": {
         "id": {
           "name": "id",
@@ -646,8 +646,8 @@
         }
       },
       "indexes": {
-        "crm_notes_org_email_idx": {
-          "name": "crm_notes_org_email_idx",
+        "person_notes_org_email_idx": {
+          "name": "person_notes_org_email_idx",
           "columns": [
             "organization_id",
             "email"
@@ -656,9 +656,9 @@
         }
       },
       "foreignKeys": {
-        "crm_notes_organization_id_organizations_id_fk": {
-          "name": "crm_notes_organization_id_organizations_id_fk",
-          "tableFrom": "crm_notes",
+        "person_notes_organization_id_organizations_id_fk": {
+          "name": "person_notes_organization_id_organizations_id_fk",
+          "tableFrom": "person_notes",
           "tableTo": "organizations",
           "columnsFrom": [
             "organization_id"
@@ -669,9 +669,9 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "crm_notes_author_id_users_id_fk": {
-          "name": "crm_notes_author_id_users_id_fk",
-          "tableFrom": "crm_notes",
+        "person_notes_author_id_users_id_fk": {
+          "name": "person_notes_author_id_users_id_fk",
+          "tableFrom": "person_notes",
           "tableTo": "users",
           "columnsFrom": [
             "author_id"
@@ -3122,8 +3122,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "pipeline_cards": {
-      "name": "pipeline_cards",
+    "crm_pipeline_cards": {
+      "name": "crm_pipeline_cards",
       "columns": {
         "id": {
           "name": "id",
@@ -3205,16 +3205,16 @@
         }
       },
       "indexes": {
-        "pipeline_cards_org_stage_idx": {
-          "name": "pipeline_cards_org_stage_idx",
+        "crm_pipeline_cards_org_stage_idx": {
+          "name": "crm_pipeline_cards_org_stage_idx",
           "columns": [
             "organization_id",
             "stage"
           ],
           "isUnique": false
         },
-        "pipeline_cards_org_email_uq": {
-          "name": "pipeline_cards_org_email_uq",
+        "crm_pipeline_cards_org_email_uq": {
+          "name": "crm_pipeline_cards_org_email_uq",
           "columns": [
             "organization_id",
             "email"
@@ -3223,9 +3223,9 @@
         }
       },
       "foreignKeys": {
-        "pipeline_cards_organization_id_organizations_id_fk": {
-          "name": "pipeline_cards_organization_id_organizations_id_fk",
-          "tableFrom": "pipeline_cards",
+        "crm_pipeline_cards_organization_id_organizations_id_fk": {
+          "name": "crm_pipeline_cards_organization_id_organizations_id_fk",
+          "tableFrom": "crm_pipeline_cards",
           "tableTo": "organizations",
           "columnsFrom": [
             "organization_id"
@@ -3241,8 +3241,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "pipeline_stage_changes": {
-      "name": "pipeline_stage_changes",
+    "crm_stage_history": {
+      "name": "crm_stage_history",
       "columns": {
         "id": {
           "name": "id",
@@ -3295,8 +3295,8 @@
         }
       },
       "indexes": {
-        "pipeline_stage_changes_card_idx": {
-          "name": "pipeline_stage_changes_card_idx",
+        "crm_stage_history_card_idx": {
+          "name": "crm_stage_history_card_idx",
           "columns": [
             "card_id"
           ],
@@ -3304,10 +3304,10 @@
         }
       },
       "foreignKeys": {
-        "pipeline_stage_changes_card_id_pipeline_cards_id_fk": {
-          "name": "pipeline_stage_changes_card_id_pipeline_cards_id_fk",
-          "tableFrom": "pipeline_stage_changes",
-          "tableTo": "pipeline_cards",
+        "crm_stage_history_card_id_crm_pipeline_cards_id_fk": {
+          "name": "crm_stage_history_card_id_crm_pipeline_cards_id_fk",
+          "tableFrom": "crm_stage_history",
+          "tableTo": "crm_pipeline_cards",
           "columnsFrom": [
             "card_id"
           ],
@@ -3317,9 +3317,9 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "pipeline_stage_changes_changed_by_id_users_id_fk": {
-          "name": "pipeline_stage_changes_changed_by_id_users_id_fk",
-          "tableFrom": "pipeline_stage_changes",
+        "crm_stage_history_changed_by_id_users_id_fk": {
+          "name": "crm_stage_history_changed_by_id_users_id_fk",
+          "tableFrom": "crm_stage_history",
           "tableTo": "users",
           "columnsFrom": [
             "changed_by_id"
