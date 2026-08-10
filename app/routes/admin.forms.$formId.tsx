@@ -16,7 +16,7 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { RichText as RichTextInput } from "~/ui/rich-text";
+import { RichText as RichTextInput } from "~/ui/rich-text-lazy";
 import {
 	and,
 	asc,

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { textLength } from "~/lib/format";
-import { RichText } from "~/ui/rich-text";
+import { RichText } from "~/ui/rich-text-lazy";
 
 /**
  * Labeled rich-text field with a character counter — composes the canonical

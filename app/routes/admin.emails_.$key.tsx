@@ -5,7 +5,7 @@ import { data, useFetcher } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { emailTemplates, forms, portals } from "~/db/schema";
-import { RichText } from "~/ui/rich-text";
+import { RichText } from "~/ui/rich-text-lazy";
 import { TemplatePreview } from "~/emails/template-preview";
 import { Hint } from "~/emails/text";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
