@@ -22,7 +22,7 @@ Petrol appears in exactly five jobs — wayfinding (active nav icon, active tab 
 | `radius-control/card/shell` | 7 / 10 / 12px | same | shape scale |
 | `shadow-card/btn/control` | stacked alpha shadows | deeper | depth: hairline ring + two soft layers, never a single hard border |
 
-All chrome colors resolve via `light-dark()` — components never write `dark:` for chrome. The one sanctioned `dark:` user is `StatusBadge` (conventional status hues live outside the token system, deep fills + bright text in dark).
+All chrome colors resolve via `light-dark()`, and the document's scheme is the **tri-state theme** (System / Light / Dark, default System): an explicit choice persists as a cookie the root loader reads to pin `color-scheme` on `<html>` server-side — SSR carries the right scheme, so no first-paint flash — while System clears the cookie and the OS decides. Components **never write `dark:` variants, no exceptions**: the media query desyncs the moment a visitor overrides the OS, so even `StatusBadge`'s conventional status hues (deliberately not skin tokens — they survive a re-skin) resolve via `light-dark()` palette pairs. Two route pins outrank the cookie (`handle.colorScheme`): the marketing homepage stays canonical light (brochure, owner decision), and `/embed/:publicId` always follows the viewer's OS — a third-party iframe never sends the SameSite cookie, so the same-origin preview must not follow it either. The control is `ThemeToggle` (`app/components/theme-toggle.tsx`), placed in the admin sidebar user area and the auth-page footer.
 
 ## Type & grid
 

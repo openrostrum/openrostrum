@@ -41,7 +41,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Central files library + file detail | `admin.files.tsx` · `admin.files_.$id.tsx` | `/admin/files` (library, CNT-13) · `/admin/files/:id` (versions, approve/deny, comments) | 1 | done |
 | Contact record (admin) | `admin.contacts_.$id.tsx` | `/admin/contacts/:id` | 1 | done |
 | Contact headshot bytes (admin, resource route) | `admin.contacts_.$id.headshot.tsx` | `/admin/contacts/:id/headshot` (GET bytes, admin-authz, event-scoped) | 1 | done |
-| CSV export (resource route) | `admin.submissions.export[.csv].tsx` | `/admin/submissions/export.csv` (COMMITTED, P2 #3) | 2 | todo |
+| CSV export (resource route) | `admin.submissions.export[.csv].tsx` | `/admin/submissions/export.csv` (COMMITTED, P2 #3; honors `type`/`status` filters) | 2 | done |
 | Contacts / speaker roster (list) | `admin.contacts.tsx` | `/admin/contacts` (search, status filter, + Add) — P1 #17 | 1 | done |
 | Speaker CSV import | `admin.contacts_.import.tsx` | `/admin/contacts/import` (upload → map → dedupe) | 1 | done |
 | Compose bulk email to speakers | `admin.contacts_.compose.tsx` | `/admin/contacts/compose` (merge fields + preview) | 1 | done |
@@ -63,6 +63,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Harness aliases (redirects) | `dashboard.tsx` · `organizer.tsx` · `sessions._index.tsx` · `speakers._index.tsx` · `schedule._index.tsx` · `agenda.tsx` · `itinerary._index.tsx` · `gallery._index.tsx` | `/dashboard` `/organizer` → `/admin`; bare `/sessions` `/speakers` `/schedule` `/agenda` `/itinerary` `/gallery` → the default event's public page (default = oldest event by createdAt; `/agenda` and `/schedule` both land on the grid) (`// @public`) | 2 | done |
 | CFP entry alias (redirect) | `cfp.tsx` | `/cfp` → the default event's oldest open submission form at `/submit/:eventSlug/:formId` (the homepage "Call for speakers" link — stable URL over the per-form uuid; no open form → `/`; `// @public`) | 2 | done |
 | Airtable webhook receiver | `hooks.airtable.tsx` | `/hooks/airtable` (POST; HMAC-verified via `X-Airtable-Content-MAC`, no session auth — `// @public`; P1 #15) | 2 | done |
+| Theme preference | `theme.tsx` | `/theme` (POST; persists the tri-state System/Light/Dark cookie; `// @public` — per-browser, works pre-login) | — | done |
 | Airtable sync status | `admin.settings.airtable.tsx` | `/admin/settings/airtable` (last sync, breaker alert + resume, Sync now; explicit not-configured states; P1 #15) | 2 | done |
 
 If you need a route not listed here, add the row on the integration branch first

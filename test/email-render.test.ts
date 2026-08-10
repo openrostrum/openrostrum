@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	type MergeContext,
 	renderBody,
 	renderEmailHtml,
 	renderMergeFields,
@@ -10,7 +11,23 @@ import {
 // unresolved {{...}} tokens ever reach a delivered email, and merge values
 // are data, never markup.
 describe("merge-tag renderer", () => {
-	const ctx = {
+	// MergeContext is a FULL record by design (every send/preview site must
+	// carry every tag); null is the renderer-visible "no value" state.
+	const empty: MergeContext = {
+		first_name: null,
+		last_name: null,
+		full_name: null,
+		email: null,
+		event_name: null,
+		session_title: null,
+		session_date_time: null,
+		session_room: null,
+		portal_link: null,
+		form_title: null,
+		form_close_date: null,
+	};
+	const ctx: MergeContext = {
+		...empty,
 		first_name: "Priya",
 		session_title: "Scaling Vector Search at the Edge",
 		portal_link: "https://example.com/portals/ev/p1?a=1&b=2",
@@ -37,7 +54,7 @@ describe("merge-tag renderer", () => {
 	});
 
 	it("HTML-escapes body values so speaker-supplied data can't inject markup", () => {
-		const hostile = { first_name: '<script>alert(1)</script>&"' };
+		const hostile = { ...empty, first_name: '<script>alert(1)</script>&"' };
 		expect(renderBody("<p>{{first_name}}</p>", hostile)).toBe(
 			"<p>&lt;script&gt;alert(1)&lt;/script&gt;&amp;&quot;</p>",
 		);

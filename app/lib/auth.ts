@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { redirect } from "react-router";
 import { getDb } from "~/db";
+import { readCookie, serializeCookie } from "~/lib/cookies";
 import {
 	authSessions,
 	events,
@@ -9,7 +10,6 @@ import {
 	tracks,
 	users,
 } from "~/db/schema";
-import { cookieHeader, readCookie } from "~/lib/cookies";
 
 type AppRole = (typeof users.$inferSelect)["role"];
 
@@ -186,7 +186,7 @@ export async function createSession(
 		userId,
 		expiresAt: new Date(Date.now() + SESSION_TTL_MS),
 	});
-	return cookieHeader(
+	return serializeCookie(
 		COOKIE,
 		sessionId,
 		Math.floor(SESSION_TTL_MS / 1000),
@@ -203,7 +203,7 @@ export async function destroySession(
 	if (sessionId) {
 		await getDb(env).delete(authSessions).where(eq(authSessions.id, sessionId));
 	}
-	return cookieHeader(COOKIE, "", 0, isSecureRequest(request));
+	return serializeCookie(COOKIE, "", 0, isSecureRequest(request));
 }
 
 /** Resolve the logged-in user from the request cookie, or null. */

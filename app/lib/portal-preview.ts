@@ -11,14 +11,14 @@ import { and, eq } from "drizzle-orm";
 import type { Db } from "~/db";
 import { contacts } from "~/db/schema";
 import { userCanAccessEvent } from "~/lib/auth";
-import { cookieHeader, readCookie } from "~/lib/cookies";
+import { readCookie, serializeCookie } from "~/lib/cookies";
 
 const COOKIE = "__portal_preview";
 const PREVIEW_TTL_SECONDS = 60 * 60 * 2;
 
 /** `Set-Cookie` value that starts previewing the given contact. */
 export function startPreviewCookie(contactId: string, secure: boolean): string {
-	return cookieHeader(
+	return serializeCookie(
 		COOKIE,
 		encodeURIComponent(contactId),
 		PREVIEW_TTL_SECONDS,
@@ -28,7 +28,7 @@ export function startPreviewCookie(contactId: string, secure: boolean): string {
 
 /** `Set-Cookie` value that ends the preview. */
 export function clearPreviewCookie(secure: boolean): string {
-	return cookieHeader(COOKIE, "", 0, secure);
+	return serializeCookie(COOKIE, "", 0, secure);
 }
 
 /** One home for the previewed speaker's display name. */

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
+import { ThemeToggle } from "~/components/theme-toggle";
 import { TextLink, Wordmark } from "~/ui";
 import { cn } from "~/ui/cn";
 import { GITHUB_URL } from "./content";
@@ -101,6 +102,7 @@ export function AuthPage({
 				>
 					GitHub
 				</a>
+				<ThemeToggle />
 			</footer>
 		</div>
 	);

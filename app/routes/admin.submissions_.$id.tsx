@@ -1,21 +1,29 @@
-import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { useState } from "react";
 import {
 	data,
 	Form,
 	isRouteErrorResponse,
 	redirect,
+	useNavigation,
 	useRouteError,
 } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
-import { CONTENT_STATUS, DECISION_STATUS } from "~/db/constants";
+import {
+	CONTENT_STATUS,
+	DECISION_STATUS,
+	PARTICIPANT_ROLE,
+} from "~/db/constants";
 import type { Submission } from "~/db/schema";
 import {
+	contacts,
 	files,
 	formats,
 	languages,
 	levels,
+	participants,
 	sessionStatuses,
 	submissionRevisions,
 	submissions,
@@ -26,10 +34,11 @@ import {
 	users,
 } from "~/db/schema";
 import { transitionSubmissions } from "~/domain/accept";
-import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
 import { CONTENT_STATUS_TONE, humanStatus } from "~/lib/submission-list";
+import { CONTACT_PICKER_CAP } from "~/lib/submission-list.server";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -142,7 +151,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			!showAllRevisions && revisionRows.length > REVISION_LIST_LIMIT;
 		if (revisionsTruncated) revisionRows.length = REVISION_LIST_LIMIT;
 
-		const [fileRows, withdrawnBy, library] = await Promise.all([
+		const [fileRows, withdrawnBy, library, contactRows] = await Promise.all([
 			db
 				.select()
 				.from(files)
@@ -156,7 +165,22 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 						.then((r) => r[0] ?? null)
 				: Promise.resolve(null),
 			loadLibrary(db, event.id),
+			// The attach control's roster — one past the cap so truncation is
+			// detectable, never silent (same bound as the Add Submission drawer).
+			db
+				.select({
+					id: contacts.id,
+					firstName: contacts.firstName,
+					lastName: contacts.lastName,
+					email: contacts.email,
+				})
+				.from(contacts)
+				.where(eq(contacts.eventId, event.id))
+				.orderBy(asc(contacts.lastName), asc(contacts.firstName))
+				.limit(CONTACT_PICKER_CAP + 1),
 		]);
+		const contactsTruncated = contactRows.length > CONTACT_PICKER_CAP;
+		if (contactsTruncated) contactRows.length = CONTACT_PICKER_CAP;
 
 		const tally = { approve: 0, maybe: 0, deny: 0 };
 		for (const r of row.reviews) tally[r.decision] += 1;
@@ -209,6 +233,12 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				isPrimary: p.isPrimary,
 				acceptanceStatus: p.acceptanceStatus,
 			})),
+			contacts: contactRows.map((c) => ({
+				id: c.id,
+				name: `${c.firstName} ${c.lastName}`,
+				email: c.email,
+			})),
+			contactsTruncated,
 			answers: row.submissionAnswers.map((a) => ({
 				id: a.id,
 				label: a.field.name,
@@ -341,6 +371,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 						return setContentStatus(db, row, form);
 					case "save-taxonomy":
 						return saveTaxonomy(db, row, event.id, form);
+					case "add-participants":
+						return addParticipants(db, row, event.id, form);
+					case "add-new-participant":
+						return addNewParticipant(db, row, event.id, form);
+					case "remove-participant":
+						return removeParticipant(db, row, form);
 					case "delete":
 						return deleteSubmission(db, row);
 					default:
@@ -675,6 +711,238 @@ async function saveTaxonomy(
 	return { notice: "Taxonomy saved." };
 }
 
+const AddParticipants = z.object({
+	contactIds: z
+		.array(z.string().min(1))
+		.min(1, "Select at least one contact to attach."),
+	role: z.enum(PARTICIPANT_ROLE),
+});
+
+/** Attach existing event contacts. First participant on an empty submission
+ * becomes primary — decision emails address the primary speaker first. */
+async function addParticipants(
+	db: ReturnType<typeof getDb>,
+	row: Submission,
+	eventId: string,
+	form: FormData,
+): Promise<ActionData> {
+	const parsed = AddParticipants.safeParse({
+		contactIds: [...new Set(form.getAll("contactIds").map(String))],
+		role: form.get("role"),
+	});
+	if (!parsed.success) {
+		return { formError: parsed.error.issues[0]?.message ?? "Invalid request." };
+	}
+	const owned = await db
+		.select({ id: contacts.id })
+		.from(contacts)
+		.where(
+			and(
+				inArray(contacts.id, parsed.data.contactIds),
+				eq(contacts.eventId, eventId),
+			),
+		);
+	// A forged foreign contact id is refused, never written.
+	if (owned.length !== parsed.data.contactIds.length) {
+		return { formError: "Some selected contacts do not belong to this event." };
+	}
+	const { result } = await attachContacts(
+		db,
+		row,
+		eventId,
+		parsed.data.contactIds,
+		{
+			role: parsed.data.role,
+		},
+	);
+	return result;
+}
+
+const NewParticipant = z.object({
+	firstName: z.string().min(1, "First name is required"),
+	lastName: z.string().min(1, "Last name is required"),
+	email: z.email("Enter a valid email address"),
+	role: z.enum(PARTICIPANT_ROLE),
+});
+
+/** Create a contact and attach it — or, when the email already belongs to an
+ * event contact (unique per event, same rule the CFP wizard applies), attach
+ * that existing contact instead of failing on the duplicate. */
+async function addNewParticipant(
+	db: ReturnType<typeof getDb>,
+	row: Submission,
+	eventId: string,
+	form: FormData,
+): Promise<ActionData> {
+	const parsed = NewParticipant.safeParse({
+		firstName: String(form.get("firstName") ?? "").trim(),
+		lastName: String(form.get("lastName") ?? "").trim(),
+		email: String(form.get("email") ?? "").trim(),
+		role: form.get("role"),
+	});
+	if (!parsed.success) {
+		return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
+	}
+	const email = normalizeEmail(parsed.data.email);
+	const [existing] = await db
+		.select({ id: contacts.id })
+		.from(contacts)
+		.where(and(eq(contacts.eventId, eventId), eq(contacts.email, email)))
+		.limit(1);
+	let contactId = existing?.id;
+	if (!contactId) {
+		contactId = crypto.randomUUID();
+		await db.insert(contacts).values({
+			id: contactId,
+			eventId,
+			email,
+			firstName: parsed.data.firstName,
+			lastName: parsed.data.lastName,
+		});
+		track("contact.created", { eventId, contactId, source: "submission" });
+	}
+	const { result, added } = await attachContacts(
+		db,
+		row,
+		eventId,
+		[contactId],
+		{
+			role: parsed.data.role,
+		},
+	);
+	if (existing && added > 0) {
+		return {
+			notice: `A contact with ${email} already exists — attached the existing contact.`,
+		};
+	}
+	return result;
+}
+
+async function attachContacts(
+	db: ReturnType<typeof getDb>,
+	row: Submission,
+	eventId: string,
+	contactIds: string[],
+	opts: { role: (typeof PARTICIPANT_ROLE)[number] },
+): Promise<{ result: ActionData; added: number }> {
+	const current = await db
+		.select({
+			contactId: participants.contactId,
+			isPrimary: participants.isPrimary,
+		})
+		.from(participants)
+		.where(eq(participants.submissionId, row.id));
+	const attached = new Set(current.map((p) => p.contactId));
+	const fresh = contactIds.filter((id) => !attached.has(id));
+	if (fresh.length === 0) {
+		return {
+			result: {
+				notice: "Those contacts are already participants on this submission.",
+			},
+			added: 0,
+		};
+	}
+	// A submission with speakers must always have a primary — decision emails
+	// address it first and task provisioning targets it. The first speaker
+	// attached while none exists takes the slot.
+	let hasPrimary = current.some((p) => p.isPrimary);
+	await db
+		.insert(participants)
+		.values(
+			fresh.map((contactId, i) => {
+				const promote = !hasPrimary && opts.role === "speaker" && i === 0;
+				if (promote) hasPrimary = true;
+				return {
+					submissionId: row.id,
+					contactId,
+					role: opts.role,
+					isPrimary: promote,
+					position: current.length + i,
+				};
+			}),
+		)
+		// Race guard on unique(submission, contact): a double-submit replays
+		// cleanly instead of throwing.
+		.onConflictDoNothing();
+	track("submission.participant_added", {
+		submissionId: row.id,
+		eventId,
+		role: opts.role,
+		count: fresh.length,
+	});
+	const already = contactIds.length - fresh.length;
+	return {
+		result: {
+			notice: `${fresh.length} participant${fresh.length === 1 ? "" : "s"} attached as ${opts.role}.${already ? ` ${already} already on this submission.` : ""}`,
+		},
+		added: fresh.length,
+	};
+}
+
+async function removeParticipant(
+	db: ReturnType<typeof getDb>,
+	row: Submission,
+	form: FormData,
+): Promise<ActionData> {
+	const participantId = String(form.get("participantId") ?? "");
+	if (!participantId) return { formError: "Pick a participant to remove." };
+	// Scoped to THIS submission — a foreign participant id is refused.
+	const [target] = await db
+		.select({ id: participants.id, isPrimary: participants.isPrimary })
+		.from(participants)
+		.where(
+			and(
+				eq(participants.id, participantId),
+				eq(participants.submissionId, row.id),
+			),
+		);
+	if (!target) {
+		return { formError: "That participant is not on this submission." };
+	}
+	// Removing the primary must promote the next speaker: primary-less
+	// submissions silently drop out of task provisioning and lose their
+	// first-choice decision-email recipient. Delete + promotion commit as ONE
+	// batch — a failure between them must never strand a primary-less row.
+	let promoted: string | null = null;
+	const statements: BatchItem<"sqlite">[] = [
+		db.delete(participants).where(eq(participants.id, target.id)),
+	];
+	if (target.isPrimary) {
+		const [next] = await db
+			.select({ id: participants.id })
+			.from(participants)
+			.where(
+				and(
+					eq(participants.submissionId, row.id),
+					eq(participants.role, "speaker"),
+					ne(participants.id, target.id),
+				),
+			)
+			.orderBy(asc(participants.position), asc(participants.id))
+			.limit(1);
+		if (next) {
+			statements.push(
+				db
+					.update(participants)
+					.set({ isPrimary: true })
+					.where(eq(participants.id, next.id)),
+			);
+			promoted = next.id;
+		}
+	}
+	await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+	track("submission.participant_removed", {
+		submissionId: row.id,
+		eventId: row.eventId,
+		promoted,
+	});
+	return {
+		notice: promoted
+			? "Participant removed — the next speaker is now primary."
+			: "Participant removed from this submission.",
+	};
+}
+
 async function deleteSubmission(
 	db: ReturnType<typeof getDb>,
 	row: Submission,
@@ -692,15 +960,22 @@ export default function SubmissionDetail({
 }: Route.ComponentProps) {
 	const {
 		submission: s,
-		participants,
+		participants: participantRows,
 		answers,
 		revisions,
 		revisionsTruncated,
 		files: fileRows,
 		reviews,
 		library,
+		contacts: contactRows,
+		contactsTruncated,
 	} = loaderData;
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
+	// Every mutation here is a document POST — block the double-click that
+	// would replay it (duplicate revisions, double deletes) before the
+	// response lands.
+	const busy = useNavigation().state !== "idle";
+	const isDraft = s.status === "draft";
 	const feedback = (actionData ?? undefined) as ActionData | undefined;
 	const languageOptions = library.languages.includes(s.language)
 		? library.languages
@@ -761,7 +1036,9 @@ export default function SubmissionDetail({
 								/>
 							</Field>
 							<div className="flex items-center gap-3">
-								<Button type="submit">Save content</Button>
+								<Button type="submit" disabled={busy}>
+									Save content
+								</Button>
 								<p>Every save records a revision below.</p>
 							</div>
 						</Form>
@@ -797,7 +1074,7 @@ export default function SubmissionDetail({
 													value={r.id}
 													readOnly
 												/>
-												<Button type="submit" variant="ghost">
+												<Button type="submit" variant="ghost" disabled={busy}>
 													Restore
 												</Button>
 											</Form>
@@ -826,9 +1103,10 @@ export default function SubmissionDetail({
 							<Th>Email</Th>
 							<Th>Role</Th>
 							<Th>Acceptance</Th>
+							<Th> </Th>
 						</THead>
 						<TBody>
-							{participants.map((p) => (
+							{participantRows.map((p) => (
 								<Tr key={p.id}>
 									<Td kind="strong">
 										{p.name}
@@ -841,15 +1119,46 @@ export default function SubmissionDetail({
 											{p.acceptanceStatus}
 										</StatusBadge>
 									</Td>
+									<Td>
+										<Form method="post">
+											<Input
+												type="hidden"
+												name="intent"
+												value="remove-participant"
+												readOnly
+											/>
+											<Input
+												type="hidden"
+												name="participantId"
+												value={p.id}
+												readOnly
+											/>
+											<Button type="submit" variant="ghost" disabled={busy}>
+												Remove
+											</Button>
+										</Form>
+									</Td>
 								</Tr>
 							))}
-							{participants.length === 0 && (
-								<EmptyRow colSpan={4}>
-									No participants on this submission yet.
+							{participantRows.length === 0 && (
+								<EmptyRow colSpan={5}>
+									No participants on this submission yet — attach one below,
+									otherwise decision emails have nobody to reach
+									{s.submitterLabel
+										? " (they would fall back to the submitter's account email)"
+										: ""}
+									.
 								</EmptyRow>
 							)}
 						</TBody>
 					</Table>
+
+					<AttachParticipants
+						contacts={contactRows}
+						contactsTruncated={contactsTruncated}
+						busy={busy}
+						feedback={feedback}
+					/>
 
 					<Panel>
 						<div className="flex flex-col gap-2">
@@ -917,18 +1226,21 @@ export default function SubmissionDetail({
 
 				<div className="flex flex-col gap-5">
 					<Panel>
+						{/* Drafts are pre-submission: the spine refuses every decision, so
+						    the controls are disabled UP FRONT with the reason — never an
+						    apparently-working click that reverts on reload. */}
 						<Form method="post" className="flex flex-col gap-3">
 							<Input type="hidden" name="intent" value="set-status" readOnly />
 							<Field label="Decision status">
-								<Select key={s.status} name="status" defaultValue={s.status}>
-									{s.status === "withdrawn" && (
-										<option value="withdrawn" disabled>
-											withdrawn
-										</option>
-									)}
-									{s.status === "draft" && (
-										<option value="draft" disabled>
-											draft
+								<Select
+									key={s.status}
+									name="status"
+									defaultValue={s.status}
+									disabled={isDraft}
+								>
+									{(s.status === "withdrawn" || isDraft) && (
+										<option value={s.status} disabled>
+											{s.status}
 										</option>
 									)}
 									{DECISION_STATUS.map((st) => (
@@ -938,19 +1250,31 @@ export default function SubmissionDetail({
 									))}
 								</Select>
 							</Field>
-							<Button type="submit" variant="ghost">
+							<Button type="submit" variant="ghost" disabled={isDraft || busy}>
 								Update status
 							</Button>
-							<p>
-								Status changes never email speakers — decision emails are sent
-								explicitly from the submissions list.
-							</p>
-							{s.statusChangedAt && <p>Last change: {s.statusChangedAt}</p>}
-							<p>
-								{s.notifiedAt
-									? `Decision email sent ${s.notifiedAt}.`
-									: "No decision email has been sent yet."}
-							</p>
+							{isDraft ? (
+								<p>
+									This is a draft — the speaker has not submitted it yet, so no
+									decision applies. The decision controls unlock when it is
+									submitted.
+								</p>
+							) : (
+								<p>
+									Status changes never email speakers — decision emails are sent
+									explicitly from the submissions list.
+								</p>
+							)}
+							{!isDraft && s.statusChangedAt && (
+								<p>Last change: {s.statusChangedAt}</p>
+							)}
+							{!isDraft && (
+								<p>
+									{s.notifiedAt
+										? `Decision email sent ${s.notifiedAt}.`
+										: "No decision email has been sent yet."}
+								</p>
+							)}
 						</Form>
 					</Panel>
 
@@ -1000,7 +1324,7 @@ export default function SubmissionDetail({
 									))}
 								</Select>
 							</Field>
-							<Button type="submit" variant="ghost">
+							<Button type="submit" variant="ghost" disabled={busy}>
 								Update content status
 							</Button>
 							<p>
@@ -1032,7 +1356,7 @@ export default function SubmissionDetail({
 									))}
 								</Select>
 							</Field>
-							<Button type="submit" variant="ghost">
+							<Button type="submit" variant="ghost" disabled={busy}>
 								Update custom status
 							</Button>
 							{library.customStatuses.length === 0 && (
@@ -1128,7 +1452,7 @@ export default function SubmissionDetail({
 									<p>No tags defined for this event yet.</p>
 								)}
 							</div>
-							<Button type="submit" variant="ghost">
+							<Button type="submit" variant="ghost" disabled={busy}>
 								Save taxonomy
 							</Button>
 						</Form>
@@ -1174,7 +1498,9 @@ export default function SubmissionDetail({
 											value="delete"
 											readOnly
 										/>
-										<Button type="submit">Yes, delete it</Button>
+										<Button type="submit" disabled={busy}>
+											Yes, delete it
+										</Button>
 										<Button
 											type="button"
 											variant="ghost"
@@ -1190,6 +1516,134 @@ export default function SubmissionDetail({
 				</div>
 			</div>
 		</div>
+	);
+}
+
+/** Attach participants: pick existing event contacts (filter + checkboxes,
+ * same shape as the Add Submission drawer) or create a brand-new contact. */
+function AttachParticipants({
+	contacts: contactRows,
+	contactsTruncated,
+	busy,
+	feedback,
+}: {
+	contacts: Array<{ id: string; name: string; email: string }>;
+	contactsTruncated: boolean;
+	busy: boolean;
+	feedback: ActionData | undefined;
+}) {
+	const [filter, setFilter] = useState("");
+	const needle = filter.trim().toLowerCase();
+	const visible = needle
+		? contactRows.filter(
+				(c) =>
+					c.name.toLowerCase().includes(needle) ||
+					c.email.toLowerCase().includes(needle),
+			)
+		: contactRows;
+	return (
+		<Panel>
+			<div className="flex flex-col gap-4">
+				<h2>Add participants</h2>
+				<Form method="post" className="flex flex-col gap-2">
+					<Input
+						type="hidden"
+						name="intent"
+						value="add-participants"
+						readOnly
+					/>
+					<div className="flex flex-wrap items-end gap-3">
+						<Field label="Role">
+							<Select name="role" defaultValue="speaker">
+								{PARTICIPANT_ROLE.map((r) => (
+									<option key={r} value={r}>
+										{r}
+									</option>
+								))}
+							</Select>
+						</Field>
+						<div className="min-w-64 flex-1">
+							<Field label="Filter contacts">
+								<Input
+									placeholder="Filter by name or email…"
+									value={filter}
+									onChange={(e) => setFilter(e.currentTarget.value)}
+								/>
+							</Field>
+						</div>
+					</div>
+					<div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
+						{visible.map((c) => (
+							<label key={c.id} className="flex items-center gap-2">
+								<Input type="checkbox" name="contactIds" value={c.id} />
+								<span>
+									{c.name} · {c.email}
+								</span>
+							</label>
+						))}
+						{contactRows.length === 0 && (
+							<p>No contacts on this event yet — create one below instead.</p>
+						)}
+						{contactRows.length > 0 && visible.length === 0 && (
+							<p>No contacts match &quot;{filter}&quot;.</p>
+						)}
+						{contactsTruncated && (
+							<p>
+								Showing the first {contactRows.length} contacts (A→Z) — anyone
+								missing can be attached through the form below: an email that
+								already belongs to a contact attaches that contact.
+							</p>
+						)}
+					</div>
+					<div>
+						<Button type="submit" variant="ghost" disabled={busy}>
+							Attach selected contacts
+						</Button>
+					</div>
+				</Form>
+				<Form method="post" className="flex flex-wrap items-end gap-3">
+					<Input
+						type="hidden"
+						name="intent"
+						value="add-new-participant"
+						readOnly
+					/>
+					<Field
+						label="First name"
+						error={feedback?.fieldErrors?.firstName?.[0]}
+					>
+						<Input
+							name="firstName"
+							invalid={Boolean(feedback?.fieldErrors?.firstName?.[0])}
+						/>
+					</Field>
+					<Field label="Last name" error={feedback?.fieldErrors?.lastName?.[0]}>
+						<Input
+							name="lastName"
+							invalid={Boolean(feedback?.fieldErrors?.lastName?.[0])}
+						/>
+					</Field>
+					<Field label="Email" error={feedback?.fieldErrors?.email?.[0]}>
+						<Input
+							name="email"
+							invalid={Boolean(feedback?.fieldErrors?.email?.[0])}
+						/>
+					</Field>
+					<Field label="Role">
+						<Select name="role" defaultValue="speaker">
+							{PARTICIPANT_ROLE.map((r) => (
+								<option key={r} value={r}>
+									{r}
+								</option>
+							))}
+						</Select>
+					</Field>
+					<Button type="submit" variant="ghost" disabled={busy}>
+						New contact + attach
+					</Button>
+				</Form>
+			</div>
+		</Panel>
 	);
 }
 
