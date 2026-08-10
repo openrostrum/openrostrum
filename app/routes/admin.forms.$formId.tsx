@@ -35,28 +35,30 @@ import { z } from "zod";
 import { getDb, type Db } from "~/db";
 import {
 	fields,
-	formats,
 	formFields,
 	forms,
 	insertFormSchema,
-	languages,
-	levels,
 	organizationMembers,
 	submissions,
-	tags,
-	tracks,
 	users,
 	type QuestionRule,
 } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
+	BUILTIN_META,
+	BUILTIN_ORDER,
+	type BuiltinRef,
+	defaultBuiltinPlacements,
 	FORM_STATUS_TONE,
-	sanitizeRichText,
+	type FormSectionId,
+	RULE_TRIGGER_FIELD_TYPES,
 	utcToZonedInputs,
 	zonedTimeToUtc,
 } from "~/lib/forms";
+import { loadRuleOptions, sanitizeRichText } from "~/lib/forms.server";
 import { createTimings, track } from "~/lib/track";
+import { PaginationBar } from "./admin.forms";
 import {
 	Button,
 	ButtonLink,
@@ -73,7 +75,6 @@ import {
 	SUBMISSION_STATUS_TONE,
 	Tab,
 	Table,
-	TableFooter,
 	Tabs,
 	TBody,
 	Td,
@@ -87,220 +88,8 @@ import type { Route } from "./+types/admin.forms.$formId";
 
 /* ------------------------------------------------------------- built-ins --- */
 
-type BuiltinRef = NonNullable<(typeof formFields.$inferSelect)["builtinRef"]>;
-type SectionId = (typeof formFields.$inferSelect)["section"];
-
-type BuiltinMeta = {
-	label: string;
-	caption: string;
-	section: SectionId;
-	/** Placed automatically on every new form. */
-	defaultOn: boolean;
-	/** Cannot be removed from a form. */
-	locked: boolean;
-	/** Required state is fixed ON (identity fields + Title). */
-	requiredLocked: boolean;
-	defaultRequired: boolean;
-	/** Eligible as a question-rule trigger (dropdown-backed built-ins). */
-	trigger: boolean;
-};
-
-// Pure data (client-bundled for labels/captions) — keys type-checked against
-// the schema's BUILTIN_FIELD enum so the two can never drift.
-const BUILTIN_META = {
-	title: {
-		label: "Title",
-		caption: "Text · max 255",
-		section: "session",
-		defaultOn: true,
-		locked: true,
-		requiredLocked: true,
-		defaultRequired: true,
-		trigger: false,
-	},
-	description: {
-		label: "Description",
-		caption: "Rich text · max 5,000",
-		section: "session",
-		defaultOn: true,
-		locked: true,
-		requiredLocked: false,
-		defaultRequired: true,
-		trigger: false,
-	},
-	format: {
-		label: "Format",
-		caption: "Dropdown",
-		section: "session",
-		defaultOn: true,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: true,
-	},
-	tags: {
-		label: "Tags",
-		caption: "Dropdown",
-		section: "session",
-		defaultOn: true,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: true,
-	},
-	track: {
-		label: "Track",
-		caption: "Dropdown",
-		section: "session",
-		defaultOn: true,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: true,
-	},
-	level: {
-		label: "Level",
-		caption: "Dropdown",
-		section: "session",
-		defaultOn: true,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: true,
-	},
-	language: {
-		label: "Language",
-		caption: "Dropdown",
-		section: "session",
-		defaultOn: true,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: true,
-	},
-	first_name: {
-		label: "First name",
-		caption: "Text · max 255",
-		section: "participant",
-		defaultOn: true,
-		locked: true,
-		requiredLocked: true,
-		defaultRequired: true,
-		trigger: false,
-	},
-	last_name: {
-		label: "Last name",
-		caption: "Text · max 255",
-		section: "participant",
-		defaultOn: true,
-		locked: true,
-		requiredLocked: true,
-		defaultRequired: true,
-		trigger: false,
-	},
-	email: {
-		label: "Email",
-		caption: "Email",
-		section: "participant",
-		defaultOn: true,
-		locked: true,
-		requiredLocked: true,
-		defaultRequired: true,
-		trigger: false,
-	},
-	mobile_phone: {
-		label: "Mobile phone",
-		caption: "Phone",
-		section: "participant",
-		defaultOn: true,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: false,
-	},
-	home_phone: {
-		label: "Home phone",
-		caption: "Phone",
-		section: "participant",
-		defaultOn: false,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: false,
-	},
-	biography: {
-		label: "Biography",
-		caption: "Rich text · max 5,000",
-		section: "participant",
-		defaultOn: true,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: false,
-	},
-	company_name: {
-		label: "Company name",
-		caption: "Text · max 255",
-		section: "participant",
-		defaultOn: false,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: false,
-	},
-	job_title: {
-		label: "Job title",
-		caption: "Text · max 255",
-		section: "participant",
-		defaultOn: false,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: false,
-	},
-	headshot: {
-		label: "Headshot",
-		caption: "File upload",
-		section: "participant",
-		defaultOn: false,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: false,
-	},
-	zip: {
-		label: "Zip / postal code",
-		caption: "Text",
-		section: "participant",
-		defaultOn: false,
-		locked: false,
-		requiredLocked: false,
-		defaultRequired: false,
-		trigger: false,
-	},
-} as const satisfies Record<BuiltinRef, BuiltinMeta>;
-
-const BUILTIN_ORDER = Object.keys(BUILTIN_META) as BuiltinRef[];
-
-/** The rows every new form starts with, in Sessionboard's default order. */
-export function defaultBuiltinPlacements(
-	formId: string,
-): Array<typeof formFields.$inferInsert> {
-	const nextPos: Record<SectionId, number> = { session: 0, participant: 0 };
-	return BUILTIN_ORDER.filter((ref) => BUILTIN_META[ref].defaultOn).map(
-		(ref) => {
-			const meta = BUILTIN_META[ref];
-			return {
-				formId,
-				builtinRef: ref,
-				section: meta.section,
-				position: nextPos[meta.section]++,
-				required: meta.defaultRequired,
-				locked: meta.locked,
-			};
-		},
-	);
-}
+// Local alias — the shared contract lives in ~/lib/forms.
+type SectionId = FormSectionId;
 
 const FIELD_TYPE_LABEL: Record<string, string> = {
 	text: "Text",
@@ -328,8 +117,6 @@ const CREATE_FIELD_TYPES = [
 	"phone",
 	"date",
 ] as const satisfies ReadonlyArray<(typeof fields.$inferSelect)["type"]>;
-
-const RULE_TRIGGER_FIELD_TYPES = ["dropdown", "checkbox", "number"] as const;
 
 // D1 caps a statement at 100 bound parameters — bulk placement inserts
 // (~10 columns/row) must stay under it or the whole batch throws.
@@ -498,53 +285,6 @@ async function loadPlacements(db: Db, formId: string) {
 		with: { field: true },
 		orderBy: [asc(formFields.position), asc(formFields.createdAt)],
 	});
-}
-
-type RuleOptionMap = Record<string, Array<{ value: string; label: string }>>;
-
-// Rule `value` stores exactly what the public form control submits for the
-// trigger: taxonomy row ids for Format/Tags/Track/Level, the language NAME
-// for Language (submissions.language is a name column). The loader (value
-// pickers) and set-rule validation both read THIS map — one source of truth.
-async function loadRuleOptions(
-	db: Db,
-	eventId: string,
-): Promise<RuleOptionMap> {
-	const [formatRows, trackRows, tagRows, levelRows, languageRows] =
-		await Promise.all([
-			db
-				.select({ id: formats.id, name: formats.name })
-				.from(formats)
-				.where(eq(formats.eventId, eventId))
-				.orderBy(asc(formats.position)),
-			db
-				.select({ id: tracks.id, name: tracks.name })
-				.from(tracks)
-				.where(eq(tracks.eventId, eventId))
-				.orderBy(asc(tracks.name)),
-			db
-				.select({ id: tags.id, name: tags.name })
-				.from(tags)
-				.where(eq(tags.eventId, eventId))
-				.orderBy(asc(tags.name)),
-			db
-				.select({ id: levels.id, name: levels.name })
-				.from(levels)
-				.where(eq(levels.eventId, eventId))
-				.orderBy(asc(levels.position)),
-			db
-				.select({ id: languages.id, name: languages.name })
-				.from(languages)
-				.where(eq(languages.eventId, eventId))
-				.orderBy(asc(languages.position)),
-		]);
-	return {
-		format: formatRows.map((r) => ({ value: r.id, label: r.name })),
-		tags: tagRows.map((r) => ({ value: r.id, label: r.name })),
-		track: trackRows.map((r) => ({ value: r.id, label: r.name })),
-		level: levelRows.map((r) => ({ value: r.id, label: r.name })),
-		language: languageRows.map((r) => ({ value: r.name, label: r.name })),
-	};
 }
 
 const VIEW_PAGE_SIZE = 50;
@@ -1752,11 +1492,25 @@ function RichText({
 		shouldRerenderOnTransaction: true,
 		onUpdate: ({ editor: e }) => setHtml(e.isEmpty ? "" : e.getHTML()),
 	});
-	const mark = (
-		fn: (chain: ReturnType<Editor["chain"]>) => { run: () => boolean },
-	) => {
+	type Chain = ReturnType<Editor["chain"]>;
+	const mark = (fn: (chain: Chain) => { run: () => boolean }) => {
 		if (editor) fn(editor.chain().focus());
 	};
+	const toolbar: Array<{
+		label: string;
+		key: string;
+		toggle: (c: Chain) => { run: () => boolean };
+	}> = [
+		{ label: "B", key: "bold", toggle: (c) => c.toggleBold() },
+		{ label: "I", key: "italic", toggle: (c) => c.toggleItalic() },
+		{ label: "U", key: "underline", toggle: (c) => c.toggleUnderline() },
+		{ label: "• List", key: "bulletList", toggle: (c) => c.toggleBulletList() },
+		{
+			label: "1. List",
+			key: "orderedList",
+			toggle: (c) => c.toggleOrderedList(),
+		},
+	];
 	return (
 		<div className="flex flex-col gap-[5px]">
 			<Field label={label}>
@@ -1769,51 +1523,18 @@ function RichText({
 				/>
 			</Field>
 			<div className="flex flex-wrap items-center gap-1">
-				<Button
-					type="button"
-					variant={editor?.isActive("bold") ? "primary" : "ghost"}
-					disabled={!editor}
-					aria-pressed={editor?.isActive("bold") ?? false}
-					onClick={() => mark((c) => c.toggleBold())}
-				>
-					B
-				</Button>
-				<Button
-					type="button"
-					variant={editor?.isActive("italic") ? "primary" : "ghost"}
-					disabled={!editor}
-					aria-pressed={editor?.isActive("italic") ?? false}
-					onClick={() => mark((c) => c.toggleItalic())}
-				>
-					I
-				</Button>
-				<Button
-					type="button"
-					variant={editor?.isActive("underline") ? "primary" : "ghost"}
-					disabled={!editor}
-					aria-pressed={editor?.isActive("underline") ?? false}
-					onClick={() => mark((c) => c.toggleUnderline())}
-				>
-					U
-				</Button>
-				<Button
-					type="button"
-					variant={editor?.isActive("bulletList") ? "primary" : "ghost"}
-					disabled={!editor}
-					aria-pressed={editor?.isActive("bulletList") ?? false}
-					onClick={() => mark((c) => c.toggleBulletList())}
-				>
-					• List
-				</Button>
-				<Button
-					type="button"
-					variant={editor?.isActive("orderedList") ? "primary" : "ghost"}
-					disabled={!editor}
-					aria-pressed={editor?.isActive("orderedList") ?? false}
-					onClick={() => mark((c) => c.toggleOrderedList())}
-				>
-					1. List
-				</Button>
+				{toolbar.map((tool) => (
+					<Button
+						key={tool.key}
+						type="button"
+						variant={editor?.isActive(tool.key) ? "primary" : "ghost"}
+						disabled={!editor}
+						aria-pressed={editor?.isActive(tool.key) ?? false}
+						onClick={() => mark(tool.toggle)}
+					>
+						{tool.label}
+					</Button>
+				))}
 				{editor?.isActive("link") ? (
 					<Button
 						type="button"
@@ -1964,8 +1685,8 @@ function FieldRow({
 	const { attributes, listeners, setNodeRef, transform, transition } =
 		useSortable({ id: placement.id });
 	// Drag GEOMETRY only (transform/transition) — dnd-kit cannot move the row
-	// without it. Visual drag styling (dim/elevate) is a skin decision that
-	// waits on a SortableRow primitive; routes must not make it.
+	// without it. Visual drag styling (dim/elevate) is a skin decision a route
+	// must not make.
 	const rowRef = (node: HTMLDivElement | null) => {
 		setNodeRef(node);
 		if (node) {
@@ -2214,7 +1935,6 @@ function FieldList({
 	ruleOptions: RuleOptions;
 }) {
 	const rows = placements.filter((p) => p.section === section);
-	const [order, setOrder] = useState<string[]>([]);
 	const [openRule, setOpenRule] = useState<string | null>(null);
 	const reorderFetcher = useFetcher<typeof action>();
 	const sensors = useSensors(
@@ -2223,14 +1943,19 @@ function FieldList({
 			coordinateGetter: sortableKeyboardCoordinates,
 		}),
 	);
+	// Optimistic order derives from the in-flight submission (like FieldRow's
+	// required toggle) — no state to reconcile once the loader catches up.
+	const pendingOrder = reorderFetcher.formData?.get("order");
 	const ordered = useMemo(() => {
+		if (typeof pendingOrder !== "string") return rows;
 		const byId = new Map(rows.map((r) => [r.id, r]));
-		const kept = order
-			.filter((id) => byId.has(id))
-			.map((id) => byId.get(id) as Placement);
-		const known = new Set(order);
+		const kept = pendingOrder
+			.split(",")
+			.flatMap((id) => byId.get(id) ?? [])
+			.map((r) => r as Placement);
+		const known = new Set(pendingOrder.split(","));
 		return [...kept, ...rows.filter((r) => !known.has(r.id))];
-	}, [rows, order]);
+	}, [rows, pendingOrder]);
 
 	return (
 		<Panel>
@@ -2248,7 +1973,6 @@ function FieldList({
 						ids.indexOf(String(active.id)),
 						ids.indexOf(String(over.id)),
 					);
-					setOrder(next);
 					reorderFetcher.submit(
 						{ intent: "reorder", section, order: next.join(",") },
 						{ method: "post" },
@@ -2321,11 +2045,15 @@ function LibraryPicker({
 				aria-label="Search the field library"
 			/>
 			{results.length === 0 ? (
-				<p>
-					{q.trim()
-						? `No library fields match “${q.trim()}”.`
-						: "The field library is empty — create a new field instead."}
-				</p>
+				<EmptyState
+					icon="search"
+					title={q.trim() ? "No fields match" : "The field library is empty"}
+					body={
+						q.trim()
+							? `Nothing named “${q.trim()}” — try another search, or create a new field.`
+							: "Create a new field instead — it lands in the library for reuse across forms."
+					}
+				/>
 			) : (
 				results.map((f) => {
 					const placed = placedFieldIds.has(f.id);
@@ -2568,6 +2296,35 @@ function RoleConfig({
 	form: LoaderData["form"];
 	errors: Record<string, string[]> | undefined;
 }) {
+	const roles = [
+		{
+			label: "Speaker",
+			minName: "roleSpeakerMin",
+			maxName: "roleSpeakerMax",
+			allowName: null,
+			allowOn: true,
+			min: form.roleSpeakerMin,
+			max: form.roleSpeakerMax,
+		},
+		{
+			label: "Chairperson",
+			minName: "roleChairpersonMin",
+			maxName: "roleChairpersonMax",
+			allowName: "allowChairperson",
+			allowOn: form.allowChairperson,
+			min: form.roleChairpersonMin,
+			max: form.roleChairpersonMax,
+		},
+		{
+			label: "Moderator",
+			minName: "roleModeratorMin",
+			maxName: "roleModeratorMax",
+			allowName: "allowModerator",
+			allowOn: form.allowModerator,
+			min: form.roleModeratorMin,
+			max: form.roleModeratorMax,
+		},
+	];
 	return (
 		<Panel>
 			<div className="flex flex-col gap-4">
@@ -2576,100 +2333,45 @@ function RoleConfig({
 					How many people can be added per submission. Speakers default to a
 					minimum of 1 — raise it only if every session truly needs more.
 				</p>
-				<div className="flex flex-wrap items-end gap-3">
-					<Field label="Speaker minimum" error={errors?.roleSpeakerMin?.[0]}>
-						<Input
-							name="roleSpeakerMin"
-							type="number"
-							min={0}
-							max={50}
-							defaultValue={form.roleSpeakerMin}
-							form="builder-form"
-							invalid={Boolean(errors?.roleSpeakerMin?.[0])}
-						/>
-					</Field>
-					<Field label="Speaker maximum" error={errors?.roleSpeakerMax?.[0]}>
-						<Input
-							name="roleSpeakerMax"
-							type="number"
-							min={1}
-							max={50}
-							defaultValue={form.roleSpeakerMax ?? ""}
-							placeholder="No limit"
-							form="builder-form"
-						/>
-					</Field>
-				</div>
-				<div className="flex flex-wrap items-end gap-3">
-					<OnOffSelect
-						label="Chairperson role"
-						name="allowChairperson"
-						defaultOn={form.allowChairperson}
-					/>
-					<Field
-						label="Chairperson minimum"
-						error={errors?.roleChairpersonMin?.[0]}
-					>
-						<Input
-							name="roleChairpersonMin"
-							type="number"
-							min={0}
-							max={50}
-							defaultValue={form.roleChairpersonMin}
-							form="builder-form"
-							invalid={Boolean(errors?.roleChairpersonMin?.[0])}
-						/>
-					</Field>
-					<Field
-						label="Chairperson maximum"
-						error={errors?.roleChairpersonMax?.[0]}
-					>
-						<Input
-							name="roleChairpersonMax"
-							type="number"
-							min={1}
-							max={50}
-							defaultValue={form.roleChairpersonMax ?? ""}
-							placeholder="No limit"
-							form="builder-form"
-						/>
-					</Field>
-				</div>
-				<div className="flex flex-wrap items-end gap-3">
-					<OnOffSelect
-						label="Moderator role"
-						name="allowModerator"
-						defaultOn={form.allowModerator}
-					/>
-					<Field
-						label="Moderator minimum"
-						error={errors?.roleModeratorMin?.[0]}
-					>
-						<Input
-							name="roleModeratorMin"
-							type="number"
-							min={0}
-							max={50}
-							defaultValue={form.roleModeratorMin}
-							form="builder-form"
-							invalid={Boolean(errors?.roleModeratorMin?.[0])}
-						/>
-					</Field>
-					<Field
-						label="Moderator maximum"
-						error={errors?.roleModeratorMax?.[0]}
-					>
-						<Input
-							name="roleModeratorMax"
-							type="number"
-							min={1}
-							max={50}
-							defaultValue={form.roleModeratorMax ?? ""}
-							placeholder="No limit"
-							form="builder-form"
-						/>
-					</Field>
-				</div>
+				{roles.map((role) => (
+					<div key={role.label} className="flex flex-wrap items-end gap-3">
+						{role.allowName && (
+							<OnOffSelect
+								label={`${role.label} role`}
+								name={role.allowName}
+								defaultOn={role.allowOn}
+							/>
+						)}
+						<Field
+							label={`${role.label} minimum`}
+							error={errors?.[role.minName]?.[0]}
+						>
+							<Input
+								name={role.minName}
+								type="number"
+								min={0}
+								max={50}
+								defaultValue={role.min}
+								form="builder-form"
+								invalid={Boolean(errors?.[role.minName]?.[0])}
+							/>
+						</Field>
+						<Field
+							label={`${role.label} maximum`}
+							error={errors?.[role.maxName]?.[0]}
+						>
+							<Input
+								name={role.maxName}
+								type="number"
+								min={1}
+								max={50}
+								defaultValue={role.max ?? ""}
+								placeholder="No limit"
+								form="builder-form"
+							/>
+						</Field>
+					</div>
+				))}
 			</div>
 		</Panel>
 	);
@@ -2724,31 +2426,12 @@ function SubmissionsView({ data: d }: { data: LoaderData }) {
 					)}
 				</TBody>
 			</Table>
-			{d.viewPages > 1 && (
-				<div className="flex items-center gap-2">
-					<TableFooter>
-						Page {d.viewPage} of {d.viewPages} · {d.viewTotal} total
-					</TableFooter>
-					<div className="ml-auto flex gap-2">
-						{d.viewPage > 1 && (
-							<ButtonLink
-								variant="ghost"
-								to={`/admin/forms/${d.form.id}?view=${d.view}&page=${d.viewPage - 1}`}
-							>
-								← Previous
-							</ButtonLink>
-						)}
-						{d.viewPage < d.viewPages && (
-							<ButtonLink
-								variant="ghost"
-								to={`/admin/forms/${d.form.id}?view=${d.view}&page=${d.viewPage + 1}`}
-							>
-								Next →
-							</ButtonLink>
-						)}
-					</div>
-				</div>
-			)}
+			<PaginationBar
+				page={d.viewPage}
+				pages={d.viewPages}
+				total={d.viewTotal}
+				hrefFor={(p) => `/admin/forms/${d.form.id}?view=${d.view}&page=${p}`}
+			/>
 		</div>
 	);
 }

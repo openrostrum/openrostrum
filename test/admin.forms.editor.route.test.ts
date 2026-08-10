@@ -14,11 +14,8 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import {
-	sanitizeRichText,
-	utcToZonedInputs,
-	zonedTimeToUtc,
-} from "../app/lib/forms";
+import { utcToZonedInputs, zonedTimeToUtc } from "../app/lib/forms";
+import { sanitizeRichText } from "../app/lib/forms.server";
 import { action, loader } from "../app/routes/admin.forms.$formId";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };

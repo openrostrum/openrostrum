@@ -93,3 +93,11 @@ delete rev. 2 (zombie rows → honor-the-delete) and webhook-first sync live in
 | K15 | **Triple gate (accepted → content-approved → agenda-published) reads as a bug** without affordances | FIXED (SCOPE P1 #18): accept spine sets `contentStatus='in_review'`; bulk "Approve all accepted"; dashboard alert "N accepted sessions aren't public yet"; Published/Unpublished chip on the agenda header. Supersedes K10's "stays draft" note — gate mechanics unchanged |
 | K16 | **CSV import deduped silently** ("imported 100, why 97?") | FIXED (SCOPE P1 #17): import ends on a summary — added / merged-by-email / skipped with per-row reasons |
 | K17 | **Task reminder never re-fires after a deadline extension** (one-shot `reminderSentAt`) | FIXED (SCOPE P1 #17): editing `dueAt` clears `reminderSentAt`; reminder `dedupeKey` includes the due date so outbox idempotency doesn't block the re-send |
+
+## Form-builder lane escalations (2026-08-10) — integration-owner dispositions needed
+
+| # | Request | Why |
+|---|---------|-----|
+| F1 | **Promote the form-builder interims into `app/ui`**: `RichText` (Tiptap, lift from `admin.forms.$formId.tsx` — the email + public-CFP lanes need WYSIWYG next and must not mint editor #2), `ConfirmDialog`, `Menu` (⋯ actions), `SortableRow` (owns drag transform/transition + drag-state skin; also closes the ref-callback inline-style gap `ui-primitives-only` can't see), `Switch` (On/Off selects are the stand-in), and move `FORM_STATUS_TONE` beside `SUBMISSION_STATUS_TONE` | The lane is hook-blocked from `app/ui/`; until promotion the repo carries route-local stand-ins that violate the shared-primitive rule |
+| F2 | **Seed the demo forms' built-in placements** (`form_fields` rows with `builtin_ref` for the three seed forms, per `defaultBuiltinPlacements` in `app/lib/forms.ts`) | Until then pre-builder forms need the editor's explicit "Set up built-in questions" action, and the public renderer must handle builtin-less forms |
+| F3 | **ROUTE-MAP question**: may the forms list move to `admin.forms._index.tsx` (list) so the editor stops paying a discarded layout-loader run per navigation? | Flat routes make `admin.forms.tsx` the editor's layout; the lane carries a pathname short-circuit + `useOutlet` bail as the in-boundary workaround |

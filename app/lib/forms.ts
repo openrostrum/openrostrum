@@ -1,10 +1,13 @@
+import type { formFields } from "~/db/schema";
 import type { BadgeTone } from "~/ui";
 
 /**
  * Form-domain contracts shared across lanes: the admin builder WRITES form
  * definitions, the public CFP renderer READS them — both must agree on when a
  * form accepts submissions, how event-timezone close instants are computed,
- * and what rich-text HTML is trusted.
+ * and what the built-in questions are. Pure data/functions only (this module
+ * is client-bundled); the D1 reads and the sanitizer live in
+ * `./forms.server`.
  */
 
 export type FormStatus = "draft" | "open" | "closed";
@@ -26,6 +29,232 @@ export const FORM_STATUS_TONE: Record<FormStatus, BadgeTone> = {
 	closed: "neutral",
 	draft: "faint",
 };
+
+/* ------------------------------------------------------------- built-ins --- */
+
+export type BuiltinRef = NonNullable<
+	(typeof formFields.$inferSelect)["builtinRef"]
+>;
+export type FormSectionId = (typeof formFields.$inferSelect)["section"];
+
+export type BuiltinMeta = {
+	label: string;
+	caption: string;
+	section: FormSectionId;
+	/** Placed automatically on every new form. */
+	defaultOn: boolean;
+	/** Cannot be removed from a form. */
+	locked: boolean;
+	/** Required state is fixed ON (identity fields + Title). */
+	requiredLocked: boolean;
+	defaultRequired: boolean;
+	/** Eligible as a question-rule trigger (dropdown-backed built-ins). */
+	trigger: boolean;
+};
+
+// Keys are type-checked against the schema's BUILTIN_FIELD enum so the two
+// can never drift.
+export const BUILTIN_META = {
+	title: {
+		label: "Title",
+		caption: "Text · max 255",
+		section: "session",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: true,
+		defaultRequired: true,
+		trigger: false,
+	},
+	description: {
+		label: "Description",
+		caption: "Rich text · max 5,000",
+		section: "session",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: false,
+		defaultRequired: true,
+		trigger: false,
+	},
+	format: {
+		label: "Format",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	tags: {
+		label: "Tags",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	track: {
+		label: "Track",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	level: {
+		label: "Level",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	language: {
+		label: "Language",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	first_name: {
+		label: "First name",
+		caption: "Text · max 255",
+		section: "participant",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: true,
+		defaultRequired: true,
+		trigger: false,
+	},
+	last_name: {
+		label: "Last name",
+		caption: "Text · max 255",
+		section: "participant",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: true,
+		defaultRequired: true,
+		trigger: false,
+	},
+	email: {
+		label: "Email",
+		caption: "Email",
+		section: "participant",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: true,
+		defaultRequired: true,
+		trigger: false,
+	},
+	mobile_phone: {
+		label: "Mobile phone",
+		caption: "Phone",
+		section: "participant",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	home_phone: {
+		label: "Home phone",
+		caption: "Phone",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	biography: {
+		label: "Biography",
+		caption: "Rich text · max 5,000",
+		section: "participant",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	company_name: {
+		label: "Company name",
+		caption: "Text · max 255",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	job_title: {
+		label: "Job title",
+		caption: "Text · max 255",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	headshot: {
+		label: "Headshot",
+		caption: "File upload",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	zip: {
+		label: "Zip / postal code",
+		caption: "Text",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+} as const satisfies Record<BuiltinRef, BuiltinMeta>;
+
+export const BUILTIN_ORDER = Object.keys(BUILTIN_META) as BuiltinRef[];
+
+/** Library field types eligible to TRIGGER a question rule. */
+export const RULE_TRIGGER_FIELD_TYPES = [
+	"dropdown",
+	"checkbox",
+	"number",
+] as const;
+
+/** The placements every new form starts with, in Sessionboard's default order. */
+export function defaultBuiltinPlacements(
+	formId: string,
+): Array<typeof formFields.$inferInsert> {
+	const nextPos: Record<FormSectionId, number> = { session: 0, participant: 0 };
+	return BUILTIN_ORDER.filter((ref) => BUILTIN_META[ref].defaultOn).map(
+		(ref) => {
+			const meta = BUILTIN_META[ref];
+			return {
+				formId,
+				builtinRef: ref,
+				section: meta.section,
+				position: nextPos[meta.section]++,
+				required: meta.defaultRequired,
+				locked: meta.locked,
+			};
+		},
+	);
+}
 
 /* ------------------------------------------------------------- timezones --- */
 
@@ -93,78 +322,4 @@ export function utcToZonedInputs(
 		date: `${p.year}-${p.month}-${p.day}`,
 		time: `${hour}:${p.minute}`,
 	};
-}
-
-/* ------------------------------------------------------------- rich text --- */
-
-// What the shared editor produces; everything else is attack surface — the
-// public CFP pages render this HTML to anonymous visitors.
-const ALLOWED_TAGS = new Set([
-	"p",
-	"strong",
-	"em",
-	"u",
-	"s",
-	"a",
-	"ul",
-	"ol",
-	"li",
-	"br",
-	"h2",
-	"h3",
-	"blockquote",
-	"code",
-]);
-
-// Removed WITH their contents — keeping a script's source as visible text
-// would be safe but garbage.
-const DROPPED_TAGS = new Set([
-	"script",
-	"style",
-	"iframe",
-	"object",
-	"embed",
-	"link",
-	"meta",
-	"base",
-	"form",
-]);
-
-/**
- * Allowlist sanitizer for stored rich text, enforced at the WRITE boundary so
- * a forged POST can't smuggle markup past the editor. Built on the runtime's
- * HTMLRewriter — the dependency set is frozen, so no DOMPurify.
- */
-export async function sanitizeRichText(html: string): Promise<string> {
-	if (!html) return "";
-	const rewriter = new HTMLRewriter().on("*", {
-		element(el) {
-			const tag = el.tagName.toLowerCase();
-			if (DROPPED_TAGS.has(tag)) {
-				el.remove();
-				return;
-			}
-			if (!ALLOWED_TAGS.has(tag)) {
-				el.removeAndKeepContent();
-				return;
-			}
-			const href = tag === "a" ? el.getAttribute("href") : null;
-			const names: string[] = [];
-			// workerd yields [name, value] tuples; the TS lib may type the
-			// iterator as DOM Attr — handle both shapes.
-			for (const attr of el.attributes) {
-				names.push(
-					Array.isArray(attr)
-						? String(attr[0])
-						: (attr as unknown as { name: string }).name,
-				);
-			}
-			for (const name of names) el.removeAttribute(name);
-			if (href && /^(https?:\/\/|mailto:)/i.test(href.trim())) {
-				el.setAttribute("href", href.trim());
-				el.setAttribute("rel", "noopener noreferrer");
-			}
-		},
-	});
-	return await rewriter.transform(new Response(html)).text();
 }

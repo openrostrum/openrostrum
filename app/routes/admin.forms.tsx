@@ -171,6 +171,41 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	);
 }
 
+/** Shared by the list and the editor's results views (this file is the
+ * editor's flat-route layout, so it is always in both bundles). */
+export function PaginationBar({
+	page,
+	pages,
+	total,
+	hrefFor,
+}: {
+	page: number;
+	pages: number;
+	total: number;
+	hrefFor: (page: number) => string;
+}) {
+	if (pages <= 1) return null;
+	return (
+		<div className="flex items-center gap-2">
+			<TableFooter>
+				Page {page} of {pages} · {total} total
+			</TableFooter>
+			<div className="ml-auto flex gap-2">
+				{page > 1 && (
+					<ButtonLink variant="ghost" to={hrefFor(page - 1)}>
+						← Previous
+					</ButtonLink>
+				)}
+				{page < pages && (
+					<ButtonLink variant="ghost" to={hrefFor(page + 1)}>
+						Next →
+					</ButtonLink>
+				)}
+			</div>
+		</div>
+	);
+}
+
 function listHref(tab: string, q: string, page = 1): string {
 	const params = new URLSearchParams();
 	if (tab !== "all") params.set("tab", tab);
@@ -416,25 +451,12 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 				</div>
 			)}
 
-			{pages > 1 && (
-				<div className="flex items-center gap-2">
-					<TableFooter>
-						Page {page} of {pages} · {total} total
-					</TableFooter>
-					<div className="ml-auto flex gap-2">
-						{page > 1 && (
-							<ButtonLink variant="ghost" to={listHref(tab, q, page - 1)}>
-								← Previous
-							</ButtonLink>
-						)}
-						{page < pages && (
-							<ButtonLink variant="ghost" to={listHref(tab, q, page + 1)}>
-								Next →
-							</ButtonLink>
-						)}
-					</div>
-				</div>
-			)}
+			<PaginationBar
+				page={page}
+				pages={pages}
+				total={total}
+				hrefFor={(p) => listHref(tab, q, p)}
+			/>
 
 			{deleteTarget && (
 				<DeleteFormDialog
