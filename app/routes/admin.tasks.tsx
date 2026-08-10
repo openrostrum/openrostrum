@@ -724,12 +724,16 @@ export async function action({ context, request }: Route.ActionArgs) {
 				submissionId: null,
 			}));
 		}
-		// One assignment per (task, contact): dedupe candidates, then let the
-		// unique index absorb replays (idempotent re-assign).
+		// One assignment per idempotency scope — (task, contact) for contact
+		// tasks, (task, contact, submission) for submission tasks, so a
+		// multi-talk speaker gets one row per accepted talk. Dedupe candidates,
+		// then let the partial unique indexes absorb replays (idempotent
+		// re-assign).
 		const seen = new Set<string>();
 		const unique = candidates.filter((c) => {
-			if (seen.has(c.contactId)) return false;
-			seen.add(c.contactId);
+			const key = `${c.contactId}:${c.submissionId ?? ""}`;
+			if (seen.has(key)) return false;
+			seen.add(key);
 			return true;
 		});
 		if (unique.length === 0) {
@@ -752,9 +756,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 								dueAt,
 							})),
 						)
-						.onConflictDoNothing({
-							target: [taskAssignments.taskId, taskAssignments.contactId],
-						})
+						// Targetless: the conflict may land on either partial unique
+						// index (contact scope or submission scope), and SQLite's ON
+						// CONFLICT target cannot address a partial index without
+						// repeating its WHERE clause.
+						.onConflictDoNothing()
 						.returning({ id: taskAssignments.id });
 					added += inserted.length;
 				}
