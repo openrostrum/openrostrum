@@ -267,11 +267,13 @@ export function roleCountLabel(
 	count: number,
 	roleLabel = "Speakers",
 ): string {
+	const added = `${count} added`;
+	if (limits.max === null) {
+		return `At least ${limits.min} ${roleLabel} · ${added}`;
+	}
 	const range =
-		limits.max === null || limits.max === limits.min
-			? `${limits.min}`
-			: `${limits.min}–${limits.max}`;
-	return `${range} ${roleLabel} allowed · ${count} added`;
+		limits.max === limits.min ? `${limits.min}` : `${limits.min}–${limits.max}`;
+	return `${range} ${roleLabel} allowed · ${added}`;
 }
 
 export type ParticipantErrors = {
