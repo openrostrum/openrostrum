@@ -70,12 +70,22 @@ export const authSessions = sqliteTable(
 	(t) => [index("auth_sessions_user_idx").on(t.userId)],
 );
 
-/** Also backs invites: a sentinel-hash user + one of these tokens = set-password onboarding. */
+/**
+ * Also backs invites: a sentinel-hash user + one of these tokens = set-password
+ * onboarding. `organizationId` is the mint-time intent discriminator: set = an
+ * org-member invite (the accept flow creates the membership); NULL = speaker /
+ * reviewer / plain password reset — the accept flow must derive what a token
+ * grants from this column, never from which route redeems it.
+ */
 export const passwordResets = sqliteTable("password_resets", {
 	id: id(),
 	userId: text("user_id")
 		.notNull()
 		.references(() => users.id, { onDelete: "cascade" }),
+	organizationId: text("organization_id").references(
+		(): AnySQLiteColumn => organizations.id,
+		{ onDelete: "cascade" },
+	),
 	token: text("token").notNull().unique(),
 	expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
 	usedAt: integer("used_at", { mode: "timestamp" }),

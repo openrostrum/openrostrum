@@ -1,0 +1,1 @@
+ALTER TABLE `password_resets` ADD `organization_id` text REFERENCES organizations(id);

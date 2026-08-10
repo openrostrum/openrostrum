@@ -776,3 +776,378 @@ today) or withdrawal must clear the scheduling columns; state which.
 
 **EXPERIENCE.** One portal dialog (fetcher + validation errors in place); admin sees it in
 the Withdrawn tab on next load via the count query. `OK` by design shape.
+
+---
+
+## Re-walk 2026-08-10 — tenancy migration (Wave A gate)
+
+Re-walked every step of every scenario against the landed Wave-A schema
+(`app/db/schema.ts`: `organizations`, `organization_members`,
+`events.organizationId` NOT NULL FK, `api_tokens.organizationId` NOT NULL +
+nullable `eventId`, `fields.scope` dropped → org/event XOR), the rewritten
+`drizzle/seed.sql` (`org_demo` · member `om_admin`(u_admin) · `e_demo` org-attached),
+`app/lib/auth.ts` (unchanged in Wave A — role-based `requireAdmin`, any-event
+fallback still present), `docs/multi-tenancy-design.md`, and `docs/ROUTE-MAP.md`.
+
+**Reviewer model, stated up front (this suite is reviewer-heavy):** the membership
+model does NOT apply to reviewers. Design doc: *"Reviewers already have an
+event-scoped path via reviewer assignments"* (§Verified Sessionboard shape,
+consequences para) and *"`users.role` remains through this design (membership
+gates *which events*; the enum gates *which surface* — orthogonal checks)"*
+(§Authorization). A reviewer gets `users.role='reviewer'` + `reviewer_tracks`
+rows and **no `organization_members` row** — minting one would make them a full
+equal-admin of the org (there is no role column to say otherwise). Every reviewer
+artifact below is checked against `events.organizationId` NOT NULL: none of the
+reviewer writes/reads touch `events` columns, so all survive.
+
+**Prior-gap status observed during this re-walk (not tenancy-caused, recorded for
+truth):** the `portals` table now exists in `schema.ts` (+ seeded `portal_demo`)
+and ROUTE-MAP pins `portals.$eventSlug.$portalId.tsx` — **G5's missing-table half
+is resolved**; the route file is still todo. ROUTE-MAP now also pins
+`set-password.$token.tsx` (G3), `reviews.tsx`/`reviews.$id.tsx` (G4), and
+`admin.reviewers.tsx` (G21's route half) — the route-collision risk is closed,
+the files remain unbuilt so G3/G4 stand as blockers until they exist.
+
+### New gaps from this re-walk
+
+| # | Step(s) | Gap | Severity |
+|---|---|---|---|
+| G23 | RV-S3.2 | `email_suppressions` stayed GLOBAL (no `organizationId` — the migration didn't touch it): one unsubscribe list across tenants, so an address that unsubscribes from Demo-org announcements is suppressed for every org's bulk sends. Defensible as person-level opt-out, but it's now a cross-tenant data flow the design doc doesn't record. Decide + state (global person-level opt-out vs per-org suppression) in the same doc that resolves G14 — the suppression check is being specified there anyway. | MINOR |
+| G24 | RV-S6.4 (also hits RV-S7.1) | Reviewer surfaces have NO stated event-resolution rule under membership-gated auth. Post-Wave-B `getActiveEvent(env, reviewer)` returns **null** by design ("first event across MY orgs, else null" — reviewers have no orgs, and must not). CLAUDE.md's house rule ("NEVER hardcode `findMany({limit:1})` — call getActiveEvent") actively steers the G4 route builder into the null path → empty/broken My Reviews queue after Wave B, judge-visible (P0 #5). The design doc's Wave-B regression line ("speaker/reviewer landing unchanged") commits a CHECK but no mechanism, and `/reviews` doesn't exist yet to be regression-checked. Fix is one binding sentence where G4's route is built: reviewer surfaces derive event scope from `reviewer_tracks → tracks.event_id` (artifact at RV-S6.4), never `getActiveEvent`, + a no-membership-user test on Wave B's `getActiveEvent` change. | MAJOR |
+
+No other verdict below depends on uncommitted work: steps that lean on Wave B/C/D
+behavior cite the design-doc line that commits it.
+
+### RV-S1 step 1 — CHANGED
+
+The seed baseline now REQUIRES tenancy rows — `events.organizationId` is NOT NULL,
+so the baseline event cannot exist without its org. The landed `drizzle/seed.sql`
+already carries the shape (real SQL, verified in this worktree):
+
+```sql
+INSERT INTO organizations (id, name, created_at) VALUES
+ ('org_demo', 'Demo', unixepoch());
+
+INSERT INTO organization_members (id, organization_id, user_id, created_at) VALUES
+ ('om_admin', 'org_demo', 'u_admin', unixepoch());
+
+INSERT INTO events (id, organization_id, name, slug, type, timezone, starts_at, ends_at, created_at) VALUES
+ ('e_demo', 'org_demo', 'AI.Engineer Sandbox Event', 'ai-engineer-sandbox', 'Conference',
+  'America/Los_Angeles', unixepoch('2026-10-12'), unixepoch('2026-10-14'), unixepoch());
+```
+
+**Consequence for G2 (still BLOCKER, scope grows one row):** the 300-submission
+baseline rewrite this suite's header specifies must mint these three rows first —
+an events INSERT without `organization_id` now fails at `db:reset`, which is the
+right failure. Login itself is unchanged (`users.role='admin'` survives — design
+doc §Product model: the enum lives, `homePathForRole` keys off it). `getActiveEvent`
+is unchanged in Wave A and the seed sets `u_admin.active_event_id='e_demo'`, so the
+any-event fallback is unreached; the Wave-B membership check passes for this seat:
+
+```sql
+SELECT 1 FROM organization_members om
+JOIN events e ON e.organization_id = om.organization_id
+WHERE om.user_id = 'u_admin' AND e.id = 'e_demo';   -- 1 row → access (covered: Wave B, design §Authorization bullet 1)
+```
+
+### RV-S1 step 2 — UNCHANGED
+The grouped-count query is keyed on `submissions.event_id`; `submissions` gained no
+org column (org is derived via the event, never stored where derivable — design
+§Schema). `:eventId` still arrives via `getActiveEvent` (Wave A code unchanged;
+Wave B membership check covered, see step 1).
+
+### RV-S1 step 3 — UNCHANGED
+Pagination query filters `event_id + status` only — no tenancy column in the
+predicate, index `submissions_event_status_idx` untouched by the migration.
+
+### RV-S1 step 4 — UNCHANGED
+Search is the step-3 predicate + `title LIKE` — no tenancy surface.
+
+### RV-S1 step 5 — UNCHANGED
+Sorts reorder the same event-scoped rows; no tenancy column.
+
+### RV-S1 step 6 — UNCHANGED
+`status='pending'` variant of the same event-scoped query.
+
+### RV-S1 step 7 — UNCHANGED
+Abstracts/Sessions split adds `AND type=…` to the same event-scoped predicate;
+`type` and the routes are untouched by the migration.
+
+### RV-S1 step 8 — UNCHANGED
+Empty state is a render branch on 0 rows from the step-4 query; no tenancy surface.
+
+### RV-S2 step 1 — UNCHANGED
+The inline-flip action writes `submissions.status/status_changed_at/updated_at`
+scoped by `id + event_id` — no tenancy column in the statement. `requireAdmin` is
+Wave-A-unchanged (role check); its swap to a membership check is covered: Wave B
+(design §Authorization: "The admin guard swaps the global-role check for a
+membership check") — the seeded admin passes via `om_admin` (RV-S1.1 artifact).
+G9/G22 stand as filed.
+
+### RV-S2 step 2 — UNCHANGED
+Loader revalidation re-runs the RV-S1.2 event-scoped count query; nothing tenant-
+shaped in the round trip.
+
+### RV-S2 step 3 — UNCHANGED
+Same UPDATE, different status value and fixture.
+
+### RV-S2 step 4 — UNCHANGED
+`email_outbox` gained no org column (its nullable `event_id` ref is untouched);
+the zero-rows assertion queries recipients + `sent_at` only.
+
+### RV-S2 step 5 — UNCHANGED
+The portal projection reads `submissions.status` only — no tenancy input. Speaker
+portal access is deliberately NOT membership-gated (speakers aren't org members;
+membership gates admin surfaces — design §Authorization; row-level `eventId`
+verification continues per flows/09). Note: G5's schema half is resolved — the
+`portals` table + seeded `portal_demo` now exist and `$portalId` resolves to
+`portals.public_id`; route file still todo, so portal reachability still pends
+the Wave-2 build.
+
+### RV-S2 step 6 — UNCHANGED
+Same projection, Tom's session; same reasoning as step 5.
+
+### RV-S2 step 7 — UNCHANGED
+Committed UPDATEs re-read by the event-scoped queries; no tenancy surface.
+
+### RV-S3 step 1 — UNCHANGED
+Client-side selection over the event-scoped Accept-Queue query; UI only.
+
+### RV-S3 step 2 — GAP (G23 [MINOR] — send artifact itself unchanged)
+Template lookup (`email_templates` is event-scoped, untouched) and the port loop
+are byte-identical to the 2026-08-09 artifact; G6/G7/G14 stand as filed. The
+tenancy determination that IS new: `email_suppressions` remains a single global
+table — under multi-tenancy the stated bulk-suppression behavior (G14) now reads
+across the org boundary (org A's unsubscribe silently suppresses org B's sends).
+`GAP G23 [MINOR]` — record the decision (global person-level opt-out vs per-org)
+wherever G14's suppression mechanics get pinned.
+
+### RV-S3 step 3 — UNCHANGED
+Bulk flip UPDATE is `id IN (…) AND event_id = :eventId` — no tenancy column; the
+spine it triggers writes only event-scoped tables (see RV-S4.2). G1 applies as filed.
+
+### RV-S3 step 4 — UNCHANGED
+Grouped-count re-read; event-scoped.
+
+### RV-S3 step 5 — UNCHANGED
+Outbox assertion + `notified_at` stamp touch `email_outbox`/`submissions` only —
+neither gained a tenancy column. G10 stands.
+
+### RV-S3 step 6 — UNCHANGED
+`.ics` builds from `submissions.starts_at/ends_at` with the `events.starts_at/ends_at`
+fallback — `events` gained `organization_id` but the dates the artifact reads are
+untouched. G8 stands.
+
+### RV-S3 step 7 — UNCHANGED
+Dedupe mechanics are org-safe without modification: `email_outbox.dedupe_key` is a
+GLOBAL unique, but the proposed recipe `accept:{templateId}:{submissionId}:{to}`
+is built from UUIDs that are unique across orgs, so no cross-tenant collision is
+possible. G6 (the recipe is still only a proposal) stands as filed.
+
+### RV-S3 step 8 — UNCHANGED
+Portal projection of `accepted` — same reasoning as RV-S2.5 (G5 schema half resolved).
+
+### RV-S4 step 1 — UNCHANGED
+Pre-state queries read `submissions`/`task_assignments`/`tasks`/`contacts` — all
+event-scoped, none gained a tenancy column.
+
+### RV-S4 step 2 — UNCHANGED
+`acceptSubmission()` writes `submissions` + `task_assignments` and reads
+`participants`/`tasks` — zero tenancy columns in any statement; the org is derivable
+from `event_id` and correctly never stored on these rows (design §Schema XOR
+rationale). G1 [BLOCKER] and G12 stand exactly as filed — the migration added no
+constraint to `task_assignments`.
+
+### RV-S4 step 3 — UNCHANGED
+All three artifact queries (participants join, accepted+unscheduled row, assignment
+count) are event-scoped reads; no tenancy surface.
+
+### RV-S4 step 4 — UNCHANGED
+Jun's portal task query joins `users → contacts → task_assignments` — no org hop.
+Tenancy check made explicitly: co-speaker user provisioning (G11, still open) must
+NOT mint an `organization_members` row — speakers are not org members (design
+§Verified shape: membership = equal org ADMINS). Whatever resolves G11 stays inside
+`users`/`contacts`.
+
+### RV-S4 step 5 — UNCHANGED
+Outbox-empty assertion; the spine still contains no port call. No tenancy surface.
+
+### RV-S4 step 6 — UNCHANGED
+Idempotency inventory is identical: `participants`/`contacts` uniques survive the
+migration untouched; `task_assignments` still has NO unique — G1 [BLOCKER] is
+unchanged by tenancy and still the step that fails.
+
+### RV-S5 step 1 — UNCHANGED
+Locating the fixture is the RV-S1.6-shaped event-scoped queue query.
+
+### RV-S5 step 2 — UNCHANGED
+The one-click action composes `requireAdmin` (Wave-A role check; membership swap
+covered: Wave B, design §Authorization) + the RV-S4 spine + the RV-S3 send — all
+walked above, no tenancy column anywhere in the composition. SCENARIO-ERROR
+("optional" tier mismatch) stands as filed.
+
+### RV-S5 step 3 — UNCHANGED
+One-pass verification queries are the RV-S3/S4 event-scoped artifacts verbatim.
+
+### RV-S5 step 4 — UNCHANGED
+Double-click = G1 + G6 exactly as filed; the migration added no mechanism and
+removed none.
+
+### RV-S5 step 5 — UNCHANGED
+Ines's portal — RV-S2.5 reasoning (G5 schema half resolved); G11 note as at RV-S4.4.
+
+### RV-S6 step 1 — UNCHANGED
+The reviewer-provisioning writes survive the migration untouched — verified column
+by column against the new schema: `users` (role `'reviewer'` — the enum SURVIVES
+Wave A and its removal is a registered follow-up, design §Authorization closing
+para), `reviewer_tracks` (user↔track, event scope derived via `tracks.event_id`),
+`password_resets` (user-scoped). None references `events` directly, so
+`events.organizationId` NOT NULL cannot break them:
+
+```sql
+INSERT INTO users (id, email, password_hash, name, role, created_at)
+VALUES (:uid, 'rosa.delgado@example.com', :placeholder_hash, 'Rosa Delgado', 'reviewer', unixepoch());
+INSERT INTO reviewer_tracks (user_id, track_id) VALUES (:uid, :t_ai_infra), (:uid, :t_devex);
+INSERT INTO password_resets (id, user_id, token, expires_at, created_at)
+VALUES (:rid, :uid, :token, unixepoch() + 86400*7, unixepoch());
+-- Deliberately NO organization_members row: membership = equal org admin
+-- (no role column to say otherwise); a reviewer must never get one.
+```
+
+Route note: ROUTE-MAP now pins `admin.reviewers.tsx` — G21's unpinned-route half
+resolved; template/landing halves stand.
+
+### RV-S6 step 2 — UNCHANGED
+Invite send: port + `email_outbox` untouched by the migration; dedupeKey
+`reviewer_invite:{userId}:{token}` is UUID-composed → globally unique, no
+cross-tenant collision.
+
+### RV-S6 step 3 — UNCHANGED
+Set-password artifact writes `users.password_hash` + `password_resets.used_at` and
+mints an `auth_sessions` row — none touched by the migration. Redirect target
+`/reviews` per `homePathForRole('reviewer')`, which keys off the SURVIVING role
+enum (design §Product model item 1). ROUTE-MAP now pins `set-password.$token.tsx`,
+closing G3's collision risk; the file is still todo so G3 stands until built.
+
+### RV-S6 step 4 — GAP (G24 [MAJOR] — queue join itself unchanged)
+The track-overlap join reads `submissions`/`submission_tracks`/`reviewer_tracks` —
+no tenancy columns, survives as written. What the tenancy design breaks is the
+`:eventId` INPUT: the 2026-08-09 artifact scoped by `s.event_id = :eventId` without
+saying where a REVIEWER's event comes from. Post-Wave-B, `getActiveEvent(env, rosa)`
+returns **null** by design (reviewers hold no memberships), and CLAUDE.md's rule
+steers the G4 builder straight into it. `GAP G24 [MAJOR]` (details in this
+re-walk's gap table). The producible artifact under the new schema — event scope
+derived from the reviewer's own assignments, no `getActiveEvent` call:
+
+```sql
+SELECT DISTINCT s.id, s.title, s.status,
+       EXISTS(SELECT 1 FROM reviews r WHERE r.submission_id = s.id AND r.reviewer_id = :rosa) AS reviewed
+FROM submissions s
+JOIN submission_tracks st ON st.submission_id = s.id
+JOIN reviewer_tracks  rt ON rt.track_id = st.track_id AND rt.user_id = :rosa
+JOIN tracks tr          ON tr.id = rt.track_id
+WHERE s.event_id = tr.event_id            -- ← reviewer's event scope = their assigned tracks' events
+  AND s.status NOT IN ('draft')           -- scope: G13, still undefined
+ORDER BY s.created_at DESC LIMIT 25 OFFSET 0;
+```
+
+(A reviewer assigned in two orgs' events sees each event's queue through its own
+tracks — the event-scoped reviewer path the design doc names.) G4 (route unbuilt)
+and G13 stand; ROUTE-MAP now pins `reviews.tsx`/`reviews.$id.tsx`, closing the
+collision half of G4.
+
+### RV-S6 step 5 — UNCHANGED
+Negative routing is structural in the m2m join — no tenancy input.
+
+### RV-S6 step 6 — UNCHANGED
+Many-to-many probe — same join, `SELECT DISTINCT` unchanged.
+
+### RV-S6 step 7 — UNCHANGED
+Review upsert targets `reviews_submission_reviewer_uq` (survives untouched);
+`requireRole(env, request, "reviewer")` keys off the surviving role enum — the
+membership model does not apply (design §Authorization closing para).
+
+### RV-S6 step 8 — UNCHANGED
+Same upsert, UPDATE branch; committed row persists.
+
+### RV-S6 step 9 — UNCHANGED
+Wave A: `requireAdmin` role check throws `redirect("/403")` for role `'reviewer'` —
+byte-identical to the 2026-08-09 artifact (`app/lib/auth.ts` unchanged). Post-Wave-B
+the guard becomes a membership check and Rosa STILL bounces — she has no
+`organization_members` row:
+
+```sql
+SELECT 1 FROM organization_members WHERE user_id = :rosa;   -- 0 rows → 403
+```
+
+Covered: Wave B (design §Authorization admin-guard bullet + "the enum gates which
+surface"). The probe's outcome is invariant across the waves.
+
+### RV-S6 step 10 — UNCHANGED
+Tally queries read `reviews` + `users` — no tenancy columns; the admin surface
+guard is the step-9 story (covered: Wave B). G2 (Ben Ito seed) stands.
+
+### RV-S7 step 1 — GAP (G24 applies — filed at RV-S6.4, not re-filed)
+Opening an item in My Reviews rides the same reviewer event-resolution rule the
+tenancy design leaves unstated; the detail loader's own read
+(`reviews`/`submissions` by id + the track-membership guard) has no tenancy column
+and survives as written. G4 stands for the route file.
+
+### RV-S7 step 2 — UNCHANGED
+Decision-upsert + conditional port call write `reviews`/`email_outbox` — neither
+gained a tenancy column; `requireRole("reviewer")` survives per the role-enum line.
+G18 stands.
+
+### RV-S7 step 3 — UNCHANGED
+Outbox verbatim-body assertion — no tenancy surface.
+
+### RV-S7 step 4 — UNCHANGED
+Three decoupled writes to three tables, none org-scoped; the decoupling is still
+structural.
+
+### RV-S7 step 5 — UNCHANGED
+The `if (feedback)` guard is app logic; no tenancy input.
+
+### RV-S7 step 6 — UNCHANGED
+Portal projection never reads `reviews`; flows/09 hides eval data from the portal
+payload — untouched by the migration (G5 schema half resolved, route still todo).
+
+### RV-S8 step 1 — UNCHANGED
+Portal withdraw dialog: `requireUser` (no role/membership check — speakers are not
+org members by design) + ownership join over `submissions`/`participants`/`contacts` —
+no tenancy columns. G19 stands.
+
+### RV-S8 step 2 — UNCHANGED
+`.min(1)` validation branch is app logic; no tenancy surface.
+
+### RV-S8 step 3 — UNCHANGED
+The withdraw UPDATE writes status/withdrawn_* columns scoped by `id + event_id` —
+none tenancy-touched.
+
+### RV-S8 step 4 — UNCHANGED
+Projection maps `withdrawn → "Withdrawn"` — RV-S2.5 reasoning.
+
+### RV-S8 step 5 — UNCHANGED
+Count + detail queries are event-scoped reads of untouched columns.
+
+### RV-S8 step 6 — UNCHANGED
+`withdrawn_by_id → users.name` join — `users` kept its shape (role enum survives).
+
+### RV-S8 step 7 — UNCHANGED
+Unscheduled-panel filter reads `events.schedulable_statuses` — `events` gained
+`organization_id` but this column and the status filter are untouched. G20 stands.
+
+### RV-S8 step 8 — UNCHANGED
+The step-5/6 queries are the probe; committed rows, no tenancy surface.
+
+### Re-walk tally
+
+58 steps walked · 1 CHANGED (RV-S1.1 — seed baseline gains org/membership rows) ·
+54 UNCHANGED (determination recorded per step) · 3 steps carrying GAP verdicts for
+2 new gaps: **G23 [MINOR]** (global suppression list crosses the org boundary),
+**G24 [MAJOR]** (reviewer event-resolution unstated under membership-gated
+`getActiveEvent`; hits RV-S6.4 + RV-S7.1). All pre-existing gaps (G1–G22) were
+re-checked against the new schema: none is fixed or worsened by the migration
+except as noted inline (G2 grows the three org rows; G3/G4/G21 route-collision
+halves closed by ROUTE-MAP pins; G5's missing-table half resolved by the `portals`
+table).

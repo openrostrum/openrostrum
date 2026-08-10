@@ -112,7 +112,7 @@ INSERT INTO fields (id, event_id, name, type, options, created_at) VALUES
 INSERT INTO form_fields (id, form_id, field_id, section, position, required, question_rule, created_at) VALUES
  ('ff_experience', 'form_sessions', 'fld_experience', 'session', 0, 1, NULL, unixepoch()),
  -- show the notes field only when experience = "Experienced"
- ('ff_notes',      'form_sessions', 'fld_notes',      'session', 1, 0, '{"fieldId":"fld_experience","operator":"equals","value":"Experienced"}', unixepoch());
+ ('ff_notes',      'form_sessions', 'fld_notes',      'session', 1, 0, '{"trigger":{"kind":"field","fieldId":"fld_experience"},"operator":"equals","value":"Experienced"}', unixepoch());
 
 INSERT INTO contacts (id, event_id, user_id, email, first_name, last_name, bio, created_at) VALUES
  ('c_sam',  'e_demo', 'u_speaker', 'speaker@example.com', 'Sam',  'Speaker', 'Builder of agents.',        unixepoch()),

@@ -99,14 +99,14 @@ scenarios:
       - "EXPERIENCE: every add/edit/delete is reflected in its list in under 1 second — creating the 12 records above feels like rapid data entry, never a page-reload-per-row slog."
 
   - id: AE-S4
-    name: Admin manages the custom-field library — all six field types, event vs global scope, edit and delete
+    name: Admin manages the custom-field library — all six field types, event vs org-wide scope, edit and delete
     persona: admin
     steps: |
       1. As admin inside "DevOps Days Lyon 2027", open the Library's Fields area.
       2. Attempt to save a new field with a BLANK name → inline required error; the
          selected type is not lost.
       3. Create five fields:
-         a. "T-shirt size" — type Dropdown, options S / M / L / XL — scope GLOBAL.
+         a. "T-shirt size" — type Dropdown, options S / M / L / XL — scope ORG-WIDE (organizationId set, eventId NULL).
          b. "Years of speaking experience" — type Number — scope Event.
          c. "Requires visa letter" — type Checkbox — scope Event.
          d. "Earliest arrival date" — type Date — scope Event.
@@ -116,14 +116,14 @@ scenarios:
       5. DELETE: delete "Scratch field" (confirm if prompted) — it disappears from the
          fields list and from the form-builder's add-question picker.
       6. Scope check — switch to the SEED event and open its field picker/library:
-         "T-shirt size" (global) IS available there; "Requires visa letter" (event-scoped)
+         "T-shirt size" (org-wide) IS available there; "Requires visa letter" (event-scoped)
          is NOT.
       7. Back in the new event, open the form-builder's add-question picker: all four
          surviving custom fields are listed with visible type and scope labels, and the
          picker's search narrows to "Earliest arrival date" when typing "arriv".
     success_signals:
-      - "DB check: fields rows exist for the four surviving fields with types dropdown/number/checkbox/date, 'T-shirt size' carrying global scope and the others event scope; 'Scratch field' is gone."
-      - "Screenshot from step 6: the seed event's picker showing 'T-shirt size' present and 'Requires visa letter' absent — the event/global scope boundary is real, both directions."
+      - "DB check: fields rows exist for the four surviving fields with types dropdown/number/checkbox/date, 'T-shirt size' org-wide (organizationId set, eventId NULL) and the others event-scoped (eventId set, organizationId NULL); 'Scratch field' is gone."
+      - "Screenshot from step 6: the seed event's picker showing 'T-shirt size' present and 'Requires visa letter' absent — the event/org-wide scope boundary is real, both directions."
       - "Step 4's rename is visible wherever the field is listed (single definition, no stale copy)."
       - "EXPERIENCE: the add-question picker search filters keystroke-fast with no per-keystroke server spinner, and stays instant with dozens of fields in the library; each field's type and scope are readable at a glance in the list."
 
