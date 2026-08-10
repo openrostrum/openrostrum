@@ -1,0 +1,67 @@
+import { eq } from "drizzle-orm";
+import { redirect } from "react-router";
+import { z } from "zod";
+import { getDb } from "~/db";
+import { users } from "~/db/schema";
+import { requireAdmin, userCanAccessEvent } from "~/lib/auth";
+import { createTimings, track } from "~/lib/track";
+import type { Route } from "./+types/admin.events.switch";
+
+// Resource route (no UI): POST { eventId, redirectTo? } sets the caller's
+// current event. The membership check is the tenancy guard — activeEventId can
+// only ever point at an event of an org the caller belongs to.
+
+const SwitchRequest = z.object({ eventId: z.string().min(1) });
+
+/** Same-origin internal path, or null if the target is external/unsafe
+ * (blocks //host, /\host, scheme tricks). Caller falls back to /admin. */
+function safeRedirect(requested: string): string | null {
+	if (!requested.startsWith("/")) return null;
+	const resolved = new URL(requested, "http://sentinel.invalid");
+	return resolved.origin === "http://sentinel.invalid"
+		? resolved.pathname + resolved.search + resolved.hash
+		: null;
+}
+
+// A bare GET (typed URL, stale link) has nothing to show — send it home.
+export async function loader({ context, request }: Route.LoaderArgs) {
+	await requireAdmin(context.cloudflare.env, request);
+	return redirect("/admin");
+}
+
+export async function action({ context, request }: Route.ActionArgs) {
+	const env = context.cloudflare.env;
+	// Actions MUST self-authenticate — a POST does not run any layout loader.
+	const user = await requireAdmin(env, request);
+	const form = await request.formData();
+	const parsed = SwitchRequest.safeParse({ eventId: form.get("eventId") });
+	if (!parsed.success) {
+		return Response.json({ error: "eventId is required." }, { status: 400 });
+	}
+	const { eventId } = parsed.data;
+
+	// One 403 for both "another org's event" and "no such event" — a different
+	// answer per case would disclose which event ids exist across tenants.
+	if (!(await userCanAccessEvent(env, user.id, eventId))) {
+		track("event.switch_denied", { eventId, userId: user.id });
+		return Response.json(
+			{ error: "You don't have access to that event." },
+			{ status: 403 },
+		);
+	}
+
+	const timings = createTimings();
+	await timings.time("db", () =>
+		getDb(env)
+			.update(users)
+			.set({ activeEventId: eventId })
+			.where(eq(users.id, user.id)),
+	);
+	track("event.switched", { eventId, userId: user.id });
+
+	const requested = form.get("redirectTo");
+	const dest =
+		(typeof requested === "string" ? safeRedirect(requested) : null) ??
+		"/admin";
+	return redirect(dest, { headers: { "Server-Timing": timings.header() } });
+}
