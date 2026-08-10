@@ -1,0 +1,344 @@
+/**
+ * Public CFP wizard — form definition + validation, shared by the client
+ * (instant show/hide + inline errors) and the server (the authoritative check
+ * on submit). Pure data/functions only: this module is client-bundled, so it
+ * must never import drizzle or ~/db/schema at runtime.
+ */
+
+export type WizardFieldType =
+	| "text"
+	| "textarea"
+	| "wysiwyg"
+	| "dropdown"
+	| "checkbox"
+	| "number"
+	| "email"
+	| "phone"
+	| "date"
+	| "section_header"
+	| "divider";
+
+export type WizardRule = {
+	trigger:
+		| { kind: "field"; fieldId: string }
+		| { kind: "builtin"; ref: string };
+	operator: "equals" | "not_equals" | "gt" | "lt";
+	value: string;
+} | null;
+
+export type WizardOption = { value: string; label: string };
+
+export type WizardField = {
+	/** Value key in WizardValues: `b_<builtinRef>` or `f_<fieldId>`. */
+	key: string;
+	builtinRef?: string;
+	fieldId?: string;
+	label: string;
+	type: WizardFieldType;
+	required: boolean;
+	locked: boolean;
+	maxLength?: number;
+	description?: string;
+	options?: WizardOption[];
+	rule: WizardRule;
+};
+
+export type WizardValues = Record<string, string>;
+
+export type ParticipantRole =
+	| "speaker"
+	| "chairperson"
+	| "moderator"
+	| "secondary";
+
+export type WizardParticipant = {
+	/** Client row key (stable across re-renders, not persisted). */
+	key: string;
+	role: ParticipantRole;
+	firstName: string;
+	lastName: string;
+	email: string;
+	mobilePhone: string;
+	bio: string;
+	/** The submitter's own row: prefilled from their account, email fixed. */
+	self?: boolean;
+};
+
+export type RoleLimits = { min: number; max: number | null };
+export type RoleConfig = Partial<Record<ParticipantRole, RoleLimits>>;
+
+export type WizardState = {
+	/** Client-minted UUID, used as the submission row id → double-submit safe. */
+	wizardId: string;
+	/** Existing submission being edited (draft resume or edit-until-close). */
+	sid?: string;
+	/** Status of the loaded row — "draft" resumes, anything else is an edit. */
+	loadedStatus?: string;
+	values: WizardValues;
+	participants: WizardParticipant[];
+};
+
+export function builtinKey(ref: string): string {
+	return `b_${ref}`;
+}
+export function fieldKey(fieldId: string): string {
+	return `f_${fieldId}`;
+}
+
+/**
+ * Built-in question metadata. Options for the dropdown built-ins are injected
+ * per event (taxonomies) when the server resolves the form definition.
+ */
+export const BUILTIN_META: Record<
+	string,
+	{ label: string; type: WizardFieldType; maxLength?: number }
+> = {
+	title: { label: "Title", type: "text", maxLength: 255 },
+	description: { label: "Description", type: "wysiwyg", maxLength: 5000 },
+	format: { label: "Format", type: "dropdown" },
+	tags: { label: "Tags", type: "dropdown" },
+	track: { label: "Track", type: "dropdown" },
+	level: { label: "Level", type: "dropdown" },
+	language: { label: "Language", type: "dropdown" },
+	first_name: { label: "First Name", type: "text", maxLength: 255 },
+	last_name: { label: "Last Name", type: "text", maxLength: 255 },
+	email: { label: "Email", type: "email" },
+	mobile_phone: { label: "Mobile Phone", type: "phone" },
+	home_phone: { label: "Home Phone", type: "phone" },
+	biography: { label: "Biography", type: "wysiwyg", maxLength: 5000 },
+	company_name: { label: "Company Name", type: "text", maxLength: 255 },
+	job_title: { label: "Job Title", type: "text", maxLength: 255 },
+	zip: { label: "Zip", type: "text", maxLength: 20 },
+};
+
+/**
+ * The default session-section question set for a form with no per-form
+ * built-in placements yet (a freshly seeded/created form): the walkthrough's
+ * Title/Description locked + the five taxonomy dropdowns, Format/Tags/Track
+ * required, Level/Language optional.
+ */
+export const DEFAULT_SESSION_BUILTINS: ReadonlyArray<{
+	ref: string;
+	required: boolean;
+	locked: boolean;
+}> = [
+	{ ref: "title", required: true, locked: true },
+	{ ref: "description", required: true, locked: true },
+	{ ref: "format", required: true, locked: false },
+	{ ref: "tags", required: true, locked: false },
+	{ ref: "track", required: true, locked: false },
+	{ ref: "level", required: false, locked: false },
+	{ ref: "language", required: false, locked: false },
+];
+
+export const DEFAULT_PARTICIPANT_BUILTINS: ReadonlyArray<{
+	ref: string;
+	required: boolean;
+	locked: boolean;
+}> = [
+	{ ref: "first_name", required: true, locked: true },
+	{ ref: "last_name", required: true, locked: true },
+	{ ref: "email", required: true, locked: true },
+	{ ref: "mobile_phone", required: false, locked: false },
+	{ ref: "biography", required: false, locked: false },
+];
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isValidEmail(value: string): boolean {
+	return EMAIL_RE.test(value.trim());
+}
+
+function ruleTriggerKey(rule: NonNullable<WizardRule>): string {
+	return rule.trigger.kind === "field"
+		? fieldKey(rule.trigger.fieldId)
+		: builtinKey(rule.trigger.ref);
+}
+
+/**
+ * Evaluate a question rule against the current values. Dropdown triggers match
+ * on the stored value OR its visible label, so rules authored against either
+ * representation fire (built-in dropdowns store taxonomy ids, library
+ * dropdowns store the option string).
+ */
+export function ruleMatches(
+	rule: NonNullable<WizardRule>,
+	values: WizardValues,
+	fields: WizardField[],
+): boolean {
+	const key = ruleTriggerKey(rule);
+	const raw = (values[key] ?? "").trim();
+	const expected = rule.value.trim();
+
+	if (rule.operator === "gt" || rule.operator === "lt") {
+		const a = Number(raw);
+		const b = Number(expected);
+		if (Number.isNaN(a) || Number.isNaN(b)) return false;
+		return rule.operator === "gt" ? a > b : a < b;
+	}
+
+	let matches = raw === expected;
+	if (!matches) {
+		const trigger = fields.find((f) => f.key === key);
+		const label = trigger?.options?.find((o) => o.value === raw)?.label;
+		if (label !== undefined) matches = label.trim() === expected;
+	}
+	return rule.operator === "equals" ? matches : !matches;
+}
+
+/** A field with no rule is always visible; a rule shows it only on match. */
+export function isFieldVisible(
+	field: WizardField,
+	values: WizardValues,
+	fields: WizardField[],
+): boolean {
+	if (!field.rule) return true;
+	return ruleMatches(field.rule, values, fields);
+}
+
+const LAYOUT_TYPES: ReadonlyArray<WizardFieldType> = [
+	"section_header",
+	"divider",
+];
+
+export function isInputField(field: WizardField): boolean {
+	return !LAYOUT_TYPES.includes(field.type);
+}
+
+/**
+ * Validate one wizard section. Required/format checks apply to VISIBLE input
+ * fields only — a rule-hidden field never blocks. `textLength` lets the server
+ * pass an HTML-stripped length for wysiwyg values; the client passes its own.
+ */
+export function validateSection(
+	fields: WizardField[],
+	values: WizardValues,
+	textLength: (html: string) => number = (html) =>
+		html.replace(/<[^>]*>/g, "").length,
+): Record<string, string> {
+	const errors: Record<string, string> = {};
+	for (const field of fields) {
+		if (!isInputField(field)) continue;
+		if (!isFieldVisible(field, values, fields)) continue;
+		const raw = (values[field.key] ?? "").trim();
+		const isEmpty =
+			field.type === "wysiwyg" ? textLength(raw) === 0 : raw.length === 0;
+		if (field.required && isEmpty) {
+			errors[field.key] = `${field.label} is required`;
+			continue;
+		}
+		if (isEmpty) continue;
+		if (field.maxLength !== undefined) {
+			const length = field.type === "wysiwyg" ? textLength(raw) : raw.length;
+			if (length > field.maxLength) {
+				errors[field.key] =
+					`${field.label} must be ${field.maxLength} characters or fewer`;
+				continue;
+			}
+		}
+		if (field.type === "email" && !isValidEmail(raw)) {
+			errors[field.key] = "Enter a valid email address.";
+			continue;
+		}
+		if (field.type === "number" && Number.isNaN(Number(raw))) {
+			errors[field.key] = `${field.label} must be a number`;
+			continue;
+		}
+		if (
+			field.type === "dropdown" &&
+			field.options !== undefined &&
+			!field.options.some((o) => o.value === raw)
+		) {
+			errors[field.key] = `Choose a valid ${field.label}`;
+		}
+	}
+	return errors;
+}
+
+export const ROLE_LABELS: Record<ParticipantRole, string> = {
+	speaker: "Speaker",
+	chairperson: "Chairperson",
+	moderator: "Moderator",
+	secondary: "Secondary Contact",
+};
+
+export function roleCountLabel(
+	limits: RoleLimits,
+	count: number,
+	roleLabel = "Speakers",
+): string {
+	const range =
+		limits.max === null || limits.max === limits.min
+			? `${limits.min}`
+			: `${limits.min}–${limits.max}`;
+	return `${range} ${roleLabel} allowed · ${count} added`;
+}
+
+export type ParticipantErrors = {
+	/** Per-row field errors keyed by participant key → field name → message. */
+	rows: Record<
+		string,
+		Partial<
+			Record<"firstName" | "lastName" | "email" | "mobilePhone" | "bio", string>
+		>
+	>;
+	/** Role-level errors (min/max violations, duplicate emails). */
+	form: string[];
+};
+
+export type ParticipantRequirements = {
+	/** Form-level required flags for the optional per-person built-ins. */
+	mobilePhone?: boolean;
+	bio?: boolean;
+};
+
+export function validateParticipants(
+	participants: WizardParticipant[],
+	roles: RoleConfig,
+	requirements: ParticipantRequirements = {},
+): ParticipantErrors {
+	const rows: ParticipantErrors["rows"] = {};
+	const form: string[] = [];
+
+	const seen = new Map<string, string>();
+	for (const p of participants) {
+		const rowErrors: ParticipantErrors["rows"][string] = {};
+		if (!p.firstName.trim()) rowErrors.firstName = "First name is required";
+		if (!p.lastName.trim()) rowErrors.lastName = "Last name is required";
+		if (!p.email.trim()) rowErrors.email = "Email is required";
+		else if (!isValidEmail(p.email))
+			rowErrors.email = "Enter a valid email address.";
+		else {
+			const normalized = p.email.trim().toLowerCase();
+			if (seen.has(normalized))
+				rowErrors.email = "This email is already listed on the submission";
+			seen.set(normalized, p.key);
+		}
+		if (p.role !== "secondary") {
+			if (requirements.mobilePhone && !p.mobilePhone.trim())
+				rowErrors.mobilePhone = "Mobile phone is required";
+			if (requirements.bio && p.bio.replace(/<[^>]*>/g, "").trim().length === 0)
+				rowErrors.bio = "Biography is required";
+		}
+		if (Object.keys(rowErrors).length > 0) rows[p.key] = rowErrors;
+	}
+
+	for (const [role, limits] of Object.entries(roles) as Array<
+		[ParticipantRole, RoleLimits]
+	>) {
+		const count = participants.filter((p) => p.role === role).length;
+		const label = `${ROLE_LABELS[role]}${limits.min === 1 && limits.max === 1 ? "" : "s"}`;
+		if (count < limits.min) {
+			form.push(
+				`At least ${limits.min} ${ROLE_LABELS[role].toLowerCase()}${limits.min === 1 ? " is" : "s are"} required.`,
+			);
+		}
+		if (limits.max !== null && count > limits.max) {
+			form.push(
+				`No more than ${limits.max} ${label.toLowerCase()} are allowed.`,
+			);
+		}
+	}
+
+	return { rows, form };
+}
