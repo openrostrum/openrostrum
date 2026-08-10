@@ -121,6 +121,19 @@ const PATHS = {
 		</>
 	),
 	code: <path d="M9 7.5L4.5 12 9 16.5M15 7.5l4.5 4.5L15 16.5" />,
+	sun: (
+		<>
+			<circle cx="12" cy="12" r="3.8" />
+			<path d="M12 3.7v2.1M12 18.2v2.1M3.7 12h2.1M18.2 12h2.1M6.1 6.1l1.5 1.5M16.4 16.4l1.5 1.5M17.9 6.1l-1.5 1.5M7.6 16.4l-1.5 1.5" />
+		</>
+	),
+	moon: <path d="M20 13.3A8.1 8.1 0 0 1 10.7 4a8.1 8.1 0 1 0 9.3 9.3z" />,
+	contrast: (
+		<>
+			<circle cx="12" cy="12" r="7.6" />
+			<path d="M12 4.4a7.6 7.6 0 0 1 0 15.2z" fill="currentColor" />
+		</>
+	),
 } as const;
 
 export type IconName = keyof typeof PATHS;

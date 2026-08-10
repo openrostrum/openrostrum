@@ -86,6 +86,12 @@ html,
 body {
 	background-color: var(--color-canvas);
 	color: var(--color-fg);
-	color-scheme: light dark;
 	-webkit-font-smoothing: antialiased;
+}
+
+/* On <html> ONLY — the root loader pins an explicit theme choice as an inline
+   color-scheme there, and body must INHERIT the pin: a body-level `light dark`
+   would re-read the OS and desync the page from the pinned overscroll canvas. */
+html {
+	color-scheme: light dark;
 }
