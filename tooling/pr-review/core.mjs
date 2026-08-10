@@ -50,9 +50,15 @@ export async function loadSystems() {
 	return { agents, systems };
 }
 
+// Per-request ceiling so a stalled connection can never hang the reviewer —
+// which now gates merges, so an unbounded fetch would block every PR. A timeout
+// throws, is caught per-sample, and degrades to "no finding" — never a hang.
+const REQ_TIMEOUT_MS = Number(process.env.REQ_TIMEOUT_MS ?? 60000);
+
 export function makeClient({ key, base, model, temperature }) {
 	async function api(path, init) {
 		const res = await fetch(`${base}${path}`, {
+			signal: AbortSignal.timeout(REQ_TIMEOUT_MS),
 			...init,
 			headers: {
 				"content-type": "application/json",
