@@ -131,6 +131,39 @@ describe("section validation", () => {
 			validateSection([title], { b_title: "x".repeat(255) }).b_title,
 		).toBeUndefined();
 	});
+
+	// Fresh-event trap (prod bug, 2026-08-09): an event with no taxonomies
+	// configured rendered required selects nobody could answer — the speaker
+	// could never advance past the Submission step.
+	it("never blocks on a select that offers zero options, required or not", () => {
+		const emptyLanguage: WizardField = {
+			key: "b_language",
+			builtinRef: "language",
+			label: "Language",
+			type: "dropdown",
+			required: true,
+			locked: false,
+			options: [],
+			rule: null,
+		};
+		const emptyTags: WizardField = {
+			key: "b_tags",
+			builtinRef: "tags",
+			label: "Tags",
+			type: "multi_dropdown",
+			required: true,
+			locked: false,
+			options: [],
+			rule: null,
+		};
+		// Missing value on a required empty select: no error.
+		expect(validateSection([emptyLanguage, emptyTags], {})).toEqual({});
+		// Stale value carried by a resumed draft (submissions default the
+		// language to "English"): still no "Choose a valid Language" error.
+		expect(validateSection([emptyLanguage], { b_language: "English" })).toEqual(
+			{},
+		);
+	});
 });
 
 describe("participant validation", () => {

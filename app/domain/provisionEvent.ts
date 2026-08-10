@@ -1,5 +1,5 @@
 import type { Db } from "~/db";
-import { emailTemplates, portals } from "~/db/schema";
+import { emailTemplates, languages, portals } from "~/db/schema";
 
 /**
  * The template set every event carries from birth. Senders resolve templates
@@ -76,5 +76,10 @@ export function provisionEventDefaults(db: Db, eventId: string) {
 			.insert(emailTemplates)
 			.values(DEFAULT_EMAIL_TEMPLATES.map((t) => ({ ...t, eventId }))),
 		db.insert(portals).values({ eventId }),
+		// Submissions store language "English" by default, so every event starts
+		// with that one row — a language dropdown with zero options would render
+		// unanswerable on the public CFP. Other taxonomies (tracks/formats/
+		// levels/tags) are event-specific editorial choices and stay empty.
+		db.insert(languages).values({ eventId, name: "English", position: 0 }),
 	] as const;
 }

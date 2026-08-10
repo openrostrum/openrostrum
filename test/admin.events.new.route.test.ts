@@ -5,6 +5,7 @@ import { getDb } from "../app/db";
 import {
 	emailTemplates,
 	events,
+	languages,
 	organizationMembers,
 	organizations,
 	portals,
@@ -136,6 +137,14 @@ describe("admin.events.new", () => {
 			where: (p, { eq }) => eq(p.eventId, created?.id ?? ""),
 		});
 		expect(portal?.publicId).toBeTruthy();
+
+		// ...and its Language dropdown has an option, so the public CFP is
+		// submittable before any Library configuration.
+		const langs = await db
+			.select()
+			.from(languages)
+			.where(eq(languages.eventId, created?.id ?? ""));
+		expect(langs.map((l) => l.name)).toEqual(["English"]);
 
 		const creator = await db.query.users.findFirst({
 			where: (u, { eq }) => eq(u.id, "u1"),
