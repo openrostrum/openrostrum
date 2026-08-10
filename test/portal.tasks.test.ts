@@ -85,6 +85,12 @@ async function seedTasks() {
 			type: "submission",
 			isFileRequest: true,
 		},
+		{
+			id: "t_headshot",
+			eventId: "e1",
+			name: "Headshot Upload",
+			isFileRequest: true,
+		},
 	]);
 	await db.insert(submissions).values({
 		id: "sub_priya",
@@ -103,6 +109,7 @@ async function seedTasks() {
 			contactId: "c_priya",
 			submissionId: "sub_priya",
 		},
+		{ id: "ta_headshot", taskId: "t_headshot", contactId: "c_priya" },
 		{ id: "ta_dana", taskId: "t_announce", contactId: "c_dana" },
 	]);
 }
@@ -276,6 +283,25 @@ describe("portal tasks", () => {
 		// Session tasks anchor their uploads: the files library's Session column
 		// resolves through this copy of the assignment's submission.
 		expect(uploads[0]?.submissionId).toBe("sub_priya");
+
+		// A speaker-scoped (contact) file request has no session anywhere in its
+		// chain — its upload stays honestly unattributed, never inferred.
+		const headshotForm = new FormData();
+		headshotForm.set("intent", "upload");
+		headshotForm.set(
+			"file",
+			new File(["PNG"], "face.png", { type: "image/png" }),
+		);
+		await taskAction({
+			context: CONTEXT,
+			request: await act("u_priya", "ta_headshot", headshotForm),
+			params: params("ta_headshot"),
+		} as unknown as ActionArgs);
+		const [headshotUpload] = await db
+			.select()
+			.from(files)
+			.where(eq(files.taskAssignmentId, "ta_headshot"));
+		expect(headshotUpload?.submissionId).toBeNull();
 
 		const [assignment] = await db
 			.select()
