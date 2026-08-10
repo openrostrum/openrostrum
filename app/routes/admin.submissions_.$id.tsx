@@ -86,6 +86,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const db = getDb(env);
 	const timings = createTimings();
 	const tz = event.timezone;
+	const showAllRevisions =
+		new URL(request.url).searchParams.get("revisions") === "all";
 
 	const payload = await timings.time("db", async () => {
 		const row = await db.query.submissions.findFirst({
@@ -117,13 +119,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		});
 		if (!row) return null;
 
-		// Revisions order by INSERTION (rowid), not createdAt: two snapshots can
-		// land in the same second and history must never shuffle. The list NEVER
-		// selects `description` and is capped: every save appends a row, so the
-		// full-payload history grows without bound with edit count and once blew
-		// the Worker CPU budget in production (restore re-reads its snapshot from
-		// the DB, so the list needs no payload).
-		const revisionRows = await db
+		// Ordered by INSERTION (rowid) — createdAt can collide within a second and
+		// history must never shuffle. Metadata only, latest-N by default (restore
+		// re-reads its snapshot from D1): shipping every body once blew the
+		// Worker CPU budget in production; ?revisions=all reaches older rows.
+		const revisionQuery = db
 			.select({
 				id: submissionRevisions.id,
 				title: submissionRevisions.title,
@@ -134,9 +134,12 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			.from(submissionRevisions)
 			.leftJoin(users, eq(users.id, submissionRevisions.editedById))
 			.where(eq(submissionRevisions.submissionId, row.id))
-			.orderBy(desc(sql`${submissionRevisions}.rowid`))
-			.limit(REVISION_LIST_LIMIT + 1);
-		const revisionsTruncated = revisionRows.length > REVISION_LIST_LIMIT;
+			.orderBy(desc(sql`${submissionRevisions}.rowid`));
+		const revisionRows = await (showAllRevisions
+			? revisionQuery
+			: revisionQuery.limit(REVISION_LIST_LIMIT + 1));
+		const revisionsTruncated =
+			!showAllRevisions && revisionRows.length > REVISION_LIST_LIMIT;
 		if (revisionsTruncated) revisionRows.length = REVISION_LIST_LIMIT;
 
 		const [fileRows, withdrawnBy, library] = await Promise.all([
@@ -810,8 +813,8 @@ export default function SubmissionDetail({
 							)}
 							{revisionsTruncated && (
 								<EmptyRow colSpan={4}>
-									Showing the latest {revisions.length} revisions — older
-									snapshots are retained.
+									Showing the latest {revisions.length} revisions.{" "}
+									<TextLink to="?revisions=all">Show the full history</TextLink>
 								</EmptyRow>
 							)}
 						</TBody>

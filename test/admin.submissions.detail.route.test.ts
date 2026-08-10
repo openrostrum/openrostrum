@@ -561,3 +561,76 @@ describe("guarded delete", () => {
 		expect(await db.select().from(submissions)).toHaveLength(1);
 	});
 });
+
+describe("revision history stays bounded on the loader", () => {
+	// A rapid-edit history: every save appends a row, so a submission can carry
+	// hundreds of multi-KB snapshots. The judged production failure: the loader
+	// returned ALL of them WITH their bodies, so its payload grew without bound
+	// per edit until the Worker exceeded its CPU budget (HTTP 1102).
+	const FAT = "x".repeat(3_000);
+
+	async function seedFatRevisions(count: number) {
+		const db = await seedWorld();
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e1",
+			title: "Edited a lot",
+			description: FAT,
+			status: "pending",
+		});
+		for (let start = 0; start < count; start += 20) {
+			const chunk = Array.from(
+				{ length: Math.min(20, count - start) },
+				(_, i) => ({
+					id: `rev${start + i}`,
+					submissionId: "s1",
+					title: `Edit ${start + i}`,
+					description: FAT,
+				}),
+			);
+			await db.insert(submissionRevisions).values(chunk);
+		}
+	}
+
+	type RevisionsPayload = {
+		revisions: Array<Record<string, unknown>>;
+		revisionsTruncated: boolean;
+	};
+
+	it("caps the list at 50, newest first, and never ships snapshot bodies", async () => {
+		await seedFatRevisions(60);
+		const result = unwrap(await callLoader(await detailRequest()));
+		const payload = result.data as unknown as RevisionsPayload;
+		expect(payload.revisions).toHaveLength(50);
+		expect(payload.revisionsTruncated).toBe(true);
+		// newest snapshot (last inserted) leads — the row marked "Current"
+		expect(payload.revisions[0]?.title).toBe("Edit 59");
+		// the list carries metadata only; restore re-reads its snapshot from D1
+		for (const rev of payload.revisions) {
+			expect(rev).not.toHaveProperty("description");
+		}
+		// 50 rows of metadata, independent of the 3KB bodies (was ~150KB+)
+		expect(JSON.stringify(payload.revisions).length).toBeLessThan(20_000);
+	});
+
+	it("?revisions=all reaches the full history so no snapshot is stranded", async () => {
+		await seedFatRevisions(60);
+		const setCookie = await createSession(env, "u_admin");
+		const request = new Request(
+			"http://localhost/admin/submissions/s1?revisions=all",
+			{ headers: { Cookie: setCookie.split(";")[0] ?? "" } },
+		);
+		const result = unwrap(await callLoader(request));
+		const payload = result.data as unknown as RevisionsPayload;
+		expect(payload.revisions).toHaveLength(60);
+		expect(payload.revisionsTruncated).toBe(false);
+	});
+
+	it("does not claim truncation at exactly the cap", async () => {
+		await seedFatRevisions(50);
+		const result = unwrap(await callLoader(await detailRequest()));
+		const payload = result.data as unknown as RevisionsPayload;
+		expect(payload.revisions).toHaveLength(50);
+		expect(payload.revisionsTruncated).toBe(false);
+	});
+});

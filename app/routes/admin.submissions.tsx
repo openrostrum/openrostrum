@@ -104,11 +104,16 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const timings = createTimings();
 	const rows = await timings.time("db", () =>
 		db.query.submissions.findMany({
+			// Columns match what the table renders — full rows (descriptions,
+			// whole contact records) made cost scale with content size.
+			columns: { id: true, title: true, status: true },
 			where: (s, { eq }) => eq(s.eventId, event.id), // scope to the ACTIVE event
 			with: {
-				format: true,
-				participants: { with: { contact: true } },
-				submissionTracks: { with: { track: true } },
+				format: { columns: { name: true } },
+				participants: { columns: { id: true } },
+				submissionTracks: {
+					with: { track: { columns: { name: true, color: true } } },
+				},
 			},
 			orderBy: (s, { desc }) => [desc(s.createdAt)],
 			limit: 100, // paginate for real lists — never load an unbounded table
