@@ -1,11 +1,20 @@
 /**
- * Merge-tag renderer for email templates. Pure and isomorphic (no server
- * imports) so the template editor can preview client-side with the exact
- * function send sites use server-side.
+ * Merge-field rendering for ALL email surfaces — one module so previews and
+ * sends share the exact same substitution. Pure and isomorphic (no server
+ * imports) so editors can preview client-side with the exact functions send
+ * sites use server-side.
  *
- * Syntax: {{tag_name}} (case-insensitive, optional inner whitespace).
- * Policy: EVERY {{...}} token is consumed — a tag with no value renders as
- * empty string, never as a leaked literal token in a delivered email.
+ * Two deliberate, DIFFERENT policies live here:
+ *
+ * - Template pipeline (lifecycle/custom templates — `renderSubject` /
+ *   `renderBody`): EVERY {{...}} token is consumed — a tag with no value
+ *   renders as empty string, never as a leaked literal token in a delivered
+ *   email.
+ *
+ * - Compose pipeline (organizer-written campaign text — `renderMergeFields` /
+ *   `renderEmailHtml`): known tags always resolve (missing data → empty
+ *   string); UNKNOWN tags are left verbatim so a typo is visible in the
+ *   per-recipient preview instead of vanishing silently.
  */
 
 export const MERGE_TAGS = [
@@ -67,4 +76,58 @@ export function renderSubject(template: string, ctx: MergeContext): string {
  * so they are escaped; markup belongs to the template, never to a value. */
 export function renderBody(template: string, ctx: MergeContext): string {
 	return substitute(template, ctx, escapeHtml);
+}
+
+// ─── Compose pipeline — contact-scoped campaign vocabulary ─────────────────
+// Organizer-composed bulk mail (admin.contacts_.compose) knows the recipient
+// CONTACT, never a submission, so it publishes its own smaller tag list.
+
+export const CAMPAIGN_MERGE_TAGS = [
+	"first_name",
+	"last_name",
+	"full_name",
+	"email",
+	"job_title",
+	"company_name",
+	"event_name",
+	"portal_link",
+] as const;
+
+export type CampaignMergeTag = (typeof CAMPAIGN_MERGE_TAGS)[number];
+export type MergeValues = Partial<Record<CampaignMergeTag, string | null>>;
+
+const CAMPAIGN_TAG_PATTERN = /\{\{\s*([a-z_]+)\s*\}\}/g;
+
+/** Whether the template references a tag, with the SAME whitespace tolerance
+ * the renderer applies — a guard using a literal match would miss "{{ tag }}". */
+export function templateUsesTag(
+	template: string,
+	tag: CampaignMergeTag,
+): boolean {
+	return [...template.matchAll(CAMPAIGN_TAG_PATTERN)].some((m) => m[1] === tag);
+}
+
+export function renderMergeFields(
+	template: string,
+	values: MergeValues,
+): string {
+	return template.replace(CAMPAIGN_TAG_PATTERN, (whole, tag: string) =>
+		(CAMPAIGN_MERGE_TAGS as readonly string[]).includes(tag)
+			? (values[tag as CampaignMergeTag] ?? "")
+			: whole,
+	);
+}
+
+/**
+ * Plain composed text → email HTML: substitute merge fields first, then
+ * escape EVERYTHING (recipient data must never inject markup), then map
+ * blank-line-separated blocks to paragraphs.
+ */
+export function renderEmailHtml(bodyText: string, values: MergeValues): string {
+	const resolved = renderMergeFields(bodyText, values);
+	const paragraphs = escapeHtml(resolved)
+		.split(/\n{2,}/)
+		.map((block) => `<p>${block.trim().replaceAll("\n", "<br>")}</p>`)
+		.join("");
+	return paragraphs || "<p></p>";
 }
