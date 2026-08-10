@@ -8,18 +8,17 @@ import {
 	DEMO_EMAIL,
 	DEMO_PASSWORD,
 	DEPLOY_STEPS,
-	type Feature,
-	FEATURES,
 	GITHUB_URL,
+	REQUIREMENTS,
 	STACK,
 } from "./content";
-import { AgendaMock, InviteMock, SubmissionsMock } from "./mocks";
-import { Cta, Eyebrow } from "./primitives";
+import { AdminShellMock, AgendaMock, InviteMock } from "./mocks";
+import { CopyValue, Cta, Eyebrow } from "./primitives";
 
 const SHELL = "mx-auto w-full max-w-[1120px] px-6";
 const H2 =
-	"font-display text-[clamp(1.7rem,3.2vw,2.4rem)] font-semibold leading-[1.1] tracking-[-0.015em] text-balance text-fg";
-const LEAD = "max-w-[40rem] text-[16px] leading-relaxed text-fg-muted";
+	"font-display text-[clamp(1.6rem,3vw,2.2rem)] font-semibold leading-[1.12] tracking-[-0.015em] text-balance text-fg";
+const LEAD = "max-w-[40rem] text-[15.5px] leading-relaxed text-fg-muted";
 const NAV_LINK =
 	"rounded text-[13.5px] font-medium text-fg-muted transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol";
 
@@ -36,13 +35,13 @@ function TopNav() {
 					<Wordmark />
 				</Link>
 				<nav className="hidden items-center gap-8 md:flex">
-					<a href="#features" className={NAV_LINK}>
+					<a href="#parity" className={NAV_LINK}>
 						Features
 					</a>
 					<a href="#compare" className={NAV_LINK}>
 						Compare
 					</a>
-					<a href="#deploy" className={NAV_LINK}>
+					<a href="#self-host" className={NAV_LINK}>
 						Self-host
 					</a>
 					<a
@@ -62,73 +61,76 @@ function TopNav() {
 
 function Hero() {
 	return (
-		<section className={cn(SHELL, "pt-16 pb-20 md:pt-24 md:pb-28")}>
-			<div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
-				<div className="flex flex-col items-start gap-6">
-					<Eyebrow>Open-source speaker &amp; program management</Eyebrow>
-					<h1 className="font-display text-[clamp(2.4rem,5.4vw,4rem)] font-semibold leading-[1.04] tracking-[-0.02em] text-balance text-fg">
-						Run your whole speaker program in one{" "}
-						<span className="text-petrol">open-source</span> app.
-					</h1>
-					<p className="max-w-[36rem] text-[17px] leading-relaxed text-fg-muted">
-						Call for speakers, submission review, speaker portals, agenda
-						building, and speaker comms — a complete Sessionboard alternative
-						you host yourself. Free, and it runs on your own Cloudflare account.
-					</p>
-					<div className="flex flex-wrap items-center gap-3">
-						<Cta to="/login">See the live demo</Cta>
-						<Cta href="#deploy" variant="ghost">
-							Deploy your own
-						</Cta>
-					</div>
-					<div className="flex flex-col gap-2 pt-1">
-						<span className="text-[13px] text-fg-muted">
-							Demo sign-in{" "}
-							<span className="font-mono text-fg">{DEMO_EMAIL}</span>
-							<span className="text-fg-faint"> · </span>
-							<span className="font-mono text-fg">{DEMO_PASSWORD}</span>
-						</span>
-						<span className="text-[12.5px] text-fg-faint">
-							MIT licensed · Self-hosted on Cloudflare · No per-seat pricing
-						</span>
-					</div>
+		<section className={cn(SHELL, "pt-16 md:pt-24")}>
+			<div className="flex max-w-[46rem] flex-col items-start gap-6">
+				<Eyebrow>Conference speaker &amp; program management</Eyebrow>
+				<h1 className="font-display text-[clamp(2.1rem,4.6vw,3.4rem)] font-semibold leading-[1.06] tracking-[-0.018em] text-balance text-fg">
+					The open-source Sessionboard alternative.
+				</h1>
+				<p className="text-[16.5px] leading-relaxed text-fg-muted">
+					Call for speakers, submission review, speaker portals, agenda
+					building, and speaker comms — the whole program side of your
+					conference, on software you host and own. MIT-licensed, free of
+					per-seat anything.
+				</p>
+				<div className="flex flex-wrap items-center gap-3">
+					<Cta to="/login">Sign in to the sandbox event</Cta>
+					<Cta href="#self-host" variant="ghost">
+						Deploy your own
+					</Cta>
 				</div>
-				<SubmissionsMock />
+				<div className="flex flex-col gap-2">
+					<span className="text-[13px] leading-relaxed text-fg-muted">
+						This site runs a real instance, seeded with a sandbox event and a
+						shared organizer seat — walk in and try it:
+					</span>
+					<span className="flex flex-wrap items-center gap-2">
+						<CopyValue value={DEMO_EMAIL} />
+						<CopyValue value={DEMO_PASSWORD} />
+					</span>
+				</div>
+			</div>
+			{/* The product is the hero shot — and it stands on a petrol platform,
+			    the brand mark drawn at page scale. */}
+			<div className="mt-12 md:mt-16">
+				<div className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 ease-out motion-reduce:transition-none">
+					<AdminShellMock />
+				</div>
+				<div
+					aria-hidden="true"
+					className="mx-8 h-[5px] rounded-[2px] bg-petrol sm:mx-14"
+				/>
 			</div>
 		</section>
 	);
 }
 
-function FeatureCard({ icon, title, body }: Feature) {
+function Requirements() {
 	return (
-		<div className="flex flex-col gap-3 bg-canvas p-6 transition-colors hover:bg-surface">
-			<span className="flex h-10 w-10 items-center justify-center rounded-control bg-petrol-wash text-petrol">
-				<Icon name={icon} size={19} />
-			</span>
-			<h3 className="font-display text-[16px] font-semibold text-fg">
-				{title}
-			</h3>
-			<p className="text-[13.5px] leading-relaxed text-fg-muted">{body}</p>
-		</div>
-	);
-}
-
-function FeatureGrid() {
-	return (
-		<section id="features" className="scroll-mt-16 border-t border-hair">
-			<div className={cn(SHELL, "py-20 md:py-24")}>
+		<section id="parity" className="scroll-mt-16">
+			<div className={cn(SHELL, "py-20 md:py-28")}>
 				<div className="flex flex-col gap-4">
-					<Eyebrow>Everything the program side needs</Eyebrow>
-					<h2 className={H2}>From first submission to final schedule.</h2>
+					<Eyebrow>Feature parity</Eyebrow>
+					<h2 className={H2}>Sessionboard&rsquo;s whole job, covered.</h2>
 					<p className={LEAD}>
-						The six things Sessionboard does for a conference program, plus the
-						three it doesn&rsquo;t — calendar invites, self-hosting, and
-						edge-fast pages.
+						An event team needs six things from the program side. All six, in
+						one place — from the first submission to the final schedule.
 					</p>
 				</div>
-				<div className="mt-12 grid gap-px overflow-hidden rounded-card border border-hair bg-hair sm:grid-cols-2 lg:grid-cols-3">
-					{FEATURES.map((feature) => (
-						<FeatureCard key={feature.title} {...feature} />
+				<div className="mt-12 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+					{REQUIREMENTS.map((req, index) => (
+						<div
+							key={req.title}
+							className="flex flex-col gap-2.5 border-t border-hair pt-5"
+						>
+							<span className="font-mono text-[11px] font-medium tabular-nums text-fg-faint">
+								0{index + 1}
+							</span>
+							<h3 className="text-[15px] font-semibold text-fg">{req.title}</h3>
+							<p className="text-[13.5px] leading-relaxed text-fg-muted">
+								{req.body}
+							</p>
+						</div>
 					))}
 				</div>
 			</div>
@@ -204,7 +206,7 @@ function Spotlights() {
 				<Spotlight
 					eyebrow="Agenda"
 					title="Drag the schedule into place."
-					body="Accepted sessions land in an unscheduled tray. Drop them onto a day × room grid and conflicts surface the moment they happen."
+					body="Accepted sessions land in an unscheduled tray. Drop them onto a day × room grid and conflicts surface the moment they happen — no spinners between drags."
 					points={[
 						"Catches double-booked speakers and rooms before attendees notice.",
 						"Auto-place fills open slots without a single collision.",
@@ -331,7 +333,7 @@ function CodeBlock() {
 
 function Deploy() {
 	return (
-		<section id="deploy" className="scroll-mt-16 border-t border-hair">
+		<section id="self-host" className="scroll-mt-16 border-t border-hair">
 			<div className={cn(SHELL, "py-20 md:py-24")}>
 				<div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
 					<div className="flex flex-col items-start gap-5">
@@ -340,9 +342,10 @@ function Deploy() {
 							Your instance. Your Cloudflare account. Four commands.
 						</h2>
 						<p className={LEAD}>
-							Nothing is hardcoded to our demo — the repo deploys clean to any
-							Cloudflare account. You own the database, the files, and every
-							speaker&rsquo;s data.
+							There is no hosted signup, because there is no hosted product —
+							every event team deploys its own instance and owns the database,
+							the files, and every speaker&rsquo;s data. Nothing is hardcoded to
+							our sandbox.
 						</p>
 						<div className="flex flex-wrap gap-2">
 							{STACK.map((item) => (
@@ -359,7 +362,7 @@ function Deploy() {
 								View on GitHub
 							</Cta>
 							<Cta to="/login" variant="ghost">
-								See the live demo
+								Try the sandbox event
 							</Cta>
 						</div>
 					</div>
@@ -418,7 +421,7 @@ function Footer() {
 						<FooterCol
 							title="Product"
 							links={[
-								{ label: "Live demo", to: "/login" },
+								{ label: "Sandbox event", to: "/login" },
 								{ label: "Sign in", to: "/login" },
 							]}
 						/>
@@ -426,13 +429,13 @@ function Footer() {
 							title="Open source"
 							links={[
 								{ label: "GitHub", href: GITHUB_URL, external: true },
-								{ label: "Self-host", href: "#deploy" },
+								{ label: "Self-host", href: "#self-host" },
 							]}
 						/>
 						<FooterCol
 							title="Explore"
 							links={[
-								{ label: "Features", href: "#features" },
+								{ label: "Features", href: "#parity" },
 								{ label: "Compare", href: "#compare" },
 							]}
 						/>
@@ -452,12 +455,20 @@ function Footer() {
 }
 
 export function Landing() {
+	// data-theme="light" pins every light-dark() token below it to the light
+	// "Gallery" skin — the marketing page presents the product the way the demo
+	// does, regardless of the visitor's OS theme. app.css lifts the pin to the
+	// <html> element so overscroll never flashes the dark canvas.
 	return (
-		<div className="min-h-dvh bg-canvas text-fg">
+		<div
+			data-theme="light"
+			style={{ colorScheme: "light" }}
+			className="min-h-dvh bg-canvas text-fg"
+		>
 			<TopNav />
 			<main>
 				<Hero />
-				<FeatureGrid />
+				<Requirements />
 				<Spotlights />
 				<Comparison />
 				<Deploy />

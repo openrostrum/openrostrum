@@ -5,6 +5,7 @@ import {
 	Outlet,
 	Scripts,
 	ScrollRestoration,
+	useMatches,
 } from "react-router";
 
 import type { Route } from "./+types/root";
@@ -40,8 +41,16 @@ export const links: Route.LinksFunction = () => [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
+	// A route can pin the document's color scheme via its handle (the marketing
+	// landing pins "light"). Inline style wins over the stylesheet's
+	// `color-scheme: light dark`, so every light-dark() token follows the pin.
+	const pinned = useMatches().some(
+		(match) =>
+			(match.handle as { colorScheme?: string } | undefined)?.colorScheme ===
+			"light",
+	);
 	return (
-		<html lang="en">
+		<html lang="en" style={pinned ? { colorScheme: "light" } : undefined}>
 			<head>
 				<meta charSet="utf-8" />
 				<meta name="viewport" content="width=device-width, initial-scale=1" />

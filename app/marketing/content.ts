@@ -1,59 +1,37 @@
-import type { IconName } from "~/ui";
-
 export const GITHUB_URL = "https://github.com/openrostrum/openrostrum";
 export const DEMO_EMAIL = "admin@example.com";
 export const DEMO_PASSWORD = "password";
 
-export type Feature = { icon: IconName; title: string; body: string };
+// The six firm requirements from the brief, in the organizer's language. They
+// are a real numbered list (requirement 1–6), which is why the section numbers
+// them — the claim is "all six, shipped", not decoration. Copy stays concrete:
+// what an organizer can do, never adjectives.
+export type Requirement = { title: string; body: string };
 
-// The nine capabilities the product actually ships (SCOPE's six firm
-// requirements + the three that set it apart). Copy stays concrete: what an
-// organizer can do, not adjectives.
-export const FEATURES: Feature[] = [
+export const REQUIREMENTS: Requirement[] = [
 	{
-		icon: "inbox",
-		title: "Custom call for speakers",
-		body: "A multi-step form builder with conditional logic, participant roles, and per-track routing. Copy the public link and start collecting submissions.",
+		title: "Call for speakers",
+		body: "A multi-step form builder with conditional logic, participant roles, and close dates. Copy the public link and submissions start arriving.",
 	},
 	{
-		icon: "filter",
 		title: "Submission review",
-		body: "Approve, maybe, or deny — routed to reviewers by track. Accepting a submission auto-creates the speaker, the session, and the onboarding tasks.",
+		body: "Approve, maybe, or deny — routed to reviewers by track. Accepting a submission auto-creates the speaker, the session, and their onboarding tasks.",
 	},
 	{
-		icon: "mic",
 		title: "Speaker portals",
-		body: "A self-service home for every speaker: bios, headshots, slides, and a live view of where each of their submissions stands.",
+		body: "A self-service home for every speaker: bios, headshots, slides, task forms, and a live view of where each submission stands.",
 	},
 	{
-		icon: "calendar",
-		title: "Comms & calendar invites",
-		body: "Templated, reply-to-aware email for confirmations, decisions, and reminders — every acceptance carries a real .ics invite Sessionboard can't send.",
+		title: "Speaker comms",
+		body: "Templated confirmations, decisions, and reminders — editable subjects and bodies, reply-to that reaches your inbox, a full send history.",
 	},
 	{
-		icon: "grid",
-		title: "Drag-and-drop agenda",
-		body: "Build the schedule on a day × room grid. Conflict detection catches double-booked speakers and rooms before your attendees do.",
+		title: "Agenda building",
+		body: "Drag accepted sessions onto a day × room grid. Double-booked speakers and rooms surface the moment they happen, not after publishing.",
 	},
 	{
-		icon: "star",
-		title: "Outstanding-tasks dashboard",
-		body: "See exactly which speakers still owe a bio, a headshot, or a hotel form — the whole roster at a glance, no spreadsheet required.",
-	},
-	{
-		icon: "search",
-		title: "Public schedule & speakers",
-		body: "Logged-out session lists, a speaker directory, an agenda grid, and personal schedules — rendered live from your data, no republishing.",
-	},
-	{
-		icon: "export",
-		title: "Airtable sync",
-		body: "Push submissions, speakers, and sessions into your base, or run Airtable as the source of truth. Background sync, never in the request path.",
-	},
-	{
-		icon: "sliders",
-		title: "Cloudflare-native speed",
-		body: "Sub-second pages and instant tables on Workers and D1. No loading spinners, no waiting — performance is treated as a feature.",
+		title: "Outstanding tasks",
+		body: "Which speakers still owe a bio, a headshot, or a hotel form — the whole roster on one screen, no spreadsheet on the side.",
 	},
 ];
 

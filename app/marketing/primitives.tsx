@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 import { Icon, type IconName } from "~/ui";
 import { cn } from "~/ui/cn";
@@ -6,7 +6,7 @@ import { cn } from "~/ui/cn";
 // The marketing surface is not the 8-hour admin tool the "Gallery" petrol-law
 // governs (docs/design-system.md): a landing page gets scale and expression the
 // tool doesn't. It stays on the same @theme tokens so it reads as one product —
-// petrol is still the only accent, drawn here as the mark's rostrum bar.
+// petrol is still the only accent, and the headline stays ink.
 
 export function Eyebrow({ children }: { children: ReactNode }) {
 	return (
@@ -68,5 +68,38 @@ export function Cta({
 		>
 			{inner}
 		</a>
+	);
+}
+
+/** A credential value that copies itself on click — the sandbox sign-in is the
+ * page's real CTA, so grabbing it must cost one click, not a drag-select. */
+export function CopyValue({ value }: { value: string }) {
+	const [copied, setCopied] = useState(false);
+	return (
+		<button
+			type="button"
+			onClick={() => {
+				navigator.clipboard.writeText(value).then(() => {
+					setCopied(true);
+					setTimeout(() => setCopied(false), 1500);
+				});
+			}}
+			className={cn(
+				"group inline-flex items-center gap-2 rounded-[6px] bg-chip px-2.5 py-1",
+				"transition-colors duration-150 ease-out hover:bg-petrol-wash",
+				"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
+			)}
+		>
+			<span className="font-mono text-[12px] text-fg">{value}</span>
+			<span
+				className={cn(
+					"font-mono text-[10px] uppercase tracking-[0.08em]",
+					copied ? "text-petrol" : "text-fg-faint group-hover:text-petrol",
+				)}
+				aria-live="polite"
+			>
+				{copied ? "copied" : "copy"}
+			</span>
+		</button>
 	);
 }
