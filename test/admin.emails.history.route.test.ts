@@ -107,7 +107,13 @@ async function seed() {
 
 type Result = {
 	data: {
-		rows: Array<{ id: string; to: string; subject: string; kind: string }>;
+		rows: Array<{
+			id: string;
+			to: string;
+			subject: string;
+			kind: string;
+			templateName: string;
+		}>;
 		total: number;
 		detail: { to: string; html: string; hasIcs: boolean } | null;
 	};
@@ -163,6 +169,48 @@ describe("email history log", () => {
 		const cookie = await seed();
 		const result = await run(cookie, "?q=dana.wu");
 		expect(result.data.rows[0]?.kind).toBe("Transactional");
+	});
+
+	// Judge defect: system sends (reviewer invites, resets…) have no template
+	// row, and both audit columns showed "—". Their dedupe-key prefix is the
+	// send's identity — the columns must derive from it.
+	it("labels template-less system sends from their dedupe-key prefix", async () => {
+		const cookie = await seed();
+		const db = getDb(env);
+		await db.insert(emailOutbox).values([
+			{
+				id: "m_reviewer",
+				eventId: "e1",
+				to: "reviewer@example.com",
+				subject: "You're invited to review for E1",
+				html: "<p>invite</p>",
+				status: "sent" as const,
+				dedupeKey: "reviewer_invite:u9:tok123",
+				sentAt: new Date(),
+			},
+			{
+				id: "m_blast",
+				eventId: "e1",
+				to: "everyone@example.com",
+				subject: "Schedule is live",
+				html: "<p>blast</p>",
+				status: "sent" as const,
+				dedupeKey: "bulk:key1:c1",
+				sentAt: new Date(),
+			},
+		]);
+
+		const invite = await run(cookie, "?q=reviewer%40example.com");
+		expect(invite.data.rows[0]?.templateName).toBe("Reviewer invite (system)");
+		expect(invite.data.rows[0]?.kind).toBe("Transactional");
+
+		const blast = await run(cookie, "?q=everyone%40example.com");
+		expect(blast.data.rows[0]?.templateName).toBe("Composed announcement");
+		expect(blast.data.rows[0]?.kind).toBe("Announcement");
+
+		// A keyless, template-less row stays an honest "—", never a guess.
+		const failed = await run(cookie, "?status=failed");
+		expect(failed.data.rows[0]?.templateName).toBe("—");
 	});
 
 	it("opens a detail only for the active event's rows (frozen snapshot + ics flag)", async () => {

@@ -14,7 +14,7 @@ export const JOBS: Job[] = [
 	},
 	{
 		title: "Submission review",
-		body: "Approve, maybe, or deny — routed to reviewers by track. Accepting a submission auto-creates the speaker, the session, and their onboarding tasks.",
+		body: "Approve, maybe, or deny — routed to reviewers by track. Accepting a submission links each speaker's account and mints their onboarding tasks; decision emails go out only when you send them.",
 	},
 	{
 		title: "Speaker portals",
