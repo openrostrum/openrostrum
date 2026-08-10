@@ -27,12 +27,8 @@ import { stripHtml } from "~/lib/html";
 const DEEPSEEK_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_ENDPOINT = "https://api.deepseek.com/anthropic/v1/messages";
 
-/**
- * Keyless fallback on the Workers AI binding. Kimi K2.6 won the 2026-08-10
- * fallback benchmark (see PR feat/ai-review-deepseek): pin a different catalog
- * model per deployment with AI_REVIEW_WORKERS_MODEL — no code change needed.
- */
-export const WORKERS_AI_DEFAULT_MODEL = "@cf/moonshotai/kimi-k2.6";
+/** Benchmark-selected keyless fallback; deployments can override the catalog model. */
+export const WORKERS_AI_DEFAULT_MODEL = "@cf/openai/gpt-oss-120b";
 
 /** How many missing submissions one bulk click processes (kept small so the request stays bounded). */
 export const AI_BULK_BATCH = 5;

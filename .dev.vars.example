@@ -31,9 +31,9 @@ APP_ENV=development
 # compatible Messages endpoint; unset → the Workers AI binding (remote inference
 # needs wrangler auth locally); neither → the tab reports "not available".
 # AI_REVIEW_WORKERS_MODEL pins a different Workers AI catalog model without a
-# code change (default: @cf/moonshotai/kimi-k2.6).
+# code change (default: @cf/openai/gpt-oss-120b).
 # DEEPSEEK_API_KEY=your-deepseek-api-key
-# AI_REVIEW_WORKERS_MODEL=@cf/openai/gpt-oss-120b
+# AI_REVIEW_WORKERS_MODEL=@cf/moonshotai/kimi-k2.6
 
 # Signs unsubscribe-footer tokens. Unset locally → a fixed dev secret (mail
 # never leaves the machine). REQUIRED whenever RESEND_API_KEY is set — real

@@ -16,7 +16,6 @@ import {
 	getAiProvider,
 	overrideAiReview,
 	saveAiReview,
-	WORKERS_AI_DEFAULT_MODEL,
 } from "../app/domain/ai-review";
 import { seedEvalBase } from "./eval-fixtures";
 
@@ -255,15 +254,15 @@ describe("provider resolution — capability, like the email port", () => {
 		expect(provider?.model).toBe("deepseek-v4-flash");
 	});
 
-	it("no key → the binding with the default model; env var pins another", () => {
+	it("no key → GPT-OSS fallback; env var pins another model", () => {
 		const base = { DEEPSEEK_API_KEY: "", AI: binding } as unknown as Env;
-		expect(getAiProvider(base)?.model).toBe(WORKERS_AI_DEFAULT_MODEL);
+		expect(getAiProvider(base)?.model).toBe("@cf/openai/gpt-oss-120b");
 		expect(
 			getAiProvider({
 				...base,
-				AI_REVIEW_WORKERS_MODEL: "@cf/openai/gpt-oss-120b",
+				AI_REVIEW_WORKERS_MODEL: "@cf/moonshotai/kimi-k2.6",
 			} as unknown as Env)?.model,
-		).toBe("@cf/openai/gpt-oss-120b");
+		).toBe("@cf/moonshotai/kimi-k2.6");
 	});
 
 	it("neither key nor binding → null (the degraded state)", () => {
