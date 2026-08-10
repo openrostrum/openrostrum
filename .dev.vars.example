@@ -11,9 +11,15 @@ APP_ENV=development
 # RESEND_API_KEY=re_...
 # EMAIL_FROM=OpenRostrum <noreply@yourdomain.com>
 
-# Airtable mirror (optional). Unset → in-memory local adapter (no network).
+# Airtable mirror (optional). Unset → the admin sync page reports
+# "not configured" and the background sync skips; tests exercise both sync
+# directions against the in-memory fake base (app/ports/airtable.ts).
+# AIRTABLE_WEBHOOK_SECRET is the base64 macSecret returned at webhook creation
+# (verifies X-Airtable-Content-MAC on /hooks/airtable).
 # AIRTABLE_API_KEY=pat...
 # AIRTABLE_BASE_ID=app...
+# AIRTABLE_WEBHOOK_SECRET=...
+# AIRTABLE_WEBHOOK_ID=ach...   (lets the cron poll refresh the webhook's 7-day expiry)
 
 # Bot protection on the public CFP form. Unset → pass-through (so headless
 # agents can submit). Set to enforce:

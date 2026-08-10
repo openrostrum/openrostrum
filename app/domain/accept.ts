@@ -353,14 +353,13 @@ async function planAcceptProvisioning(
 }
 
 /**
- * Speaker-initiated withdrawal (the portal action's domain half; admin
- * resolutions can reuse it). The reason is mandatory record, the session is
- * unscheduled so no withdrawn ghost stays on the agenda, and content columns
- * are untouched.
+ * Null `byUserId` = system-initiated withdrawal (e.g. row deleted in the
+ * team's Airtable base); the reason is a mandatory record. Unschedules the
+ * session; content columns stay untouched.
  */
 export async function withdrawSubmission(
 	db: Db,
-	opts: { submission: Submission; byUserId: string; reason: string },
+	opts: { submission: Submission; byUserId: string | null; reason: string },
 ): Promise<TransitionResult> {
 	const { submission } = opts;
 	const reason = opts.reason.trim();
