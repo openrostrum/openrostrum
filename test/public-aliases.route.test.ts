@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loader as agendaAlias } from "../app/routes/agenda";
+import { loader as galleryAlias } from "../app/routes/gallery._index";
+import { loader as itineraryAlias } from "../app/routes/itinerary._index";
 import { loader as dashboardAlias } from "../app/routes/dashboard";
 import { loader as organizerAlias } from "../app/routes/organizer";
 import { loader as scheduleAlias } from "../app/routes/schedule._index";
@@ -30,6 +32,12 @@ describe("harness alias redirects", () => {
 		);
 		expect(location(await agendaAlias(args as never))).toBe(
 			"/schedule/devflow",
+		);
+		expect(location(await itineraryAlias(args as never))).toBe(
+			"/itinerary/devflow",
+		);
+		expect(location(await galleryAlias(args as never))).toBe(
+			"/gallery/devflow",
 		);
 	});
 
