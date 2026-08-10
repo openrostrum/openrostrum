@@ -576,7 +576,13 @@ export default function Team({ loaderData, actionData }: Route.ComponentProps) {
 			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
 
 			<Panel>
-				<Form method="post" className="flex flex-wrap items-end gap-3">
+				{/* Keyed by the last invited email so a successful invite remounts
+				    the form with empty fields; failed validation keeps the values. */}
+				<Form
+					method="post"
+					key={invitedEmail ?? "invite"}
+					className="flex flex-wrap items-end gap-3"
+				>
 					<Field label="Name" error={actionData?.fieldErrors?.name?.[0]}>
 						<Input
 							name="name"
