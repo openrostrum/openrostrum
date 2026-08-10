@@ -18,3 +18,16 @@ APP_ENV=development
 # Bot protection on the public CFP form. Unset → pass-through (so headless
 # agents can submit). Set to enforce:
 # TURNSTILE_SECRET=...
+# TURNSTILE_SITE_KEY=...   # paired public widget key (both or neither)
+
+# Signs unsubscribe-footer tokens. Unset locally → a fixed dev secret (mail
+# never leaves the machine). REQUIRED whenever RESEND_API_KEY is set — real
+# mail with forgeable unsubscribe tokens would let anyone suppress any address.
+# UNSUBSCRIBE_SECRET=...
+
+# Public origin for links in CRON-sent emails (task-due reminders), where no
+# request URL exists to derive it from. Request-driven emails always use the
+# request origin. REQUIRED whenever RESEND_API_KEY is set (the reminder job
+# fails loudly otherwise); optional locally — set it to your dev URL to get
+# clickable portal links in the email_outbox sink.
+# APP_ORIGIN=http://localhost:5200

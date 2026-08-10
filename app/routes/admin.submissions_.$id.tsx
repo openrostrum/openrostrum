@@ -30,7 +30,7 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
 import { CONTENT_STATUS_TONE, humanStatus } from "~/lib/submission-list";
-import { Textarea } from "~/lib/textarea";
+import { Textarea } from "~/components/textarea";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,

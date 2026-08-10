@@ -153,11 +153,14 @@ interface ProvisioningPlan {
  * Accept-time provisioning: link speaker contacts to existing accounts by
  * normalized email (never mints users, never emails — the invite flow is the
  * explicit path that creates accounts), and mint onboarding task assignments
- * for every speaker-role contact. The unique(taskId, contactId) index makes
- * replays no-ops — which also means a submission-scoped task can exist only
- * ONCE per contact: a second accepted submission for the same speaker skips
- * it, reported via `accept.assignment_skipped`. Group-type tasks have no
- * assignable target (no group model) and are never minted.
+ * for every speaker-role contact. Idempotency mirrors the two partial unique
+ * indexes on task_assignments: contact-scoped tasks exist once per (task,
+ * contact) and are shared across a speaker's submissions; submission-scoped
+ * tasks exist once per (task, contact, submission), so a multi-talk speaker
+ * gets one e.g. slides-upload assignment PER accepted submission. Replaying
+ * an accept mints nothing; submission-scoped true duplicates are surfaced
+ * via `accept.assignment_skipped`. Group-type tasks have no assignable
+ * target (no group model) and are never minted.
  */
 async function planAcceptProvisioning(
 	db: Db,
@@ -213,8 +216,19 @@ async function planAcceptProvisioning(
 						),
 					)
 			: [];
-	const existingByKey = new Map(
-		existing.map((e) => [`${e.taskId}:${e.contactId}`, e]),
+	// Key per idempotency scope: (task, contact) when submission_id is NULL,
+	// (task, contact, submission) otherwise — the same split as the partial
+	// unique indexes.
+	const scopeKey = (
+		taskId: string,
+		contactId: string | null,
+		submissionId: string | null,
+	) =>
+		submissionId === null
+			? `${taskId}:${contactId}`
+			: `${taskId}:${contactId}:${submissionId}`;
+	const existingKeys = new Set(
+		existing.map((e) => scopeKey(e.taskId, e.contactId, e.submissionId)),
 	);
 
 	const unlinkedByContact = new Map<string, string>();
@@ -254,7 +268,7 @@ async function planAcceptProvisioning(
 	}
 
 	const values: (typeof taskAssignments.$inferInsert)[] = [];
-	const planned = new Map(existingByKey);
+	const planned = new Set(existingKeys);
 	type Skip = {
 		submissionId: string;
 		eventId: string;
@@ -278,12 +292,14 @@ async function planAcceptProvisioning(
 		for (const def of tasksByEvent.get(row.eventId) ?? []) {
 			if (def.type === "group") continue;
 			for (const speaker of speakers) {
-				const key = `${def.id}:${speaker.contactId}`;
-				const taken = planned.get(key);
-				if (taken) {
-					// A submission-scoped task already held by another submission is a
-					// real drop, not an idempotent replay — surface it.
-					if (def.type === "submission" && taken.submissionId !== row.id) {
+				const submissionId = def.type === "submission" ? row.id : null;
+				const key = scopeKey(def.id, speaker.contactId, submissionId);
+				if (planned.has(key)) {
+					// The identical assignment already exists (or is planned by this
+					// very batch) — a true duplicate, never a lost mint. Contact-scoped
+					// tasks are shared across a speaker's submissions by design and
+					// stay silent; submission-scoped replays are surfaced.
+					if (submissionId !== null) {
 						skips.push({
 							submissionId: row.id,
 							eventId: row.eventId,
@@ -293,16 +309,12 @@ async function planAcceptProvisioning(
 					}
 					continue;
 				}
-				planned.set(key, {
-					taskId: def.id,
-					contactId: speaker.contactId,
-					submissionId: def.type === "submission" ? row.id : null,
-				});
+				planned.add(key);
 				stats.assignmentsPlanned += 1;
 				values.push({
 					taskId: def.id,
 					contactId: speaker.contactId,
-					submissionId: def.type === "submission" ? row.id : null,
+					submissionId,
 					status: "incomplete",
 					dueAt:
 						def.dueInDays == null
@@ -318,9 +330,10 @@ async function planAcceptProvisioning(
 				.insert(taskAssignments)
 				.values(values)
 				// Race guard only — the pre-read above already excluded known rows.
-				.onConflictDoNothing({
-					target: [taskAssignments.taskId, taskAssignments.contactId],
-				}),
+				// Targetless because the conflict may land on either partial unique
+				// index, and SQLite's ON CONFLICT target cannot address them without
+				// repeating their WHERE clauses.
+				.onConflictDoNothing(),
 		);
 	}
 

@@ -121,10 +121,8 @@ export default [
 
 	// Shared route views: when thin routes delegate their page JSX to app/lib,
 	// the design-system contract follows the JSX, not the file location.
-	// textarea.tsx is the one documented exception (see its header comment).
 	{
 		files: ["app/lib/**/*.tsx"],
-		ignores: ["app/lib/textarea.tsx"],
 		plugins: { openrostrum: openrostrumPlugin },
 		rules: { "openrostrum/ui-primitives-only": "error" },
 	},

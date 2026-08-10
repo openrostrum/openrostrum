@@ -9,7 +9,7 @@ import {
 	DECISION_STATUS,
 	type SUBMISSION_TYPE,
 } from "~/db/constants";
-import { Textarea } from "~/lib/textarea";
+import { Textarea } from "~/components/textarea";
 import {
 	Button,
 	Chip,
