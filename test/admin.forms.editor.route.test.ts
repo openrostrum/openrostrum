@@ -15,11 +15,11 @@ import {
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
 import {
-	action,
-	loader,
+	sanitizeRichText,
 	utcToZonedInputs,
 	zonedTimeToUtc,
-} from "../app/routes/admin.forms.$formId";
+} from "../app/lib/forms";
+import { action, loader } from "../app/routes/admin.forms.$formId";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
@@ -1093,9 +1093,19 @@ describe("publish / duplicate / delete", () => {
 		expect(originalSubs).toHaveLength(1);
 	});
 
-	it("delete removes the form + placements but keeps submissions (unlinked)", async () => {
+	it("delete removes the form + placements + its per-use layout rows but keeps submissions (unlinked)", async () => {
 		const { db, cookie } = await seedBase();
 		const formId = await createForm(cookie);
+		await runAction(
+			formId,
+			{
+				intent: "add-layout",
+				kind: "section_header",
+				label: "Logistics",
+				section: "session",
+			},
+			cookie,
+		);
 		await db.insert(submissions).values({
 			id: "s1",
 			eventId: "e1",
@@ -1114,12 +1124,124 @@ describe("publish / duplicate / delete", () => {
 		expect(
 			await db.select().from(formFields).where(eq(formFields.formId, formId)),
 		).toHaveLength(0);
+		// Per-use layout rows must not pile up invisibly after a form delete.
+		expect(
+			await db.select().from(fields).where(eq(fields.name, "Logistics")),
+		).toHaveLength(0);
 		const [sub] = await db
 			.select()
 			.from(submissions)
 			.where(eq(submissions.id, "s1"));
 		expect(sub?.title).toBe("Kept");
 		expect(sub?.formId).toBeNull();
+	});
+
+	it("duplicated layout rows are independent — removing one never touches the other form", async () => {
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		await runAction(
+			formId,
+			{
+				intent: "add-layout",
+				kind: "section_header",
+				label: "Logistics",
+				section: "session",
+			},
+			cookie,
+		);
+		await expectRedirect(
+			formId,
+			new URLSearchParams({ intent: "duplicate" }),
+			cookie,
+		);
+		const all = await db.select().from(forms);
+		const copy = all.find((f) => f.id !== formId);
+		const copyPlacements = await db.query.formFields.findMany({
+			where: eq(formFields.formId, copy?.id ?? ""),
+			with: { field: true },
+		});
+		const copyHeader = copyPlacements.find(
+			(p) => p.field?.type === "section_header",
+		);
+		const origPlacements = await db.query.formFields.findMany({
+			where: eq(formFields.formId, formId),
+			with: { field: true },
+		});
+		const origHeader = origPlacements.find(
+			(p) => p.field?.type === "section_header",
+		);
+		expect(copyHeader).toBeTruthy();
+		expect(copyHeader?.fieldId).not.toBe(origHeader?.fieldId);
+
+		const removed = await runAction(
+			copy?.id ?? "",
+			{ intent: "remove-field", formFieldId: copyHeader?.id ?? "" },
+			cookie,
+		);
+		expect(removed.ok).toBe("remove-field");
+		const origAfter = await db.query.formFields.findMany({
+			where: eq(formFields.formId, formId),
+			with: { field: true },
+		});
+		expect(
+			origAfter.some(
+				(p) =>
+					p.field?.type === "section_header" && p.field.name === "Logistics",
+			),
+		).toBe(true);
+	});
+});
+
+describe("write-boundary sanitization", () => {
+	it("strips scripts, event handlers and javascript: hrefs from stored rich text", async () => {
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		const result = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({
+						welcomeHtml:
+							'<p onclick="steal()">Hi <strong>there</strong> <a href="javascript:evil()">bad</a> <a href="https://ok.example.com">good</a></p><script>alert(1)</script>',
+					}),
+					cookie,
+				),
+			),
+		);
+		expect(result.ok).toBe("save-form");
+		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
+		const html = form?.welcomeHtml ?? "";
+		expect(html).not.toContain("<script");
+		expect(html).not.toContain("alert(1)");
+		expect(html).not.toContain("onclick");
+		expect(html).not.toContain("javascript:");
+		expect(html).toContain("<strong>there</strong>");
+		expect(html).toContain('href="https://ok.example.com"');
+	});
+
+	it("keeps the shared editor's own output intact", async () => {
+		const clean =
+			'<p>Join us — <strong>we cover travel</strong>. Details at <a href="https://devopsdays-lyon.example.com" rel="noopener noreferrer">the site</a>.</p><ul><li>One</li></ul>';
+		expect(await sanitizeRichText(clean)).toBe(clean);
+	});
+});
+
+describe("stale notify recipients", () => {
+	it("drops recipients who left the org instead of bricking every save", async () => {
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		await action(
+			actionArgs(formId, saveFormBody({}, [["notifyNew", "u_admin"]]), cookie),
+		);
+		// The recipient leaves the organization; their stored id must not come
+		// back as an unremovable hidden selection.
+		await db
+			.delete(organizationMembers)
+			.where(eq(organizationMembers.id, "om1"));
+		const result = (await loader(loaderArgs(formId, cookie))) as unknown as {
+			data: { notify: { newSubmission: string[] } };
+		};
+		expect(result.data.notify.newSubmission).toEqual([]);
 	});
 });
 

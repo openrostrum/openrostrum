@@ -4,9 +4,9 @@ import { and, desc, eq, gt, isNull, like, lte, or, sql } from "drizzle-orm";
 import { getDb } from "~/db";
 import { forms, submissions } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { effectiveFormStatus, FORM_STATUS_TONE } from "~/lib/forms";
 import { createTimings } from "~/lib/track";
 import {
-	type BadgeTone,
 	Button,
 	ButtonLink,
 	EmptyState,
@@ -36,18 +36,6 @@ type FormRow = {
 	createdLabel: string;
 };
 
-// A form can be off (draft/closed) or auto-closed by its close date — the list
-// shows ONE effective state so "why is my link dead?" is answerable at a glance.
-export function effectiveFormStatus(
-	status: "draft" | "open" | "closed",
-	closeAt: Date | null,
-	now: number,
-): "draft" | "open" | "closed" {
-	if (status !== "open") return status;
-	if (closeAt && closeAt.getTime() <= now) return "closed";
-	return "open";
-}
-
 // Without this export, RR7 drops loader headers from DOCUMENT responses —
 // Server-Timing would silently vanish on full page loads.
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
@@ -71,6 +59,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		page: 1,
 		pages: 1,
 		total: 0,
+		hasEvent: event !== null,
 	};
 	// Flat routes also make this file the layout for the $formId editor — when
 	// a child route is rendering, the list data would be thrown away unseen.
@@ -177,16 +166,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	});
 
 	return data(
-		{ forms: decorated, tabCounts, q, tab, page, pages, total },
+		{ forms: decorated, tabCounts, q, tab, page, pages, total, hasEvent: true },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
-
-const STATUS_TONE: Record<string, BadgeTone> = {
-	open: "success",
-	closed: "neutral",
-	draft: "faint",
-};
 
 function listHref(tab: string, q: string, page = 1): string {
 	const params = new URLSearchParams();
@@ -312,7 +295,16 @@ function DeleteFormDialog({
 }
 
 export default function FormsList({ loaderData }: Route.ComponentProps) {
-	const { forms: rows, tabCounts, q, tab, page, pages, total } = loaderData;
+	const {
+		forms: rows,
+		tabCounts,
+		q,
+		tab,
+		page,
+		pages,
+		total,
+		hasEvent,
+	} = loaderData;
 	const [deleteId, setDeleteId] = useState<string | null>(null);
 	const deleteTarget = rows.find((f) => f.id === deleteId) ?? null;
 	// Flat routes make this file the LAYOUT for admin.forms.$formId — when the
@@ -326,7 +318,7 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 				title="Forms"
 				count={`${tabCounts.all} total`}
 				subtitle="Collect abstract, session and participant information."
-				actions={<NewFormButton />}
+				actions={hasEvent ? <NewFormButton /> : undefined}
 			/>
 
 			<Form method="get" className="flex items-center gap-2">
@@ -372,7 +364,13 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 
 			{rows.length === 0 ? (
 				<Panel>
-					{q || tab !== "all" ? (
+					{!hasEvent ? (
+						<EmptyState
+							icon="calendar"
+							title="No event yet"
+							body="Forms belong to an event — create your event first, then build its call-for-proposals form here."
+						/>
+					) : q || tab !== "all" ? (
 						<EmptyState
 							icon="search"
 							title="No forms match"
@@ -399,7 +397,7 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 								<div className="flex min-w-0 flex-1 flex-col gap-1">
 									<div className="flex flex-wrap items-center gap-2">
 										<strong>{f.internalName}</strong>
-										<StatusBadge tone={STATUS_TONE[f.status] ?? "neutral"}>
+										<StatusBadge tone={FORM_STATUS_TONE[f.status]}>
 											{f.status}
 										</StatusBadge>
 									</div>

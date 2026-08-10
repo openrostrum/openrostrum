@@ -18,7 +18,18 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { and, asc, desc, eq, isNull, like, ne, or, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	like,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { getDb, type Db } from "~/db";
@@ -39,9 +50,14 @@ import {
 } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import {
+	FORM_STATUS_TONE,
+	sanitizeRichText,
+	utcToZonedInputs,
+	zonedTimeToUtc,
+} from "~/lib/forms";
 import { createTimings, track } from "~/lib/track";
 import {
-	type BadgeTone,
 	Button,
 	ButtonLink,
 	EmptyState,
@@ -322,74 +338,6 @@ function chunk<T>(items: T[], size: number): T[][] {
 	for (let i = 0; i < items.length; i += size)
 		out.push(items.slice(i, i + size));
 	return out;
-}
-
-/* ------------------------------------------------------------- timezones --- */
-
-function tzOffsetMs(ts: number, timeZone: string): number {
-	const dtf = new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		hourCycle: "h23",
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-	});
-	const p = Object.fromEntries(
-		dtf.formatToParts(new Date(ts)).map((x) => [x.type, x.value]),
-	);
-	return (
-		Date.UTC(
-			Number(p.year),
-			Number(p.month) - 1,
-			Number(p.day),
-			Number(p.hour) % 24,
-			Number(p.minute),
-			Number(p.second),
-		) - ts
-	);
-}
-
-/** Interpret an admin's wall-clock entry ("2027-04-30" + "23:59") in the
- * EVENT's timezone — close dates must not shift with the admin's browser TZ. */
-export function zonedTimeToUtc(
-	date: string,
-	time: string,
-	timeZone: string,
-): Date {
-	const [y, m, d] = date.split("-").map(Number);
-	const [hh, mm] = time.split(":").map(Number);
-	const guess = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0);
-	// Two-pass: the offset at the guess can differ across a DST boundary.
-	const offset = tzOffsetMs(guess - tzOffsetMs(guess, timeZone), timeZone);
-	return new Date(guess - offset);
-}
-
-/** The inverse — prefill date/time inputs with the stored instant rendered in
- * the event's timezone. */
-export function utcToZonedInputs(
-	at: Date,
-	timeZone: string,
-): { date: string; time: string } {
-	const dtf = new Intl.DateTimeFormat("en-CA", {
-		timeZone,
-		hourCycle: "h23",
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-	const p = Object.fromEntries(
-		dtf.formatToParts(at).map((x) => [x.type, x.value]),
-	);
-	const hour = String(Number(p.hour) % 24).padStart(2, "0");
-	return {
-		date: `${p.year}-${p.month}-${p.day}`,
-		time: `${hour}:${p.minute}`,
-	};
 }
 
 /* ------------------------------------------------------------ validation --- */
@@ -732,6 +680,17 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const config = (form.config ?? {}) as {
 		notify?: { newSubmission?: string[]; updatedSubmission?: string[] };
 	};
+	// A recipient can leave the org after being picked — a stale id would
+	// render as an unremovable hidden selection that bricks every save.
+	const memberIds = new Set(members.map((m) => m.id));
+	const notify = {
+		newSubmission: (config.notify?.newSubmission ?? []).filter((id) =>
+			memberIds.has(id),
+		),
+		updatedSubmission: (config.notify?.updatedSubmission ?? []).filter((id) =>
+			memberIds.has(id),
+		),
+	};
 
 	return data(
 		{
@@ -800,10 +759,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			})),
 			ruleOptions,
 			members,
-			notify: {
-				newSubmission: config.notify?.newSubmission ?? [],
-				updatedSubmission: config.notify?.updatedSubmission ?? [],
-			},
+			notify,
 			counts,
 			needsBuiltins,
 			view,
@@ -865,6 +821,16 @@ async function handleSaveForm(
 		? zonedTimeToUtc(d.closeDate, d.closeTime ?? "23:59", event.timezone)
 		: null;
 
+	// Sanitized at the WRITE boundary: the editor constrains well-behaved
+	// browsers only — a forged POST must not store markup public pages render.
+	const [welcomeHtml, sessionSectionHtml, participantSectionHtml, successHtml] =
+		await Promise.all([
+			sanitizeRichText(d.welcomeHtml),
+			sanitizeRichText(d.sessionSectionHtml),
+			sanitizeRichText(d.participantSectionHtml),
+			sanitizeRichText(d.successHtml),
+		]);
+
 	await db
 		.update(forms)
 		.set({
@@ -873,12 +839,12 @@ async function handleSaveForm(
 			internalName: d.internalName,
 			externalTitle: d.externalTitle,
 			pageHeading: d.pageHeading,
-			welcomeHtml: d.welcomeHtml || null,
+			welcomeHtml: welcomeHtml || null,
 			showWelcome: d.showWelcome,
 			sessionSectionTitle: d.sessionSectionTitle || null,
-			sessionSectionHtml: d.sessionSectionHtml || null,
+			sessionSectionHtml: sessionSectionHtml || null,
 			participantSectionTitle: d.participantSectionTitle || null,
-			participantSectionHtml: d.participantSectionHtml || null,
+			participantSectionHtml: participantSectionHtml || null,
 			roleSpeakerMin: d.roleSpeakerMin,
 			roleSpeakerMax: d.roleSpeakerMax,
 			allowChairperson: d.allowChairperson,
@@ -892,7 +858,7 @@ async function handleSaveForm(
 			submissionLimit: d.submissionLimit,
 			allowMultipleDrafts: d.allowMultipleDrafts,
 			autoRedirect: d.autoRedirect,
-			successHtml: d.successHtml || null,
+			successHtml: successHtml || null,
 			sendConfirmationEmail: d.sendConfirmationEmail,
 			config: {
 				...(form.config ?? {}),
@@ -930,64 +896,70 @@ async function handleSetRule(
 	if (!target) return { formError: "Question not found." };
 	if (target.locked) return { formError: "Locked questions are always shown." };
 
-	let rule: QuestionRule;
+	// Resolve the trigger into one shape, then run a single validation block —
+	// the builtin/field branches must never drift apart.
+	let resolved: {
+		placement: (typeof siblings)[number] | undefined;
+		self: boolean;
+		valueKind: "options" | "number";
+		validValues: string[];
+		json: NonNullable<QuestionRule>["trigger"];
+	};
 	if (trigger.startsWith("builtin:")) {
 		const ref = trigger.slice("builtin:".length) as BuiltinRef;
-		const meta = BUILTIN_META[ref];
-		if (!meta?.trigger)
+		if (!BUILTIN_META[ref]?.trigger)
 			return { formError: "That question can’t drive a rule." };
-		const placedTrigger = siblings.find((s) => s.builtinRef === ref);
-		if (!placedTrigger)
-			return { formError: "The trigger question must be on this form." };
-		if (target.builtinRef === ref)
-			return { formError: "A question can’t depend on itself." };
-		if (placedTrigger.section !== target.section)
-			return {
-				formError: "Rules can only depend on questions in the same step.",
-			};
-		if (operator !== "equals" && operator !== "not_equals")
-			return { formError: "Dropdown triggers support is / is not only." };
 		// Same options the builder's value picker offered — one source of truth.
 		const options = await loadRuleOptions(db, event.id);
-		if (!(options[ref] ?? []).some((o) => o.value === value))
-			return { formError: "Pick a value from the trigger’s options." };
-		rule = { trigger: { kind: "builtin", ref }, operator, value };
+		resolved = {
+			placement: siblings.find((s) => s.builtinRef === ref),
+			self: target.builtinRef === ref,
+			valueKind: "options",
+			validValues: (options[ref] ?? []).map((o) => o.value),
+			json: { kind: "builtin", ref },
+		};
 	} else if (trigger.startsWith("field:")) {
 		const fieldId = trigger.slice("field:".length);
-		const placedTrigger = siblings.find((s) => s.fieldId === fieldId);
-		const triggerField = placedTrigger?.field;
-		if (!placedTrigger || !triggerField)
-			return { formError: "The trigger question must be on this form." };
-		if (target.fieldId === fieldId)
-			return { formError: "A question can’t depend on itself." };
-		if (placedTrigger.section !== target.section)
-			return {
-				formError: "Rules can only depend on questions in the same step.",
-			};
-		const triggerType = triggerField.type as string;
-		if (!RULE_TRIGGER_FIELD_TYPES.some((t) => t === triggerType))
+		const placement = siblings.find((s) => s.fieldId === fieldId);
+		const type = placement?.field?.type;
+		if (placement && !RULE_TRIGGER_FIELD_TYPES.some((t) => t === type))
 			return {
 				formError:
 					"Rules can trigger on dropdown, checkbox or number questions.",
 			};
-		if (triggerType === "number") {
-			if (!/^-?\d+(\.\d+)?$/.test(value))
-				return { formError: "Enter a number to compare against." };
-		} else {
-			if (operator !== "equals" && operator !== "not_equals")
-				return { formError: "This trigger supports is / is not only." };
-			if (
-				triggerType === "dropdown" &&
-				!(triggerField.options ?? []).includes(value)
-			)
-				return { formError: "Pick a value from the trigger’s options." };
-			if (triggerType === "checkbox" && value !== "true" && value !== "false")
-				return { formError: "Checkbox rules compare checked / unchecked." };
-		}
-		rule = { trigger: { kind: "field", fieldId }, operator, value };
+		resolved = {
+			placement,
+			self: target.fieldId === fieldId,
+			valueKind: type === "number" ? "number" : "options",
+			validValues:
+				type === "dropdown"
+					? (placement?.field?.options ?? [])
+					: type === "checkbox"
+						? ["true", "false"]
+						: [],
+			json: { kind: "field", fieldId },
+		};
 	} else {
 		return { formError: "Pick a trigger question." };
 	}
+
+	if (!resolved.placement)
+		return { formError: "The trigger question must be on this form." };
+	if (resolved.self) return { formError: "A question can’t depend on itself." };
+	if (resolved.placement.section !== target.section)
+		return {
+			formError: "Rules can only depend on questions in the same step.",
+		};
+	if (resolved.valueKind === "number") {
+		if (!/^-?\d+(\.\d+)?$/.test(value))
+			return { formError: "Enter a number to compare against." };
+	} else {
+		if (operator !== "equals" && operator !== "not_equals")
+			return { formError: "This trigger supports is / is not only." };
+		if (!resolved.validValues.includes(value))
+			return { formError: "Pick a value from the trigger’s options." };
+	}
+	const rule: QuestionRule = { trigger: resolved.json, operator, value };
 
 	await db
 		.update(formFields)
@@ -1089,12 +1061,30 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				}
 
 				case "duplicate": {
-					const placements = await db
-						.select()
-						.from(formFields)
-						.where(eq(formFields.formId, form.id))
-						.orderBy(asc(formFields.position));
+					const placements = await db.query.formFields.findMany({
+						where: eq(formFields.formId, form.id),
+						with: { field: true },
+						orderBy: [asc(formFields.position)],
+					});
 					const copyId = crypto.randomUUID();
+					// Layout rows (section headers/dividers) are per-use `fields` rows —
+					// the copy mints FRESH ones; sharing them would make removing a
+					// divider from either form silently delete it from the other.
+					const layoutClones = placements.flatMap((p) =>
+						p.field &&
+						(p.field.type === "section_header" || p.field.type === "divider")
+							? [
+									{
+										placementId: p.id,
+										source: p.field,
+										id: crypto.randomUUID(),
+									},
+								]
+							: [],
+					);
+					const layoutIdByPlacement = new Map(
+						layoutClones.map((c) => [c.placementId, c.id]),
+					);
 					// Spread the row so columns added later are copied automatically;
 					// only identity/lifecycle columns are overridden (publicId omitted →
 					// a fresh one is minted).
@@ -1114,11 +1104,22 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 							status: "draft",
 							internalName: `Copy of ${internalName}`,
 						}),
+						...chunk(layoutClones, 8).map((rows) =>
+							db.insert(fields).values(
+								rows.map((c) => ({
+									id: c.id,
+									eventId: c.source.eventId,
+									organizationId: c.source.organizationId,
+									name: c.source.name,
+									type: c.source.type,
+								})),
+							),
+						),
 						...chunk(placements, 8).map((rows) =>
 							db.insert(formFields).values(
 								rows.map((p) => ({
 									formId: copyId,
-									fieldId: p.fieldId,
+									fieldId: layoutIdByPlacement.get(p.id) ?? p.fieldId,
 									builtinRef: p.builtinRef,
 									section: p.section,
 									position: p.position,
@@ -1134,8 +1135,33 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				}
 
 				case "delete": {
-					// Placements cascade; submissions keep their rows (form_id nulls out).
-					await db.delete(forms).where(eq(forms.id, form.id));
+					// Placements cascade; submissions keep their rows (form_id nulls
+					// out). Layout rows are per-use `fields` rows — deleted with the
+					// form or they'd pile up invisibly (the picker filters them out).
+					const layoutRows = await db
+						.select({ id: fields.id })
+						.from(formFields)
+						.innerJoin(fields, eq(fields.id, formFields.fieldId))
+						.where(
+							and(
+								eq(formFields.formId, form.id),
+								or(
+									eq(fields.type, "section_header"),
+									eq(fields.type, "divider"),
+								),
+							),
+						);
+					await db.batch([
+						db.delete(forms).where(eq(forms.id, form.id)),
+						...chunk(layoutRows, 40).map((rows) =>
+							db.delete(fields).where(
+								inArray(
+									fields.id,
+									rows.map((r) => r.id),
+								),
+							),
+						),
+					]);
 					track("form.deleted", { formId: form.id, eventId: event.id });
 					throw redirect("/admin/forms");
 				}
@@ -1507,12 +1533,6 @@ const FIELD_STEP: Record<string, StepId> = {
 	closeDate: "settings",
 	closeTime: "settings",
 	submissionLimit: "settings",
-};
-
-const FORM_STATUS_TONE: Record<string, BadgeTone> = {
-	open: "success",
-	closed: "neutral",
-	draft: "faint",
 };
 
 const OPERATOR_LABEL: Record<string, string> = {
