@@ -1,12 +1,9 @@
 const X_HANDLE = /^[A-Za-z0-9_]{1,15}$/;
 
 /**
- * People hand over their X (Twitter) identity in every shape — `@handle`,
- * bare handle, `x.com/handle`, full URL — and imports/admin edits have
- * stored bare handles verbatim. One canonicalizer for every write path:
- * handles become `https://x.com/<handle>`, scheme-less URLs gain `https://`,
- * and unrecognizable input is null so each caller decides (reject fresh
- * input; keep an already-stored value so it never blocks an unrelated save).
+ * One canonicalizer for every X (Twitter) write path: `@handle`/`handle` →
+ * `https://x.com/<handle>`, scheme-less URLs gain `https://`, and
+ * unrecognizable input returns null so each caller decides what to do.
  */
 export function normalizeXUrl(raw: string): string | null {
 	const value = raw.trim();
