@@ -166,6 +166,18 @@ owner decides.
 | F2 | **Seed the demo forms' built-in placements** (`form_fields` rows with `builtin_ref` for the three seed forms, per `defaultBuiltinPlacements` in `app/lib/forms.ts`) | Until then pre-builder forms need the editor's explicit "Set up built-in questions" action, and the public renderer must handle builtin-less forms |
 | F3 | **ROUTE-MAP question**: may the forms list move to `admin.forms._index.tsx` (list) so the editor stops paying a discarded layout-loader run per navigation? | Flat routes make `admin.forms.tsx` the editor's layout; the lane carries a pathname short-circuit + `useOutlet` bail as the in-boundary workaround |
 
+## Contacts/CSV lane escalations (2026-08-10) — No-shortcuts valve, owner decisions pending
+
+Raised by the contacts-CSV fix lane (PR `fix/contacts-csv`); each is deliberately
+NOT built in-lane because the correct home is integration-owned or another
+lane's active surface. OPEN until the owner decides.
+
+| # | Escalation | Status |
+|---|-----------|--------|
+| CC1 | **Contact-level custom fields are unbuildable on the current schema** — Sessionboard manages custom fields per record type incl. Contact (`docs/flows/01-form-builder.md` §Field definition: Library > Fields tabs Contact/Group/Session/Evaluation Plan; `docs/data-model.md` Contact = "locked core + arbitrary custom fields"), but `fields` has no record-type dimension and answers exist only per submission (`submission_answers`) — there is no contact answers table, and submission answers cannot be attributed to one contact on multi-participant submissions. The judged "org-wide fields never surface on contact surfaces" complaint is this gap. In-lane fix was the honest one available: the Library copy now promises only what exists (form placement, per-submission answers) | OPEN (owner: schema decision — `fields.recordType` + `contact_answers`, then contact detail renders/edits applicable fields; until then the copy is the contract) |
+| CC2 | **Five sibling search boxes carry the judged empty-q hydration defect** — the roster fix (controlled input re-synced from the URL) is route-local because `admin.evaluation.tsx`, `admin.files.tsx`, `admin.emails_.history.tsx`, `admin.forms.tsx`, and `reviews.tsx` are other lanes' active surfaces (uncontrolled `defaultValue={q}` GET forms). Consolidation candidate: a URL-synced search-form composition in `app/components/` + a sweep of the five call sites | OPEN (owner: schedule the sweep; adopt the roster pattern as the house search-box shape) |
+| CC3 | **Accessible error/notice semantics belong in primitives** — routes now wrap `ErrorText` in `<div role="alert">` at ~9 call sites (auth-pages precedent followed), and the duplicate-contact warning renders in `ErrorText` for lack of a caution-toned Notice primitive. Fold `role="alert"` into `app/ui/error-text.tsx` and add a Notice primitive, then delete the wrappers | OPEN (owner: `app/ui` change at the next integration sweep) |
+
 ## Stability lane escalation (2026-08-10) — No-shortcuts valve, owner decision pending
 
 | # | Escalation | Status |
