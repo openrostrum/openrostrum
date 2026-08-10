@@ -37,6 +37,7 @@ import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
 import { CONTENT_STATUS_TONE, humanStatus } from "~/lib/submission-list";
+import { CONTACT_PICKER_CAP } from "~/lib/submission-list.server";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -67,7 +68,6 @@ const CONTENT_STATUS_OPTIONS =
 	CONTENT_STATUS satisfies readonly Submission["contentStatus"][];
 
 const REVISION_LIST_LIMIT = 50;
-const CONTACT_CAP = 1000;
 
 const ACCEPTANCE_TONE = {
 	pending: "warning",
@@ -176,10 +176,10 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				.from(contacts)
 				.where(eq(contacts.eventId, event.id))
 				.orderBy(asc(contacts.lastName), asc(contacts.firstName))
-				.limit(CONTACT_CAP + 1),
+				.limit(CONTACT_PICKER_CAP + 1),
 		]);
-		const contactsTruncated = contactRows.length > CONTACT_CAP;
-		if (contactsTruncated) contactRows.length = CONTACT_CAP;
+		const contactsTruncated = contactRows.length > CONTACT_PICKER_CAP;
+		if (contactsTruncated) contactRows.length = CONTACT_PICKER_CAP;
 
 		const tally = { approve: 0, maybe: 0, deny: 0 };
 		for (const r of row.reviews) tally[r.decision] += 1;
@@ -825,7 +825,10 @@ async function attachContacts(
 	opts: { role: (typeof PARTICIPANT_ROLE)[number] },
 ): Promise<{ result: ActionData; added: number }> {
 	const current = await db
-		.select({ contactId: participants.contactId })
+		.select({
+			contactId: participants.contactId,
+			isPrimary: participants.isPrimary,
+		})
 		.from(participants)
 		.where(eq(participants.submissionId, row.id));
 	const attached = new Set(current.map((p) => p.contactId));
@@ -838,16 +841,24 @@ async function attachContacts(
 			added: 0,
 		};
 	}
+	// A submission with speakers must always have a primary — decision emails
+	// address it first and task provisioning targets it. The first speaker
+	// attached while none exists takes the slot.
+	let hasPrimary = current.some((p) => p.isPrimary);
 	await db
 		.insert(participants)
 		.values(
-			fresh.map((contactId, i) => ({
-				submissionId: row.id,
-				contactId,
-				role: opts.role,
-				isPrimary: current.length === 0 && i === 0,
-				position: current.length + i,
-			})),
+			fresh.map((contactId, i) => {
+				const promote = !hasPrimary && opts.role === "speaker" && i === 0;
+				if (promote) hasPrimary = true;
+				return {
+					submissionId: row.id,
+					contactId,
+					role: opts.role,
+					isPrimary: promote,
+					position: current.length + i,
+				};
+			}),
 		)
 		// Race guard on unique(submission, contact): a double-submit replays
 		// cleanly instead of throwing.
@@ -876,7 +887,7 @@ async function removeParticipant(
 	if (!participantId) return { formError: "Pick a participant to remove." };
 	// Scoped to THIS submission — a foreign participant id is refused.
 	const [target] = await db
-		.select({ id: participants.id })
+		.select({ id: participants.id, isPrimary: participants.isPrimary })
 		.from(participants)
 		.where(
 			and(
@@ -888,11 +899,40 @@ async function removeParticipant(
 		return { formError: "That participant is not on this submission." };
 	}
 	await db.delete(participants).where(eq(participants.id, target.id));
+	// Removing the primary must promote the next speaker: primary-less
+	// submissions silently drop out of task provisioning and lose their
+	// first-choice decision-email recipient.
+	let promoted: string | null = null;
+	if (target.isPrimary) {
+		const [next] = await db
+			.select({ id: participants.id })
+			.from(participants)
+			.where(
+				and(
+					eq(participants.submissionId, row.id),
+					eq(participants.role, "speaker"),
+				),
+			)
+			.orderBy(asc(participants.position), asc(participants.id))
+			.limit(1);
+		if (next) {
+			await db
+				.update(participants)
+				.set({ isPrimary: true })
+				.where(eq(participants.id, next.id));
+			promoted = next.id;
+		}
+	}
 	track("submission.participant_removed", {
 		submissionId: row.id,
 		eventId: row.eventId,
+		promoted,
 	});
-	return { notice: "Participant removed from this submission." };
+	return {
+		notice: promoted
+			? "Participant removed — the next speaker is now primary."
+			: "Participant removed from this submission.",
+	};
 }
 
 async function deleteSubmission(

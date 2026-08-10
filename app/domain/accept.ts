@@ -17,11 +17,7 @@ import {
 } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
 import { formatInTimeZone } from "~/lib/dates";
-import {
-	type MergeContext,
-	renderBody,
-	renderSubject,
-} from "~/lib/email-render";
+import { type MergeTag, renderBody, renderSubject } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { formatScheduleRange } from "~/lib/format-date";
 import { buildIcs } from "~/lib/ics";
@@ -573,7 +569,10 @@ export async function sendDecisionEmails(
 			.trim()
 			.split(/\s+/);
 		const form = row.formId ? formById.get(row.formId) : undefined;
-		const ctx: MergeContext = {
+		// Full Record, not MergeContext (Partial): a tag added to MERGE_TAGS must
+		// fail compilation HERE, or it renders resolved in the editor preview and
+		// blank in the delivered email.
+		const ctx: Record<MergeTag, string | null> = {
 			first_name: firstName,
 			last_name: restName.join(" "),
 			full_name: [firstName, ...restName].join(" "),

@@ -47,6 +47,10 @@ export function parseSubmissionFilters(url: URL): {
 	};
 }
 
+/** One bound for every contact-picker roster (drawer, detail attach): fetch
+ * one past it so truncation is detectable, never silent. */
+export const CONTACT_PICKER_CAP = 1000;
+
 function emptyCounts(): Record<ListTab, number> {
 	return Object.fromEntries(LIST_TABS.map((t) => [t, 0])) as Record<
 		ListTab,
@@ -141,8 +145,7 @@ export async function loadSubmissionList(
 				offset: (page - 1) * PAGE_SIZE,
 			});
 
-			// Fetch one past the cap so truncation is detectable, never silent.
-			const contactCap = 1000;
+			const contactCap = CONTACT_PICKER_CAP;
 			const contactRows = await db
 				.select({
 					id: contacts.id,

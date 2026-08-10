@@ -10,7 +10,7 @@ import { TemplatePreview } from "~/emails/template-preview";
 import { Hint } from "~/emails/text";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { formatInTimeZone } from "~/lib/dates";
-import type { MergeContext } from "~/lib/email-render";
+import type { MergeTag } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import {
@@ -94,7 +94,10 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const tz = event.timezone;
 	const firstName = sample.contact?.firstName ?? "Alex";
 	const lastName = sample.contact?.lastName ?? "Rivera";
-	const sampleCtx: MergeContext = {
+	// Full Record, not MergeContext (Partial): the preview and the send site
+	// (app/domain/accept.ts) must both fail compilation when MERGE_TAGS grows,
+	// or the two drift apart tag by tag.
+	const sampleCtx: Record<MergeTag, string | null> = {
 		first_name: firstName,
 		last_name: lastName,
 		full_name: `${firstName} ${lastName}`.trim(),

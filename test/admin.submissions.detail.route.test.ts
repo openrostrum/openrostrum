@@ -815,6 +815,75 @@ describe("participant management", () => {
 		expect(await db.select().from(participants)).toHaveLength(0);
 	});
 
+	// A submission with speakers must always keep exactly one primary: task
+	// provisioning targets the primary and decision emails address it first,
+	// so a primary-less submission silently drops out of both.
+	it("removing the primary promotes the next speaker by position", async () => {
+		const db = await seedBareSubmission();
+		await db.insert(participants).values([
+			{
+				id: "p1",
+				submissionId: "s1",
+				contactId: "c1",
+				role: "speaker",
+				isPrimary: true,
+				position: 0,
+			},
+			{
+				id: "p2",
+				submissionId: "s1",
+				contactId: "c2",
+				role: "speaker",
+				isPrimary: false,
+				position: 1,
+			},
+		]);
+		const result = unwrap(
+			await callAction(
+				await detailRequest(
+					new URLSearchParams({
+						intent: "remove-participant",
+						participantId: "p1",
+					}),
+				),
+			),
+		);
+		expect(result.data.notice).toMatch(/next speaker is now primary/i);
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.id).toBe("p2");
+		expect(rows[0]?.isPrimary).toBe(true);
+	});
+
+	it("attaching a speaker where none is primary grants primary (swap flow ends whole)", async () => {
+		const db = await seedBareSubmission();
+		// Only a moderator on the submission — no primary exists.
+		await db.insert(participants).values({
+			id: "p_mod",
+			submissionId: "s1",
+			contactId: "c1",
+			role: "moderator",
+			isPrimary: false,
+			position: 0,
+		});
+		const body = new URLSearchParams({
+			intent: "add-participants",
+			role: "speaker",
+		});
+		body.append("contactIds", "c2");
+		unwrap(await callAction(await detailRequest(body)));
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		const speaker = rows.find((r) => r.contactId === "c2");
+		expect(speaker?.isPrimary).toBe(true);
+		expect(rows.find((r) => r.id === "p_mod")?.isPrimary).toBe(false);
+	});
+
 	it("removes a participant from this submission only — a foreign id is refused", async () => {
 		const db = await seedBareSubmission();
 		await db.insert(submissions).values({
