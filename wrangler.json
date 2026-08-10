@@ -13,7 +13,7 @@
 		{
 			"binding": "DB",
 			"database_name": "openrostrum",
-			"database_id": "5f1d8b81-229e-4756-8dbb-c0f926b87921",
+			"database_id": "REPLACE_WITH_YOUR_D1_ID_OR_INJECT_AT_DEPLOY",
 			"migrations_dir": "drizzle/migrations"
 		}
 	],
@@ -27,6 +27,7 @@
 		"crons": ["0 9 * * *"]
 	},
 	"vars": {
-		"APP_ENV": "production"
+		"APP_ENV": "production",
+		"EMAIL_FROM": "OpenRostrum <onboarding@resend.dev>"
 	}
 }

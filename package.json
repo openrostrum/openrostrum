@@ -31,7 +31,7 @@
 		"dev:worktree": "bash scripts/worktree-dev.sh",
 		"typegen": "wrangler types && react-router typegen",
 		"check": "tsc && react-router build && wrangler deploy --dry-run",
-		"deploy": "wrangler deploy",
+		"deploy": "bash scripts/deploy.sh",
 		"dev": "react-router dev",
 		"preview": "pnpm build && vite preview",
 		"typecheck": "pnpm typegen && tsc -b"

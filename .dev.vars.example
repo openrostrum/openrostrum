@@ -4,6 +4,17 @@
 # Prod ships APP_ENV=production from wrangler.json and never reads this file.
 APP_ENV=development
 
-# Only needed to exercise the real provider locally (normally leave unset):
+# Real email provider (Resend). Leave unset for local dev → mail goes to the
+# readable `email_outbox` D1 sink instead of sending. Set BOTH to send for real:
+#   RESEND_API_KEY — a Resend API key (send scope is enough)
+#   EMAIL_FROM     — a sender on YOUR Resend-verified domain
 # RESEND_API_KEY=re_...
+# EMAIL_FROM=OpenRostrum <noreply@yourdomain.com>
+
+# Airtable mirror (optional). Unset → in-memory local adapter (no network).
+# AIRTABLE_API_KEY=pat...
+# AIRTABLE_BASE_ID=app...
+
+# Bot protection on the public CFP form. Unset → pass-through (so headless
+# agents can submit). Set to enforce:
 # TURNSTILE_SECRET=...

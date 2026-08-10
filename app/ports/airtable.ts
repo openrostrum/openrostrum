@@ -28,13 +28,35 @@ export function createLocalAirtableSync(): AirtableSync & {
 	};
 }
 
-/** Prod: real Airtable base — wired in the capabilities phase. */
-export function createAirtableSync(_env: Env): AirtableSync {
+const AIRTABLE_API = "https://api.airtable.com/v0";
+// Our D1 id lives in this Airtable field and is the mirror's stable merge key,
+// so re-syncing a record updates its row instead of duplicating it.
+const MERGE_FIELD = "Record ID";
+
+/** Prod: upsert a record into the real base, keyed on our D1 id (MERGE_FIELD). */
+export function createAirtableSync(env: Env): AirtableSync {
 	return {
-		async upsert() {
-			throw new Error(
-				"Airtable adapter not configured yet (capabilities phase).",
-			);
+		async upsert(record) {
+			const url = `${AIRTABLE_API}/${env.AIRTABLE_BASE_ID}/${encodeURIComponent(
+				record.table,
+			)}`;
+			const res = await fetch(url, {
+				method: "PATCH",
+				headers: {
+					Authorization: `Bearer ${env.AIRTABLE_API_KEY}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					performUpsert: { fieldsToMergeOn: [MERGE_FIELD] },
+					typecast: true, // let Airtable coerce strings into select options
+					records: [{ fields: { [MERGE_FIELD]: record.id, ...record.fields } }],
+				}),
+			});
+			if (!res.ok) {
+				throw new Error(
+					`Airtable upsert failed (${res.status}): ${await res.text()}`,
+				);
+			}
 		},
 	};
 }
