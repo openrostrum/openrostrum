@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Form, useNavigation } from "react-router";
 import type {
 	GettingStartedState,
@@ -6,6 +5,7 @@ import type {
 } from "~/domain/getting-started";
 import { Button, Icon, Panel, TextLink } from "~/ui";
 import { cn } from "~/ui/cn";
+import { CopyButton } from "./copy-button";
 import { SectionHeading } from "./section-heading";
 
 const STEP_COPY: Record<
@@ -74,34 +74,6 @@ function StepMarker({
 		>
 			{index + 1}
 		</span>
-	);
-}
-
-function CopyCfpLinkButton({ url }: { url: string }) {
-	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-	useEffect(() => {
-		if (state === "idle") return;
-		const t = setTimeout(() => setState("idle"), 2500);
-		return () => clearTimeout(t);
-	}, [state]);
-	return (
-		<Button
-			type="button"
-			variant="ghost"
-			icon="export"
-			onClick={() => {
-				navigator.clipboard
-					?.writeText(url)
-					.then(() => setState("copied"))
-					.catch(() => setState("failed"));
-			}}
-		>
-			{state === "copied"
-				? "Copied!"
-				: state === "failed"
-					? "Copy failed — open forms for the link"
-					: "Copy CFP link"}
-		</Button>
 	);
 }
 
@@ -185,7 +157,13 @@ export function GettingStartedCard({
 								{!step.done && (
 									<div className="flex shrink-0 items-center pt-[3px]">
 										{step.id === "first_submission" ? (
-											cfpUrl !== null && <CopyCfpLinkButton url={cfpUrl} />
+											cfpUrl !== null && (
+												<CopyButton
+													value={cfpUrl}
+													label="Copy CFP link"
+													failedLabel="Copy failed — open forms for the link"
+												/>
+											)
 										) : (
 											<TextLink to={copy.to}>{copy.action} →</TextLink>
 										)}

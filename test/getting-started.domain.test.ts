@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
 	deriveGettingStarted,
-	dismissGettingStartedCookie,
 	type GettingStartedFacts,
-	isGettingStartedDismissed,
 } from "../app/domain/getting-started";
+import {
+	dismissGettingStartedCookie,
+	isGettingStartedDismissed,
+} from "../app/lib/getting-started-dismissal";
 
 // Oracle: the checklist spec — five ordered steps (basics → tracks/formats →
 // published form → reviewers → first submission), each done-state derived

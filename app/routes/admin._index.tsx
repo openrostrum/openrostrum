@@ -17,12 +17,12 @@ import {
 	tracks,
 } from "~/db/schema";
 import { formIsOpen } from "~/domain/forms";
+import { deriveGettingStarted } from "~/domain/getting-started";
+import { getActiveEvent, isSecureRequest, requireAdmin } from "~/lib/auth";
 import {
-	deriveGettingStarted,
 	dismissGettingStartedCookie,
 	isGettingStartedDismissed,
-} from "~/domain/getting-started";
-import { getActiveEvent, isSecureRequest, requireAdmin } from "~/lib/auth";
+} from "~/lib/getting-started-dismissal";
 import {
 	calendarDaysUntil,
 	eventCountdown,
