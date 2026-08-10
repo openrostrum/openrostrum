@@ -1,0 +1,3143 @@
+import { useEffect, useMemo, useState } from "react";
+import { data, Form, redirect, useFetcher, useNavigation } from "react-router";
+import {
+	DndContext,
+	KeyboardSensor,
+	PointerSensor,
+	closestCenter,
+	useSensor,
+	useSensors,
+} from "@dnd-kit/core";
+import {
+	SortableContext,
+	arrayMove,
+	sortableKeyboardCoordinates,
+	useSortable,
+	verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { EditorContent, useEditor, type Editor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import { and, asc, desc, eq, isNull, like, ne, or, sql } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, type Db } from "~/db";
+import {
+	fields,
+	formats,
+	formFields,
+	forms,
+	languages,
+	levels,
+	organizationMembers,
+	submissions,
+	tags,
+	tracks,
+	users,
+	type QuestionRule,
+} from "~/db/schema";
+import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { errorMessage } from "~/lib/errors";
+import { createTimings, track } from "~/lib/track";
+import {
+	type BadgeTone,
+	Button,
+	ButtonLink,
+	EmptyState,
+	ErrorText,
+	Field,
+	Icon,
+	Input,
+	PageHeader,
+	Panel,
+	SearchInput,
+	Select,
+	StatusBadge,
+	SUBMISSION_STATUS_TONE,
+	Tab,
+	Table,
+	Tabs,
+	TBody,
+	Td,
+	TextLink,
+	Th,
+	THead,
+	Tr,
+	EmptyRow,
+} from "~/ui";
+import type { Route } from "./+types/admin.forms.$formId";
+
+/* ------------------------------------------------------------- built-ins --- */
+
+type BuiltinRef = NonNullable<(typeof formFields.$inferSelect)["builtinRef"]>;
+type SectionId = (typeof formFields.$inferSelect)["section"];
+
+type BuiltinMeta = {
+	label: string;
+	caption: string;
+	section: SectionId;
+	/** Placed automatically on every new form. */
+	defaultOn: boolean;
+	/** Cannot be removed from a form. */
+	locked: boolean;
+	/** Required state is fixed ON (identity fields + Title). */
+	requiredLocked: boolean;
+	defaultRequired: boolean;
+	/** Eligible as a question-rule trigger (dropdown-backed built-ins). */
+	trigger: boolean;
+};
+
+// Pure data (client-bundled for labels/captions) — keys type-checked against
+// the schema's BUILTIN_FIELD enum so the two can never drift.
+const BUILTIN_META = {
+	title: {
+		label: "Title",
+		caption: "Text · max 255",
+		section: "session",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: true,
+		defaultRequired: true,
+		trigger: false,
+	},
+	description: {
+		label: "Description",
+		caption: "Rich text · max 5,000",
+		section: "session",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: false,
+		defaultRequired: true,
+		trigger: false,
+	},
+	format: {
+		label: "Format",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	tags: {
+		label: "Tags",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	track: {
+		label: "Track",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	level: {
+		label: "Level",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	language: {
+		label: "Language",
+		caption: "Dropdown",
+		section: "session",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: true,
+	},
+	first_name: {
+		label: "First name",
+		caption: "Text · max 255",
+		section: "participant",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: true,
+		defaultRequired: true,
+		trigger: false,
+	},
+	last_name: {
+		label: "Last name",
+		caption: "Text · max 255",
+		section: "participant",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: true,
+		defaultRequired: true,
+		trigger: false,
+	},
+	email: {
+		label: "Email",
+		caption: "Email",
+		section: "participant",
+		defaultOn: true,
+		locked: true,
+		requiredLocked: true,
+		defaultRequired: true,
+		trigger: false,
+	},
+	mobile_phone: {
+		label: "Mobile phone",
+		caption: "Phone",
+		section: "participant",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	home_phone: {
+		label: "Home phone",
+		caption: "Phone",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	biography: {
+		label: "Biography",
+		caption: "Rich text · max 5,000",
+		section: "participant",
+		defaultOn: true,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	company_name: {
+		label: "Company name",
+		caption: "Text · max 255",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	job_title: {
+		label: "Job title",
+		caption: "Text · max 255",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	headshot: {
+		label: "Headshot",
+		caption: "File upload",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+	zip: {
+		label: "Zip / postal code",
+		caption: "Text",
+		section: "participant",
+		defaultOn: false,
+		locked: false,
+		requiredLocked: false,
+		defaultRequired: false,
+		trigger: false,
+	},
+} as const satisfies Record<BuiltinRef, BuiltinMeta>;
+
+const BUILTIN_ORDER = Object.keys(BUILTIN_META) as BuiltinRef[];
+
+/** The rows every new form starts with, in Sessionboard's default order. */
+export function defaultBuiltinPlacements(
+	formId: string,
+): Array<typeof formFields.$inferInsert> {
+	const nextPos: Record<SectionId, number> = { session: 0, participant: 0 };
+	return BUILTIN_ORDER.filter((ref) => BUILTIN_META[ref].defaultOn).map(
+		(ref) => {
+			const meta = BUILTIN_META[ref];
+			return {
+				formId,
+				builtinRef: ref,
+				section: meta.section,
+				position: nextPos[meta.section]++,
+				required: meta.defaultRequired,
+				locked: meta.locked,
+			};
+		},
+	);
+}
+
+const FIELD_TYPE_LABEL: Record<string, string> = {
+	text: "Text",
+	textarea: "Text area",
+	wysiwyg: "Rich text",
+	dropdown: "Dropdown",
+	checkbox: "Checkbox",
+	number: "Number",
+	email: "Email",
+	phone: "Phone",
+	date: "Date",
+	section_header: "Section header",
+	divider: "Divider",
+};
+
+// Types offered by "Create new field" (layout elements have their own tab).
+const CREATE_FIELD_TYPES = [
+	"text",
+	"textarea",
+	"wysiwyg",
+	"dropdown",
+	"checkbox",
+	"number",
+	"email",
+	"phone",
+	"date",
+] as const satisfies ReadonlyArray<(typeof fields.$inferSelect)["type"]>;
+
+const RULE_TRIGGER_FIELD_TYPES = ["dropdown", "checkbox", "number"] as const;
+
+// D1 caps a statement at 100 bound parameters — bulk placement inserts
+// (~10 columns/row) must stay under it or the whole batch throws.
+function chunk<T>(items: T[], size: number): T[][] {
+	const out: T[][] = [];
+	for (let i = 0; i < items.length; i += size)
+		out.push(items.slice(i, i + size));
+	return out;
+}
+
+/* ------------------------------------------------------------- timezones --- */
+
+function tzOffsetMs(ts: number, timeZone: string): number {
+	const dtf = new Intl.DateTimeFormat("en-US", {
+		timeZone,
+		hourCycle: "h23",
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	});
+	const p = Object.fromEntries(
+		dtf.formatToParts(new Date(ts)).map((x) => [x.type, x.value]),
+	);
+	return (
+		Date.UTC(
+			Number(p.year),
+			Number(p.month) - 1,
+			Number(p.day),
+			Number(p.hour) % 24,
+			Number(p.minute),
+			Number(p.second),
+		) - ts
+	);
+}
+
+/** Interpret an admin's wall-clock entry ("2027-04-30" + "23:59") in the
+ * EVENT's timezone — close dates must not shift with the admin's browser TZ. */
+export function zonedTimeToUtc(
+	date: string,
+	time: string,
+	timeZone: string,
+): Date {
+	const [y, m, d] = date.split("-").map(Number);
+	const [hh, mm] = time.split(":").map(Number);
+	const guess = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0);
+	// Two-pass: the offset at the guess can differ across a DST boundary.
+	const offset = tzOffsetMs(guess - tzOffsetMs(guess, timeZone), timeZone);
+	return new Date(guess - offset);
+}
+
+/** The inverse — prefill date/time inputs with the stored instant rendered in
+ * the event's timezone. */
+export function utcToZonedInputs(
+	at: Date,
+	timeZone: string,
+): { date: string; time: string } {
+	const dtf = new Intl.DateTimeFormat("en-CA", {
+		timeZone,
+		hourCycle: "h23",
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+	const p = Object.fromEntries(
+		dtf.formatToParts(at).map((x) => [x.type, x.value]),
+	);
+	const hour = String(Number(p.hour) % 24).padStart(2, "0");
+	return {
+		date: `${p.year}-${p.month}-${p.day}`,
+		time: `${hour}:${p.minute}`,
+	};
+}
+
+/* ------------------------------------------------------------ validation --- */
+
+const boolish = z.enum(["true", "false"]).transform((v) => v === "true");
+
+const emptyToNull = (v: unknown) =>
+	typeof v === "string" && v.trim() === "" ? null : v;
+
+const optionalInt = (min: number, max: number) =>
+	z.preprocess(
+		emptyToNull,
+		z.coerce.number().int().min(min).max(max).nullable(),
+	);
+
+const SaveForm = z
+	.object({
+		type: z.enum(["abstract", "session"]),
+		participantsStep: boolish,
+		internalName: z
+			.string()
+			.trim()
+			.min(1, "Internal form name is required")
+			.max(255),
+		externalTitle: z.string().trim().max(255),
+		pageHeading: z
+			.string()
+			.trim()
+			.max(15, "Page heading is limited to 15 characters"),
+		welcomeHtml: z.string().max(20000),
+		showWelcome: boolish,
+		sessionSectionTitle: z.string().trim().max(255),
+		sessionSectionHtml: z.string().max(20000),
+		participantSectionTitle: z.string().trim().max(255),
+		participantSectionHtml: z.string().max(20000),
+		roleSpeakerMin: z.coerce.number().int().min(0).max(50),
+		roleSpeakerMax: optionalInt(1, 50),
+		allowChairperson: boolish,
+		roleChairpersonMin: z.coerce.number().int().min(0).max(50),
+		roleChairpersonMax: optionalInt(1, 50),
+		allowModerator: boolish,
+		roleModeratorMin: z.coerce.number().int().min(0).max(50),
+		roleModeratorMax: optionalInt(1, 50),
+		// Past dates are deliberately legal — backdating is how a form is closed.
+		closeDate: z.preprocess(
+			emptyToNull,
+			z
+				.string()
+				.regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date")
+				.nullable(),
+		),
+		closeTime: z.preprocess(
+			emptyToNull,
+			z
+				.string()
+				.regex(/^\d{2}:\d{2}$/, "Enter a valid time")
+				.nullable(),
+		),
+		sendReminders: boolish,
+		submissionLimit: optionalInt(1, 1000),
+		allowMultipleDrafts: boolish,
+		autoRedirect: boolish,
+		successHtml: z.string().max(20000),
+		sendConfirmationEmail: boolish,
+	})
+	.superRefine((d, ctx) => {
+		const pairs: Array<[string, number, number | null]> = [
+			["roleSpeakerMin", d.roleSpeakerMin, d.roleSpeakerMax],
+			["roleChairpersonMin", d.roleChairpersonMin, d.roleChairpersonMax],
+			["roleModeratorMin", d.roleModeratorMin, d.roleModeratorMax],
+		];
+		for (const [path, min, max] of pairs) {
+			if (max !== null && min > max) {
+				ctx.addIssue({
+					code: "custom",
+					message: "Minimum cannot exceed maximum",
+					path: [path],
+				});
+			}
+		}
+	});
+
+const CreateField = z.object({
+	name: z.string().trim().min(1, "Name is required").max(255),
+	type: z.enum(CREATE_FIELD_TYPES),
+	description: z.string().trim().max(1000),
+	maxLength: optionalInt(1, 5000),
+	options: z.string().trim().max(5000),
+	scope: z.enum(["event", "org"]),
+	section: z.enum(["session", "participant"]),
+	required: boolish,
+});
+
+type ActionResult = {
+	ok?: string;
+	created?: string;
+	fieldErrors?: Record<string, string[]>;
+	formError?: string;
+};
+
+function zodErrors(error: z.ZodError): ActionResult {
+	return { fieldErrors: z.flattenError(error).fieldErrors };
+}
+
+/* ---------------------------------------------------------------- loader --- */
+
+// Without this export, RR7 drops loader headers from DOCUMENT responses —
+// Server-Timing would silently vanish on full page loads.
+export function headers({ loaderHeaders }: Route.HeadersArgs) {
+	return loaderHeaders;
+}
+
+function fieldScopePredicate(eventId: string, organizationId: string) {
+	// Event fields of THIS event, plus org-wide fields of THIS org — never
+	// another tenant's library.
+	return or(
+		eq(fields.eventId, eventId),
+		and(eq(fields.organizationId, organizationId), isNull(fields.eventId)),
+	);
+}
+
+async function loadPlacements(db: Db, formId: string) {
+	return db.query.formFields.findMany({
+		where: eq(formFields.formId, formId),
+		with: { field: true },
+		orderBy: [asc(formFields.position), asc(formFields.createdAt)],
+	});
+}
+
+export async function loader({ context, request, params }: Route.LoaderArgs) {
+	const env = context.cloudflare.env;
+	// Self-authenticate — never rely on the admin.tsx layout loader.
+	const user = await requireAdmin(env, request);
+	if (params.formId === "new") throw redirect("/admin/forms");
+	const event = await getActiveEvent(env, user);
+	if (!event) throw redirect("/admin/forms");
+	const db = getDb(env);
+	const timings = createTimings();
+
+	const [form] = await timings.time("db", () =>
+		db
+			.select()
+			.from(forms)
+			.where(and(eq(forms.id, params.formId), eq(forms.eventId, event.id)))
+			.limit(1),
+	);
+	if (!form) throw data({ message: "Form not found" }, { status: 404 });
+
+	let placements = await timings.time("placements", () =>
+		loadPlacements(db, form.id),
+	);
+	// Forms minted before the builder existed (e.g. seed rows) have no built-in
+	// placements — materialize the defaults once so locked/required/order state
+	// has a home. Deterministic positions keep this idempotent under races.
+	if (!placements.some((p) => p.builtinRef !== null)) {
+		const defaults = defaultBuiltinPlacements(form.id);
+		const offsets: Record<SectionId, number> = {
+			session: defaults.filter((d) => d.section === "session").length,
+			participant: defaults.filter((d) => d.section === "participant").length,
+		};
+		const shifts = (["session", "participant"] as const).flatMap((section) =>
+			placements
+				.filter((p) => p.section === section)
+				.map((p, i) =>
+					db
+						.update(formFields)
+						.set({ position: offsets[section] + i })
+						.where(eq(formFields.id, p.id)),
+				),
+		);
+		const [firstChunk, ...restChunks] = chunk(defaults, 8).map((rows) =>
+			db.insert(formFields).values(rows).onConflictDoNothing(),
+		);
+		if (firstChunk) await db.batch([firstChunk, ...restChunks, ...shifts]);
+		placements = await loadPlacements(db, form.id);
+	}
+
+	const url = new URL(request.url);
+	const pickerQ = url.searchParams.get("pickerQ")?.trim() ?? "";
+	const viewParam = url.searchParams.get("view");
+	const view =
+		viewParam === "results" || viewParam === "drafts" ? viewParam : null;
+
+	const libraryRows = await timings.time("library", () =>
+		db
+			.select()
+			.from(fields)
+			.where(
+				and(
+					fieldScopePredicate(event.id, event.organizationId),
+					ne(fields.type, "section_header"),
+					ne(fields.type, "divider"),
+					pickerQ ? like(fields.name, `%${pickerQ}%`) : undefined,
+				),
+			)
+			.orderBy(asc(fields.name))
+			.limit(50),
+	);
+
+	const [formatRows, trackRows, tagRows, levelRows, languageRows, members] =
+		await timings.time("options", () =>
+			Promise.all([
+				db
+					.select({ id: formats.id, name: formats.name })
+					.from(formats)
+					.where(eq(formats.eventId, event.id))
+					.orderBy(asc(formats.position)),
+				db
+					.select({ id: tracks.id, name: tracks.name })
+					.from(tracks)
+					.where(eq(tracks.eventId, event.id))
+					.orderBy(asc(tracks.name)),
+				db
+					.select({ id: tags.id, name: tags.name })
+					.from(tags)
+					.where(eq(tags.eventId, event.id))
+					.orderBy(asc(tags.name)),
+				db
+					.select({ id: levels.id, name: levels.name })
+					.from(levels)
+					.where(eq(levels.eventId, event.id))
+					.orderBy(asc(levels.position)),
+				db
+					.select({ id: languages.id, name: languages.name })
+					.from(languages)
+					.where(eq(languages.eventId, event.id))
+					.orderBy(asc(languages.position)),
+				// The notify pickers list the event's ORG MEMBERS — never a global
+				// `users.role = 'admin'` query, which would leak other tenants' admins.
+				db
+					.select({ id: users.id, name: users.name, email: users.email })
+					.from(organizationMembers)
+					.innerJoin(users, eq(users.id, organizationMembers.userId))
+					.where(eq(organizationMembers.organizationId, event.organizationId))
+					.orderBy(asc(users.name)),
+			]),
+		);
+
+	// Rule `value` stores exactly what the public form control submits for the
+	// trigger: taxonomy row ids for Format/Tags/Track/Level, the language NAME
+	// for Language (submissions.language is a name column).
+	const ruleOptions: Record<string, Array<{ value: string; label: string }>> = {
+		format: formatRows.map((r) => ({ value: r.id, label: r.name })),
+		tags: tagRows.map((r) => ({ value: r.id, label: r.name })),
+		track: trackRows.map((r) => ({ value: r.id, label: r.name })),
+		level: levelRows.map((r) => ({ value: r.id, label: r.name })),
+		language: languageRows.map((r) => ({ value: r.name, label: r.name })),
+	};
+
+	const [subCounts] = await timings.time("counts", () =>
+		db
+			.select({
+				total: sql<number>`count(*)`,
+				drafts: sql<number>`coalesce(sum(case when ${submissions.status} = 'draft' then 1 else 0 end), 0)`,
+			})
+			.from(submissions)
+			.where(eq(submissions.formId, form.id)),
+	);
+
+	const dateTimeFmt = new Intl.DateTimeFormat("en-US", {
+		timeZone: event.timezone,
+		dateStyle: "medium",
+		timeStyle: "short",
+	});
+	let viewRows: Array<{
+		id: string;
+		title: string;
+		status: (typeof submissions.$inferSelect)["status"];
+		createdLabel: string;
+	}> | null = null;
+	if (view) {
+		const subs = await timings.time("view", () =>
+			db
+				.select({
+					id: submissions.id,
+					title: submissions.title,
+					status: submissions.status,
+					createdAt: submissions.createdAt,
+				})
+				.from(submissions)
+				.where(
+					and(
+						eq(submissions.formId, form.id),
+						view === "drafts"
+							? eq(submissions.status, "draft")
+							: ne(submissions.status, "draft"),
+					),
+				)
+				.orderBy(desc(submissions.createdAt))
+				.limit(200),
+		);
+		viewRows = subs.map((s) => ({
+			id: s.id,
+			title: s.title,
+			status: s.status,
+			createdLabel: dateTimeFmt.format(s.createdAt),
+		}));
+	}
+
+	const closeInputs = form.closeAt
+		? utcToZonedInputs(form.closeAt, event.timezone)
+		: { date: "", time: "" };
+	const config = (form.config ?? {}) as {
+		notify?: { newSubmission?: string[]; updatedSubmission?: string[] };
+	};
+
+	return data(
+		{
+			form: {
+				id: form.id,
+				publicId: form.publicId,
+				type: form.type,
+				status: form.status,
+				internalName: form.internalName,
+				externalTitle: form.externalTitle,
+				pageHeading: form.pageHeading,
+				welcomeHtml: form.welcomeHtml ?? "",
+				showWelcome: form.showWelcome,
+				participantsStep: form.participantsStep,
+				sessionSectionTitle: form.sessionSectionTitle ?? "",
+				sessionSectionHtml: form.sessionSectionHtml ?? "",
+				participantSectionTitle: form.participantSectionTitle ?? "",
+				participantSectionHtml: form.participantSectionHtml ?? "",
+				roleSpeakerMin: form.roleSpeakerMin,
+				roleSpeakerMax: form.roleSpeakerMax,
+				allowChairperson: form.allowChairperson,
+				roleChairpersonMin: form.roleChairpersonMin,
+				roleChairpersonMax: form.roleChairpersonMax,
+				allowModerator: form.allowModerator,
+				roleModeratorMin: form.roleModeratorMin,
+				roleModeratorMax: form.roleModeratorMax,
+				sendReminders: form.sendReminders,
+				submissionLimit: form.submissionLimit,
+				allowMultipleDrafts: form.allowMultipleDrafts,
+				autoRedirect: form.autoRedirect,
+				successHtml: form.successHtml ?? "",
+				sendConfirmationEmail: form.sendConfirmationEmail,
+			},
+			closeDate: closeInputs.date,
+			closeTime: closeInputs.time,
+			timezone: event.timezone,
+			publicUrl: `${url.origin}/submit/${event.slug}/${form.publicId}`,
+			placements: placements.map((p) => ({
+				id: p.id,
+				section: p.section,
+				position: p.position,
+				required: p.required,
+				locked: p.locked,
+				builtinRef: p.builtinRef,
+				fieldId: p.fieldId,
+				questionRule: p.questionRule,
+				field: p.field
+					? {
+							id: p.field.id,
+							name: p.field.name,
+							type: p.field.type,
+							maxLength: p.field.maxLength,
+							options: p.field.options,
+							scope: (p.field.organizationId ? "org" : "event") as
+								| "org"
+								| "event",
+						}
+					: null,
+			})),
+			libraryFields: libraryRows.map((f) => ({
+				id: f.id,
+				name: f.name,
+				type: f.type,
+				maxLength: f.maxLength,
+				scope: (f.organizationId ? "org" : "event") as "org" | "event",
+			})),
+			ruleOptions,
+			members,
+			notify: {
+				newSubmission: config.notify?.newSubmission ?? [],
+				updatedSubmission: config.notify?.updatedSubmission ?? [],
+			},
+			counts: {
+				submissions: (subCounts?.total ?? 0) - (subCounts?.drafts ?? 0),
+				drafts: subCounts?.drafts ?? 0,
+			},
+			view,
+			viewRows,
+		},
+		{ headers: { "Server-Timing": timings.header() } },
+	);
+}
+
+/* ---------------------------------------------------------------- action --- */
+
+async function nextPosition(
+	db: Db,
+	formId: string,
+	section: SectionId,
+): Promise<number> {
+	const [row] = await db
+		.select({ max: sql<number | null>`max(${formFields.position})` })
+		.from(formFields)
+		.where(and(eq(formFields.formId, formId), eq(formFields.section, section)));
+	return (row?.max ?? -1) + 1;
+}
+
+type FormRowFull = typeof forms.$inferSelect;
+
+async function handleSaveForm(
+	db: Db,
+	form: FormRowFull,
+	event: { id: string; organizationId: string; timezone: string },
+	fd: FormData,
+): Promise<ActionResult> {
+	const parsed = SaveForm.safeParse(Object.fromEntries(fd));
+	if (!parsed.success) return zodErrors(parsed.error);
+	const d = parsed.data;
+
+	const notifyNew = [...new Set(fd.getAll("notifyNew").map(String))];
+	const notifyUpdated = [...new Set(fd.getAll("notifyUpdated").map(String))];
+	if (notifyNew.length || notifyUpdated.length) {
+		const memberRows = await db
+			.select({ userId: organizationMembers.userId })
+			.from(organizationMembers)
+			.where(eq(organizationMembers.organizationId, event.organizationId));
+		const memberIds = new Set(memberRows.map((m) => m.userId));
+		const stranger = [...notifyNew, ...notifyUpdated].find(
+			(id) => !memberIds.has(id),
+		);
+		if (stranger) {
+			return {
+				formError:
+					"Notification recipients must be members of this organization.",
+			};
+		}
+	}
+
+	const closeAt = d.closeDate
+		? zonedTimeToUtc(d.closeDate, d.closeTime ?? "23:59", event.timezone)
+		: null;
+
+	await db
+		.update(forms)
+		.set({
+			type: d.type,
+			participantsStep: d.participantsStep,
+			internalName: d.internalName,
+			externalTitle: d.externalTitle,
+			pageHeading: d.pageHeading,
+			welcomeHtml: d.welcomeHtml || null,
+			showWelcome: d.showWelcome,
+			sessionSectionTitle: d.sessionSectionTitle || null,
+			sessionSectionHtml: d.sessionSectionHtml || null,
+			participantSectionTitle: d.participantSectionTitle || null,
+			participantSectionHtml: d.participantSectionHtml || null,
+			roleSpeakerMin: d.roleSpeakerMin,
+			roleSpeakerMax: d.roleSpeakerMax,
+			allowChairperson: d.allowChairperson,
+			roleChairpersonMin: d.roleChairpersonMin,
+			roleChairpersonMax: d.roleChairpersonMax,
+			allowModerator: d.allowModerator,
+			roleModeratorMin: d.roleModeratorMin,
+			roleModeratorMax: d.roleModeratorMax,
+			closeAt,
+			sendReminders: d.sendReminders,
+			submissionLimit: d.submissionLimit,
+			allowMultipleDrafts: d.allowMultipleDrafts,
+			autoRedirect: d.autoRedirect,
+			successHtml: d.successHtml || null,
+			sendConfirmationEmail: d.sendConfirmationEmail,
+			config: {
+				...(form.config ?? {}),
+				notify: { newSubmission: notifyNew, updatedSubmission: notifyUpdated },
+			},
+			updatedAt: new Date(),
+		})
+		.where(eq(forms.id, form.id));
+	track("form.saved", { formId: form.id, eventId: event.id });
+	return { ok: "save-form" };
+}
+
+async function handleSetRule(
+	db: Db,
+	form: FormRowFull,
+	event: { id: string },
+	fd: FormData,
+): Promise<ActionResult> {
+	const parsed = z
+		.object({
+			formFieldId: z.string().min(1),
+			trigger: z.string().min(1, "Pick a trigger question"),
+			operator: z.enum(["equals", "not_equals", "gt", "lt"]),
+			value: z.string().trim().min(1, "Pick a value"),
+		})
+		.safeParse(Object.fromEntries(fd));
+	if (!parsed.success) return zodErrors(parsed.error);
+	const { formFieldId, trigger, operator, value } = parsed.data;
+
+	const siblings = await db.query.formFields.findMany({
+		where: eq(formFields.formId, form.id),
+		with: { field: true },
+	});
+	const target = siblings.find((s) => s.id === formFieldId);
+	if (!target) return { formError: "Question not found." };
+	if (target.locked) return { formError: "Locked questions are always shown." };
+
+	let rule: QuestionRule;
+	if (trigger.startsWith("builtin:")) {
+		const ref = trigger.slice("builtin:".length) as BuiltinRef;
+		const meta = BUILTIN_META[ref];
+		if (!meta?.trigger)
+			return { formError: "That question can’t drive a rule." };
+		const placedTrigger = siblings.find((s) => s.builtinRef === ref);
+		if (!placedTrigger)
+			return { formError: "The trigger question must be on this form." };
+		if (target.builtinRef === ref)
+			return { formError: "A question can’t depend on itself." };
+		if (placedTrigger.section !== target.section)
+			return {
+				formError: "Rules can only depend on questions in the same step.",
+			};
+		if (operator !== "equals" && operator !== "not_equals")
+			return { formError: "Dropdown triggers support is / is not only." };
+		const valueChecks: Record<string, () => Promise<boolean>> = {
+			format: async () =>
+				(
+					await db
+						.select({ id: formats.id })
+						.from(formats)
+						.where(and(eq(formats.id, value), eq(formats.eventId, event.id)))
+				).length > 0,
+			tags: async () =>
+				(
+					await db
+						.select({ id: tags.id })
+						.from(tags)
+						.where(and(eq(tags.id, value), eq(tags.eventId, event.id)))
+				).length > 0,
+			track: async () =>
+				(
+					await db
+						.select({ id: tracks.id })
+						.from(tracks)
+						.where(and(eq(tracks.id, value), eq(tracks.eventId, event.id)))
+				).length > 0,
+			level: async () =>
+				(
+					await db
+						.select({ id: levels.id })
+						.from(levels)
+						.where(and(eq(levels.id, value), eq(levels.eventId, event.id)))
+				).length > 0,
+			language: async () =>
+				(
+					await db
+						.select({ id: languages.id })
+						.from(languages)
+						.where(
+							and(eq(languages.name, value), eq(languages.eventId, event.id)),
+						)
+				).length > 0,
+		};
+		const check = valueChecks[ref];
+		if (!check || !(await check()))
+			return { formError: "Pick a value from the trigger’s options." };
+		rule = { trigger: { kind: "builtin", ref }, operator, value };
+	} else if (trigger.startsWith("field:")) {
+		const fieldId = trigger.slice("field:".length);
+		const placedTrigger = siblings.find((s) => s.fieldId === fieldId);
+		const triggerField = placedTrigger?.field;
+		if (!placedTrigger || !triggerField)
+			return { formError: "The trigger question must be on this form." };
+		if (target.fieldId === fieldId)
+			return { formError: "A question can’t depend on itself." };
+		if (placedTrigger.section !== target.section)
+			return {
+				formError: "Rules can only depend on questions in the same step.",
+			};
+		const triggerType = triggerField.type as string;
+		if (!RULE_TRIGGER_FIELD_TYPES.some((t) => t === triggerType))
+			return {
+				formError:
+					"Rules can trigger on dropdown, checkbox or number questions.",
+			};
+		if (triggerType === "number") {
+			if (!/^-?\d+(\.\d+)?$/.test(value))
+				return { formError: "Enter a number to compare against." };
+		} else {
+			if (operator !== "equals" && operator !== "not_equals")
+				return { formError: "This trigger supports is / is not only." };
+			if (
+				triggerType === "dropdown" &&
+				!(triggerField.options ?? []).includes(value)
+			)
+				return { formError: "Pick a value from the trigger’s options." };
+			if (triggerType === "checkbox" && value !== "true" && value !== "false")
+				return { formError: "Checkbox rules compare checked / unchecked." };
+		}
+		rule = { trigger: { kind: "field", fieldId }, operator, value };
+	} else {
+		return { formError: "Pick a trigger question." };
+	}
+
+	await db
+		.update(formFields)
+		.set({ questionRule: rule })
+		.where(eq(formFields.id, target.id));
+	track("form.rule_set", { formId: form.id, formFieldId: target.id });
+	return { ok: "set-rule" };
+}
+
+export async function action({ context, request, params }: Route.ActionArgs) {
+	const env = context.cloudflare.env;
+	// Actions MUST self-authenticate — a POST does not run parent loaders.
+	const user = await requireAdmin(env, request);
+	const event = await getActiveEvent(env, user);
+	if (!event)
+		return { formError: "No event is configured yet." } satisfies ActionResult;
+	const db = getDb(env);
+	const fd = await request.formData();
+	const intent = String(fd.get("intent") ?? "");
+
+	if (params.formId === "new") {
+		if (intent !== "create")
+			throw data({ message: "Form not found" }, { status: 404 });
+		const id = crypto.randomUUID();
+		await db.batch([
+			db.insert(forms).values({
+				id,
+				eventId: event.id,
+				internalName: "Untitled form",
+			}),
+			...chunk(defaultBuiltinPlacements(id), 8).map((rows) =>
+				db.insert(formFields).values(rows),
+			),
+		]);
+		track("form.created", { formId: id, eventId: event.id });
+		throw redirect(`/admin/forms/${id}`);
+	}
+
+	// Row-level tenancy: the form must belong to the ACTIVE event.
+	const [form] = await db
+		.select()
+		.from(forms)
+		.where(and(eq(forms.id, params.formId), eq(forms.eventId, event.id)))
+		.limit(1);
+	if (!form) throw data({ message: "Form not found" }, { status: 404 });
+
+	try {
+		switch (intent) {
+			case "save-form":
+				return await handleSaveForm(db, form, event, fd);
+
+			case "publish": {
+				await db
+					.update(forms)
+					.set({ status: "open" })
+					.where(eq(forms.id, form.id));
+				track("form.published", { formId: form.id, eventId: event.id });
+				return { ok: "publish" } satisfies ActionResult;
+			}
+
+			case "duplicate": {
+				const placements = await db
+					.select()
+					.from(formFields)
+					.where(eq(formFields.formId, form.id))
+					.orderBy(asc(formFields.position));
+				const copyId = crypto.randomUUID();
+				await db.batch([
+					db.insert(forms).values({
+						id: copyId,
+						eventId: form.eventId,
+						type: form.type,
+						status: "draft",
+						internalName: `Copy of ${form.internalName}`,
+						externalTitle: form.externalTitle,
+						pageHeading: form.pageHeading,
+						welcomeHtml: form.welcomeHtml,
+						showWelcome: form.showWelcome,
+						participantsStep: form.participantsStep,
+						sessionSectionTitle: form.sessionSectionTitle,
+						sessionSectionHtml: form.sessionSectionHtml,
+						participantSectionTitle: form.participantSectionTitle,
+						participantSectionHtml: form.participantSectionHtml,
+						roleSpeakerMin: form.roleSpeakerMin,
+						roleSpeakerMax: form.roleSpeakerMax,
+						allowChairperson: form.allowChairperson,
+						roleChairpersonMin: form.roleChairpersonMin,
+						roleChairpersonMax: form.roleChairpersonMax,
+						allowModerator: form.allowModerator,
+						roleModeratorMin: form.roleModeratorMin,
+						roleModeratorMax: form.roleModeratorMax,
+						closeAt: form.closeAt,
+						sendReminders: form.sendReminders,
+						submissionLimit: form.submissionLimit,
+						allowMultipleDrafts: form.allowMultipleDrafts,
+						autoRedirect: form.autoRedirect,
+						successHtml: form.successHtml,
+						sendConfirmationEmail: form.sendConfirmationEmail,
+						config: form.config,
+					}),
+					...chunk(placements, 8).map((rows) =>
+						db.insert(formFields).values(
+							rows.map((p) => ({
+								formId: copyId,
+								fieldId: p.fieldId,
+								builtinRef: p.builtinRef,
+								section: p.section,
+								position: p.position,
+								required: p.required,
+								locked: p.locked,
+								questionRule: p.questionRule,
+							})),
+						),
+					),
+				]);
+				track("form.duplicated", { formId: form.id, copyId });
+				throw redirect("/admin/forms");
+			}
+
+			case "delete": {
+				// Placements cascade; submissions keep their rows (form_id nulls out).
+				await db.delete(forms).where(eq(forms.id, form.id));
+				track("form.deleted", { formId: form.id, eventId: event.id });
+				throw redirect("/admin/forms");
+			}
+
+			case "add-builtin": {
+				const ref = String(fd.get("ref") ?? "") as BuiltinRef;
+				const meta = BUILTIN_META[ref];
+				if (!meta)
+					return {
+						formError: "Unknown built-in question.",
+					} satisfies ActionResult;
+				const position = await nextPosition(db, form.id, meta.section);
+				try {
+					await db.insert(formFields).values({
+						formId: form.id,
+						builtinRef: ref,
+						section: meta.section,
+						position,
+						required: meta.defaultRequired,
+						locked: meta.locked,
+					});
+				} catch {
+					return {
+						formError: "That question is already on this form.",
+					} satisfies ActionResult;
+				}
+				track("form.question_added", { formId: form.id, builtin: ref });
+				return { ok: "add-builtin" } satisfies ActionResult;
+			}
+
+			case "add-library": {
+				const fieldId = String(fd.get("fieldId") ?? "");
+				const section =
+					fd.get("section") === "participant" ? "participant" : "session";
+				// The picked id must pass the SAME scope predicate the picker uses —
+				// never trust the client with a raw fields.id.
+				const [field] = await db
+					.select()
+					.from(fields)
+					.where(
+						and(
+							eq(fields.id, fieldId),
+							fieldScopePredicate(event.id, event.organizationId),
+						),
+					)
+					.limit(1);
+				if (!field)
+					return { formError: "Unknown field." } satisfies ActionResult;
+				if (field.type === "section_header" || field.type === "divider")
+					return {
+						formError: "Layout elements are added from the Layout tab.",
+					} satisfies ActionResult;
+				const position = await nextPosition(db, form.id, section);
+				try {
+					await db.insert(formFields).values({
+						formId: form.id,
+						fieldId,
+						section,
+						position,
+					});
+				} catch {
+					return {
+						formError: "That field is already on this form.",
+					} satisfies ActionResult;
+				}
+				track("form.question_added", { formId: form.id, fieldId });
+				return { ok: "add-library" } satisfies ActionResult;
+			}
+
+			case "create-field": {
+				const parsed = CreateField.safeParse(Object.fromEntries(fd));
+				if (!parsed.success) return zodErrors(parsed.error);
+				const d = parsed.data;
+				const options =
+					d.type === "dropdown"
+						? d.options
+								.split(",")
+								.map((o) => o.trim())
+								.filter(Boolean)
+						: null;
+				if (d.type === "dropdown" && (options?.length ?? 0) === 0) {
+					return {
+						fieldErrors: {
+							options: ["Add at least one option (comma-separated)"],
+						},
+					} satisfies ActionResult;
+				}
+				const hasLength =
+					d.type === "text" || d.type === "textarea" || d.type === "wysiwyg";
+				// Scope XOR: an event field sets eventId (organizationId NULL); an
+				// org-wide field sets organizationId (eventId NULL). Never both.
+				const scopeCols =
+					d.scope === "event"
+						? { eventId: event.id, organizationId: null }
+						: { eventId: null, organizationId: event.organizationId };
+				const fieldId = crypto.randomUUID();
+				const position = await nextPosition(db, form.id, d.section);
+				await db.batch([
+					db.insert(fields).values({
+						id: fieldId,
+						...scopeCols,
+						name: d.name,
+						type: d.type,
+						description: d.description || null,
+						maxLength: hasLength ? d.maxLength : null,
+						options,
+					}),
+					db.insert(formFields).values({
+						formId: form.id,
+						fieldId,
+						section: d.section,
+						position,
+						required: d.required,
+					}),
+				]);
+				track("form.field_created", {
+					formId: form.id,
+					fieldId,
+					scope: d.scope,
+					type: d.type,
+				});
+				return { ok: "create-field", created: fieldId } satisfies ActionResult;
+			}
+
+			case "add-layout": {
+				const kind = String(fd.get("kind") ?? "");
+				if (kind !== "section_header" && kind !== "divider")
+					return {
+						formError: "Unknown layout element.",
+					} satisfies ActionResult;
+				const section =
+					fd.get("section") === "participant" ? "participant" : "session";
+				const label = String(fd.get("label") ?? "").trim();
+				if (kind === "section_header" && !label)
+					return {
+						fieldErrors: { label: ["Give the section header a label"] },
+					} satisfies ActionResult;
+				if (label.length > 255)
+					return {
+						fieldErrors: { label: ["Keep the label under 255 characters"] },
+					} satisfies ActionResult;
+				const fieldId = crypto.randomUUID();
+				const position = await nextPosition(db, form.id, section);
+				await db.batch([
+					db.insert(fields).values({
+						id: fieldId,
+						eventId: event.id,
+						organizationId: null,
+						name: kind === "divider" ? "Divider" : label,
+						type: kind,
+					}),
+					db.insert(formFields).values({
+						formId: form.id,
+						fieldId,
+						section,
+						position,
+					}),
+				]);
+				track("form.layout_added", { formId: form.id, kind });
+				return { ok: "add-layout", created: fieldId } satisfies ActionResult;
+			}
+
+			case "remove-field": {
+				const id = String(fd.get("formFieldId") ?? "");
+				const siblings = await db.query.formFields.findMany({
+					where: eq(formFields.formId, form.id),
+					with: { field: true },
+				});
+				const row = siblings.find((s) => s.id === id);
+				if (!row)
+					return { formError: "Question not found." } satisfies ActionResult;
+				if (row.locked)
+					return {
+						formError: "This question is locked and can’t be removed.",
+					} satisfies ActionResult;
+				// Rules that trigger on the removed question would silently never
+				// fire — clear them in the same batch.
+				const dependents = siblings.filter((s) => {
+					const r = s.questionRule;
+					if (!r) return false;
+					return (
+						(r.trigger.kind === "field" &&
+							row.fieldId !== null &&
+							r.trigger.fieldId === row.fieldId) ||
+						(r.trigger.kind === "builtin" &&
+							row.builtinRef !== null &&
+							r.trigger.ref === row.builtinRef)
+					);
+				});
+				const isLayout =
+					row.field?.type === "section_header" || row.field?.type === "divider";
+				// Layout rows are per-use: deleting the placement also deletes the
+				// backing fields row (cascade removes the placement).
+				const first = isLayout
+					? db.delete(fields).where(eq(fields.id, row.field?.id ?? ""))
+					: db.delete(formFields).where(eq(formFields.id, row.id));
+				await db.batch([
+					first,
+					...dependents.map((s) =>
+						db
+							.update(formFields)
+							.set({ questionRule: null })
+							.where(eq(formFields.id, s.id)),
+					),
+				]);
+				track("form.question_removed", { formId: form.id, formFieldId: id });
+				return { ok: "remove-field" } satisfies ActionResult;
+			}
+
+			case "set-required": {
+				const id = String(fd.get("formFieldId") ?? "");
+				const required = fd.get("required") === "true";
+				const [row] = await db
+					.select()
+					.from(formFields)
+					.where(and(eq(formFields.id, id), eq(formFields.formId, form.id)))
+					.limit(1);
+				if (!row)
+					return { formError: "Question not found." } satisfies ActionResult;
+				if (
+					!required &&
+					row.builtinRef &&
+					BUILTIN_META[row.builtinRef].requiredLocked
+				) {
+					return {
+						formError: "This question is always required.",
+					} satisfies ActionResult;
+				}
+				await db
+					.update(formFields)
+					.set({ required })
+					.where(eq(formFields.id, row.id));
+				return { ok: "set-required" } satisfies ActionResult;
+			}
+
+			case "reorder": {
+				const section =
+					fd.get("section") === "participant" ? "participant" : "session";
+				const order = String(fd.get("order") ?? "")
+					.split(",")
+					.filter(Boolean);
+				const rows = await db
+					.select({ id: formFields.id })
+					.from(formFields)
+					.where(
+						and(
+							eq(formFields.formId, form.id),
+							eq(formFields.section, section),
+						),
+					);
+				const known = new Set(rows.map((r) => r.id));
+				if (
+					order.length !== rows.length ||
+					order.some((id) => !known.has(id))
+				) {
+					return {
+						formError: "The order didn’t match this form — reload and retry.",
+					} satisfies ActionResult;
+				}
+				const [head, ...tail] = order.map((id, i) =>
+					db
+						.update(formFields)
+						.set({ position: i })
+						.where(eq(formFields.id, id)),
+				);
+				if (head) await db.batch([head, ...tail]);
+				track("form.reordered", { formId: form.id, section });
+				return { ok: "reorder" } satisfies ActionResult;
+			}
+
+			case "set-rule":
+				return await handleSetRule(db, form, event, fd);
+
+			case "clear-rule": {
+				const id = String(fd.get("formFieldId") ?? "");
+				const [row] = await db
+					.select()
+					.from(formFields)
+					.where(and(eq(formFields.id, id), eq(formFields.formId, form.id)))
+					.limit(1);
+				if (!row)
+					return { formError: "Question not found." } satisfies ActionResult;
+				await db
+					.update(formFields)
+					.set({ questionRule: null })
+					.where(eq(formFields.id, row.id));
+				track("form.rule_cleared", { formId: form.id, formFieldId: id });
+				return { ok: "clear-rule" } satisfies ActionResult;
+			}
+
+			default:
+				return { formError: "Unknown action." } satisfies ActionResult;
+		}
+	} catch (error) {
+		if (error instanceof Response) throw error;
+		track("form.action_failed", {
+			formId: form.id,
+			intent,
+			error: errorMessage(error),
+		});
+		return {
+			formError: "Could not save that change — please try again.",
+		} satisfies ActionResult;
+	}
+}
+
+/* ------------------------------------------------------------- component --- */
+
+type LoaderData = Route.ComponentProps["loaderData"];
+type Placement = LoaderData["placements"][number];
+type RuleOptions = LoaderData["ruleOptions"];
+
+type StepId =
+	| "setup"
+	| "welcome"
+	| "session"
+	| "participant"
+	| "settings"
+	| "notifications";
+
+const FIELD_STEP: Record<string, StepId> = {
+	type: "setup",
+	participantsStep: "setup",
+	internalName: "welcome",
+	externalTitle: "welcome",
+	pageHeading: "welcome",
+	welcomeHtml: "welcome",
+	sessionSectionTitle: "session",
+	sessionSectionHtml: "session",
+	participantSectionTitle: "participant",
+	participantSectionHtml: "participant",
+	roleSpeakerMin: "participant",
+	roleSpeakerMax: "participant",
+	roleChairpersonMin: "participant",
+	roleChairpersonMax: "participant",
+	roleModeratorMin: "participant",
+	roleModeratorMax: "participant",
+	closeDate: "settings",
+	closeTime: "settings",
+	submissionLimit: "settings",
+};
+
+const FORM_STATUS_TONE: Record<string, BadgeTone> = {
+	open: "success",
+	closed: "neutral",
+	draft: "faint",
+};
+
+const OPERATOR_LABEL: Record<string, string> = {
+	equals: "is",
+	not_equals: "is not",
+	gt: "is greater than",
+	lt: "is less than",
+};
+
+function placementView(p: Placement): {
+	name: string;
+	caption: string;
+	kind: "builtin" | "field" | "layout";
+	requiredLocked: boolean;
+	scope: "org" | "event" | null;
+} {
+	if (p.builtinRef) {
+		const meta = BUILTIN_META[p.builtinRef as BuiltinRef];
+		return {
+			name: meta.label,
+			caption: meta.caption,
+			kind: "builtin",
+			requiredLocked: meta.requiredLocked,
+			scope: null,
+		};
+	}
+	const f = p.field;
+	if (!f) {
+		return {
+			name: "Unknown question",
+			caption: "",
+			kind: "field",
+			requiredLocked: false,
+			scope: null,
+		};
+	}
+	if (f.type === "section_header" || f.type === "divider") {
+		return {
+			name: f.type === "divider" ? "Divider" : f.name,
+			caption: f.type === "divider" ? "Layout divider" : "Section header",
+			kind: "layout",
+			requiredLocked: false,
+			scope: null,
+		};
+	}
+	const bits = [FIELD_TYPE_LABEL[f.type] ?? f.type];
+	if (f.maxLength) bits.push(`max ${f.maxLength.toLocaleString("en-US")}`);
+	if (f.type === "dropdown") bits.push(`${(f.options ?? []).length} options`);
+	return {
+		name: f.name,
+		caption: bits.join(" · "),
+		kind: "field",
+		requiredLocked: false,
+		scope: f.scope,
+	};
+}
+
+type TriggerChoice = {
+	key: string;
+	label: string;
+	valueKind: "options" | "number";
+	valueOptions: Array<{ value: string; label: string }>;
+};
+
+function triggerChoicesFor(
+	target: Placement,
+	siblings: Placement[],
+	ruleOptions: RuleOptions,
+): TriggerChoice[] {
+	const out: TriggerChoice[] = [];
+	for (const s of siblings) {
+		if (s.id === target.id || s.section !== target.section) continue;
+		if (s.builtinRef) {
+			const meta = BUILTIN_META[s.builtinRef as BuiltinRef];
+			if (!meta.trigger) continue;
+			out.push({
+				key: `builtin:${s.builtinRef}`,
+				label: meta.label,
+				valueKind: "options",
+				valueOptions: ruleOptions[s.builtinRef] ?? [],
+			});
+		} else if (s.field) {
+			if (s.field.type === "dropdown") {
+				out.push({
+					key: `field:${s.field.id}`,
+					label: s.field.name,
+					valueKind: "options",
+					valueOptions: (s.field.options ?? []).map((o) => ({
+						value: o,
+						label: o,
+					})),
+				});
+			} else if (s.field.type === "checkbox") {
+				out.push({
+					key: `field:${s.field.id}`,
+					label: s.field.name,
+					valueKind: "options",
+					valueOptions: [
+						{ value: "true", label: "Checked" },
+						{ value: "false", label: "Unchecked" },
+					],
+				});
+			} else if (s.field.type === "number") {
+				out.push({
+					key: `field:${s.field.id}`,
+					label: s.field.name,
+					valueKind: "number",
+					valueOptions: [],
+				});
+			}
+		}
+	}
+	return out;
+}
+
+function ruleSummary(
+	rule: Placement["questionRule"],
+	siblings: Placement[],
+	ruleOptions: RuleOptions,
+): string | null {
+	if (!rule) return null;
+	let label: string;
+	let valueLabel = rule.value;
+	if (rule.trigger.kind === "builtin") {
+		label =
+			BUILTIN_META[rule.trigger.ref as BuiltinRef]?.label ?? rule.trigger.ref;
+		const opt = (ruleOptions[rule.trigger.ref] ?? []).find(
+			(o) => o.value === rule.value,
+		);
+		if (opt) valueLabel = opt.label;
+	} else {
+		const fieldId = rule.trigger.fieldId;
+		const s = siblings.find((x) => x.fieldId === fieldId);
+		label = s?.field?.name ?? "a removed question";
+		if (s?.field?.type === "checkbox")
+			valueLabel = rule.value === "true" ? "checked" : "unchecked";
+	}
+	return `${label} ${OPERATOR_LABEL[rule.operator] ?? rule.operator} “${valueLabel}”`;
+}
+
+function CopyLinkButton({ url }: { url: string }) {
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const t = setTimeout(() => setCopied(false), 2000);
+		return () => clearTimeout(t);
+	}, [copied]);
+	return (
+		<Button
+			type="button"
+			variant="ghost"
+			icon="export"
+			onClick={() => {
+				navigator.clipboard
+					?.writeText(url)
+					.then(() => setCopied(true))
+					.catch(() => {});
+			}}
+		>
+			{copied ? "Copied!" : "Copy link"}
+		</Button>
+	);
+}
+
+function RichText({
+	label,
+	name,
+	defaultValue,
+}: {
+	label: string;
+	name: string;
+	defaultValue: string;
+}) {
+	const [html, setHtml] = useState(defaultValue);
+	const [linkOpen, setLinkOpen] = useState(false);
+	const [linkUrl, setLinkUrl] = useState("");
+	const editor = useEditor({
+		extensions: [StarterKit],
+		content: defaultValue,
+		immediatelyRender: false,
+		shouldRerenderOnTransaction: true,
+		onUpdate: ({ editor: e }) => setHtml(e.isEmpty ? "" : e.getHTML()),
+	});
+	const mark = (
+		fn: (chain: ReturnType<Editor["chain"]>) => { run: () => boolean },
+	) => {
+		if (editor) fn(editor.chain().focus());
+	};
+	return (
+		<div className="flex flex-col gap-[5px]">
+			<Field label={label}>
+				<Input
+					type="hidden"
+					name={name}
+					value={html}
+					readOnly
+					form="builder-form"
+				/>
+			</Field>
+			<div className="flex flex-wrap items-center gap-1">
+				<Button
+					type="button"
+					variant={editor?.isActive("bold") ? "primary" : "ghost"}
+					disabled={!editor}
+					aria-pressed={editor?.isActive("bold") ?? false}
+					onClick={() => mark((c) => c.toggleBold())}
+				>
+					B
+				</Button>
+				<Button
+					type="button"
+					variant={editor?.isActive("italic") ? "primary" : "ghost"}
+					disabled={!editor}
+					aria-pressed={editor?.isActive("italic") ?? false}
+					onClick={() => mark((c) => c.toggleItalic())}
+				>
+					I
+				</Button>
+				<Button
+					type="button"
+					variant={editor?.isActive("underline") ? "primary" : "ghost"}
+					disabled={!editor}
+					aria-pressed={editor?.isActive("underline") ?? false}
+					onClick={() => mark((c) => c.toggleUnderline())}
+				>
+					U
+				</Button>
+				<Button
+					type="button"
+					variant={editor?.isActive("bulletList") ? "primary" : "ghost"}
+					disabled={!editor}
+					aria-pressed={editor?.isActive("bulletList") ?? false}
+					onClick={() => mark((c) => c.toggleBulletList())}
+				>
+					• List
+				</Button>
+				<Button
+					type="button"
+					variant={editor?.isActive("orderedList") ? "primary" : "ghost"}
+					disabled={!editor}
+					aria-pressed={editor?.isActive("orderedList") ?? false}
+					onClick={() => mark((c) => c.toggleOrderedList())}
+				>
+					1. List
+				</Button>
+				{editor?.isActive("link") ? (
+					<Button
+						type="button"
+						variant="ghost"
+						onClick={() => mark((c) => c.unsetLink())}
+					>
+						Remove link
+					</Button>
+				) : (
+					<Button
+						type="button"
+						variant={linkOpen ? "primary" : "ghost"}
+						disabled={!editor}
+						onClick={() => setLinkOpen((v) => !v)}
+					>
+						Link
+					</Button>
+				)}
+				{linkOpen && (
+					<>
+						<Input
+							aria-label="Link URL"
+							placeholder="https://…"
+							value={linkUrl}
+							onChange={(e) => setLinkUrl(e.target.value)}
+						/>
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => {
+								if (linkUrl.trim()) {
+									mark((c) =>
+										c.extendMarkRange("link").setLink({ href: linkUrl.trim() }),
+									);
+								}
+								setLinkOpen(false);
+								setLinkUrl("");
+							}}
+						>
+							Apply link
+						</Button>
+					</>
+				)}
+			</div>
+			<Panel>
+				<EditorContent
+					editor={editor}
+					className="min-h-24 [&_.ProseMirror]:min-h-24 [&_ol]:pl-5 [&_ul]:pl-5"
+				/>
+			</Panel>
+		</div>
+	);
+}
+
+function OnOffSelect({
+	label,
+	name,
+	defaultOn,
+}: {
+	label: string;
+	name: string;
+	defaultOn: boolean;
+}) {
+	return (
+		<Field label={label}>
+			<Select
+				name={name}
+				defaultValue={defaultOn ? "true" : "false"}
+				form="builder-form"
+			>
+				<option value="true">On</option>
+				<option value="false">Off</option>
+			</Select>
+		</Field>
+	);
+}
+
+function MemberPicker({
+	label,
+	name,
+	members,
+	initial,
+}: {
+	label: string;
+	name: string;
+	members: LoaderData["members"];
+	initial: string[];
+}) {
+	const [selected, setSelected] = useState<string[]>(initial);
+	return (
+		<div className="flex flex-col gap-[5px]">
+			<Field label={label}>
+				<span>
+					{selected.length === 0
+						? "No one is notified."
+						: `${selected.length} ${selected.length === 1 ? "recipient" : "recipients"} selected.`}
+				</span>
+			</Field>
+			<div className="flex flex-wrap gap-2">
+				{members.map((m) => {
+					const on = selected.includes(m.id);
+					return (
+						<Button
+							key={m.id}
+							type="button"
+							variant={on ? "primary" : "ghost"}
+							aria-pressed={on}
+							onClick={() =>
+								setSelected((prev) =>
+									on ? prev.filter((id) => id !== m.id) : [...prev, m.id],
+								)
+							}
+						>
+							{m.name ?? m.email}
+						</Button>
+					);
+				})}
+			</div>
+			{selected.map((id) => (
+				<Input
+					key={id}
+					type="hidden"
+					name={name}
+					value={id}
+					readOnly
+					form="builder-form"
+				/>
+			))}
+		</div>
+	);
+}
+
+function FieldRow({
+	placement,
+	siblings,
+	ruleOptions,
+	isRuleOpen,
+	onToggleRule,
+}: {
+	placement: Placement;
+	siblings: Placement[];
+	ruleOptions: RuleOptions;
+	isRuleOpen: boolean;
+	onToggleRule: () => void;
+}) {
+	const view = placementView(placement);
+	const fetcher = useFetcher<typeof action>();
+	const {
+		attributes,
+		listeners,
+		setNodeRef,
+		transform,
+		transition,
+		isDragging,
+	} = useSortable({ id: placement.id });
+	// dnd-kit needs live transforms on the row DOM node; applied imperatively
+	// because inline `style` is reserved for primitives.
+	const rowRef = (node: HTMLDivElement | null) => {
+		setNodeRef(node);
+		if (node) {
+			node.style.transform = CSS.Transform.toString(transform) ?? "";
+			node.style.transition = transition ?? "";
+			node.style.opacity = isDragging ? "0.55" : "";
+			node.style.position = "relative";
+			node.style.zIndex = isDragging ? "10" : "";
+		}
+	};
+	const pendingRequired = fetcher.formData?.get("required");
+	const required =
+		typeof pendingRequired === "string"
+			? pendingRequired === "true"
+			: placement.required;
+	const summary = ruleSummary(placement.questionRule, siblings, ruleOptions);
+	return (
+		<div ref={rowRef} className="flex flex-col gap-2 py-[7px]">
+			<div className="flex flex-wrap items-center gap-3">
+				<span
+					{...attributes}
+					{...listeners}
+					aria-label={`Drag to reorder ${view.name}`}
+					className="flex h-[34px] w-[22px] shrink-0 cursor-grab items-center justify-center"
+				>
+					<Icon name="sort" size={14} />
+				</span>
+				<div className="min-w-0 flex-1">
+					<div className="flex flex-wrap items-center gap-2">
+						<strong>{view.name}</strong>
+						{placement.locked && <StatusBadge tone="faint">Locked</StatusBadge>}
+						{view.scope === "org" && (
+							<StatusBadge tone="info">Org-wide</StatusBadge>
+						)}
+					</div>
+					<p>
+						{view.caption}
+						{summary ? ` · Shown when ${summary}` : ""}
+					</p>
+				</div>
+				{view.kind !== "layout" && (
+					<Select
+						aria-label={`Required: ${view.name}`}
+						value={required ? "true" : "false"}
+						disabled={view.requiredLocked}
+						onChange={(e) =>
+							fetcher.submit(
+								{
+									intent: "set-required",
+									formFieldId: placement.id,
+									required: e.target.value,
+								},
+								{ method: "post" },
+							)
+						}
+					>
+						<option value="false">Optional</option>
+						<option value="true">Required</option>
+					</Select>
+				)}
+				{view.kind !== "layout" && !placement.locked && (
+					<Button type="button" variant="ghost" onClick={onToggleRule}>
+						{placement.questionRule ? "Edit rule" : "Rules"}
+					</Button>
+				)}
+				{!placement.locked && (
+					<Button
+						type="button"
+						variant="ghost"
+						onClick={() =>
+							fetcher.submit(
+								{ intent: "remove-field", formFieldId: placement.id },
+								{ method: "post" },
+							)
+						}
+					>
+						Remove
+					</Button>
+				)}
+			</div>
+			{fetcher.data?.formError && (
+				<ErrorText>{fetcher.data.formError}</ErrorText>
+			)}
+			{isRuleOpen && (
+				<RuleEditor
+					placement={placement}
+					siblings={siblings}
+					ruleOptions={ruleOptions}
+					onClose={onToggleRule}
+				/>
+			)}
+		</div>
+	);
+}
+
+function RuleEditor({
+	placement,
+	siblings,
+	ruleOptions,
+	onClose,
+}: {
+	placement: Placement;
+	siblings: Placement[];
+	ruleOptions: RuleOptions;
+	onClose: () => void;
+}) {
+	const fetcher = useFetcher<typeof action>();
+	const rule = placement.questionRule;
+	const [trigger, setTrigger] = useState(
+		rule
+			? rule.trigger.kind === "builtin"
+				? `builtin:${rule.trigger.ref}`
+				: `field:${rule.trigger.fieldId}`
+			: "",
+	);
+	const [operator, setOperator] = useState<string>(rule?.operator ?? "equals");
+	const [value, setValue] = useState(rule?.value ?? "");
+	const choices = triggerChoicesFor(placement, siblings, ruleOptions);
+	const chosen = choices.find((c) => c.key === trigger);
+	const operators =
+		chosen?.valueKind === "number"
+			? ["equals", "not_equals", "gt", "lt"]
+			: ["equals", "not_equals"];
+	if (choices.length === 0) {
+		return (
+			<Panel>
+				<p>
+					No eligible trigger questions on this step yet — rules can trigger on
+					dropdown, checkbox or number questions.
+				</p>
+				<Button type="button" variant="ghost" onClick={onClose}>
+					Close
+				</Button>
+			</Panel>
+		);
+	}
+	return (
+		<Panel>
+			<div className="flex flex-col gap-3">
+				<strong>Show “{placementView(placement).name}” only when…</strong>
+				<div className="flex flex-wrap items-end gap-3">
+					<Field label="Trigger question">
+						<Select
+							value={trigger}
+							onChange={(e) => {
+								setTrigger(e.target.value);
+								setValue("");
+								setOperator("equals");
+							}}
+						>
+							<option value="">Choose a question…</option>
+							{choices.map((c) => (
+								<option key={c.key} value={c.key}>
+									{c.label}
+								</option>
+							))}
+						</Select>
+					</Field>
+					<Field label="Condition">
+						<Select
+							value={operator}
+							onChange={(e) => setOperator(e.target.value)}
+						>
+							{operators.map((op) => (
+								<option key={op} value={op}>
+									{OPERATOR_LABEL[op]}
+								</option>
+							))}
+						</Select>
+					</Field>
+					<Field label="Value">
+						{chosen?.valueKind === "number" ? (
+							<Input
+								type="number"
+								value={value}
+								onChange={(e) => setValue(e.target.value)}
+							/>
+						) : (
+							<Select
+								value={value}
+								onChange={(e) => setValue(e.target.value)}
+								disabled={!chosen}
+							>
+								<option value="">Choose a value…</option>
+								{(chosen?.valueOptions ?? []).map((o) => (
+									<option key={o.value} value={o.value}>
+										{o.label}
+									</option>
+								))}
+							</Select>
+						)}
+					</Field>
+					<Button
+						type="button"
+						disabled={!trigger || !value.trim()}
+						onClick={() =>
+							fetcher.submit(
+								{
+									intent: "set-rule",
+									formFieldId: placement.id,
+									trigger,
+									operator,
+									value,
+								},
+								{ method: "post" },
+							)
+						}
+					>
+						Apply rule
+					</Button>
+					{rule && (
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() =>
+								fetcher.submit(
+									{ intent: "clear-rule", formFieldId: placement.id },
+									{ method: "post" },
+								)
+							}
+						>
+							Remove rule
+						</Button>
+					)}
+					<Button type="button" variant="ghost" onClick={onClose}>
+						Close
+					</Button>
+				</div>
+				{fetcher.data?.formError && (
+					<ErrorText>{fetcher.data.formError}</ErrorText>
+				)}
+				{fetcher.data?.fieldErrors &&
+					Object.values(fetcher.data.fieldErrors)
+						.flat()
+						.slice(0, 1)
+						.map((msg) => <ErrorText key={msg}>{msg}</ErrorText>)}
+			</div>
+		</Panel>
+	);
+}
+
+function FieldList({
+	section,
+	placements,
+	ruleOptions,
+}: {
+	section: SectionId;
+	placements: Placement[];
+	ruleOptions: RuleOptions;
+}) {
+	const rows = placements.filter((p) => p.section === section);
+	const [order, setOrder] = useState<string[]>([]);
+	const [openRule, setOpenRule] = useState<string | null>(null);
+	const reorderFetcher = useFetcher<typeof action>();
+	const sensors = useSensors(
+		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+		useSensor(KeyboardSensor, {
+			coordinateGetter: sortableKeyboardCoordinates,
+		}),
+	);
+	const ordered = useMemo(() => {
+		const byId = new Map(rows.map((r) => [r.id, r]));
+		const kept = order
+			.filter((id) => byId.has(id))
+			.map((id) => byId.get(id) as Placement);
+		const known = new Set(order);
+		return [...kept, ...rows.filter((r) => !known.has(r.id))];
+	}, [rows, order]);
+
+	return (
+		<Panel>
+			<DndContext
+				sensors={sensors}
+				collisionDetection={closestCenter}
+				onDragEnd={({ active, over }) => {
+					if (!over || active.id === over.id) return;
+					const ids = ordered.map((r) => r.id);
+					const next = arrayMove(
+						ids,
+						ids.indexOf(String(active.id)),
+						ids.indexOf(String(over.id)),
+					);
+					setOrder(next);
+					reorderFetcher.submit(
+						{ intent: "reorder", section, order: next.join(",") },
+						{ method: "post" },
+					);
+				}}
+			>
+				<SortableContext
+					items={ordered.map((r) => r.id)}
+					strategy={verticalListSortingStrategy}
+				>
+					<div className="flex flex-col">
+						{ordered.map((p) => (
+							<FieldRow
+								key={p.id}
+								placement={p}
+								siblings={ordered}
+								ruleOptions={ruleOptions}
+								isRuleOpen={openRule === p.id}
+								onToggleRule={() =>
+									setOpenRule((cur) => (cur === p.id ? null : p.id))
+								}
+							/>
+						))}
+						{ordered.length === 0 && (
+							<EmptyState
+								icon="sliders"
+								title="No questions yet"
+								body="Add questions below — from the field library, a brand-new field, or a built-in question."
+							/>
+						)}
+					</div>
+				</SortableContext>
+			</DndContext>
+			{reorderFetcher.data?.formError && (
+				<ErrorText>{reorderFetcher.data.formError}</ErrorText>
+			)}
+		</Panel>
+	);
+}
+
+function LibraryPicker({
+	section,
+	formPath,
+	initial,
+	placedFieldIds,
+}: {
+	section: SectionId;
+	formPath: string;
+	initial: LoaderData["libraryFields"];
+	placedFieldIds: Set<string>;
+}) {
+	const search = useFetcher<typeof loader>();
+	const add = useFetcher<typeof action>();
+	const [q, setQ] = useState("");
+	useEffect(() => {
+		if (!q.trim()) return;
+		const t = setTimeout(() => {
+			search.load(`${formPath}?pickerQ=${encodeURIComponent(q.trim())}`);
+		}, 250);
+		return () => clearTimeout(t);
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- `search` is a stable fetcher; depending on it would re-arm the timer after every load
+	}, [q, formPath]);
+	const results = q.trim() ? (search.data?.libraryFields ?? []) : initial;
+	return (
+		<div className="flex flex-col gap-2">
+			<SearchInput
+				placeholder="Search the field library…"
+				value={q}
+				onChange={(e) => setQ(e.target.value)}
+				aria-label="Search the field library"
+			/>
+			{results.length === 0 ? (
+				<p>
+					{q.trim()
+						? `No library fields match “${q.trim()}”.`
+						: "The field library is empty — create a new field instead."}
+				</p>
+			) : (
+				results.map((f) => {
+					const placed = placedFieldIds.has(f.id);
+					return (
+						<div key={f.id} className="flex items-center gap-3">
+							<div className="min-w-0 flex-1">
+								<strong>{f.name}</strong>{" "}
+								<span>
+									· {FIELD_TYPE_LABEL[f.type] ?? f.type}
+									{f.scope === "org" ? " · Org-wide" : ""}
+								</span>
+							</div>
+							<Button
+								type="button"
+								variant="ghost"
+								disabled={placed}
+								onClick={() =>
+									add.submit(
+										{ intent: "add-library", fieldId: f.id, section },
+										{ method: "post", action: formPath },
+									)
+								}
+							>
+								{placed ? "Added" : "Add"}
+							</Button>
+						</div>
+					);
+				})
+			)}
+			{add.data?.formError && <ErrorText>{add.data.formError}</ErrorText>}
+		</div>
+	);
+}
+
+function CreateFieldPanel({
+	section,
+	formPath,
+}: {
+	section: SectionId;
+	formPath: string;
+}) {
+	const fetcher = useFetcher<typeof action>();
+	const [type, setType] = useState<string>("text");
+	const errors = fetcher.data?.fieldErrors;
+	return (
+		<fetcher.Form
+			key={fetcher.data?.created ?? "new"}
+			method="post"
+			action={formPath}
+			className="flex flex-wrap items-end gap-3"
+		>
+			<Input type="hidden" name="intent" value="create-field" readOnly />
+			<Input type="hidden" name="section" value={section} readOnly />
+			<Field label="Name" error={errors?.name?.[0]}>
+				<Input name="name" invalid={Boolean(errors?.name?.[0])} />
+			</Field>
+			<Field label="Type">
+				<Select
+					name="type"
+					value={type}
+					onChange={(e) => setType(e.target.value)}
+				>
+					{CREATE_FIELD_TYPES.map((t) => (
+						<option key={t} value={t}>
+							{FIELD_TYPE_LABEL[t]}
+						</option>
+					))}
+				</Select>
+			</Field>
+			{(type === "text" || type === "textarea" || type === "wysiwyg") && (
+				<Field label="Maximum length" error={errors?.maxLength?.[0]}>
+					<Input name="maxLength" type="number" min={1} max={5000} />
+				</Field>
+			)}
+			{type === "dropdown" && (
+				<Field label="Options (comma-separated)" error={errors?.options?.[0]}>
+					<Input
+						name="options"
+						placeholder="Beginner, Intermediate, Advanced"
+						invalid={Boolean(errors?.options?.[0])}
+					/>
+				</Field>
+			)}
+			<Field label="Internal description" error={errors?.description?.[0]}>
+				<Input name="description" />
+			</Field>
+			<Field label="Scope">
+				<Select name="scope" defaultValue="event">
+					<option value="event">This event only</option>
+					<option value="org">Organization-wide</option>
+				</Select>
+			</Field>
+			<Field label="Required">
+				<Select name="required" defaultValue="false">
+					<option value="false">Optional</option>
+					<option value="true">Required</option>
+				</Select>
+			</Field>
+			<Button type="submit">Add field</Button>
+			{fetcher.data?.formError && (
+				<ErrorText>{fetcher.data.formError}</ErrorText>
+			)}
+		</fetcher.Form>
+	);
+}
+
+function AddQuestion({
+	section,
+	formPath,
+	placements,
+	initialLibrary,
+}: {
+	section: SectionId;
+	formPath: string;
+	placements: Placement[];
+	initialLibrary: LoaderData["libraryFields"];
+}) {
+	const [mode, setMode] = useState<
+		"library" | "create" | "builtin" | "layout" | null
+	>(null);
+	const builtinFetcher = useFetcher<typeof action>();
+	const layoutFetcher = useFetcher<typeof action>();
+	const placedRefs = new Set(
+		placements.filter((p) => p.builtinRef).map((p) => p.builtinRef),
+	);
+	const placedFieldIds = new Set(
+		placements.flatMap((p) => (p.fieldId ? [p.fieldId] : [])),
+	);
+	const unusedBuiltins = BUILTIN_ORDER.filter(
+		(ref) => BUILTIN_META[ref].section === section && !placedRefs.has(ref),
+	);
+	const toggle = (m: typeof mode) => setMode((cur) => (cur === m ? null : m));
+	return (
+		<Panel>
+			<div className="flex flex-col gap-3">
+				<div className="flex flex-wrap items-center gap-2">
+					<strong>Add a question</strong>
+					<Button
+						type="button"
+						variant={mode === "library" ? "primary" : "ghost"}
+						icon="search"
+						onClick={() => toggle("library")}
+					>
+						From field library
+					</Button>
+					<Button
+						type="button"
+						variant={mode === "create" ? "primary" : "ghost"}
+						icon="plus"
+						onClick={() => toggle("create")}
+					>
+						Create new field
+					</Button>
+					<Button
+						type="button"
+						variant={mode === "builtin" ? "primary" : "ghost"}
+						onClick={() => toggle("builtin")}
+					>
+						Built-in question
+					</Button>
+					<Button
+						type="button"
+						variant={mode === "layout" ? "primary" : "ghost"}
+						onClick={() => toggle("layout")}
+					>
+						Section header / divider
+					</Button>
+				</div>
+				{mode === "library" && (
+					<LibraryPicker
+						section={section}
+						formPath={formPath}
+						initial={initialLibrary}
+						placedFieldIds={placedFieldIds}
+					/>
+				)}
+				{mode === "create" && (
+					<CreateFieldPanel section={section} formPath={formPath} />
+				)}
+				{mode === "builtin" &&
+					(unusedBuiltins.length === 0 ? (
+						<p>Every built-in question for this step is already placed.</p>
+					) : (
+						<builtinFetcher.Form
+							method="post"
+							action={formPath}
+							className="flex flex-wrap items-end gap-3"
+						>
+							<Input type="hidden" name="intent" value="add-builtin" readOnly />
+							<Field label="Built-in question">
+								<Select name="ref">
+									{unusedBuiltins.map((ref) => (
+										<option key={ref} value={ref}>
+											{BUILTIN_META[ref].label}
+										</option>
+									))}
+								</Select>
+							</Field>
+							<Button type="submit">Add question</Button>
+							{builtinFetcher.data?.formError && (
+								<ErrorText>{builtinFetcher.data.formError}</ErrorText>
+							)}
+						</builtinFetcher.Form>
+					))}
+				{mode === "layout" && (
+					<layoutFetcher.Form
+						key={layoutFetcher.data?.created ?? "new"}
+						method="post"
+						action={formPath}
+						className="flex flex-wrap items-end gap-3"
+					>
+						<Input type="hidden" name="intent" value="add-layout" readOnly />
+						<Input type="hidden" name="section" value={section} readOnly />
+						<Field
+							label="Section header label"
+							error={layoutFetcher.data?.fieldErrors?.label?.[0]}
+						>
+							<Input name="label" />
+						</Field>
+						<Button type="submit" name="kind" value="section_header">
+							Add section header
+						</Button>
+						<Button type="submit" name="kind" value="divider" variant="ghost">
+							Add divider
+						</Button>
+						{layoutFetcher.data?.formError && (
+							<ErrorText>{layoutFetcher.data.formError}</ErrorText>
+						)}
+					</layoutFetcher.Form>
+				)}
+			</div>
+		</Panel>
+	);
+}
+
+function RoleConfig({
+	form,
+	errors,
+}: {
+	form: LoaderData["form"];
+	errors: Record<string, string[]> | undefined;
+}) {
+	return (
+		<Panel>
+			<div className="flex flex-col gap-4">
+				<strong>Participant roles</strong>
+				<p>
+					How many people can be added per submission. Speakers default to a
+					minimum of 1 — raise it only if every session truly needs more.
+				</p>
+				<div className="flex flex-wrap items-end gap-3">
+					<Field label="Speaker minimum" error={errors?.roleSpeakerMin?.[0]}>
+						<Input
+							name="roleSpeakerMin"
+							type="number"
+							min={0}
+							max={50}
+							defaultValue={form.roleSpeakerMin}
+							form="builder-form"
+							invalid={Boolean(errors?.roleSpeakerMin?.[0])}
+						/>
+					</Field>
+					<Field label="Speaker maximum" error={errors?.roleSpeakerMax?.[0]}>
+						<Input
+							name="roleSpeakerMax"
+							type="number"
+							min={1}
+							max={50}
+							defaultValue={form.roleSpeakerMax ?? ""}
+							placeholder="No limit"
+							form="builder-form"
+						/>
+					</Field>
+				</div>
+				<div className="flex flex-wrap items-end gap-3">
+					<OnOffSelect
+						label="Chairperson role"
+						name="allowChairperson"
+						defaultOn={form.allowChairperson}
+					/>
+					<Field
+						label="Chairperson minimum"
+						error={errors?.roleChairpersonMin?.[0]}
+					>
+						<Input
+							name="roleChairpersonMin"
+							type="number"
+							min={0}
+							max={50}
+							defaultValue={form.roleChairpersonMin}
+							form="builder-form"
+							invalid={Boolean(errors?.roleChairpersonMin?.[0])}
+						/>
+					</Field>
+					<Field
+						label="Chairperson maximum"
+						error={errors?.roleChairpersonMax?.[0]}
+					>
+						<Input
+							name="roleChairpersonMax"
+							type="number"
+							min={1}
+							max={50}
+							defaultValue={form.roleChairpersonMax ?? ""}
+							placeholder="No limit"
+							form="builder-form"
+						/>
+					</Field>
+				</div>
+				<div className="flex flex-wrap items-end gap-3">
+					<OnOffSelect
+						label="Moderator role"
+						name="allowModerator"
+						defaultOn={form.allowModerator}
+					/>
+					<Field
+						label="Moderator minimum"
+						error={errors?.roleModeratorMin?.[0]}
+					>
+						<Input
+							name="roleModeratorMin"
+							type="number"
+							min={0}
+							max={50}
+							defaultValue={form.roleModeratorMin}
+							form="builder-form"
+							invalid={Boolean(errors?.roleModeratorMin?.[0])}
+						/>
+					</Field>
+					<Field
+						label="Moderator maximum"
+						error={errors?.roleModeratorMax?.[0]}
+					>
+						<Input
+							name="roleModeratorMax"
+							type="number"
+							min={1}
+							max={50}
+							defaultValue={form.roleModeratorMax ?? ""}
+							placeholder="No limit"
+							form="builder-form"
+						/>
+					</Field>
+				</div>
+			</div>
+		</Panel>
+	);
+}
+
+function SubmissionsView({ data: d }: { data: LoaderData }) {
+	const rows = d.viewRows ?? [];
+	const drafts = d.view === "drafts";
+	return (
+		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
+			<div>
+				<TextLink to="/admin/forms">← Back to forms</TextLink>
+			</div>
+			<PageHeader
+				title={d.form.internalName}
+				count={`${rows.length} ${drafts ? "drafts" : "results"}`}
+				subtitle={
+					drafts
+						? "Draft submissions saved against this form but not yet submitted."
+						: "Submissions received through this form."
+				}
+			/>
+			<Tabs>
+				<Tab to={`/admin/forms/${d.form.id}`} active={false}>
+					Builder
+				</Tab>
+				<Tab
+					to={`/admin/forms/${d.form.id}?view=results`}
+					active={d.view === "results"}
+					count={d.counts.submissions}
+				>
+					Results
+				</Tab>
+				<Tab
+					to={`/admin/forms/${d.form.id}?view=drafts`}
+					active={d.view === "drafts"}
+					count={d.counts.drafts}
+				>
+					Draft submissions
+				</Tab>
+			</Tabs>
+			<Table>
+				<THead>
+					<Th>Title</Th>
+					<Th>Status</Th>
+					<Th>Submitted</Th>
+				</THead>
+				<TBody>
+					{rows.map((s) => (
+						<Tr key={s.id}>
+							<Td kind="strong">{s.title}</Td>
+							<Td>
+								<StatusBadge tone={SUBMISSION_STATUS_TONE[s.status]}>
+									{s.status.replace("_", " ")}
+								</StatusBadge>
+							</Td>
+							<Td kind="mono">{s.createdLabel}</Td>
+						</Tr>
+					))}
+					{rows.length === 0 && (
+						<EmptyRow colSpan={3}>
+							{drafts
+								? "No draft submissions — drafts appear here when submitters save without finishing."
+								: "No submissions yet — share the public link and results will land here."}
+						</EmptyRow>
+					)}
+				</TBody>
+			</Table>
+		</div>
+	);
+}
+
+export default function FormEditor({
+	loaderData,
+	actionData,
+}: Route.ComponentProps) {
+	if (loaderData.view) return <SubmissionsView data={loaderData} />;
+	return (
+		<Builder
+			key={loaderData.form.id}
+			data={loaderData}
+			actionData={actionData}
+		/>
+	);
+}
+
+function Builder({
+	data: d,
+	actionData,
+}: {
+	data: LoaderData;
+	actionData: ActionResult | undefined;
+}) {
+	const [step, setStep] = useState<StepId>("setup");
+	const [formType, setFormType] = useState(d.form.type);
+	const navigation = useNavigation();
+	const savingForm =
+		navigation.state !== "idle" &&
+		navigation.formData?.get("intent") === "save-form";
+	const errors = actionData?.fieldErrors;
+
+	// Jump to the step carrying the first validation error (adjust-during-render
+	// pattern — reacting to new actionData, not an external system).
+	const [seenErrors, setSeenErrors] = useState(errors);
+	if (errors !== seenErrors) {
+		setSeenErrors(errors);
+		const firstKey = errors
+			? Object.keys(errors).find((k) => FIELD_STEP[k])
+			: undefined;
+		const target = firstKey ? FIELD_STEP[firstKey] : undefined;
+		if (target) setStep(target);
+	}
+
+	const formPath = `/admin/forms/${d.form.id}`;
+	const steps: Array<{ id: StepId; label: string }> = [
+		{ id: "setup", label: "Submission Setup" },
+		{ id: "welcome", label: "Welcome Screen" },
+		{
+			id: "session",
+			label:
+				formType === "abstract"
+					? "Abstract Information"
+					: "Session Information",
+		},
+		{ id: "participant", label: "Participant Information" },
+		{ id: "settings", label: "Form Settings" },
+		{ id: "notifications", label: "Notifications" },
+	];
+	const stepIndex = steps.findIndex((s) => s.id === step);
+
+	return (
+		<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
+			<div>
+				<TextLink to="/admin/forms">← Back to forms</TextLink>
+			</div>
+			<PageHeader
+				title={d.form.internalName}
+				subtitle={
+					d.form.status === "open"
+						? "This form is live — the public link accepts visitors."
+						: d.form.status === "draft"
+							? "Draft — publish to make the public link live."
+							: "Closed — visitors see a closed message at the public link."
+				}
+				actions={
+					<>
+						<StatusBadge tone={FORM_STATUS_TONE[d.form.status] ?? "neutral"}>
+							{d.form.status}
+						</StatusBadge>
+						{d.form.status !== "open" && (
+							<Form method="post">
+								<Input type="hidden" name="intent" value="publish" readOnly />
+								<Button type="submit" variant="ghost">
+									Publish
+								</Button>
+							</Form>
+						)}
+						{actionData?.ok === "save-form" && !savingForm && (
+							<span aria-live="polite">Saved</span>
+						)}
+						<Button form="builder-form" type="submit" disabled={savingForm}>
+							{savingForm ? "Saving…" : "Save"}
+						</Button>
+					</>
+				}
+			/>
+
+			<Panel>
+				<div className="flex flex-wrap items-end gap-3">
+					<div className="min-w-0 flex-1">
+						<Field label="Public link">
+							<Input
+								readOnly
+								value={d.publicUrl}
+								aria-label="Public form link"
+							/>
+						</Field>
+					</div>
+					<CopyLinkButton url={d.publicUrl} />
+					<ButtonLink variant="ghost" to={d.publicUrl}>
+						View form
+					</ButtonLink>
+				</div>
+			</Panel>
+
+			<Tabs>
+				<Tab to={formPath} active>
+					Builder
+				</Tab>
+				<Tab
+					to={`${formPath}?view=results`}
+					active={false}
+					count={d.counts.submissions}
+				>
+					Results
+				</Tab>
+				<Tab
+					to={`${formPath}?view=drafts`}
+					active={false}
+					count={d.counts.drafts}
+				>
+					Draft submissions
+				</Tab>
+			</Tabs>
+
+			<Form method="post" id="builder-form">
+				<Input type="hidden" name="intent" value="save-form" readOnly />
+				<Input type="hidden" name="type" value={formType} readOnly />
+			</Form>
+			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
+
+			<div className="flex flex-col gap-6 md:flex-row">
+				<nav
+					aria-label="Builder steps"
+					className="flex w-full shrink-0 flex-row flex-wrap gap-2 md:w-64 md:flex-col"
+				>
+					{steps.map((s, i) => (
+						<Button
+							key={s.id}
+							type="button"
+							variant={step === s.id ? "primary" : "ghost"}
+							aria-current={step === s.id ? "step" : undefined}
+							onClick={() => setStep(s.id)}
+						>
+							{i + 1}. {s.label}
+						</Button>
+					))}
+				</nav>
+
+				<div className="min-w-0 flex-1">
+					<div hidden={step !== "setup"}>
+						<div className="flex flex-col gap-4">
+							<Panel>
+								<div className="flex flex-col gap-3">
+									<strong>
+										What kind of submissions do you want to collect?
+									</strong>
+									<div className="flex flex-wrap gap-2">
+										<Button
+											type="button"
+											variant={formType === "abstract" ? "primary" : "ghost"}
+											aria-pressed={formType === "abstract"}
+											onClick={() => setFormType("abstract")}
+										>
+											Abstracts
+										</Button>
+										<Button
+											type="button"
+											variant={formType === "session" ? "primary" : "ghost"}
+											aria-pressed={formType === "session"}
+											onClick={() => setFormType("session")}
+										>
+											Sessions
+										</Button>
+									</div>
+									<p>
+										{formType === "abstract"
+											? "Collect abstract submissions for review before sessions are finalized."
+											: "Collect full session proposals with details for your program."}
+									</p>
+									<OnOffSelect
+										label="Participants step (collect speaker contact information)"
+										name="participantsStep"
+										defaultOn={d.form.participantsStep}
+									/>
+									<p>You can adjust these choices later.</p>
+								</div>
+							</Panel>
+						</div>
+					</div>
+
+					<div hidden={step !== "welcome"}>
+						<div className="flex flex-col gap-4">
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<div className="flex flex-wrap items-end gap-3">
+										<Field
+											label="Internal form name"
+											error={errors?.internalName?.[0]}
+										>
+											<Input
+												name="internalName"
+												defaultValue={d.form.internalName}
+												maxLength={255}
+												form="builder-form"
+												invalid={Boolean(errors?.internalName?.[0])}
+											/>
+										</Field>
+										<Field
+											label="External form title"
+											error={errors?.externalTitle?.[0]}
+										>
+											<Input
+												name="externalTitle"
+												defaultValue={d.form.externalTitle}
+												maxLength={255}
+												form="builder-form"
+											/>
+										</Field>
+										<Field
+											label="Page heading (15 characters max)"
+											error={errors?.pageHeading?.[0]}
+										>
+											<Input
+												name="pageHeading"
+												defaultValue={d.form.pageHeading}
+												maxLength={15}
+												form="builder-form"
+												invalid={Boolean(errors?.pageHeading?.[0])}
+											/>
+										</Field>
+										<OnOffSelect
+											label="Show welcome message"
+											name="showWelcome"
+											defaultOn={d.form.showWelcome}
+										/>
+									</div>
+									<RichText
+										label="Welcome message"
+										name="welcomeHtml"
+										defaultValue={d.form.welcomeHtml}
+									/>
+								</div>
+							</Panel>
+						</div>
+					</div>
+
+					<div hidden={step !== "session"}>
+						<div className="flex flex-col gap-4">
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<Field
+										label="Section title"
+										error={errors?.sessionSectionTitle?.[0]}
+									>
+										<Input
+											name="sessionSectionTitle"
+											defaultValue={d.form.sessionSectionTitle}
+											maxLength={255}
+											form="builder-form"
+										/>
+									</Field>
+									<RichText
+										label="Description & instructions"
+										name="sessionSectionHtml"
+										defaultValue={d.form.sessionSectionHtml}
+									/>
+								</div>
+							</Panel>
+							<FieldList
+								section="session"
+								placements={d.placements}
+								ruleOptions={d.ruleOptions}
+							/>
+							<AddQuestion
+								section="session"
+								formPath={formPath}
+								placements={d.placements}
+								initialLibrary={d.libraryFields}
+							/>
+						</div>
+					</div>
+
+					<div hidden={step !== "participant"}>
+						<div className="flex flex-col gap-4">
+							{!d.form.participantsStep && (
+								<Panel>
+									<p>
+										The participants step is currently OFF (Submission Setup) —
+										submitters skip this page. The configuration below is kept
+										for when you turn it back on.
+									</p>
+								</Panel>
+							)}
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<Field
+										label="Section title"
+										error={errors?.participantSectionTitle?.[0]}
+									>
+										<Input
+											name="participantSectionTitle"
+											defaultValue={d.form.participantSectionTitle}
+											maxLength={255}
+											form="builder-form"
+										/>
+									</Field>
+									<RichText
+										label="Description & instructions"
+										name="participantSectionHtml"
+										defaultValue={d.form.participantSectionHtml}
+									/>
+								</div>
+							</Panel>
+							<FieldList
+								section="participant"
+								placements={d.placements}
+								ruleOptions={d.ruleOptions}
+							/>
+							<AddQuestion
+								section="participant"
+								formPath={formPath}
+								placements={d.placements}
+								initialLibrary={d.libraryFields}
+							/>
+							<RoleConfig form={d.form} errors={errors} />
+						</div>
+					</div>
+
+					<div hidden={step !== "settings"}>
+						<div className="flex flex-col gap-4">
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<strong>Deadlines</strong>
+									<div className="flex flex-wrap items-end gap-3">
+										<Field
+											label={`Close date (${d.timezone})`}
+											error={errors?.closeDate?.[0]}
+										>
+											<Input
+												name="closeDate"
+												type="date"
+												defaultValue={d.closeDate}
+												form="builder-form"
+											/>
+										</Field>
+										<Field label="Close time" error={errors?.closeTime?.[0]}>
+											<Input
+												name="closeTime"
+												type="time"
+												defaultValue={d.closeTime}
+												form="builder-form"
+											/>
+										</Field>
+										<OnOffSelect
+											label="Reminder emails (5 days & 1 day before close)"
+											name="sendReminders"
+											defaultOn={d.form.sendReminders}
+										/>
+									</div>
+									<p>
+										Submissions stop at the close date. Clear the date to keep
+										the form open indefinitely.
+									</p>
+								</div>
+							</Panel>
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<strong>Submission capacity</strong>
+									<div className="flex flex-wrap items-end gap-3">
+										<Field
+											label="Submission limit per user"
+											error={errors?.submissionLimit?.[0]}
+										>
+											<Input
+												name="submissionLimit"
+												type="number"
+												min={1}
+												max={1000}
+												defaultValue={d.form.submissionLimit ?? ""}
+												placeholder="No limit"
+												form="builder-form"
+											/>
+										</Field>
+										<OnOffSelect
+											label="Allow multiple draft submissions"
+											name="allowMultipleDrafts"
+											defaultOn={d.form.allowMultipleDrafts}
+										/>
+									</div>
+								</div>
+							</Panel>
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<strong>After submission</strong>
+									<OnOffSelect
+										label="Auto-redirect to the speaker portal (~10 seconds after success)"
+										name="autoRedirect"
+										defaultOn={d.form.autoRedirect}
+									/>
+									<RichText
+										label="Success page message"
+										name="successHtml"
+										defaultValue={d.form.successHtml}
+									/>
+								</div>
+							</Panel>
+						</div>
+					</div>
+
+					<div hidden={step !== "notifications"}>
+						<div className="flex flex-col gap-4">
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<strong>Submitter notifications</strong>
+									<OnOffSelect
+										label="Send a submission confirmation email to the submitter"
+										name="sendConfirmationEmail"
+										defaultOn={d.form.sendConfirmationEmail}
+									/>
+								</div>
+							</Panel>
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<strong>Admin notifications</strong>
+									<MemberPicker
+										label="Notify when a NEW submission is received"
+										name="notifyNew"
+										members={d.members}
+										initial={d.notify.newSubmission}
+									/>
+									<MemberPicker
+										label="Notify when an existing submission is UPDATED"
+										name="notifyUpdated"
+										members={d.members}
+										initial={d.notify.updatedSubmission}
+									/>
+								</div>
+							</Panel>
+						</div>
+					</div>
+
+					<div className="mt-5 flex items-center gap-2">
+						{stepIndex > 0 && (
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									const prev = steps[stepIndex - 1];
+									if (prev) setStep(prev.id);
+								}}
+							>
+								← Back
+							</Button>
+						)}
+						{stepIndex < steps.length - 1 && (
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									const next = steps[stepIndex + 1];
+									if (next) setStep(next.id);
+								}}
+							>
+								Next →
+							</Button>
+						)}
+						<div className="ml-auto">
+							<Button form="builder-form" type="submit" disabled={savingForm}>
+								{savingForm ? "Saving…" : "Save"}
+							</Button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
+	const notFound =
+		error != null &&
+		typeof error === "object" &&
+		"status" in error &&
+		(error as { status: number }).status === 404;
+	return (
+		<div className="mx-auto flex max-w-5xl flex-col gap-4 px-7 py-6">
+			<PageHeader
+				title={notFound ? "Form not found" : "Failed to load this form"}
+				tone="danger"
+				subtitle={
+					notFound
+						? "This form doesn’t exist on the current event — it may have been deleted."
+						: "Something went wrong. Please refresh or try again."
+				}
+			/>
+			<div>
+				<TextLink to="/admin/forms">← Back to forms</TextLink>
+			</div>
+		</div>
+	);
+}
