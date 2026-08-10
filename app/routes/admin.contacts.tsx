@@ -5,12 +5,13 @@ import { getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import { contacts, insertContactSchema } from "~/db/schema";
 import { CONTACT_STATUS_TONE } from "~/components/contact-status";
+import { HeadshotAvatar } from "~/components/headshot-avatar";
 import { contactFilter, isContactStatus } from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
+import { headshotUrl } from "~/lib/headshot";
 import { createTimings, track } from "~/lib/track";
 import {
-	Avatar,
 	Button,
 	ButtonLink,
 	EmptyRow,
@@ -107,6 +108,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				jobTitle: contacts.jobTitle,
 				companyName: contacts.companyName,
 				status: contacts.status,
+				headshotKey: contacts.headshotKey,
 				sessionCount: sql<number>`(
 					SELECT COUNT(*) FROM participants
 					WHERE participants.contact_id = ${contacts.id}
@@ -121,7 +123,14 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 
 	return data(
 		{
-			rows,
+			// The r2 key stays server-side; rows carry only the authz'd image URL.
+			rows: rows.map(({ headshotKey, ...row }) => ({
+				...row,
+				headshotUrl: headshotUrl(
+					`/admin/contacts/${row.id}/headshot`,
+					headshotKey,
+				),
+			})),
 			counts,
 			total,
 			page,
@@ -342,7 +351,7 @@ export default function ContactsRoster({
 										to={`/admin/contacts/${c.id}`}
 										className="flex items-center gap-2"
 									>
-										<Avatar name={name} />
+										<HeadshotAvatar name={name} src={c.headshotUrl} />
 										{name}
 									</Link>
 								</Td>
