@@ -19,7 +19,13 @@ export default defineConfig({
 	},
 	// The SSR (workerd) environment runs its own optimizer; a dep it discovers
 	// MID-build triggers a reload the cloudflare plugin can't do headlessly
-	// (AssertionError: The WebSocket is undefined) — pin the same set there.
+	// (AssertionError: The WebSocket is undefined). React Router's route-export
+	// scanner reads the LEGACY `ssr.optimizeDeps` surface, so pin there too.
+	ssr: {
+		optimizeDeps: {
+			include: ["@dnd-kit/core", "@dnd-kit/sortable", "@dnd-kit/utilities"],
+		},
+	},
 	environments: {
 		ssr: {
 			optimizeDeps: {
