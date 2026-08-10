@@ -421,6 +421,35 @@ describe("draft save", () => {
 		expect(rows[0]?.description).toContain("<strong>durable</strong>");
 	});
 
+	it("resolves two co-speakers sharing an email to ONE contact instead of failing the save", async () => {
+		await seedCfp();
+		const speaker = await createSpeaker();
+		const db = getDb(env);
+
+		const result = (await callSession(speaker.cookie, {
+			intent: "save-draft",
+			wizardId: WIZARD_ID,
+			values: { b_title: "Panel with a duplicate email" },
+			participants: [
+				selfRow(),
+				speakerRow("b", "Dana", "Okafor", "dana@example.com"),
+				speakerRow("c", "Dana Again", "Okafor", "Dana@Example.com"),
+			],
+		})) as unknown as DataResult;
+		expect(result.data.ok).toBe(true);
+
+		const danaContacts = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.email, "dana@example.com"));
+		expect(danaContacts).toHaveLength(1);
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, WIZARD_ID));
+		expect(rows).toHaveLength(2); // self + one Dana
+	});
+
 	it("enforces the single-draft rule when multiple drafts are disabled", async () => {
 		await seedCfp({ allowMultipleDrafts: false });
 		const speaker = await createSpeaker();

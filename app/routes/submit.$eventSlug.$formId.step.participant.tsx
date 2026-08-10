@@ -12,6 +12,8 @@ import {
 import {
 	isValidEmail,
 	type ParticipantErrors,
+	participantExtraFields,
+	participantRequirements,
 	type ParticipantRole,
 	ROLE_LABELS,
 	roleCountLabel,
@@ -75,14 +77,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	};
 }
 
-const CORE_ROW_REFS = new Set([
-	"first_name",
-	"last_name",
-	"email",
-	"mobile_phone",
-	"biography",
-]);
-
 export default function ParticipantStep({
 	loaderData,
 	params,
@@ -116,18 +110,14 @@ export default function ParticipantStep({
 		);
 	}
 
-	const rowRefs = definition.participant.filter(
-		(f) => f.builtinRef !== undefined && CORE_ROW_REFS.has(f.builtinRef),
+	const extraFields = participantExtraFields(definition.participant);
+	const showPhone = definition.participant.some(
+		(f) => f.builtinRef === "mobile_phone",
 	);
-	const extraFields = definition.participant.filter(
-		(f) => f.builtinRef === undefined || !CORE_ROW_REFS.has(f.builtinRef),
+	const showBio = definition.participant.some(
+		(f) => f.builtinRef === "biography",
 	);
-	const showPhone = rowRefs.some((f) => f.builtinRef === "mobile_phone");
-	const showBio = rowRefs.some((f) => f.builtinRef === "biography");
-	const phoneRequired =
-		rowRefs.find((f) => f.builtinRef === "mobile_phone")?.required ?? false;
-	const bioRequired =
-		rowRefs.find((f) => f.builtinRef === "biography")?.required ?? false;
+	const requirements = participantRequirements(definition.participant);
 
 	const roles = definition.roles;
 	const speakerLimits = roles.speaker ?? { min: 1, max: null };
@@ -203,10 +193,11 @@ export default function ParticipantStep({
 	};
 
 	const continueToReview = () => {
-		const participantErrors = validateParticipants(state.participants, roles, {
-			mobilePhone: phoneRequired,
-			bio: bioRequired,
-		});
+		const participantErrors = validateParticipants(
+			state.participants,
+			roles,
+			requirements,
+		);
 		const extra = validateSection(extraFields, state.values);
 		setErrors(participantErrors);
 		setExtraErrors(extra);
@@ -320,7 +311,9 @@ export default function ParticipantStep({
 							)}
 							{p.role !== "secondary" && showPhone && (
 								<Field
-									label={phoneRequired ? "Mobile Phone *" : "Mobile Phone"}
+									label={
+										requirements.mobilePhone ? "Mobile Phone *" : "Mobile Phone"
+									}
 									error={errors.rows[p.key]?.mobilePhone}
 								>
 									<Input
@@ -336,7 +329,7 @@ export default function ParticipantStep({
 							)}
 							{p.role !== "secondary" && showBio && (
 								<Field
-									label={bioRequired ? "Biography *" : "Biography"}
+									label={requirements.bio ? "Biography *" : "Biography"}
 									error={errors.rows[p.key]?.bio}
 								>
 									<RichText

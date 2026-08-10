@@ -13,7 +13,7 @@ import {
 	hashPassword,
 	isSecureRequest,
 	normalizeEmail,
-	verifyPassword,
+	verifyPasswordTimingEqual,
 } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
@@ -30,11 +30,6 @@ import {
 } from "~/ui";
 import type { Route } from "./+types/submit.$eventSlug.$formId.step.account";
 import type { Route as LayoutRoute } from "./+types/submit.$eventSlug.$formId";
-
-// A valid PBKDF2 hash used only to equalize login timing when the email
-// doesn't exist, so response time can't reveal whether an account exists.
-const DUMMY_HASH =
-	"pbkdf2$100000$aSqRq0XCE+U62GUmG1OUqg==$7007E8kKOtwNCfhBs3QTdUh/aS1iJwcjCfU//25YYjU=";
 
 const EmailOnly = z.object({
 	email: z.string().email("Enter a valid email address."),
@@ -141,9 +136,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			.from(users)
 			.where(eq(users.email, email))
 			.limit(1);
-		// Always run the (expensive) verify — against a dummy hash when the email
-		// doesn't exist — so timing can't reveal whether the account exists.
-		const ok = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
+		const ok = await verifyPasswordTimingEqual(password, user?.passwordHash);
 		if (!user || !ok) {
 			return data(
 				{

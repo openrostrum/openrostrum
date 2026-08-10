@@ -10,6 +10,7 @@ import {
 	CharCounter,
 	Checkbox,
 	FieldDivider,
+	MutedText,
 	RichText,
 	SectionHeading,
 	Textarea,
@@ -164,6 +165,13 @@ export function SectionFields({
 				}
 				if (field.type === "divider") {
 					return <FieldDivider key={field.key} />;
+				}
+				if (field.type === "note") {
+					return (
+						<MutedText key={field.key}>
+							{field.label}: {field.description}
+						</MutedText>
+					);
 				}
 				if (!isInputField(field)) return null;
 				if (!isFieldVisible(field, values, fields)) return null;

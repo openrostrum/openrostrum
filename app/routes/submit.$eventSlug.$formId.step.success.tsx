@@ -20,21 +20,23 @@ import {
 import { submitBasePath, type WizardCtx } from "~/cfp/wizard";
 import { getDb } from "~/db";
 import { submissions } from "~/db/schema";
-import { requireUser } from "~/lib/auth";
+import { getUser } from "~/lib/auth";
 import { systemClock } from "~/ports/clock";
 import { Panel, TextLink } from "~/ui";
 import type { Route } from "./+types/submit.$eventSlug.$formId.step.success";
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
-	const user = await requireUser(env, request);
+	const base = submitBasePath(params.eventSlug, params.formId);
+	const url = new URL(request.url);
+	const user = await getUser(env, request);
+	if (!user) throw redirect(`${base}/step/account${url.search}`);
 	const bundle = await loadPublicForm(env, params.eventSlug, params.formId);
 	if (!bundle) throw data("Form not found", { status: 404 });
 	const { form, event } = bundle;
 	const db = getDb(env);
-	const base = submitBasePath(params.eventSlug, params.formId);
 
-	const sid = new URL(request.url).searchParams.get("sid");
+	const sid = url.searchParams.get("sid");
 	if (!sid) throw redirect(base);
 	const [row] = await db
 		.select({

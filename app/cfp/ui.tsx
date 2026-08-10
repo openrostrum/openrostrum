@@ -80,7 +80,7 @@ const RichTextEditor = lazy(() => import("./rich-text"));
 
 export type RichTextProps = {
 	value: string;
-	onChange: (html: string, textLength: number) => void;
+	onChange: (html: string) => void;
 	placeholder?: string;
 	invalid?: boolean;
 	/** Compact = fewer toolbar buttons (participant bios). */

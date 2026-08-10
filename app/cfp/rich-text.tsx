@@ -67,8 +67,7 @@ export default function RichTextEditor({
 			},
 		},
 		onUpdate({ editor: e }) {
-			const text = e.getText();
-			onChange(text.trim().length === 0 ? "" : e.getHTML(), text.length);
+			onChange(e.getText().trim().length === 0 ? "" : e.getHTML());
 		},
 	});
 

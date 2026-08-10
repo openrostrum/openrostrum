@@ -1,6 +1,7 @@
 import { and, count, eq, isNull, ne } from "drizzle-orm";
 import { getDb } from "~/db";
 import {
+	BUILTIN_FIELD,
 	contacts,
 	emailTemplates,
 	events,
@@ -25,10 +26,12 @@ import { getEmailSender } from "~/ports/email";
 import {
 	BUILTIN_META,
 	builtinKey,
+	type BuiltinRef,
 	DEFAULT_PARTICIPANT_BUILTINS,
 	DEFAULT_SESSION_BUILTINS,
 	fieldKey,
 	isFieldVisible,
+	participantExtraFields,
 	type RoleConfig,
 	type WizardField,
 	type WizardParticipant,
@@ -176,15 +179,24 @@ const TAXONOMY_BUILTINS = new Set([
 	"language",
 ]);
 
+// Compile-time: BUILTIN_META must cover the schema's BUILTIN_FIELD enum
+// exactly — a new built-in without wizard support fails the build here
+// instead of silently dropping the organizer's question from the form.
+const _builtinCoverage: Record<(typeof BUILTIN_FIELD)[number], unknown> =
+	BUILTIN_META;
+void _builtinCoverage;
+
 function builtinField(
 	ref: string,
 	required: boolean,
 	locked: boolean,
 	rule: WizardRule,
 	taxonomies: Awaited<ReturnType<typeof eventTaxonomies>>,
-): WizardField | null {
-	const meta = BUILTIN_META[ref];
-	if (!meta) return null;
+): WizardField {
+	const meta = BUILTIN_META[ref as BuiltinRef];
+	if (!meta) {
+		throw new Error(`Unknown built-in field placement: ${ref}`);
+	}
 	return {
 		key: builtinKey(ref),
 		builtinRef: ref,
@@ -193,8 +205,9 @@ function builtinField(
 		required,
 		locked,
 		maxLength: meta.maxLength,
+		description: meta.note,
 		options: TAXONOMY_BUILTINS.has(ref)
-			? taxonomies[ref as keyof typeof taxonomies]
+			? taxonomies[ref as keyof Awaited<ReturnType<typeof eventTaxonomies>>]
 			: undefined,
 		rule,
 	};
@@ -236,14 +249,15 @@ export async function resolveFormDefinition(
 		const resolved: WizardField[] = [];
 		for (const row of rows) {
 			if (row.builtinRef) {
-				const field = builtinField(
-					row.builtinRef,
-					row.required,
-					row.locked,
-					row.questionRule as WizardRule,
-					taxonomies,
+				resolved.push(
+					builtinField(
+						row.builtinRef,
+						row.required,
+						row.locked,
+						row.questionRule as WizardRule,
+						taxonomies,
+					),
 				);
-				if (field) resolved.push(field);
 			} else if (row.fieldId && row.fieldType) {
 				resolved.push({
 					key: fieldKey(row.fieldId),
@@ -268,16 +282,9 @@ export async function resolveFormDefinition(
 				section === "session"
 					? DEFAULT_SESSION_BUILTINS
 					: DEFAULT_PARTICIPANT_BUILTINS;
-			const defaultFields = defaults.flatMap((d) => {
-				const field = builtinField(
-					d.ref,
-					d.required,
-					d.locked,
-					null,
-					taxonomies,
-				);
-				return field ? [field] : [];
-			});
+			const defaultFields = defaults.map((d) =>
+				builtinField(d.ref, d.required, d.locked, null, taxonomies),
+			);
 			return [...defaultFields, ...resolved];
 		}
 		return resolved;
@@ -461,15 +468,45 @@ type WriteInput = {
  * question a rule currently hides are dropped at write time, exactly as the
  * validator and the review summary skip them.
  */
-function visibleSessionKeys(
+/** Every field whose value can be stored: session + once-per-submission participant extras. */
+function answerableFields(definition: FormDefinition): WizardField[] {
+	return [
+		...definition.session,
+		...participantExtraFields(definition.participant),
+	];
+}
+
+function visibleAnswerKeys(
 	definition: FormDefinition,
 	values: WizardValues,
 ): Set<string> {
+	const fields = answerableFields(definition);
 	return new Set(
-		definition.session
-			.filter((f) => isFieldVisible(f, values, definition.session))
-			.map((f) => f.key),
+		fields.filter((f) => isFieldVisible(f, values, fields)).map((f) => f.key),
 	);
+}
+
+/** Participant-section built-ins that live on the submitter's own contact. */
+const SELF_CONTACT_BUILTINS = [
+	["company_name", "companyName"],
+	["job_title", "jobTitle"],
+	["home_phone", "homePhone"],
+	["zip", "zip"],
+] as const;
+
+function selfContactExtras(
+	definition: FormDefinition,
+	values: WizardValues,
+	visibleKeys: Set<string>,
+): Partial<Record<(typeof SELF_CONTACT_BUILTINS)[number][1], string | null>> {
+	const extras: Record<string, string | null> = {};
+	for (const [ref, column] of SELF_CONTACT_BUILTINS) {
+		const key = builtinKey(ref);
+		const placed = definition.participant.some((f) => f.key === key);
+		if (!placed || !visibleKeys.has(key)) continue;
+		extras[column] = (values[key] ?? "").trim() || null;
+	}
+	return extras;
 }
 
 function taxonomyValue(
@@ -505,14 +542,23 @@ async function planParticipantContacts(
 	eventId: string,
 	user: WriteInput["user"],
 	rows: WizardParticipant[],
+	selfExtras: Record<string, string | null>,
 ): Promise<{
 	statements: BatchStatement[];
 	contactIdByKey: Map<string, string>;
 }> {
 	const statements: BatchStatement[] = [];
 	const contactIdByKey = new Map<string, string>();
+	// Two rows carrying the same email resolve to ONE contact — otherwise the
+	// unique(eventId, email) constraint would fail the whole batch.
+	const plannedIdByEmail = new Map<string, string>();
 	for (const p of rows) {
 		const email = normalizeEmail(p.self ? user.email : p.email);
+		const alreadyPlanned = plannedIdByEmail.get(email);
+		if (alreadyPlanned) {
+			contactIdByKey.set(p.key, alreadyPlanned);
+			continue;
+		}
 		const bio = (await sanitizeHtml(p.bio)) || null;
 		const [existing] = await db
 			.select({ id: contacts.id })
@@ -521,6 +567,7 @@ async function planParticipantContacts(
 			.limit(1);
 		if (existing) {
 			contactIdByKey.set(p.key, existing.id);
+			plannedIdByEmail.set(email, existing.id);
 			if (p.self) {
 				statements.push(
 					db
@@ -531,6 +578,7 @@ async function planParticipantContacts(
 							mobilePhone: p.mobilePhone.trim() || null,
 							bio,
 							userId: user.id,
+							...selfExtras,
 						})
 						.where(eq(contacts.id, existing.id)) as unknown as BatchStatement,
 				);
@@ -548,9 +596,11 @@ async function planParticipantContacts(
 				lastName: p.lastName.trim(),
 				mobilePhone: p.mobilePhone.trim() || null,
 				bio,
+				...(p.self ? selfExtras : {}),
 			}) as unknown as BatchStatement,
 		);
 		contactIdByKey.set(p.key, id);
+		plannedIdByEmail.set(email, id);
 	}
 	return { statements, contactIdByKey };
 }
@@ -561,7 +611,7 @@ async function sanitizedAnswers(
 	visibleKeys: Set<string>,
 ): Promise<Array<{ fieldId: string; value: string }>> {
 	const out: Array<{ fieldId: string; value: string }> = [];
-	for (const field of definition.session) {
+	for (const field of answerableFields(definition)) {
 		if (!field.fieldId) continue;
 		if (!visibleKeys.has(field.key)) continue;
 		const raw = (values[field.key] ?? "").trim();
@@ -628,7 +678,7 @@ export async function writeSubmission(
 		};
 	}
 
-	const visibleKeys = visibleSessionKeys(definition, values);
+	const visibleKeys = visibleAnswerKeys(definition, values);
 	const title = (values[builtinKey("title")] ?? "").trim();
 	const description = await sanitizeHtml(
 		values[builtinKey("description")] ?? "",
@@ -646,6 +696,7 @@ export async function writeSubmission(
 		form.eventId,
 		user,
 		input.participants,
+		selfContactExtras(definition, values, visibleKeys),
 	);
 	const contactIdByKey = contactPlan.contactIdByKey;
 
@@ -946,7 +997,7 @@ export async function loadPortalPath(
 }
 
 /**
- * The swyx-"must have" confirmation email: the event's editable
+ * The submission confirmation email: the event's editable
  * submission_confirmation template, rendered with merge tags, always carrying
  * a link to the speaker portal (appended when the template body doesn't place
  * one itself). Deduped per submission so a resend can't double-deliver.

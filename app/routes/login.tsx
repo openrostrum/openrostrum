@@ -10,7 +10,7 @@ import {
 	homePathForRole,
 	isSecureRequest,
 	normalizeEmail,
-	verifyPassword,
+	verifyPasswordTimingEqual,
 } from "~/lib/auth";
 import { Button, ErrorText, Field, Input, Panel, Wordmark } from "~/ui";
 import type { Route } from "./+types/login";
@@ -19,11 +19,6 @@ const Credentials = z.object({
 	email: z.string().email(),
 	password: z.string().min(1),
 });
-
-// A valid PBKDF2 hash used only to equalize login timing when the email doesn't
-// exist, so the response time can't reveal whether an account exists.
-const DUMMY_HASH =
-	"pbkdf2$600000$nRz+NCgbip51gWKmrtbi5w==$aFZ0QBI/rzxCV3+hHj/erqG1ONnn4A2G4nQVWa5QGlM=";
 
 /** Same-origin internal path, or null if the target is external/unsafe
  * (blocks //host, /\host, scheme tricks). Caller falls back to the role home. */
@@ -55,11 +50,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 		.from(users)
 		.where(eq(users.email, normalizeEmail(parsed.data.email)))
 		.limit(1);
-	// Always run the (expensive) verify — against a dummy hash when the email
-	// doesn't exist — so timing can't reveal whether the account exists.
-	const ok = await verifyPassword(
+	const ok = await verifyPasswordTimingEqual(
 		parsed.data.password,
-		user?.passwordHash ?? DUMMY_HASH,
+		user?.passwordHash,
 	);
 	if (!user || !ok) {
 		return { error: "Incorrect email or password." };

@@ -7,9 +7,8 @@ import {
 } from "../app/cfp/definition";
 import { sanitizeHtml } from "../app/cfp/server";
 
-// Conditional "question rules" fire per the QuestionRule union: triggers on
-// library fields AND built-in dropdowns, both directions, and required-ness
-// applies only while visible (flow 02 + the form-builder rule model).
+// Conditional "question rules": triggers on library fields AND built-in
+// dropdowns, both directions, and required-ness applies only while visible.
 
 const formatField: WizardField = {
 	key: "b_format",

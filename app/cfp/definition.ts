@@ -16,7 +16,35 @@ export type WizardFieldType =
 	| "phone"
 	| "date"
 	| "section_header"
-	| "divider";
+	| "divider"
+	/** Non-input explainer for a built-in this surface collects elsewhere. */
+	| "note";
+
+/**
+ * Mirror of the schema's BUILTIN_FIELD enum (this module is client-bundled and
+ * must not pull the schema's runtime). app/cfp/server.ts holds a compile-time
+ * assertion that BUILTIN_META covers the schema enum exactly, so adding a
+ * built-in without wizard support fails the build instead of silently
+ * dropping the question.
+ */
+export type BuiltinRef =
+	| "title"
+	| "description"
+	| "format"
+	| "tags"
+	| "track"
+	| "level"
+	| "language"
+	| "first_name"
+	| "last_name"
+	| "email"
+	| "mobile_phone"
+	| "home_phone"
+	| "biography"
+	| "company_name"
+	| "job_title"
+	| "headshot"
+	| "zip";
 
 export type WizardRule = {
 	trigger:
@@ -90,8 +118,8 @@ export function fieldKey(fieldId: string): string {
  * per event (taxonomies) when the server resolves the form definition.
  */
 export const BUILTIN_META: Record<
-	string,
-	{ label: string; type: WizardFieldType; maxLength?: number }
+	BuiltinRef,
+	{ label: string; type: WizardFieldType; maxLength?: number; note?: string }
 > = {
 	title: { label: "Title", type: "text", maxLength: 255 },
 	description: { label: "Description", type: "wysiwyg", maxLength: 5000 },
@@ -108,8 +136,40 @@ export const BUILTIN_META: Record<
 	biography: { label: "Biography", type: "wysiwyg", maxLength: 5000 },
 	company_name: { label: "Company Name", type: "text", maxLength: 255 },
 	job_title: { label: "Job Title", type: "text", maxLength: 255 },
+	headshot: {
+		label: "Headshot",
+		type: "note",
+		note: "Headshots are uploaded from your speaker portal profile after you submit.",
+	},
 	zip: { label: "Zip", type: "text", maxLength: 20 },
 };
+
+/** Participant built-ins rendered per person row (identity + phone + bio). */
+export const CORE_PARTICIPANT_REFS: ReadonlySet<string> = new Set([
+	"first_name",
+	"last_name",
+	"email",
+	"mobile_phone",
+	"biography",
+]);
+
+/** Participant-section placements that render once, outside the person rows. */
+export function participantExtraFields(fields: WizardField[]): WizardField[] {
+	return fields.filter(
+		(f) =>
+			f.builtinRef === undefined || !CORE_PARTICIPANT_REFS.has(f.builtinRef),
+	);
+}
+
+export function participantRequirements(
+	fields: WizardField[],
+): ParticipantRequirements {
+	return {
+		mobilePhone:
+			fields.find((f) => f.builtinRef === "mobile_phone")?.required ?? false,
+		bio: fields.find((f) => f.builtinRef === "biography")?.required ?? false,
+	};
+}
 
 /**
  * The default session-section question set for a form with no per-form
@@ -204,6 +264,7 @@ export function isFieldVisible(
 const LAYOUT_TYPES: ReadonlyArray<WizardFieldType> = [
 	"section_header",
 	"divider",
+	"note",
 ];
 
 export function isInputField(field: WizardField): boolean {
@@ -218,7 +279,6 @@ export function isInputField(field: WizardField): boolean {
 export function validateSection(
 	fields: WizardField[],
 	values: WizardValues,
-	textLength: (html: string) => number = plainTextLength,
 ): Record<string, string> {
 	const errors: Record<string, string> = {};
 	for (const field of fields) {
@@ -226,14 +286,15 @@ export function validateSection(
 		if (!isFieldVisible(field, values, fields)) continue;
 		const raw = (values[field.key] ?? "").trim();
 		const isEmpty =
-			field.type === "wysiwyg" ? textLength(raw) === 0 : raw.length === 0;
+			field.type === "wysiwyg" ? plainTextLength(raw) === 0 : raw.length === 0;
 		if (field.required && isEmpty) {
 			errors[field.key] = `${field.label} is required`;
 			continue;
 		}
 		if (isEmpty) continue;
 		if (field.maxLength !== undefined) {
-			const length = field.type === "wysiwyg" ? textLength(raw) : raw.length;
+			const length =
+				field.type === "wysiwyg" ? plainTextLength(raw) : raw.length;
 			if (length > field.maxLength) {
 				errors[field.key] =
 					`${field.label} must be ${field.maxLength} characters or fewer`;

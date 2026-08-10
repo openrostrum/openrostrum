@@ -10,6 +10,8 @@ import {
 } from "react-router";
 import { z } from "zod";
 import {
+	participantExtraFields,
+	participantRequirements,
 	validateParticipants,
 	validateSection,
 	type WizardParticipant,
@@ -132,19 +134,21 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			: p,
 	);
 
-	const phoneRequired =
-		definition.participant.find((f) => f.builtinRef === "mobile_phone")
-			?.required ?? false;
-	const bioRequired =
-		definition.participant.find((f) => f.builtinRef === "biography")
-			?.required ?? false;
-
-	const fieldErrors = validateSection(definition.session, parsed.data.values);
+	const fieldErrors = {
+		...validateSection(definition.session, parsed.data.values),
+		...(form.participantsStep
+			? validateSection(
+					participantExtraFields(definition.participant),
+					parsed.data.values,
+				)
+			: {}),
+	};
 	const participantErrors = form.participantsStep
-		? validateParticipants(participantRows, definition.roles, {
-				mobilePhone: phoneRequired,
-				bio: bioRequired,
-			})
+		? validateParticipants(
+				participantRows,
+				definition.roles,
+				participantRequirements(definition.participant),
+			)
 		: { rows: {}, form: [] };
 
 	if (
@@ -318,6 +322,12 @@ export default function ReviewStep({
 					{layout.form.participantsStep && (
 						<SummarySection title="Participants">
 							<ParticipantsSummary participants={state.participants} />
+							<AnswersSummary
+								fields={participantExtraFields(
+									loaderData.definition.participant,
+								)}
+								values={state.values}
+							/>
 						</SummarySection>
 					)}
 				</div>

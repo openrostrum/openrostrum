@@ -213,14 +213,28 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const payload = parsed.data;
 
 	if (payload.intent === "delete-draft") {
-		const initial = await loadWizardInitial(db, form, user.id, payload.sid);
-		if (!initial || initial.loadedStatus !== "draft") {
+		const [row] = await db
+			.select({
+				id: submissions.id,
+				status: submissions.status,
+				submitterId: submissions.submitterId,
+				formId: submissions.formId,
+			})
+			.from(submissions)
+			.where(eq(submissions.id, payload.sid))
+			.limit(1);
+		if (
+			!row ||
+			row.formId !== form.id ||
+			row.submitterId !== user.id ||
+			row.status !== "draft"
+		) {
 			return data(
 				{ ok: false as const, formError: "This draft no longer exists." },
 				{ status: 404 },
 			);
 		}
-		await db.delete(submissions).where(eq(submissions.id, payload.sid));
+		await db.delete(submissions).where(eq(submissions.id, row.id));
 		track("cfp.draft_deleted", { formId: form.id });
 		return { ok: true as const, kind: "deleted" as const };
 	}
