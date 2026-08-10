@@ -41,10 +41,16 @@ describe("unsubscribe token", () => {
 		expect(await verifyUnsubscribeToken(envB, token)).toBeNull();
 	});
 
-	it("fails loud when real mail is configured without a signing secret", async () => {
-		const prodish = { ...env, RESEND_API_KEY: "re_x" } as Env;
+	it("fails loud on any deployed instance without a signing secret", async () => {
+		// The dev fallback constant is public (open-source repo) — a deployed
+		// instance signing with it would let anyone suppress any address.
+		const withMail = { ...env, RESEND_API_KEY: "re_x" } as Env;
 		await expect(
-			mintUnsubscribeToken(prodish, "leo@example.com"),
+			mintUnsubscribeToken(withMail, "leo@example.com"),
+		).rejects.toThrow(/UNSUBSCRIBE_SECRET/);
+		const deployedKeyless = { ...env, APP_ENV: "production" } as Env;
+		await expect(
+			mintUnsubscribeToken(deployedKeyless, "leo@example.com"),
 		).rejects.toThrow(/UNSUBSCRIBE_SECRET/);
 	});
 });

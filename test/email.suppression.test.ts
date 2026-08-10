@@ -3,10 +3,8 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import { emailOutbox, emailSuppressions } from "../app/db/schema";
-import {
-	sendAnnouncement,
-	verifyUnsubscribeToken,
-} from "../app/lib/unsubscribe";
+import { sendAnnouncement } from "../app/lib/announcements";
+import { verifyUnsubscribeToken } from "../app/lib/unsubscribe";
 import { getEmailSender } from "../app/ports/email";
 
 // Oracle: the suppression contract — unsubscribing silences announcements
@@ -82,6 +80,7 @@ describe("sendAnnouncement (the one bulk-send path)", () => {
 			to: "priya@example.com",
 			subject: "Speaker news",
 			html: "<p>News</p>",
+			dedupeKey: "blast1:priya@example.com",
 		});
 		expect(res.suppressed).toBe(false);
 		const [row] = await getDb(env).select().from(emailOutbox);
@@ -101,6 +100,7 @@ describe("sendAnnouncement (the one bulk-send path)", () => {
 			to: "leo@example.com",
 			subject: "Speaker news",
 			html: "<p>News</p>",
+			dedupeKey: "blast1:leo@example.com",
 		});
 		expect(res.suppressed).toBe(true);
 		expect(await getDb(env).select().from(emailOutbox)).toHaveLength(0);

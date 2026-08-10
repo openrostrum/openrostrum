@@ -34,7 +34,8 @@ export async function action({ context, params }: Route.ActionArgs) {
 		.insert(emailSuppressions)
 		.values({ email, reason: "unsubscribe_link" })
 		.onConflictDoNothing({ target: emailSuppressions.email });
-	track("email.unsubscribed", { email });
+	// No address in the log — the suppression row itself is the record.
+	track("email.unsubscribed");
 	return { state: "done" as const, email };
 }
 

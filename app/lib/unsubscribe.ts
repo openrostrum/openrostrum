@@ -1,28 +1,24 @@
 /**
- * Signed unsubscribe tokens + the announcement send path. The token embeds
- * the address and an HMAC so the footer link works logged-out without letting
- * anyone unsubscribe an arbitrary address. Tokens never expire — links in
- * already-sent emails must keep resolving.
+ * Signed unsubscribe tokens. The token embeds the address and an HMAC so the
+ * footer link works logged-out without letting anyone unsubscribe an
+ * arbitrary address. Tokens never expire — links in already-sent emails must
+ * keep resolving.
  *
  * Suppression is deliberately person-global: one address, one list, across
  * organizations — over-suppressing is the safe failure mode.
  */
-import {
-	type EmailMessage,
-	type EmailResult,
-	getEmailSender,
-} from "~/ports/email";
 
-// Local-only fallback: with no real mail provider configured, tokens never
-// leave the machine. When RESEND_API_KEY is set, a real secret is REQUIRED —
-// forgeable production tokens would let anyone suppress any address.
+// Fallback for local dev/tests only. Any DEPLOYED instance (APP_ENV
+// production, or a real mail provider configured) must set its own secret:
+// this constant is published in the open-source repo, and a token signed
+// with a public key would let anyone permanently suppress any address.
 const DEV_SECRET = "openrostrum-local-dev-unsubscribe-secret";
 
 function secretFor(env: Env): string {
 	if (env.UNSUBSCRIBE_SECRET) return env.UNSUBSCRIBE_SECRET;
-	if (env.RESEND_API_KEY) {
+	if (env.APP_ENV === "production" || env.RESEND_API_KEY) {
 		throw new Error(
-			"UNSUBSCRIBE_SECRET is not configured — real mail carries unsubscribe links; set the secret so tokens can't be forged.",
+			"UNSUBSCRIBE_SECRET is not configured — unsubscribe links on a deployed instance must not be forgeable; set the secret.",
 		);
 	}
 	return DEV_SECRET;
@@ -100,30 +96,4 @@ export async function unsubscribeUrl(
 	email: string,
 ): Promise<string> {
 	return `${origin}/unsubscribe/${await mintUnsubscribeToken(env, email)}`;
-}
-
-async function appendUnsubscribeFooter(
-	env: Env,
-	html: string,
-	origin: string,
-	email: string,
-): Promise<string> {
-	const url = await unsubscribeUrl(env, origin, email);
-	return `${html}<hr style="margin-top:24px;border:none;border-top:1px solid #ddd" /><p style="font-size:12px;color:#777">You received this announcement from an event organizer. <a href="${url}">Unsubscribe</a> from announcements — you'll still receive emails about your own submissions.</p>`;
-}
-
-/**
- * THE way to send an announcement. Couples the two halves no bulk send may
- * separate — the unsubscribe footer and `kind: "bulk"` (suppression check) —
- * into one call, so a compliant send is the only send a caller can write.
- * Transactional mail (about the recipient's own submissions/account) goes
- * through the EmailSender port directly and never carries the footer.
- */
-export async function sendAnnouncement(
-	env: Env,
-	origin: string,
-	msg: Omit<EmailMessage, "kind">,
-): Promise<EmailResult> {
-	const html = await appendUnsubscribeFooter(env, msg.html, origin, msg.to);
-	return getEmailSender(env).send({ ...msg, html, kind: "bulk" });
 }

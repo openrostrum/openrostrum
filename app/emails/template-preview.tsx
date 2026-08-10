@@ -6,14 +6,7 @@ import {
 } from "~/lib/email-render";
 import { Panel } from "~/ui";
 import { EmailPreview } from "./email-preview";
-
-function PanelHeading({ children }: { children: React.ReactNode }) {
-	return (
-		<h2 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-			{children}
-		</h2>
-	);
-}
+import { PanelHeading } from "./text";
 
 /** Live preview + merge-field reference for the template editor. */
 export function TemplatePreview({
