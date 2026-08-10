@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { data, Form } from "react-router";
+import { data, Form, useOutlet } from "react-router";
 import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { getDb } from "~/db";
 import { forms, submissions } from "~/db/schema";
@@ -269,6 +269,10 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 	const { forms: rows, tabCounts, q, tab } = loaderData;
 	const [deleteId, setDeleteId] = useState<string | null>(null);
 	const deleteTarget = rows.find((f) => f.id === deleteId) ?? null;
+	// Flat routes make this file the LAYOUT for admin.forms.$formId — when the
+	// editor matches, it replaces the list rather than nesting inside it.
+	const outlet = useOutlet();
+	if (outlet) return outlet;
 
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">

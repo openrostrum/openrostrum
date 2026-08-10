@@ -2127,6 +2127,9 @@ function FieldList({
 	return (
 		<Panel>
 			<DndContext
+				// Stable id: the default is a module-level counter that drifts
+				// between SSR requests → aria-describedby hydration mismatches.
+				id={`dnd-${section}`}
 				sensors={sensors}
 				collisionDetection={closestCenter}
 				onDragEnd={({ active, over }) => {
