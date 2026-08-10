@@ -1,10 +1,8 @@
-// Labeled gold set for the DeepSeek reviewer. Each case is a small changed-file
-// snippet with the EXACT set of doctrine violations it contains (empty = clean).
-// Grounded in real OpenRostrum patterns; the clean cases are deliberate traps
-// (legit WHY comments, real tests, sanctioned throws/compat boundaries) that a
-// noisy reviewer over-flags — they are how we measure false positives.
-//
-// Categories: bs-comment | weak-test | shortcut | legacy-shim
+// Labeled gold set for the reviewer. Each case is a small changed-file snippet;
+// `violations` is the agent id(s) — the docs/rules/<id>.md whose rules it breaks
+// (empty = clean). These synthetic cases are all engineering.md violations plus
+// deliberate clean traps (legit WHY comments, real tests, sanctioned throws) that
+// a noisy reviewer over-flags — they are how we measure false positives.
 
 export const cases = [
 	// ---- bs-comment: violations ----
@@ -16,14 +14,14 @@ export function incrementRetryCounter(state) {
 	state.retries += 1;
 	return state;
 }`,
-		violations: ["bs-comment"],
+		violations: ["engineering"],
 	},
 	{
 		id: "bs-change-narration",
 		file: "app/config.ts",
 		code: `// was P2, promoted to core in the Aug refactor
 export const MAX_UPLOAD_MB = 25;`,
-		violations: ["bs-comment"],
+		violations: ["engineering"],
 	},
 	{
 		id: "bs-tier-citation",
@@ -32,7 +30,7 @@ export const MAX_UPLOAD_MB = 25;`,
 export function loadSpeakers(db, eventId) {
 	return db.select().from(contacts).where(eq(contacts.eventId, eventId));
 }`,
-		violations: ["bs-comment"],
+		violations: ["engineering"],
 	},
 	{
 		id: "bs-justification-prose",
@@ -43,7 +41,7 @@ export function loadSpeakers(db, eventId) {
 export function SubmissionsMock() {
 	return <div className="rounded-card border border-hair bg-surface" />;
 }`,
-		violations: ["bs-comment"],
+		violations: ["engineering"],
 	},
 
 	// ---- bs-comment: clean traps ----
@@ -87,7 +85,7 @@ const eventId = (await getActiveEvent(env, user)).id;`,
 	await notify({ send }, { to: "a@b.com" });
 	expect(send).toHaveBeenCalledWith({ to: "a@b.com" });
 });`,
-		violations: ["weak-test"],
+		violations: ["engineering"],
 	},
 	{
 		id: "weak-rederived-oracle",
@@ -97,7 +95,7 @@ const eventId = (await getActiveEvent(env, user)).id;`,
 	const expected = items.reduce((s, i) => s + i.price, 0);
 	expect(sumPrices(items)).toBe(expected);
 });`,
-		violations: ["weak-test"],
+		violations: ["engineering"],
 	},
 	{
 		id: "weak-copy-literal",
@@ -106,7 +104,7 @@ const eventId = (await getActiveEvent(env, user)).id;`,
 it("has welcome copy", () => {
 	expect(WELCOME_COPY).toContain("Welcome to the call for speakers");
 });`,
-		violations: ["weak-test"],
+		violations: ["engineering"],
 	},
 	{
 		id: "weak-snapshot",
@@ -114,7 +112,7 @@ it("has welcome copy", () => {
 		code: `it("renders the panel", () => {
 	expect(render(Panel()).container.innerHTML).toMatchSnapshot();
 });`,
-		violations: ["weak-test"],
+		violations: ["engineering"],
 	},
 
 	// ---- weak-test: clean traps ----
@@ -149,7 +147,7 @@ it("has welcome copy", () => {
 export async function allSubmissions(db) {
 	return db.select().from(submissions);
 }`,
-		violations: ["shortcut"],
+		violations: ["engineering"],
 	},
 	{
 		id: "shortcut-hardcoded-id",
@@ -158,7 +156,7 @@ export async function allSubmissions(db) {
 	// for now just grab the seeded event
 	return db.query.events.findFirst({ where: eq(events.id, "evt_demo_123") });
 }`,
-		violations: ["shortcut"],
+		violations: ["engineering"],
 	},
 	{
 		id: "shortcut-swallowed-error",
@@ -170,7 +168,7 @@ export async function allSubmissions(db) {
 		// ignore
 	}
 }`,
-		violations: ["shortcut"],
+		violations: ["engineering"],
 	},
 	{
 		id: "shortcut-noop-validation",
@@ -179,7 +177,7 @@ export async function allSubmissions(db) {
 	// v0, skip validation for now, revisit later
 	return true;
 }`,
-		violations: ["shortcut"],
+		violations: ["engineering"],
 	},
 
 	// ---- shortcut: clean traps ----
@@ -213,7 +211,7 @@ export async function allSubmissions(db) {
 		code: `export { EmailSender } from "./sender";
 /** @deprecated use EmailSender */
 export { EmailSender as Mailer } from "./sender";`,
-		violations: ["legacy-shim"],
+		violations: ["engineering"],
 	},
 	{
 		id: "legacy-dual-format-reader",
@@ -223,14 +221,14 @@ export { EmailSender as Mailer } from "./sender";`,
 		? row.status
 		: (row.status?.value ?? "pending");
 }`,
-		violations: ["legacy-shim"],
+		violations: ["engineering"],
 	},
 	{
 		id: "legacy-parallel-v2",
 		file: "app/lib/serialize.ts",
 		code: `export function serializeSession(s) { return { id: s.id, title: s.title }; }
 export function serializeSessionV2(s) { return { id: s.id, title: s.title, track: s.track }; }`,
-		violations: ["legacy-shim"],
+		violations: ["engineering"],
 	},
 
 	// ---- legacy-shim: clean traps (sanctioned compat boundaries) ----
@@ -262,7 +260,7 @@ export async function getUser(db, id) {
 	// TODO: cache this later
 	return db.query.users.findFirst({ where: eq(users.id, id) });
 }`,
-		violations: ["bs-comment", "shortcut"],
+		violations: ["engineering"],
 	},
 	{
 		id: "ok-documented-fallback",

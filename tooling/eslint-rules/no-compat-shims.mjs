@@ -3,7 +3,7 @@
 // in the same change; data-shape changes ship as forward migrations, never
 // tolerant readers; old paths are deleted, not deprecated — git is the
 // archive. Compatibility exists only at owner-decided external boundaries
-// (see docs/engineering.md → No legacy).
+// (see docs/rules/engineering.md → No legacy).
 const COMPAT_COMMENT =
 	/@deprecated|backwards?[- ]compat|kept for (old|compat|legacy)|for old (callers|clients|formats?)|supports? the old\b|\blegacy (path|format|behavio|support)|old format\b/i;
 const COMPAT_NAME = /^(legacy|deprecated)|(Legacy|Deprecated)/;
@@ -18,9 +18,9 @@ export const noCompatShims = {
 		schema: [],
 		messages: {
 			compatComment:
-				'Backward-compatibility marker in a comment ("{{match}}"). Nothing outside this repo calls our internals: update every caller in this change, migrate data forward, and DELETE the old path — git is the archive. Owner-decided external boundaries are the only exception. See docs/engineering.md → No legacy.',
+				'Backward-compatibility marker in a comment ("{{match}}"). Nothing outside this repo calls our internals: update every caller in this change, migrate data forward, and DELETE the old path — git is the archive. Owner-decided external boundaries are the only exception. See docs/rules/engineering.md → No legacy.',
 			compatName:
-				'Identifier "{{name}}" declares a legacy/deprecated thing. Don\'t keep two ways to do the same thing — replace the old one and update its callers in this change (the type-checker finds them). See docs/engineering.md → No legacy.',
+				'Identifier "{{name}}" declares a legacy/deprecated thing. Don\'t keep two ways to do the same thing — replace the old one and update its callers in this change (the type-checker finds them). See docs/rules/engineering.md → No legacy.',
 		},
 	},
 	create(context) {

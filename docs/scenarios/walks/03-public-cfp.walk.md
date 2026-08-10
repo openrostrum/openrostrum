@@ -1,7 +1,7 @@
 # WALK — 03-public-cfp.yaml (design-side, pre-swarm)
 
 Walked 2026-08-09 against: `app/db/schema.ts`, `app/lib/auth.ts`, `app/ports/{email,turnstile,clock}.ts`,
-`app/routes/*` + `docs/ROUTE-MAP.md`, `docs/tech-stack.md`, `SCOPE.md`, `drizzle/seed.sql`,
+`app/routes/*` + `docs/ROUTE-MAP.md`, `docs/rules/tech-stack.md`, `SCOPE.md`, `drizzle/seed.sql`,
 `docs/flows/02` + `docs/flows/09`. Every step below carries the concrete artifact that serves it, or a GAP.
 
 Conventions: SQL uses the real snake_case columns from schema.ts; TS uses the real exported symbols.

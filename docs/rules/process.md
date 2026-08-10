@@ -6,7 +6,7 @@ Schema lives in `app/db/schema.ts` and is authored ~complete up front. **Schema 
 
 ## Design-time gate (integration owner)
 
-Any change to `schema.ts`, a port, or a spec must RE-WALK the scenarios whose `touches:` header names the changed artifact — produce the concrete artifact for each affected step (real SQL/route/JSON), not a mechanism name. Inventory-checking ("the column exists") is what let a rule that couldn't trigger on a built-in dropdown ship past three review rounds; walking a scenario to its artifact is what caught it. See [`scenarios/GAP-REGISTER.md`](scenarios/GAP-REGISTER.md).
+Any change to `schema.ts`, a port, or a spec must RE-WALK the scenarios whose `touches:` header names the changed artifact — produce the concrete artifact for each affected step (real SQL/route/JSON), not a mechanism name. Inventory-checking ("the column exists") is what let a rule that couldn't trigger on a built-in dropdown ship past three review rounds; walking a scenario to its artifact is what caught it. See [`scenarios/GAP-REGISTER.md`](../scenarios/GAP-REGISTER.md).
 
 ## Worktree isolation
 
@@ -36,6 +36,6 @@ The build is **waves**, not flat parallelism — a few roots gate everything. On
 
 - **Wave 0 (gates, build first):** schema (done) · auth + login/logout/403 (done) · the golden path (done) · the admin shell + nav registry (done — `admin.tsx` + `app/nav/`) · taxonomy screens (tracks/tags/formats/levels/rooms).
 - **Wave 1:** form builder · submissions list/review · email templates + port.
-- **Wave 2:** public CFP · speaker portal · the accept→auto-provision spine (speaker+session+tasks) — integration-owned, it couples many tables. **Build the spine as a shared domain function (`app/domain/accept.ts`) called by the route action, not inlined in it** — the Airtable sync ([`airtable-sync-design.md`](airtable-sync-design.md)) and the compat API must trigger the exact same transition with the exact same side effects. Every status transition the spine performs emits a `track()` event ([`observability.md`](observability.md)).
+- **Wave 2:** public CFP · speaker portal · the accept→auto-provision spine (speaker+session+tasks) — integration-owned, it couples many tables. **Build the spine as a shared domain function (`app/domain/accept.ts`) called by the route action, not inlined in it** — the Airtable sync ([`airtable-sync-design.md`](../airtable-sync-design.md)) and the compat API must trigger the exact same transition with the exact same side effects. Every status transition the spine performs emits a `track()` event ([`observability.md`](../observability.md)).
 - **Wave 3:** agenda · tasks dashboard · evaluation · dashboards.
 - **No shared-file chokepoints:** routes are file-based (never edit `app/routes.ts`); nav is a per-file registry; schema is central + guarded.

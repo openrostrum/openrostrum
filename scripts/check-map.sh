@@ -10,14 +10,14 @@ BUDGET=60
 
 if [ "$(readlink CLAUDE.md || true)" != "AGENTS.md" ]; then
   echo "check-map: CLAUDE.md must be a symlink to AGENTS.md." >&2
-  echo "Vendor filenames are pointer shims; the one map lives in AGENTS.md (docs/process.md → Agent harness)." >&2
+  echo "Vendor filenames are pointer shims; the one map lives in AGENTS.md (docs/rules/process.md → Agent harness)." >&2
   exit 1
 fi
 
 lines=$(wc -l < "$MAP" | tr -d ' ')
 if [ "$lines" -gt "$BUDGET" ]; then
   echo "check-map: $MAP is $lines lines (budget: $BUDGET)." >&2
-  echo "It is a MAP — move new prose into docs/engineering.md, docs/process.md, or the mapped doc, and keep one row per topic here." >&2
+  echo "It is a MAP — move new prose into docs/rules/engineering.md, docs/rules/process.md, or the mapped doc, and keep one row per topic here." >&2
   exit 1
 fi
 

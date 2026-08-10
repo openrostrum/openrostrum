@@ -2,7 +2,7 @@
 
 Walked 2026-08-09 against: `app/db/schema.ts` (events agenda columns, submissions
 scheduling columns, formats, rooms, participants, contacts), `docs/ROUTE-MAP.md`
-(`admin.agenda.tsx`, Wave 3), `docs/tech-stack.md` (dnd-kit, D1 rules), `SCOPE.md` P0 #6,
+(`admin.agenda.tsx`, Wave 3), `docs/rules/tech-stack.md` (dnd-kit, D1 rules), `SCOPE.md` P0 #6,
 `docs/flows/06-agenda-embeds.md` (agenda parts), `docs/flows/verification/D`,
 `docs/reference/discord/CLARIFICATIONS.md` #8, `drizzle/seed.sql`.
 

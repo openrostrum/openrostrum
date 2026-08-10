@@ -8,7 +8,7 @@ import tseslint from "typescript-eslint";
 import { openrostrumPlugin } from "./tooling/eslint-rules/index.mjs";
 
 // Lint layer. Formatting is owned by Biome (its linter is disabled) — see
-// docs/tech-stack.md. Type errors are owned by `tsc` (pnpm typecheck), so we run
+// docs/rules/tech-stack.md. Type errors are owned by `tsc` (pnpm typecheck), so we run
 // typescript-eslint's non-type-checked preset here (fast, no projectService).
 
 const APP = ["app/**/*.{ts,tsx}", "workers/**/*.ts", "test/**/*.ts"];

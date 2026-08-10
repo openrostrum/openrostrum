@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ENFORCED shared-file protocol. These files are authored on the integration
-# branch ONLY (see docs/tech-stack.md). If every worktree edited them, 50 agents
+# branch ONLY (see docs/rules/tech-stack.md). If every worktree edited them, 50 agents
 # would collide: schema.ts + drizzle/migrations mint duplicate 0000_*.sql that
 # corrupt _journal.json on merge; seed.sql is the verification baseline every
 # reviewer resets to; package.json/pnpm-lock.yaml produce lockfile merge hell;

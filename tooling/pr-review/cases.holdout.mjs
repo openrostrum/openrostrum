@@ -210,7 +210,7 @@ const id = process.env.CF_D1_DATABASE_ID;`,
 export const FEATURES = [
 	{ icon: "inbox", title: "Custom call for speakers" },
 ];`,
-		violations: ["bs-comment"],
+		violations: ["engineering"],
 	},
 
 	// ---------- authored held-out positives (surface-different; measure-only) ----------
@@ -237,7 +237,7 @@ export const FEATURES = [
 	await saveContact({ insert }, { email: "x@y.com" });
 	expect(insert).toHaveBeenCalled();
 });`,
-		violations: ["weak-test"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-shortcut-return-free",
@@ -247,7 +247,7 @@ export const FEATURES = [
 	// pricing isn't built yet, return free for now
 	return 0;
 }`,
-		violations: ["shortcut"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-shortcut-default-on-catch",
@@ -260,7 +260,7 @@ export const FEATURES = [
 		return {};
 	}
 }`,
-		violations: ["shortcut"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-legacy-deprecated-fn",
@@ -270,7 +270,7 @@ export const FEATURES = [
 export function fmtDate(d) {
 	return formatDate(d);
 }`,
-		violations: ["legacy-shim"],
+		violations: ["engineering"],
 	},
 
 	// ---------- more real, clean (widen the precision base) ----------
@@ -326,7 +326,7 @@ const ready = isbot(request.headers.get("user-agent")) ? "onAllReady" : "onShell
 export function total(items) {
 	return items.reduce((s, i) => s + i.price, 0);
 }`,
-		violations: ["bs-comment"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-bs-obvious-loop",
@@ -336,7 +336,7 @@ export function total(items) {
 	// loop over each recipient and send
 	for (const r of list) send(r);
 }`,
-		violations: ["bs-comment"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-weak-assert-true",
@@ -346,7 +346,7 @@ export function total(items) {
 	await boot();
 	expect(true).toBe(true);
 });`,
-		violations: ["weak-test"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-weak-length-of-mock",
@@ -357,7 +357,7 @@ export function total(items) {
 	const rows = await listAll(db);
 	expect(rows.length).toBe(2);
 });`,
-		violations: ["weak-test"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-shortcut-fixme-nplusone",
@@ -369,7 +369,7 @@ export async function enrich(db, ids) {
 	for (const id of ids) out.push(await db.get(id));
 	return out;
 }`,
-		violations: ["shortcut"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-shortcut-empty-list-catch",
@@ -382,7 +382,7 @@ export async function enrich(db, ids) {
 		return [];
 	}
 }`,
-		violations: ["shortcut"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-legacy-renamed-column",
@@ -391,7 +391,7 @@ export async function enrich(db, ids) {
 		code: `export function emailOf(row) {
 	return row.email ?? row.emailAddress;
 }`,
-		violations: ["legacy-shim"],
+		violations: ["engineering"],
 	},
 	{
 		id: "hp-legacy-compat-export",
@@ -402,6 +402,62 @@ export async function enrich(db, ids) {
 }
 // kept so older imports keep resolving
 export const getName = displayName;`,
-		violations: ["legacy-shim"],
+		violations: ["engineering"],
+	},
+
+	// ---------- cross-area positives (exercise the other agents) ----------
+	{
+		id: "plat-d1-transaction",
+		source: "authored",
+		file: "app/lib/move.ts",
+		code: `export async function moveSession(db, id, roomId) {
+	await db.transaction(async (tx) => {
+		await tx.update(sessions).set({ roomId }).where(eq(sessions.id, id));
+	});
+}`,
+		violations: ["tech-stack"],
+	},
+	{
+		id: "plat-react-router-dom",
+		source: "authored",
+		file: "app/lib/nav.ts",
+		code: `import { useNavigate } from "react-router-dom";
+export function useGoHome() {
+	const navigate = useNavigate();
+	return () => navigate("/admin");
+}`,
+		violations: ["tech-stack"],
+	},
+	{
+		id: "plat-batch-clean",
+		source: "authored",
+		file: "app/lib/provision.ts",
+		code: `export async function provision(db, rows) {
+	await db.batch(rows.map((r) => db.insert(sessions).values(r)));
+}`,
+		violations: [],
+	},
+	{
+		id: "harness-native-confirm",
+		source: "authored",
+		file: "app/routes/admin.contacts.$id.tsx",
+		code: `function onDelete(id) {
+	if (!confirm("Delete this contact?")) return;
+	submit({ id }, { method: "post" });
+}`,
+		violations: ["harness"],
+	},
+	{
+		id: "design-hover-weight",
+		source: "authored",
+		file: "app/ui/name-tag.tsx",
+		code: `export function NameTag({ hovered, name }) {
+	return (
+		<span className={hovered ? "font-semibold text-fg" : "font-normal text-fg"}>
+			{name}
+		</span>
+	);
+}`,
+		violations: ["design-system"],
 	},
 ];

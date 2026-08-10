@@ -1,5 +1,5 @@
 // The app stylesheet is Tailwind configuration plus document ground — never a
-// second component-styling system (docs/engineering.md → Design system).
+// second component-styling system (docs/rules/engineering.md → Design system).
 // Ported from cloudflare-agent-exercise (skewtrace/global-css-only).
 import stylelint from "stylelint";
 
@@ -15,11 +15,11 @@ const allowedAtRules = new Set([
 
 const messages = stylelint.utils.ruleMessages(ruleName, {
 	atRule: (name) =>
-		`Unexpected @${name}. Component styling belongs in app/ui via Tailwind utilities; global CSS accepts only imports, @source, @theme tokens, @font-face, and @keyframes. See docs/engineering.md → Design system.`,
+		`Unexpected @${name}. Component styling belongs in app/ui via Tailwind utilities; global CSS accepts only imports, @source, @theme tokens, @font-face, and @keyframes. See docs/rules/engineering.md → Design system.`,
 	import: (value) =>
 		`Unexpected CSS import ${value}. The global entrypoint may import only Tailwind.`,
 	selector: (selector) =>
-		`Unexpected selector "${selector}". Component styling belongs in app/ui via Tailwind utilities; only :root, html, body, and keyframe selectors belong in global CSS. See docs/engineering.md → Design system.`,
+		`Unexpected selector "${selector}". Component styling belongs in app/ui via Tailwind utilities; only :root, html, body, and keyframe selectors belong in global CSS. See docs/rules/engineering.md → Design system.`,
 });
 
 function isKeyframeSelector(rule) {

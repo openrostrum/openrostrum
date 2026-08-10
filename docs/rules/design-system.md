@@ -55,4 +55,4 @@ An ink letter **O standing on a petrol platform** — the name drawn literally: 
 
 ## Motion law
 
-Vendored skill [`emil-design-eng`](../.agents/skills/emil-design-eng/SKILL.md): ease-out for enter/exit (never ease-in), UI under 300ms, never animate keyboard-initiated actions, `prefers-reduced-motion` respected. Currently in use: hover transitions + press feedback only.
+Vendored skill [`emil-design-eng`](../../.agents/skills/emil-design-eng/SKILL.md): ease-out for enter/exit (never ease-in), UI under 300ms, never animate keyboard-initiated actions, `prefers-reduced-motion` respected. Currently in use: hover transitions + press feedback only.

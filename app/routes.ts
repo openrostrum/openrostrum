@@ -10,6 +10,6 @@ import { flatRoutes } from "@react-router/fs-routes";
  *   submissions.tsx       → /submissions
  *   admin.forms.tsx       → /admin/forms (child of an admin.tsx layout, if any)
  *   submissions.$id.tsx   → /submissions/:id
- * See docs/tech-stack.md → routing.
+ * See docs/rules/tech-stack.md → routing.
  */
 export default flatRoutes() satisfies RouteConfig;
