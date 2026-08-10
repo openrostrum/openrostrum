@@ -5,11 +5,20 @@ import {
 	Outlet,
 	Scripts,
 	ScrollRestoration,
+	useFetchers,
 	useMatches,
+	useRouteLoaderData,
 } from "react-router";
 
 import type { Route } from "./+types/root";
 import "./app.css";
+import {
+	documentScheme,
+	getTheme,
+	parseTheme,
+	type SchemePin,
+	type Theme,
+} from "~/lib/theme";
 
 // Fonts are self-hosted (open-source product — no CDN); @font-face lives in
 // app.css, preloads here cover the two faces on every first paint.
@@ -40,17 +49,40 @@ export const links: Route.LinksFunction = () => [
 	},
 ];
 
+// @public — runs on every request incl. login; it only parses the theme
+// cookie, no data crosses an auth boundary.
+export async function loader({ request }: Route.LoaderArgs) {
+	return { theme: getTheme(request) };
+}
+
+/** An in-flight theme submission, so the document flips before the cookie
+ * round-trip lands (the last submission wins). */
+function useOptimisticTheme(): Theme | null {
+	let optimistic: Theme | null = null;
+	for (const fetcher of useFetchers()) {
+		if (fetcher.formAction !== "/theme") continue;
+		optimistic = parseTheme(fetcher.formData?.get("theme")) ?? optimistic;
+	}
+	return optimistic;
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
-	// A route can pin the document's color scheme via its handle (the marketing
-	// landing pins "light"). Inline style wins over the stylesheet's
-	// `color-scheme: light dark`, so every light-dark() token follows the pin.
-	const pinned = useMatches().some(
-		(match) =>
-			(match.handle as { colorScheme?: string } | undefined)?.colorScheme ===
-			"light",
-	);
+	// The document's color scheme: a route pin wins (handle.colorScheme —
+	// "light" keeps the marketing homepage canonical, "os" keeps embeds on the
+	// viewer's OS), then the visitor's cookie choice, then the stylesheet's
+	// `color-scheme: light dark` lets the OS decide. Inline style wins over the
+	// stylesheet, and app.css keeps color-scheme off <body> so the pin inherits
+	// everywhere — every light-dark() token follows it.
+	const pin = useMatches().reduce<SchemePin | null>((found, match) => {
+		const declared = (match.handle as { colorScheme?: SchemePin } | undefined)
+			?.colorScheme;
+		return declared ?? found;
+	}, null);
+	const data = useRouteLoaderData<typeof loader>("root");
+	const optimistic = useOptimisticTheme();
+	const scheme = documentScheme(pin, optimistic ?? data?.theme ?? "system");
 	return (
-		<html lang="en" style={pinned ? { colorScheme: "light" } : undefined}>
+		<html lang="en" style={scheme ? { colorScheme: scheme } : undefined}>
 			<head>
 				<meta charSet="utf-8" />
 				<meta name="viewport" content="width=device-width, initial-scale=1" />

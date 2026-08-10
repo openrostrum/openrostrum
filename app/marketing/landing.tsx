@@ -500,16 +500,12 @@ function Footer() {
 }
 
 export function Landing() {
-	// data-theme="light" pins every light-dark() token below it to the light
-	// "Gallery" skin — the marketing page presents the product in its canonical
-	// light form regardless of the visitor's OS theme. app.css lifts the pin to
-	// the <html> element so overscroll never flashes the dark canvas.
+	// The route handle (_index.tsx) pins color-scheme: light on <html>, and
+	// app.css keeps color-scheme off <body>, so every light-dark() token down
+	// to the overscroll canvas inherits the canonical light "Gallery" skin —
+	// no per-element pin needed here.
 	return (
-		<div
-			data-theme="light"
-			style={{ colorScheme: "light" }}
-			className="min-h-dvh bg-canvas text-fg"
-		>
+		<div className="min-h-dvh bg-canvas text-fg">
 			<TopNav />
 			<main>
 				<Hero />
