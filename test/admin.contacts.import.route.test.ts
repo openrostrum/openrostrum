@@ -137,13 +137,18 @@ describe("CSV import", () => {
 			lastName: "Dana",
 		});
 
-		const result = (await run(request)) as {
-			step: string;
-			added: number;
-			merged: number;
-			skipped: number;
-			results: Array<{ row: number; outcome: string; reason: string }>;
-		};
+		// The done step returns via data() so Server-Timing rides along.
+		const result = (
+			(await run(request)) as unknown as {
+				data: {
+					step: string;
+					added: number;
+					merged: number;
+					skipped: number;
+					results: Array<{ row: number; outcome: string; reason: string }>;
+				};
+			}
+		).data;
 
 		expect(result.step).toBe("done");
 		expect(result.added).toBe(2); // Dana + Vip

@@ -1,12 +1,13 @@
 import { eq } from "drizzle-orm";
-import { Form } from "react-router";
+import { data, Form } from "react-router";
+import { z } from "zod";
 import { type Db, getDb } from "~/db";
 import { contacts } from "~/db/schema";
 import { isContactStatus } from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { parseCsv } from "~/lib/csv";
 import { errorMessage } from "~/lib/errors";
-import { track } from "~/lib/track";
+import { createTimings, track } from "~/lib/track";
 import {
 	Button,
 	ButtonLink,
@@ -99,7 +100,9 @@ function utf8FromBase64(value: string): string {
 	return new TextDecoder().decode(bytes);
 }
 
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Same validator the add/edit forms use — a CSV row and the add-speaker form
+// must never disagree on what counts as a valid email.
+const EmailShape = z.email();
 
 type RowOutcome = "added" | "merged" | "skipped";
 interface RowResult {
@@ -130,6 +133,10 @@ type ActionResult =
 			formError?: string;
 	  };
 
+export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
+	return actionHeaders.has("Server-Timing") ? actionHeaders : loaderHeaders;
+}
+
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireAdmin(env, request);
@@ -140,7 +147,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 export async function action({
 	context,
 	request,
-}: Route.ActionArgs): Promise<ActionResult> {
+}: Route.ActionArgs): Promise<
+	ActionResult | ReturnType<typeof data<ActionResult>>
+> {
 	const env = context.cloudflare.env;
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
@@ -231,10 +240,10 @@ export async function action({
 		return idx === null ? "" : (row[idx] ?? "").trim();
 	};
 
-	const existing = await db
-		.select()
-		.from(contacts)
-		.where(eq(contacts.eventId, event.id));
+	const timings = createTimings();
+	const existing = await timings.time("db", () =>
+		db.select().from(contacts).where(eq(contacts.eventId, event.id)),
+	);
 	const byEmail = new Map(existing.map((c) => [normalizeEmail(c.email), c]));
 
 	const results: RowResult[] = [];
@@ -256,7 +265,7 @@ export async function action({
 			continue;
 		}
 		const email = normalizeEmail(rawEmail);
-		if (!EMAIL_SHAPE.test(email)) {
+		if (!EmailShape.safeParse(email).success) {
 			results.push({
 				...base,
 				outcome: "skipped",
@@ -357,7 +366,10 @@ export async function action({
 		const chunk = writes.slice(i, i + CHUNK);
 		try {
 			const [head, ...rest] = chunk.map((w) => w.statement);
-			if (head) await db.batch([head, ...rest]);
+			if (head)
+				await timings.time(`write${i / CHUNK}`, () =>
+					db.batch([head, ...rest]),
+				);
 		} catch (error) {
 			// Nothing silent: every row past the failure point is reported as not written.
 			for (const w of writes.slice(i)) {
@@ -381,7 +393,10 @@ export async function action({
 	const merged = results.filter((r) => r.outcome === "merged").length;
 	const skipped = results.filter((r) => r.outcome === "skipped").length;
 	track("contacts.imported", { eventId: event.id, added, merged, skipped });
-	return { step: "done", added, merged, skipped, results, formError };
+	return data<ActionResult>(
+		{ step: "done", added, merged, skipped, results, formError },
+		{ headers: { "Server-Timing": timings.header() } },
+	);
 }
 
 const OUTCOME_TONE = {

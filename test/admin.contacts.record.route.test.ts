@@ -133,7 +133,9 @@ describe("contact record", () => {
 			.where(eq(users.email, "priya@example.com"));
 		expect(account).toBeDefined();
 		expect(account?.role).toBe("speaker");
-		// Sentinel hash: structurally un-loginable until the invitee sets a password.
+		// House sentinel-hash convention: structurally un-loginable until the
+		// invitee sets a password, and detectable by the shared prefix.
+		expect(account?.passwordHash.startsWith("invite-pending$")).toBe(true);
 		expect(account?.passwordHash.startsWith("pbkdf2$")).toBe(false);
 
 		const [contact] = await db

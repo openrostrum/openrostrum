@@ -10,7 +10,6 @@ import {
 	insertContactSchema,
 	participants,
 	passwordResets,
-	portals,
 	submissions,
 	taskAssignments,
 	tasks,
@@ -18,10 +17,12 @@ import {
 } from "~/db/schema";
 import { Textarea } from "~/features/contacts/textarea";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
-import { escapeHtml } from "~/lib/email-render";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
-import { getEmailSender } from "~/ports/email";
+import { formatDateUTC } from "~/lib/format";
+import { escapeHtml } from "~/lib/html";
+import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { createTimings, track } from "~/lib/track";
+import { getEmailSender } from "~/ports/email";
 import {
 	Avatar,
 	Button,
@@ -44,9 +45,10 @@ import {
 } from "~/ui";
 import type { Route } from "./+types/admin.contacts_.$id";
 
-/** Non-PBKDF2 sentinel: the account exists for invite/linking purposes but no
+/** House sentinel-hash convention (see admin.settings.team.tsx): a non-PBKDF2
+ * hash marks an account that exists only for invite/linking purposes — no
  * password can verify against it until the invitee sets one. */
-const INVITE_SENTINEL_HASH = "invited";
+const SENTINEL_HASH_PREFIX = "invite-pending$";
 
 const UpdateContact = insertContactSchema
 	.pick({
@@ -156,14 +158,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			.limit(1);
 		hasPassword = account?.passwordHash.startsWith("pbkdf2$") ?? false;
 		if (hasPassword) {
-			const [portal] = await db
-				.select({ publicId: portals.publicId })
-				.from(portals)
-				.where(eq(portals.eventId, event.id))
-				.limit(1);
-			if (portal) {
-				inviteUrl = `${origin}/portals/${event.slug}/${portal.publicId}`;
-			}
+			const portalId = (await firstPortalsByEvent(db, event.id)).get(event.id);
+			if (portalId) inviteUrl = portalUrl(origin, event.slug, portalId);
 		} else {
 			const [pending] = await db
 				.select({ token: passwordResets.token })
@@ -237,7 +233,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				db.insert(users).values({
 					id: accountId,
 					email,
-					passwordHash: INVITE_SENTINEL_HASH,
+					passwordHash: `${SENTINEL_HASH_PREFIX}${crypto.randomUUID()}`,
 					name: `${contact.firstName} ${contact.lastName}`.trim(),
 					role: "speaker",
 				}),
@@ -267,15 +263,11 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		}
 
 		const origin = new URL(request.url).origin;
-		const [portal] = await db
-			.select({ publicId: portals.publicId })
-			.from(portals)
-			.where(eq(portals.eventId, event.id))
-			.limit(1);
-		const portalUrl = portal
-			? `${origin}/portals/${event.slug}/${portal.publicId}`
+		const portalId = (await firstPortalsByEvent(db, event.id)).get(event.id);
+		const portalLink = portalId
+			? portalUrl(origin, event.slug, portalId)
 			: `${origin}/login`;
-		const inviteUrl = token ? `${origin}/set-password/${token}` : portalUrl;
+		const inviteUrl = token ? `${origin}/set-password/${token}` : portalLink;
 
 		try {
 			if (statements.length === 1) await statements[0];
@@ -290,7 +282,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					`<p>You've been invited to the speaker portal for ${escapeHtml(event.name)}.</p>`,
 					token
 						? `<p>Set your password to get started: <a href="${inviteUrl}">${inviteUrl}</a></p>`
-						: `<p>Open your portal: <a href="${portalUrl}">${portalUrl}</a></p>`,
+						: `<p>Open your portal: <a href="${portalLink}">${portalLink}</a></p>`,
 				].join(""),
 				kind: "transactional",
 				dedupeKey: `portal_invite:${contact.id}:${inviteKey}`,
@@ -376,12 +368,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 }
 
 function formatDate(value: Date | null): string {
-	if (!value) return "—";
-	return value.toLocaleDateString("en-US", {
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-	});
+	return value ? formatDateUTC(value) : "—";
 }
 
 export default function ContactRecord({
@@ -687,7 +674,7 @@ export default function ContactRecord({
 					role="dialog"
 					aria-modal="true"
 					aria-label={`Delete ${name}`}
-					className="fixed inset-0 z-50 flex items-center justify-center p-6 backdrop-blur-sm backdrop-brightness-90"
+					className="fixed inset-0 z-50 flex items-center justify-center p-6"
 				>
 					<div className="w-full max-w-md">
 						<Panel>

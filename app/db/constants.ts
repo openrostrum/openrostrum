@@ -19,9 +19,21 @@ export const SUBMISSION_STATUS = [
 export const SUBMISSION_TYPE = ["abstract", "session"] as const;
 
 /**
- * Contact workflow statuses. schema.ts carries its own copy of this tuple
- * (integration-owned — flagged to fold into an import of this one); the
- * lockstep test in test/admin.contacts.route.test.ts fails if they diverge.
+ * The statuses an admin decision can TARGET (the inline pill dropdown + bulk
+ * edit). `draft` is pre-submission and `withdrawn` is set only by the withdraw
+ * flow (which requires who/why metadata) — neither is a decision target.
+ */
+export const DECISION_STATUS = [
+	"pending",
+	"accept_queue",
+	"accepted",
+	"decline_queue",
+	"declined",
+] as const;
+
+/**
+ * Contact workflow statuses. The integration-owned schema.ts column enum is a
+ * separate tuple; a lockstep test fails the build if the two ever diverge.
  */
 export const CONTACT_STATUS = [
 	"pending",

@@ -5,6 +5,8 @@
  * token); unknown tags are left verbatim so a typo is visible in the
  * per-recipient preview instead of vanishing silently.
  */
+import { escapeHtml } from "~/lib/html";
+
 export const MERGE_TAGS = [
 	"first_name",
 	"last_name",
@@ -30,15 +32,6 @@ export function renderMergeFields(
 			? (values[tag as MergeTag] ?? "")
 			: whole,
 	);
-}
-
-export function escapeHtml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
 }
 
 /**

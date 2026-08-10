@@ -1,8 +1,6 @@
-import { eq } from "drizzle-orm";
 import { data, Form } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
-import { portals } from "~/db/schema";
 import {
 	isContactStatus,
 	type RecipientSelection,
@@ -15,11 +13,12 @@ import {
 	type MergeValues,
 	renderEmailHtml,
 	renderMergeFields,
-	escapeHtml,
 } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
-import { getEmailSender } from "~/ports/email";
+import { escapeHtml } from "~/lib/html";
+import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { createTimings, track } from "~/lib/track";
+import { getEmailSender } from "~/ports/email";
 import {
 	Button,
 	ButtonLink,
@@ -168,6 +167,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			formError: "No event is configured yet.",
 			echo: undefined,
 			preview: undefined,
+			sendKey: crypto.randomUUID(),
 		};
 	}
 	const db = getDb(env);
@@ -188,75 +188,74 @@ export async function action({ context, request }: Route.ActionArgs) {
 		subject: String(form.get("subject") ?? ""),
 		body: String(form.get("body") ?? ""),
 	};
+	// Echoed through every re-render so a retry after a partial failure keeps
+	// the SAME dedupe scope — already-delivered recipients are never re-sent.
+	const sendKey = String(form.get("sendKey") ?? crypto.randomUUID());
+	const formStep = (
+		fields: Partial<{
+			fieldErrors: Record<string, string[] | undefined>;
+			formError: string;
+			preview: {
+				name: string;
+				email: string;
+				subject: string;
+				body: string;
+			};
+		}>,
+	) => ({
+		step: "form" as const,
+		fieldErrors: undefined,
+		formError: undefined,
+		preview: undefined,
+		...fields,
+		echo,
+		sendKey,
+	});
 
-	const [portal] = await db
-		.select({ publicId: portals.publicId })
-		.from(portals)
-		.where(eq(portals.eventId, event.id))
-		.limit(1);
+	const portalId = (await firstPortalsByEvent(db, event.id)).get(event.id);
 	const origin = new URL(request.url).origin;
-	const portalUrl = portal
-		? `${origin}/portals/${event.slug}/${portal.publicId}`
-		: null;
+	const portalLink = portalId ? portalUrl(origin, event.slug, portalId) : null;
 
 	if (intent === "preview") {
 		const previewId = String(form.get("previewContact") ?? "");
 		const target = recipients.find((c) => c.id === previewId) ?? recipients[0];
 		if (!target) {
-			return {
-				step: "form" as const,
-				fieldErrors: undefined,
-				formError: "No recipients to preview.",
-				echo,
-				preview: undefined,
-			};
+			return formStep({ formError: "No recipients to preview." });
 		}
-		const values = buildMergeValues(target, event.name, portalUrl);
-		return {
-			step: "form" as const,
-			fieldErrors: undefined,
-			formError: undefined,
-			echo,
+		const values = buildMergeValues(target, event.name, portalLink);
+		return formStep({
 			preview: {
 				name: `${target.firstName} ${target.lastName}`.trim(),
 				email: target.email,
 				subject: renderMergeFields(echo.subject, values),
 				body: renderMergeFields(echo.body, values),
 			},
-		};
+		});
 	}
 
 	// intent === "send"
 	const parsed = Composition.safeParse(echo);
 	if (!parsed.success) {
-		return {
-			step: "form" as const,
-			fieldErrors: z.flattenError(parsed.error).fieldErrors,
-			formError: undefined,
-			echo,
-			preview: undefined,
-		};
+		return formStep({ fieldErrors: z.flattenError(parsed.error).fieldErrors });
 	}
 	if (recipients.length === 0) {
-		return {
-			step: "form" as const,
-			fieldErrors: undefined,
-			formError: "No recipients match this selection.",
-			echo,
-			preview: undefined,
-		};
+		return formStep({ formError: "No recipients match this selection." });
 	}
 	if (recipients.length > MAX_RECIPIENTS) {
-		return {
-			step: "form" as const,
-			fieldErrors: undefined,
+		return formStep({
 			formError: `This selection has ${recipients.length} recipients — the limit is ${MAX_RECIPIENTS} per send. Narrow the filter and send in batches.`,
-			echo,
-			preview: undefined,
-		};
+		});
+	}
+	if (
+		!portalLink &&
+		`${parsed.data.subject}\n${parsed.data.body}`.includes("{{portal_link}}")
+	) {
+		return formStep({
+			formError:
+				"This event has no speaker portal yet, so {{portal_link}} would render blank — remove the tag or create the portal first.",
+		});
 	}
 
-	const sendKey = String(form.get("sendKey") ?? crypto.randomUUID());
 	const sender = getEmailSender(env);
 	const timings = createTimings();
 	const outcomes: Array<{
@@ -268,10 +267,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 	try {
 		await timings.time("send", async () => {
 			for (const contact of recipients) {
-				const values = buildMergeValues(contact, event.name, portalUrl);
+				const values = buildMergeValues(contact, event.name, portalLink);
 				const html =
 					renderEmailHtml(parsed.data.body, values) +
-					`<p>You're receiving this because you're a speaker contact for ${escapeHtml(event.name)}.</p>`;
+					`<p>You're receiving this because you're a speaker contact for ${escapeHtml(event.name)}. Reply to this email if you'd rather not receive announcements about this event.</p>`;
 				const result = await sender.send({
 					to: normalizeEmail(contact.email),
 					subject: renderMergeFields(parsed.data.subject, values),
@@ -297,14 +296,12 @@ export async function action({ context, request }: Route.ActionArgs) {
 			eventId: event.id,
 			error: errorMessage(error),
 		});
-		return {
-			step: "form" as const,
-			fieldErrors: undefined,
+		// The echoed sendKey makes this retry idempotent: recipients who already
+		// got the email dedupe on `bulk:<sendKey>:<contactId>` and are skipped.
+		return formStep({
 			formError:
-				"Sending stopped partway — check the email history for what went out, then retry.",
-			echo,
-			preview: undefined,
-		};
+				"Sending stopped partway — retry to send only to the recipients who haven't received it yet.",
+		});
 	}
 	const sent = outcomes.filter((o) => o.outcome === "sent").length;
 	const suppressed = outcomes.filter((o) => o.outcome === "suppressed").length;
@@ -334,9 +331,11 @@ export default function ComposeBulkEmail({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { recipients, selection, selectionLabel, template, sendKey } =
-		loaderData;
+	const { recipients, selection, selectionLabel, template } = loaderData;
 	const state = actionData;
+	// A re-render after preview/validation/partial-failure keeps the POSTed
+	// sendKey (retry stays idempotent); a fresh visit mints a fresh one.
+	const sendKey = state?.step === "form" ? state.sendKey : loaderData.sendKey;
 
 	if (state?.step === "sent") {
 		return (

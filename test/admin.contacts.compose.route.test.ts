@@ -172,6 +172,7 @@ describe("compose bulk email", () => {
 
 		const result = (await run(request)) as {
 			step: string;
+			sendKey?: string;
 			preview?: { subject: string; body: string; email: string };
 		};
 
@@ -179,6 +180,9 @@ describe("compose bulk email", () => {
 		expect(result.preview?.email).toBe("alice@example.com");
 		expect(result.preview?.subject).toBe("Welcome to DevFlow Conf, Alice!");
 		expect(result.preview?.body).toContain("Hi Alice,");
+		// The POSTed sendKey is echoed back so preview → send (and a retry after
+		// a partial failure) keeps one dedupe scope and can never double-deliver.
+		expect(result.sendKey).toBe("send-key-1");
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
 

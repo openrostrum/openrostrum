@@ -9,7 +9,8 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { Db } from "~/db";
-import { CONTACT_STATUS, contacts } from "~/db/schema";
+import { CONTACT_STATUS } from "~/db/constants";
+import { contacts } from "~/db/schema";
 
 export type ContactStatus = (typeof CONTACT_STATUS)[number];
 
