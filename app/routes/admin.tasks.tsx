@@ -32,6 +32,7 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC, parseDueDate } from "~/lib/format";
+import { likeContains } from "~/lib/like";
 import { escapeHtml } from "~/lib/html";
 import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import {
@@ -253,8 +254,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const timings = createTimings();
 	const now = new Date();
 
-	// %/_ in the search term are literals to the user, not wildcards.
-	const likePattern = `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+	const likePattern = likeContains(q);
 	const eventScope = eq(tasks.eventId, event.id);
 	const outstandingScope = and(
 		eventScope,

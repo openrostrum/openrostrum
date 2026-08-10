@@ -10,9 +10,10 @@ import {
 	taskAssignments,
 	tasks,
 } from "~/db/schema";
+import { REVIEW_NOTE_MAX, setFileReview } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatDateUTC, parseDueDate } from "~/lib/format";
+import { formatBytes, formatDateUTC, parseDueDate } from "~/lib/format";
 import {
 	isOverdue,
 	TASK_STATUS_LABEL,
@@ -223,19 +224,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			if (!file) {
 				return withTimings({ formError: "That upload no longer exists." });
 			}
+			const reviewed = { id: file.id, taskAssignmentId: row.assignment.id };
 			if (intent === "approve-file") {
-				await timings.time("db", () =>
-					db.batch([
-						db
-							.update(files)
-							.set({ reviewStatus: "approved", reviewNote: null })
-							.where(eq(files.id, file.id)),
-						db
-							.update(taskAssignments)
-							.set({ status: "complete", completedAt: now })
-							.where(eq(taskAssignments.id, row.assignment.id)),
-					]),
-				);
+				await timings.time("db", () => setFileReview(db, reviewed, "approved"));
 				track("task.file_approved", {
 					eventId: event.id,
 					assignmentId: row.assignment.id,
@@ -246,17 +237,15 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				} satisfies ActionResult);
 			}
 			const note = String(form.get("reviewNote") ?? "").trim();
+			if (note.length > REVIEW_NOTE_MAX) {
+				return withTimings({
+					fieldErrors: {
+						reviewNote: ["Keep the note under 2,000 characters."],
+					},
+				});
+			}
 			await timings.time("db", () =>
-				db.batch([
-					db
-						.update(files)
-						.set({ reviewStatus: "denied", reviewNote: note || null })
-						.where(eq(files.id, file.id)),
-					db
-						.update(taskAssignments)
-						.set({ status: "incomplete", completedAt: null })
-						.where(eq(taskAssignments.id, row.assignment.id)),
-				]),
+				setFileReview(db, reviewed, "denied", note),
 			);
 			track("task.file_denied", {
 				eventId: event.id,
@@ -280,13 +269,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	}
 
 	return withTimings({ formError: "Unknown action." });
-}
-
-function formatBytes(size: number | null): string {
-	if (size == null) return "—";
-	if (size < 1024) return `${size} B`;
-	if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
-	return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function answerText(value: unknown): string {
@@ -466,10 +448,14 @@ export default function TaskAssignmentDetail({
 							<Form method="post" className="flex flex-wrap items-end gap-2">
 								<Input type="hidden" name="intent" value="deny-file" />
 								<Input type="hidden" name="fileId" value={uploads[0].id} />
-								<Field label="Note (optional)">
+								<Field
+									label="Note (optional)"
+									error={actionData?.fieldErrors?.reviewNote?.[0]}
+								>
 									<Input
 										name="reviewNote"
 										placeholder="Why it needs a re-upload"
+										maxLength={2000}
 									/>
 								</Field>
 								<Button type="submit" variant="ghost">

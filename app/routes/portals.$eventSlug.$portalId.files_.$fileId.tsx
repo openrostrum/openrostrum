@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
 import { files } from "~/db/schema";
+import { fileAttachmentResponse } from "~/domain/files";
 import { getPortalContext } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { track } from "~/lib/track";
@@ -34,12 +35,5 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		fileId: file.id,
 		shared: file.sharedToPortal,
 	});
-	const safeName = file.fileName.replace(/[^\w.\- ]+/g, "_");
-	return new Response(object.body, {
-		headers: {
-			"Content-Type": file.contentType ?? "application/octet-stream",
-			"Content-Disposition": `attachment; filename="${safeName}"`,
-			"Cache-Control": "private, no-store",
-		},
-	});
+	return fileAttachmentResponse(object.body, file);
 }
