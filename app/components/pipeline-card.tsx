@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Panel } from "~/ui";
 
-/** One kanban stage column: caps heading + mono count, honest truncation. */
 export function PipelineColumn({
 	label,
 	count,
@@ -11,7 +10,6 @@ export function PipelineColumn({
 }: {
 	label: string;
 	count: number;
-	/** Cards beyond the render cap — 0 renders nothing. */
 	truncated: number;
 	children: ReactNode;
 }) {
@@ -26,18 +24,20 @@ export function PipelineColumn({
 			</h2>
 			{children}
 			{truncated > 0 && (
-				<span className="px-1 text-[12px] text-fg-faint">
+				<span className="px-1 text-[12.5px] text-fg-faint">
 					+{truncated} more not shown
 				</span>
 			)}
 			{count === 0 && (
-				<span className="px-1 text-[12px] text-fg-faint">Empty</span>
+				<span className="px-1 text-[12.5px] text-fg-faint">
+					No prospects here yet — move a card over or enroll one above
+				</span>
 			)}
 		</section>
 	);
 }
 
-/** A prospect card on the board; `control` hosts the route's move form. */
+/** `control` hosts the route-owned move form (fetcher lives with the route). */
 export function PipelineCardTile({
 	to,
 	name,

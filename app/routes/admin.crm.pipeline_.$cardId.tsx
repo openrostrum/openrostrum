@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq } from "drizzle-orm";
 import { data, Form, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
@@ -14,6 +14,7 @@ import { CrmNotesPanel } from "~/components/crm-notes";
 import { SectionHeading } from "~/components/section-heading";
 import {
 	addPersonToEvent,
+	findOrgEvent,
 	movePipelineCard,
 	queryNotes,
 	resolveCrmOrg,
@@ -27,6 +28,7 @@ import {
 	Button,
 	ButtonLink,
 	ConfirmButton,
+	EmptyRow,
 	EmptyState,
 	ErrorText,
 	Field,
@@ -44,6 +46,7 @@ import {
 import type { Route } from "./+types/admin.crm.pipeline_.$cardId";
 
 const NOTES_SHOWN = 50;
+const HISTORY_SHOWN = 100;
 
 const Move = z.object({ stage: z.enum(PIPELINE_STAGE) });
 const AddNote = z.object({
@@ -92,32 +95,39 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	if (!card) {
 		throw data("Card not found in your pipeline", { status: 404 });
 	}
-	const [history, noteThread, orgEvents] = await timings.time("db", () =>
-		Promise.all([
-			db
-				.select({
-					id: pipelineStageChanges.id,
-					fromStage: pipelineStageChanges.fromStage,
-					toStage: pipelineStageChanges.toStage,
-					changedByName: pipelineStageChanges.changedByName,
-					createdAt: pipelineStageChanges.createdAt,
-				})
-				.from(pipelineStageChanges)
-				.where(eq(pipelineStageChanges.cardId, card.id))
-				.orderBy(desc(pipelineStageChanges.createdAt))
-				.limit(100),
-			queryNotes(db, org.id, card.email, NOTES_SHOWN),
-			db
-				.select({ id: events.id, name: events.name })
-				.from(events)
-				.where(eq(events.organizationId, org.id))
-				.orderBy(asc(events.createdAt)),
-		]),
+	const [history, [historyCount], noteThread, orgEvents] = await timings.time(
+		"db",
+		() =>
+			Promise.all([
+				db
+					.select({
+						id: pipelineStageChanges.id,
+						fromStage: pipelineStageChanges.fromStage,
+						toStage: pipelineStageChanges.toStage,
+						changedByName: pipelineStageChanges.changedByName,
+						createdAt: pipelineStageChanges.createdAt,
+					})
+					.from(pipelineStageChanges)
+					.where(eq(pipelineStageChanges.cardId, card.id))
+					.orderBy(desc(pipelineStageChanges.createdAt))
+					.limit(HISTORY_SHOWN),
+				db
+					.select({ n: count() })
+					.from(pipelineStageChanges)
+					.where(eq(pipelineStageChanges.cardId, card.id)),
+				queryNotes(db, org.id, card.email, NOTES_SHOWN),
+				db
+					.select({ id: events.id, name: events.name })
+					.from(events)
+					.where(eq(events.organizationId, org.id))
+					.orderBy(asc(events.createdAt)),
+			]),
 	);
 	return data(
 		{
 			card,
 			history,
+			historyTotal: historyCount?.n ?? history.length,
 			notes: noteThread.notes,
 			noteCount: noteThread.total,
 			events: orgEvents,
@@ -198,17 +208,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			return { formError: parsed.error.issues[0]?.message ?? "Pick an event." };
 		}
 		const result = await timings.time("db", async () => {
-			// The target must belong to THIS org — a forged event id is refused.
-			const [target] = await db
-				.select({ id: events.id, name: events.name })
-				.from(events)
-				.where(
-					and(
-						eq(events.id, parsed.data.targetEventId),
-						eq(events.organizationId, org.id),
-					),
-				)
-				.limit(1);
+			// Name lookup doubles as the org check; addPersonToEvent re-verifies
+			// internally, so a forged event id can never be written into.
+			const target = await findOrgEvent(db, org.id, parsed.data.targetEventId);
 			if (!target) {
 				return {
 					formError: "That event does not belong to your organization.",
@@ -220,7 +222,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				eventId: target.id,
 				outcome,
 			});
-			if (outcome === "missing") {
+			if (outcome === "missing" || outcome === "foreign") {
 				return {
 					formError:
 						"No directory record remains for this person — they may have been removed from every event.",
@@ -253,7 +255,7 @@ export default function CrmPipelineCard({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { card, history, notes, noteCount, events } = loaderData;
+	const { card, history, historyTotal, notes, noteCount, events } = loaderData;
 	const name = `${card.firstName} ${card.lastName}`.trim();
 	const formError =
 		actionData && "formError" in actionData ? actionData.formError : undefined;
@@ -372,6 +374,18 @@ export default function CrmPipelineCard({
 								<Td>{h.changedByName}</Td>
 							</Tr>
 						))}
+						{historyTotal > history.length && (
+							<EmptyRow colSpan={3}>
+								Showing the {history.length} most recent of {historyTotal} stage
+								changes.
+							</EmptyRow>
+						)}
+						{history.length === 0 && (
+							<EmptyRow colSpan={3}>
+								No stage changes recorded yet — moves land here with a timestamp
+								and who made them.
+							</EmptyRow>
+						)}
 					</TBody>
 				</Table>
 			</div>

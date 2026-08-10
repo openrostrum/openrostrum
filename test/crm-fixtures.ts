@@ -12,22 +12,13 @@ import { createSession, hashPassword } from "../app/lib/auth";
 export const CONTEXT = { cloudflare: { env, ctx: {} } };
 
 /**
- * Two isolated organizations:
- *
- * org1 (admin u_admin1) — events e1 "DevFlow 2026", e2 "AI Summit 2026"
- *   - Priya Raman  priya@example.com     in e1 (confirmed, Latticework) AND e2
- *     (mixed-case email) → ONE directory person with two appearances,
- *     the returning speaker.
- *   - Marcus Okafor marcus@example.com   in e1 only (BuildScale, CTO).
- *   - Priya Raman  priya.alt@example.com in e2 → same name, different email:
- *     the possible-duplicate pair inside org1.
- *
- * org2 (admin u_admin2) — event e3 "Rival Conf"
- *   - Priya Raman  priya@example.com     — SAME email as org1's person; must
- *     never merge or leak across the org boundary.
- *   - Marcus Okafor marcus.other@rival.com — same NAME as org1's Marcus;
- *     must not trip org1's duplicate flag.
- *   - Zara Ito     zara@rival.com        — exists only in org2.
+ * Adversarial two-org baseline. org1 (u_admin1; DevFlow 2026 + AI Summit
+ * 2026): Priya in BOTH events (second row mixed-case email — the union joins
+ * on lower()), Marcus in one, and priya.alt = same NAME under a second email
+ * (org1's duplicate pair). org2 (u_admin2; Rival Conf) deliberately reuses
+ * Priya's exact EMAIL and Marcus's exact NAME so any cross-org leak in the
+ * union, duplicate flag, or pipeline shows up as a wrong count; Zara exists
+ * only in org2.
  */
 export async function seedCrmBaseline() {
 	const db = getDb(env);

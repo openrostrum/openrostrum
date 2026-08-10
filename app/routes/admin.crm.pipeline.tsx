@@ -8,11 +8,14 @@ import { PipelineCardTile, PipelineColumn } from "~/components/pipeline-card";
 import {
 	enrollInPipeline,
 	movePipelineCard,
-	type PipelineStage,
 	resolveCrmOrg,
 } from "~/domain/crm";
 import { normalizeEmail, requireAdmin } from "~/lib/auth";
-import { PIPELINE_STAGE_LABEL } from "~/lib/pipeline";
+import {
+	isPipelineStage,
+	PIPELINE_STAGE_LABEL,
+	type PipelineStage,
+} from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -214,11 +217,7 @@ function MoveControl({
 }) {
 	const fetcher = useFetcher();
 	const pending = fetcher.formData?.get("stage");
-	const shown =
-		typeof pending === "string" &&
-		(PIPELINE_STAGE as readonly string[]).includes(pending)
-			? (pending as PipelineStage)
-			: stage;
+	const shown = isPipelineStage(pending) ? pending : stage;
 	const inlineError =
 		!pending &&
 		fetcher.data &&

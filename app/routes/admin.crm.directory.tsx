@@ -9,14 +9,18 @@ import { CONTACT_STATUS_TONE } from "~/components/contact-status";
 import {
 	addPersonToEvent,
 	countDirectory,
-	type DirectoryFilters,
 	enrollInPipeline,
-	hasDirectoryFilters,
-	isCrmContactStatus,
+	findOrgEvent,
 	queryDirectoryPage,
 	resolveCrmOrg,
 } from "~/domain/crm";
 import { normalizeEmail, requireAdmin } from "~/lib/auth";
+import {
+	directoryFiltersFromParams,
+	directoryFiltersToStored,
+	directoryUrl,
+	hasDirectoryFilters,
+} from "~/lib/crm-filters";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { PIPELINE_STAGE_LABEL } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
@@ -69,29 +73,6 @@ export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
 	return actionHeaders.has("Server-Timing") ? actionHeaders : loaderHeaders;
 }
 
-function readFilters(url: URL): DirectoryFilters {
-	const status = url.searchParams.get("status");
-	return {
-		q: url.searchParams.get("q"),
-		company: url.searchParams.get("company"),
-		title: url.searchParams.get("title"),
-		eventId: url.searchParams.get("event"),
-		status: isCrmContactStatus(status) ? status : null,
-	};
-}
-
-function directoryUrl(f: DirectoryFilters, page?: number): string {
-	const params = new URLSearchParams();
-	if (f.q) params.set("q", f.q);
-	if (f.company) params.set("company", f.company);
-	if (f.title) params.set("title", f.title);
-	if (f.eventId) params.set("event", f.eventId);
-	if (f.status) params.set("status", f.status);
-	if (page && page > 1) params.set("page", String(page));
-	const query = params.toString();
-	return `/admin/crm/directory${query ? `?${query}` : ""}`;
-}
-
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireAdmin(env, request);
@@ -100,7 +81,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const org = await timings.time("org", () => resolveCrmOrg(env, db, user));
 	if (!org) throw redirect("/admin/crm");
 	const url = new URL(request.url);
-	const filters = readFilters(url);
+	const filters = directoryFiltersFromParams(url.searchParams);
 	const segmentId = url.searchParams.get("segment");
 
 	const { people, total, page, orgEvents, segment } = await timings.time(
@@ -195,18 +176,9 @@ async function addToEventAction(
 	}
 	const timings = createTimings();
 	const result = await timings.time("db", async () => {
-		// The target must belong to THIS org — a forged event id from another
-		// organization is refused, never written into.
-		const [target] = await db
-			.select({ id: events.id, name: events.name })
-			.from(events)
-			.where(
-				and(
-					eq(events.id, parsed.data.targetEventId),
-					eq(events.organizationId, orgId),
-				),
-			)
-			.limit(1);
+		// Name lookup doubles as the org check; addPersonToEvent re-verifies
+		// internally, so a forged event id can never be written into.
+		const target = await findOrgEvent(db, orgId, parsed.data.targetEventId);
 		if (!target) {
 			return { formError: "That event does not belong to your organization." };
 		}
@@ -248,6 +220,7 @@ async function enrollAction(
 	const result = await timings.time("db", async () => {
 		let enrolled = 0;
 		let alreadyIn = 0;
+		let missing = 0;
 		for (const raw of new Set(parsed.data.emails.map(normalizeEmail))) {
 			const outcome = await enrollInPipeline(db, orgId, {
 				email: raw,
@@ -257,12 +230,14 @@ async function enrollAction(
 				actor,
 			});
 			if (outcome.ok) enrolled += 1;
-			else alreadyIn += 1;
+			else if (outcome.code === "duplicate") alreadyIn += 1;
+			else missing += 1;
 		}
 		track("crm.enrolled", { orgId, enrolled, stage: parsed.data.stage });
 		const parts = [
 			`${enrolled} enrolled at ${PIPELINE_STAGE_LABEL[parsed.data.stage]}`,
 			alreadyIn ? `${alreadyIn} already in the pipeline` : null,
+			missing ? `${missing} not found in the directory` : null,
 		].filter(Boolean);
 		return { notice: parts.join(" · ") };
 	});
@@ -282,7 +257,7 @@ async function saveSegmentAction(
 	}
 	// The saved filters are the ones the admin is LOOKING at — read them from
 	// the URL the form posted to, the same params the loader filtered by.
-	const filters = readFilters(new URL(requestUrl));
+	const filters = directoryFiltersFromParams(new URL(requestUrl).searchParams);
 	if (!hasDirectoryFilters(filters)) {
 		return { formError: "Apply at least one filter before saving a segment." };
 	}
@@ -293,13 +268,7 @@ async function saveSegmentAction(
 				organizationId: orgId,
 				name: parsed.data.name,
 				createdById: userId,
-				filters: {
-					q: filters.q || undefined,
-					company: filters.company || undefined,
-					title: filters.title || undefined,
-					eventId: filters.eventId || undefined,
-					status: filters.status || undefined,
-				},
+				filters: directoryFiltersToStored(filters),
 			})
 			.returning({ id: crmSegments.id });
 		track("crm.segment_saved", { orgId, segmentId: created?.id });

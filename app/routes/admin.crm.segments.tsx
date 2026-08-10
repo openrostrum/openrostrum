@@ -2,13 +2,13 @@ import { and, asc, count, eq } from "drizzle-orm";
 import { data, Form, redirect } from "react-router";
 import { getDb } from "~/db";
 import { crmSegments, events } from "~/db/schema";
-import {
-	countDirectory,
-	type DirectoryFilters,
-	isCrmContactStatus,
-	resolveCrmOrg,
-} from "~/domain/crm";
+import { countDirectory, resolveCrmOrg } from "~/domain/crm";
 import { requireAdmin } from "~/lib/auth";
+import {
+	segmentUrl,
+	type StoredSegmentFilters,
+	storedFiltersToDirectory,
+} from "~/lib/crm-filters";
 import { formatDateUTC } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import {
@@ -33,29 +33,6 @@ const SEGMENTS_SHOWN = 50;
 
 export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
 	return actionHeaders.has("Server-Timing") ? actionHeaders : loaderHeaders;
-}
-
-type StoredFilters = typeof crmSegments.$inferSelect.filters;
-
-function toDirectoryFilters(stored: StoredFilters): DirectoryFilters {
-	return {
-		q: stored.q ?? null,
-		company: stored.company ?? null,
-		title: stored.title ?? null,
-		eventId: stored.eventId ?? null,
-		status: isCrmContactStatus(stored.status) ? stored.status : null,
-	};
-}
-
-function segmentUrl(id: string, stored: StoredFilters): string {
-	const params = new URLSearchParams();
-	if (stored.q) params.set("q", stored.q);
-	if (stored.company) params.set("company", stored.company);
-	if (stored.title) params.set("title", stored.title);
-	if (stored.eventId) params.set("event", stored.eventId);
-	if (stored.status) params.set("status", stored.status);
-	params.set("segment", id);
-	return `/admin/crm/directory?${params.toString()}`;
 }
 
 export async function loader({ context, request }: Route.LoaderArgs) {
@@ -86,7 +63,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		// predicate the directory filters with, never stored.
 		const members = await Promise.all(
 			rows.map((s) =>
-				countDirectory(db, org.id, toDirectoryFilters(s.filters)),
+				countDirectory(db, org.id, storedFiltersToDirectory(s.filters)),
 			),
 		);
 		return {
@@ -115,7 +92,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 }
 
 function filterSummary(
-	stored: StoredFilters,
+	stored: StoredSegmentFilters,
 	eventNames: Map<string, string>,
 ): string {
 	const parts: string[] = [];

@@ -1252,8 +1252,6 @@ export const airtableLinks = sqliteTable(
 
 /* ------------------------------------------------------------ speaker CRM --- */
 
-export { PIPELINE_STAGE } from "./constants";
-
 /**
  * Org-level sourcing pipeline card (Speaker CRM). The CRM "person" is derived
  * — the union of the org's event contacts keyed by lowercased email — so a

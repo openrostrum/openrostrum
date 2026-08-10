@@ -1,4 +1,4 @@
-import { data, Link, redirect } from "react-router";
+import { data, Link } from "react-router";
 import { getDb } from "~/db";
 import { StatCard } from "~/components/stat-card";
 import { queryCrmDashboard, resolveCrmOrg } from "~/domain/crm";
@@ -32,7 +32,15 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const db = getDb(env);
 	const timings = createTimings();
 	const org = await timings.time("org", () => resolveCrmOrg(env, db, user));
-	if (!org) throw redirect("/admin/crm");
+	// No org: return empty data instead of redirecting — this route IS
+	// /admin/crm, so a redirect here would loop; the shell layout renders the
+	// "No organization yet" state and never mounts this component.
+	if (!org) {
+		return data(
+			{ dashboard: null },
+			{ headers: { "Server-Timing": timings.header() } },
+		);
+	}
 	const dashboard = await timings.time("db", () =>
 		queryCrmDashboard(db, org.id),
 	);
@@ -44,6 +52,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 
 export default function CrmOverview({ loaderData }: Route.ComponentProps) {
 	const d = loaderData.dashboard;
+	if (!d) return null; // the shell's no-org empty state owns this render
 
 	if (d.people === 0) {
 		return (

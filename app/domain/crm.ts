@@ -10,7 +10,7 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { Db } from "~/db";
-import { CONTACT_STATUS, PIPELINE_STAGE } from "~/db/constants";
+import { PIPELINE_STAGE } from "~/db/constants";
 import {
 	contacts,
 	crmNotes,
@@ -22,24 +22,9 @@ import {
 	users,
 } from "~/db/schema";
 import { getActiveEvent } from "~/lib/auth";
+import type { CrmContactStatus, DirectoryFilters } from "~/lib/crm-filters";
 import { isUniqueViolation } from "~/lib/errors";
-
-export type PipelineStage = (typeof PIPELINE_STAGE)[number];
-export type CrmContactStatus = (typeof CONTACT_STATUS)[number];
-
-export function isPipelineStage(value: unknown): value is PipelineStage {
-	return (
-		typeof value === "string" &&
-		(PIPELINE_STAGE as readonly string[]).includes(value)
-	);
-}
-
-export function isCrmContactStatus(value: unknown): value is CrmContactStatus {
-	return (
-		typeof value === "string" &&
-		(CONTACT_STATUS as readonly string[]).includes(value)
-	);
-}
+import type { PipelineStage } from "~/lib/pipeline";
 
 type Org = typeof organizations.$inferSelect;
 type AppUser = typeof users.$inferSelect;
@@ -78,18 +63,9 @@ export async function resolveCrmOrg(
 }
 
 /* -------------------------------------------------------------- directory --- */
-
-export interface DirectoryFilters {
-	q?: string | null;
-	company?: string | null;
-	title?: string | null;
-	eventId?: string | null;
-	status?: CrmContactStatus | null;
-}
-
-export function hasDirectoryFilters(f: DirectoryFilters): boolean {
-	return Boolean(f.q || f.company || f.title || f.eventId || f.status);
-}
+// The DirectoryFilters shape + its URL/segment-JSON codec live client-safe in
+// ~/lib/crm-filters (route components build links from them); this module owns
+// the queries.
 
 /** The person key: contacts are per-event, a directory person is the union of
  * the org's appearances sharing a lowercased email. */
@@ -305,10 +281,14 @@ export async function queryDirectoryPage(
 	return composePeople(rows, emails, duplicates);
 }
 
+const SAME_NAME_SHOWN = 10;
+
 export interface PersonProfile extends DirectoryPerson {
 	bio: string | null;
 	/** Other directory people carrying the same name — the duplicate surface. */
 	sameNamePeople: Array<{ email: string; firstName: string; lastName: string }>;
+	/** True count behind the capped list, so the surface is never silently clipped. */
+	sameNameTotal: number;
 }
 
 export async function queryPerson(
@@ -320,23 +300,29 @@ export async function queryPerson(
 	const latest = rows[0];
 	if (!latest) return null;
 	const name = normalizedPersonName(latest.firstName, latest.lastName);
-	const sameName = await db
-		.select({
-			email: personEmail,
-			firstName: sql<string>`min(${contacts.firstName})`,
-			lastName: sql<string>`min(${contacts.lastName})`,
-		})
-		.from(contacts)
-		.innerJoin(events, eq(events.id, contacts.eventId))
-		.where(
-			and(
-				eq(events.organizationId, orgId),
-				eq(personName, name),
-				sql`${personEmail} <> ${email}`,
-			),
-		)
-		.groupBy(personEmail)
-		.limit(10);
+	const sameNameWhere = and(
+		eq(events.organizationId, orgId),
+		eq(personName, name),
+		sql`${personEmail} <> ${email}`,
+	);
+	const [sameName, [sameNameCount]] = await Promise.all([
+		db
+			.select({
+				email: personEmail,
+				firstName: sql<string>`min(${contacts.firstName})`,
+				lastName: sql<string>`min(${contacts.lastName})`,
+			})
+			.from(contacts)
+			.innerJoin(events, eq(events.id, contacts.eventId))
+			.where(sameNameWhere)
+			.groupBy(personEmail)
+			.limit(SAME_NAME_SHOWN),
+		db
+			.select({ n: sql<number>`count(distinct ${personEmail})` })
+			.from(contacts)
+			.innerJoin(events, eq(events.id, contacts.eventId))
+			.where(sameNameWhere),
+	]);
 	const [person] = composePeople(rows, [email], new Set());
 	if (!person) return null;
 	return {
@@ -344,6 +330,7 @@ export async function queryPerson(
 		bio: latest.bio,
 		possibleDuplicate: sameName.length > 0,
 		sameNamePeople: sameName,
+		sameNameTotal: sameNameCount?.n ?? sameName.length,
 	};
 }
 
@@ -386,13 +373,28 @@ export async function queryNotes(
 
 /* ----------------------------------------------------------- add to event --- */
 
-export type AddToEventResult = "added" | "already" | "missing";
+export type AddToEventResult = "added" | "already" | "missing" | "foreign";
+
+/** The org's event by id, or null — the routes' pick-list/notice lookup. */
+export async function findOrgEvent(
+	db: Db,
+	orgId: string,
+	eventId: string,
+): Promise<{ id: string; name: string } | null> {
+	const [event] = await db
+		.select({ id: events.id, name: events.name })
+		.from(events)
+		.where(and(eq(events.id, eventId), eq(events.organizationId, orgId)))
+		.limit(1);
+	return event ?? null;
+}
 
 /**
  * Push a directory person into an event as a contact: copies the latest
  * appearance's profile fields; idempotent — an existing contact with that
- * email is reported, never duplicated. The caller MUST have verified the
- * target event belongs to the org.
+ * email is reported, never duplicated. The target event is verified to
+ * belong to the org HERE, so a cross-tenant insert is impossible by
+ * construction no matter what a caller passes ("foreign" = refused).
  */
 export async function addPersonToEvent(
 	db: Db,
@@ -400,6 +402,7 @@ export async function addPersonToEvent(
 	email: string,
 	targetEventId: string,
 ): Promise<AddToEventResult> {
+	if (!(await findOrgEvent(db, orgId, targetEventId))) return "foreign";
 	const [src] = await db
 		.select({ contact: contacts })
 		.from(contacts)
@@ -453,7 +456,7 @@ export async function addPersonToEvent(
 
 export type PipelineActionResult =
 	| { ok: true; cardId: string }
-	| { ok: false; reason: string };
+	| { ok: false; code: "missing" | "duplicate" | "foreign"; reason: string };
 
 export async function enrollInPipeline(
 	db: Db,
@@ -480,6 +483,7 @@ export async function enrollInPipeline(
 	if (!src) {
 		return {
 			ok: false,
+			code: "missing",
 			reason:
 				"No contact with this email exists in your organization — add them to an event first.",
 		};
@@ -508,7 +512,11 @@ export async function enrollInPipeline(
 		]);
 	} catch (error) {
 		if (isUniqueViolation(error)) {
-			return { ok: false, reason: "Already in the pipeline." };
+			return {
+				ok: false,
+				code: "duplicate",
+				reason: "Already in the pipeline.",
+			};
 		}
 		throw error;
 	}
@@ -535,7 +543,11 @@ export async function movePipelineCard(
 		)
 		.limit(1);
 	if (!card) {
-		return { ok: false, reason: "That card is not in your pipeline." };
+		return {
+			ok: false,
+			code: "foreign",
+			reason: "That card is not in your pipeline.",
+		};
 	}
 	if (card.stage === toStage) return { ok: true, cardId };
 	await db.batch([

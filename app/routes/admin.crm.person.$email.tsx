@@ -12,6 +12,7 @@ import { SectionHeading } from "~/components/section-heading";
 import {
 	addPersonToEvent,
 	enrollInPipeline,
+	findOrgEvent,
 	queryNotes,
 	queryPerson,
 	resolveCrmOrg,
@@ -157,17 +158,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			return { formError: parsed.error.issues[0]?.message ?? "Pick an event." };
 		}
 		const result = await timings.time("db", async () => {
-			// The target must belong to THIS org — a forged event id is refused.
-			const [target] = await db
-				.select({ id: events.id, name: events.name })
-				.from(events)
-				.where(
-					and(
-						eq(events.id, parsed.data.targetEventId),
-						eq(events.organizationId, org.id),
-					),
-				)
-				.limit(1);
+			// Name lookup doubles as the org check; addPersonToEvent re-verifies
+			// internally, so a forged event id can never be written into.
+			const target = await findOrgEvent(db, org.id, parsed.data.targetEventId);
 			if (!target) {
 				return {
 					formError: "That event does not belong to your organization.",
@@ -179,7 +172,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				eventId: target.id,
 				outcome,
 			});
-			if (outcome === "missing") {
+			if (outcome === "missing" || outcome === "foreign") {
 				return { formError: "This person is no longer in the directory." };
 			}
 			return {
@@ -254,6 +247,12 @@ export default function CrmPerson({
 								{p.email}
 							</TextLink>
 						))}
+						{person.sameNameTotal > person.sameNamePeople.length && (
+							<span>
+								+{person.sameNameTotal - person.sameNamePeople.length} more in
+								the directory
+							</span>
+						)}
 					</div>
 				</Panel>
 			)}

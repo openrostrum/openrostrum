@@ -28,7 +28,7 @@ export function CrmNotesPanel({
 		<Panel>
 			<div className="flex flex-col gap-3">
 				<SectionHeading aside={`${total} total`}>Internal notes</SectionHeading>
-				<Form method="post" className="flex flex-col gap-3">
+				<Form method="post" className="flex flex-col gap-[13px]">
 					<Field
 						label="Add a note (never visible to the contact)"
 						error={error}
@@ -43,7 +43,8 @@ export function CrmNotesPanel({
 				</Form>
 				{notes.length === 0 ? (
 					<p className="text-[12.5px] text-fg-faint">
-						No notes yet — scouting context and call outcomes live here.
+						No notes yet — add the first one above; scouting context and call
+						outcomes live here, never visible to the contact.
 					</p>
 				) : (
 					<ul className="flex flex-col gap-3">
@@ -60,7 +61,7 @@ export function CrmNotesPanel({
 					</ul>
 				)}
 				{total > notes.length && (
-					<p className="text-[12px] text-fg-faint">
+					<p className="text-[12.5px] text-fg-faint">
 						Showing the {notes.length} most recent of {total} notes.
 					</p>
 				)}

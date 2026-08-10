@@ -2,11 +2,8 @@ import type { ReactNode } from "react";
 import { Panel } from "~/ui";
 import { SectionHeading } from "./section-heading";
 
-/**
- * The who-is-this panel shared by the directory profile and the pipeline card
- * detail: name, mono email, muted detail lines, body paragraphs, and slots
- * for a status badge (aside) and route-provided links/content (children).
- */
+/** Shared by the person profile and the pipeline card detail — one identity
+ * rendering so the two surfaces can't drift apart. */
 export function IdentityPanel({
 	heading,
 	aside,
