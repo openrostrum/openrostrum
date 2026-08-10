@@ -124,16 +124,18 @@ function humanStatus(status: string): string {
  * create action on /admin/submissions (never a second create path); the
  * `drawer` field makes that action answer with data instead of redirecting,
  * so errors render in place and success closes the drawer after the fetcher's
- * revalidation refreshes the list.
+ * revalidation refreshes the list. Controlled: the trigger lives in the page
+ * header while this panel renders as its own full-width block.
  */
 export function AddSubmissionDrawer({
 	kind,
 	contacts,
+	onClose,
 }: {
 	kind: ListKind;
 	contacts: DrawerContact[];
+	onClose: () => void;
 }) {
-	const [open, setOpen] = useState(false);
 	const [filter, setFilter] = useState("");
 	const fetcher = useFetcher<{
 		created?: boolean;
@@ -148,12 +150,11 @@ export function AddSubmissionDrawer({
 			closedForThisCreate.current = false;
 		} else if (fetcher.data?.created && !closedForThisCreate.current) {
 			closedForThisCreate.current = true;
-			setOpen(false);
 			setFilter("");
+			onClose();
 		}
-	}, [fetcher.state, fetcher.data]);
+	}, [fetcher.state, fetcher.data, onClose]);
 
-	const label = kind === "session" ? "Add Session" : "Add Submission";
 	const needle = filter.trim().toLowerCase();
 	const visibleContacts = needle
 		? contacts.filter(
@@ -164,13 +165,6 @@ export function AddSubmissionDrawer({
 		: contacts;
 	const fieldErrors = fetcher.data?.fieldErrors;
 
-	if (!open) {
-		return (
-			<Button icon="plus" onClick={() => setOpen(true)}>
-				{label}
-			</Button>
-		);
-	}
 	return (
 		<div className="flex w-full flex-col gap-4">
 			<Panel>
@@ -245,11 +239,7 @@ export function AddSubmissionDrawer({
 						<Button type="submit" disabled={fetcher.state !== "idle"}>
 							Create
 						</Button>
-						<Button
-							type="button"
-							variant="ghost"
-							onClick={() => setOpen(false)}
-						>
+						<Button type="button" variant="ghost" onClick={onClose}>
 							Cancel
 						</Button>
 					</div>
@@ -271,6 +261,7 @@ export function SubmissionListPage({
 	actionData?: ListActionData;
 }) {
 	const { tab, q, page, pageCount, total, counts, rows } = data;
+	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	// A new page/tab/search renders different rows — a stale selection would
 	// silently act on rows the admin can no longer see.
@@ -315,8 +306,20 @@ export function SubmissionListPage({
 			<PageHeader
 				title={title}
 				count={`${counts.all} total`}
-				actions={<AddSubmissionDrawer kind={kind} contacts={data.contacts} />}
+				actions={
+					<Button icon="plus" onClick={() => setDrawerOpen((o) => !o)}>
+						{kind === "session" ? "Add Session" : "Add Submission"}
+					</Button>
+				}
 			/>
+
+			{drawerOpen && (
+				<AddSubmissionDrawer
+					kind={kind}
+					contacts={data.contacts}
+					onClose={() => setDrawerOpen(false)}
+				/>
+			)}
 
 			{kind === "session" && (
 				<Panel>

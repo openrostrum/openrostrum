@@ -22,7 +22,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { action, loader } from "../app/routes/admin.submissions.$id";
+import { action, loader } from "../app/routes/admin.submissions_.$id";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 

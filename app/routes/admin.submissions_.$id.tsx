@@ -53,7 +53,7 @@ import {
 	Tr,
 } from "~/ui";
 import type { BadgeTone } from "~/ui";
-import type { Route } from "./+types/admin.submissions.$id";
+import type { Route } from "./+types/admin.submissions_.$id";
 
 // Client-safe copies of server enums (importing their schema.ts values would
 // pull drizzle into the client bundle); `satisfies` pins them to the schema.
