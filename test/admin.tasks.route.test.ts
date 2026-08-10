@@ -20,6 +20,7 @@ import {
 
 // The dashboard's numbers must equal an independent aggregation of the fixture:
 // Priya owes 2 (one overdue), Bob owes 1 (pending feedback), Carol owes 0.
+// (Firm requirement: the outstanding-tasks view answers "who still owes what".)
 
 async function seedAssignmentsMix() {
 	const db = await seedTasksBaseline();
@@ -94,7 +95,7 @@ async function runLoader(url: string): Promise<LoaderResult["data"]> {
 	return result.data;
 }
 
-describe("outstanding-tasks dashboard (req 6)", () => {
+describe("outstanding-tasks dashboard", () => {
 	it("aggregates per speaker and the headline counts match the seeded truth", async () => {
 		await seedAssignmentsMix();
 		const data = await runLoader("http://localhost/admin/tasks");
@@ -244,14 +245,12 @@ describe("task definitions", () => {
 	it("refuses to attach a portal form that belongs to another event", async () => {
 		const db = await seedTasksBaseline();
 		await db.insert(organizations).values({ id: "org2", name: "Other" });
-		await db
-			.insert(events)
-			.values({
-				id: "e2",
-				organizationId: "org2",
-				name: "Other",
-				slug: "other",
-			});
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org2",
+			name: "Other",
+			slug: "other",
+		});
 		await db.insert(portalForms).values({
 			id: "pf_other",
 			eventId: "e2",
@@ -350,13 +349,12 @@ describe("bulk assignment", () => {
 });
 
 describe("bulk reminder (manual)", () => {
-	async function remind(sendKey: string) {
+	async function remind() {
 		const request = await authedRequest(
 			"http://localhost/admin/tasks",
 			{},
 			postForm("http://localhost/admin/tasks", {
 				intent: "remind-outstanding",
-				sendKey,
 				taskId: "",
 			}),
 		);
@@ -375,7 +373,7 @@ describe("bulk reminder (manual)", () => {
 			.insert(emailSuppressions)
 			.values({ email: "priya.sharma@example.com" });
 
-		const result = await remind("send-key-0001");
+		const result = await remind();
 		expect(result.notice).toContain("Sent 1 reminder");
 		const outbox = await db.select().from(emailOutbox);
 		expect(outbox).toHaveLength(1);
@@ -386,20 +384,31 @@ describe("bulk reminder (manual)", () => {
 		expect(outbox[0]?.html).toContain("/portals/democonf/portal-public-1");
 	});
 
-	it("double-submitting the same form never re-sends", async () => {
+	it("a double-submit (or a retry after partial failure) never re-delivers the same batch", async () => {
 		const db = await seedAssignmentsMix();
-		await remind("send-key-0002");
-		const again = await remind("send-key-0002");
+		await remind();
+		const again = await remind();
 		expect(again.notice).toContain("already sent");
 		const outbox = await db.select().from(emailOutbox);
 		expect(outbox).toHaveLength(1);
 	});
 
-	it("a deliberate second send (new form render) goes out again", async () => {
+	it("re-sends once the speaker's outstanding set changes", async () => {
 		const db = await seedAssignmentsMix();
-		await remind("send-key-0003");
-		await remind("send-key-0004");
+		await remind();
+		// Priya completes one of her two tasks — her outstanding set changed.
+		await db
+			.update(taskAssignments)
+			.set({ status: "complete", completedAt: new Date() })
+			.where(eq(taskAssignments.id, "ta_priya_hotel"));
+		await remind();
 		const outbox = await db.select().from(emailOutbox);
 		expect(outbox).toHaveLength(2);
+		expect(new Set(outbox.map((o) => o.dedupeKey)).size).toBe(2);
+		const second = outbox.find((o) =>
+			o.subject.includes("1 outstanding speaker task"),
+		);
+		expect(second?.html).toContain("Flight Reimbursement");
+		expect(second?.html).not.toContain("Hotel Stay Requirements");
 	});
 });

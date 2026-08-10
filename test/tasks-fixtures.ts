@@ -18,9 +18,9 @@ export const CONTEXT = { cloudflare: { env, ctx: {} } };
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The scenario-07 shape: one event, three contacts (Priya/Bob/Carol), the
- * hotel portal form, the three onboarding task definitions, and accepted
- * submissions for Priya + Bob (Carol's is still pending).
+ * One event, three contacts (Priya/Bob/Carol), the hotel portal form, the
+ * three onboarding task definitions, and accepted submissions for Priya +
+ * Bob (Carol's is still pending).
  */
 export async function seedTasksBaseline() {
 	const db = getDb(env);

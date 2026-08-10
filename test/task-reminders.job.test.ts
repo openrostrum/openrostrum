@@ -186,4 +186,28 @@ describe("task-due reminder cron", () => {
 			.where(eq(emailOutbox.to, "priya.sharma@example.com"));
 		expect(priyaMail).toHaveLength(1);
 	});
+
+	it("fails loudly when a real mail provider is configured without APP_ORIGIN", async () => {
+		await seedJobFixture();
+		const prodLike = { ...env, RESEND_API_KEY: "re_test" } as typeof env;
+		await expect(
+			runTaskDueReminders(prodLike, fixedClock(NOW)),
+		).rejects.toThrow(/APP_ORIGIN/);
+	});
+
+	it("links to the speaker portal when APP_ORIGIN is configured", async () => {
+		const db = await seedJobFixture();
+		const withOrigin = {
+			...env,
+			APP_ORIGIN: "https://rostrum.example",
+		} as typeof env;
+		await runTaskDueReminders(withOrigin, fixedClock(NOW));
+		const [mail] = await db
+			.select()
+			.from(emailOutbox)
+			.where(eq(emailOutbox.to, "priya.sharma@example.com"));
+		expect(mail?.html).toContain(
+			"https://rostrum.example/portals/democonf/portal-public-1",
+		);
+	});
 });

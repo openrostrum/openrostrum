@@ -13,6 +13,7 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC, parseDueDate } from "~/lib/format";
+import { TASK_STATUS_LABEL, TASK_STATUS_TONE } from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
 import {
 	type BadgeTone,
@@ -35,16 +36,6 @@ import {
 } from "~/ui";
 import type { Route } from "./+types/admin.tasks.$assignmentId";
 
-const TASK_STATUS_TONE: Record<string, BadgeTone> = {
-	incomplete: "warning",
-	pending_feedback: "info",
-	complete: "success",
-};
-const TASK_STATUS_LABEL: Record<string, string> = {
-	incomplete: "Incomplete",
-	pending_feedback: "Pending feedback",
-	complete: "Complete",
-};
 const FILE_STATUS_TONE: Record<string, BadgeTone> = {
 	pending: "info",
 	approved: "success",

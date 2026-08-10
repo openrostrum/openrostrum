@@ -85,14 +85,12 @@ describe("task response view", () => {
 	it("404s for an assignment outside the admin's active event", async () => {
 		const db = await seedAssignment();
 		await db.insert(organizations).values({ id: "org2", name: "Other" });
-		await db
-			.insert(events)
-			.values({
-				id: "e2",
-				organizationId: "org2",
-				name: "Other",
-				slug: "other",
-			});
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org2",
+			name: "Other",
+			slug: "other",
+		});
 		await db.insert(tasks).values({
 			id: "t_other",
 			eventId: "e2",

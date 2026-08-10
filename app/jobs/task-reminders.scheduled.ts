@@ -4,6 +4,7 @@ import { contacts, events, portals, taskAssignments, tasks } from "~/db/schema";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC } from "~/lib/format";
 import { escapeHtml } from "~/lib/html";
+import { emailOrigin, portalUrl } from "~/lib/portal-url";
 import { type Clock, systemClock } from "~/ports/clock";
 import { getEmailSender } from "~/ports/email";
 import { track } from "~/lib/track";
@@ -47,6 +48,9 @@ export async function runTaskDueReminders(
 	clock: Clock,
 ): Promise<{ sent: number; failed: number }> {
 	const db = getDb(env);
+	// Resolved up front: a prod deployment missing APP_ORIGIN must fail loudly
+	// before any link-less email goes out.
+	const origin = emailOrigin(env);
 	const now = clock.now();
 	const horizon = new Date(
 		now.getTime() + REMINDER_WINDOW_DAYS * 24 * 60 * 60 * 1000,
@@ -94,17 +98,14 @@ export async function runTaskDueReminders(
 	for (const row of due) {
 		if (!row.dueAt) continue;
 		const publicId = portalByEvent.get(row.eventId);
-		const portalUrl =
-			env.APP_ORIGIN && publicId
-				? `${env.APP_ORIGIN}/portals/${row.eventSlug}/${publicId}`
-				: null;
 		const { subject, html } = reminderEmail({
 			firstName: row.firstName,
 			taskName: row.taskName,
 			eventName: row.eventName,
 			dueAt: row.dueAt,
 			overdue: row.dueAt.getTime() < now.getTime(),
-			portalUrl,
+			portalUrl:
+				origin && publicId ? portalUrl(origin, row.eventSlug, publicId) : null,
 		});
 		try {
 			const result = await sender.send({

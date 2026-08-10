@@ -35,10 +35,11 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC, parseDueDate } from "~/lib/format";
 import { escapeHtml } from "~/lib/html";
+import { portalUrl } from "~/lib/portal-url";
+import { TASK_STATUS_LABEL, TASK_STATUS_TONE } from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
 import {
-	type BadgeTone,
 	Button,
 	ButtonLink,
 	EmptyRow,
@@ -66,17 +67,8 @@ import type { Route } from "./+types/admin.tasks";
 
 const PAGE_SIZE = 25;
 
-const TASK_STATUS_TONE: Record<string, BadgeTone> = {
-	incomplete: "warning",
-	pending_feedback: "info",
-	complete: "success",
-};
-const TASK_STATUS_LABEL: Record<string, string> = {
-	incomplete: "Incomplete",
-	pending_feedback: "Pending feedback",
-	complete: "Complete",
-};
-
+// Server-side only (references schema enums); the component receives it via
+// loader data so drizzle + the schema never reach the client bundle.
 const ASSIGN_TARGETS = [
 	{ value: "accepted", label: "Speakers on accepted submissions" },
 	{ value: "all", label: "All contacts" },
@@ -133,6 +125,27 @@ const AssignForm = z.object({
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
+}
+
+/** Stable fingerprint of one speaker's outstanding set (ids + due dates). */
+async function outstandingFingerprint(
+	rows: Array<{ assignmentId: string; dueAt: Date | null }>,
+): Promise<string> {
+	const canonical = rows
+		.map(
+			(r) =>
+				`${r.assignmentId}:${r.dueAt ? Math.floor(r.dueAt.getTime() / 1000) : 0}`,
+		)
+		.sort()
+		.join(",");
+	const hash = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(canonical),
+	);
+	return [...new Uint8Array(hash)]
+		.slice(0, 8)
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
 }
 
 export async function loader({ context, request }: Route.LoaderArgs) {
@@ -230,10 +243,13 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			outstanding: number;
 		}>,
 		portalFormOptions: [] as Array<{ id: string; name: string }>,
-		sendKey: crypto.randomUUID(),
+		assignTargets: ASSIGN_TARGETS,
 		editId,
 	};
 	if (!event) return empty;
+	// The assignment-detail child nests under this route and renders as its own
+	// full page — skip the dashboard queries when the URL is deeper.
+	if (url.pathname.replace(/\/+$/, "") !== "/admin/tasks") return empty;
 
 	const db = getDb(env);
 	const timings = createTimings();
@@ -605,7 +621,18 @@ export async function action({ context, request }: Route.ActionArgs) {
 				formError: "That task no longer exists.",
 			} satisfies ActionResult;
 		}
-		await db.delete(tasks).where(eq(tasks.id, existing.id));
+		try {
+			await db.delete(tasks).where(eq(tasks.id, existing.id));
+		} catch (error) {
+			track("task.delete_failed", {
+				eventId: event.id,
+				taskId: existing.id,
+				error: errorMessage(error),
+			});
+			return {
+				formError: "Could not delete the task — please try again.",
+			} satisfies ActionResult;
+		}
 		track("task.deleted", { eventId: event.id, taskId: existing.id });
 		return redirect("/admin/tasks?view=definitions");
 	}
@@ -708,31 +735,36 @@ export async function action({ context, request }: Route.ActionArgs) {
 				notice: "No speakers matched that audience — nothing was assigned.",
 			} satisfies ActionResult;
 		}
-		const [before] = await db
-			.select({ n: count() })
-			.from(taskAssignments)
-			.where(eq(taskAssignments.taskId, task.id));
-		for (let i = 0; i < unique.length; i += 50) {
-			await db
-				.insert(taskAssignments)
-				.values(
-					unique.slice(i, i + 50).map((c) => ({
-						taskId: task.id,
-						contactId: c.contactId,
-						submissionId: c.submissionId,
-						status: "incomplete" as const,
-						dueAt,
-					})),
-				)
-				.onConflictDoNothing({
-					target: [taskAssignments.taskId, taskAssignments.contactId],
-				});
+		let added = 0;
+		try {
+			for (let i = 0; i < unique.length; i += 50) {
+				const inserted = await db
+					.insert(taskAssignments)
+					.values(
+						unique.slice(i, i + 50).map((c) => ({
+							taskId: task.id,
+							contactId: c.contactId,
+							submissionId: c.submissionId,
+							status: "incomplete" as const,
+							dueAt,
+						})),
+					)
+					.onConflictDoNothing({
+						target: [taskAssignments.taskId, taskAssignments.contactId],
+					})
+					.returning({ id: taskAssignments.id });
+				added += inserted.length;
+			}
+		} catch (error) {
+			track("task.assign_failed", {
+				eventId: event.id,
+				taskId: task.id,
+				error: errorMessage(error),
+			});
+			return {
+				formError: "Could not assign the task — please try again.",
+			} satisfies ActionResult;
 		}
-		const [after] = await db
-			.select({ n: count() })
-			.from(taskAssignments)
-			.where(eq(taskAssignments.taskId, task.id));
-		const added = (after?.n ?? 0) - (before?.n ?? 0);
 		const skipped = unique.length - added;
 		track("task.assigned", {
 			eventId: event.id,
@@ -748,17 +780,12 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	if (intent === "remind-outstanding") {
-		const sendKey = String(form.get("sendKey") ?? "");
-		if (sendKey.length < 8) {
-			return {
-				formError: "Could not send reminders — please reload and try again.",
-			} satisfies ActionResult;
-		}
 		const taskId = String(form.get("taskId") ?? "");
 		// Incomplete only: a pending_feedback upload is waiting on the ORGANIZER,
 		// so reminding that speaker would be wrong.
 		const rows = await db
 			.select({
+				assignmentId: taskAssignments.id,
 				taskName: tasks.name,
 				dueAt: taskAssignments.dueAt,
 				contactId: contacts.id,
@@ -797,11 +824,12 @@ export async function action({ context, request }: Route.ActionArgs) {
 			.orderBy(asc(portals.createdAt))
 			.limit(1);
 		const origin = new URL(request.url).origin;
-		const portalUrl = portal
-			? `${origin}/portals/${event.slug}/${portal.publicId}`
+		const portalHref = portal
+			? portalUrl(origin, event.slug, portal.publicId)
 			: null;
 		const sender = getEmailSender(env);
 		const now = new Date();
+		const day = now.toISOString().slice(0, 10);
 		let sent = 0;
 		let alreadySent = 0;
 		try {
@@ -816,8 +844,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 						return `<li><strong>${escapeHtml(r.taskName)}</strong>${due}</li>`;
 					})
 					.join("");
-				const portalLine = portalUrl
-					? `<p><a href="${portalUrl}">Open your speaker portal</a> to complete them.</p>`
+				const portalLine = portalHref
+					? `<p><a href="${portalHref}">Open your speaker portal</a> to complete them.</p>`
 					: `<p>Log in to your speaker portal to complete them.</p>`;
 				const result = await sender.send({
 					to: first.email,
@@ -826,7 +854,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 					// Task reminders are a consequence of the speaker's own
 					// participation — they always deliver, even to unsubscribed addresses.
 					kind: "transactional",
-					dedupeKey: `task-remind:${sendKey}:${contactId}`,
+					// The occurrence is this speaker's exact outstanding set today:
+					// double-submits and retries after a partial failure dedupe, while
+					// a changed set (or a new day) legitimately re-sends.
+					dedupeKey: `task-remind:${contactId}:${day}:${await outstandingFingerprint(list)}`,
 					eventId: event.id,
 				});
 				if (result.deduped) alreadySent += 1;
@@ -899,7 +930,7 @@ function TasksDashboard({
 		assignmentsTotal,
 		definitions,
 		portalFormOptions,
-		sendKey,
+		assignTargets,
 		editId,
 	} = loaderData;
 	const [confirmingRemind, setConfirmingRemind] = useState(false);
@@ -929,7 +960,6 @@ function TasksDashboard({
 								onSubmit={() => setConfirmingRemind(false)}
 							>
 								<Input type="hidden" name="intent" value="remind-outstanding" />
-								<Input type="hidden" name="sendKey" value={sendKey} />
 								<Input type="hidden" name="taskId" value={filters.taskId} />
 								<Button
 									type="button"
@@ -1330,7 +1360,7 @@ function TasksDashboard({
 							</Field>
 							<Field label="To">
 								<Select name="target" defaultValue="accepted">
-									{ASSIGN_TARGETS.map((t) => (
+									{assignTargets.map((t) => (
 										<option key={t.value} value={t.value}>
 											{t.label}
 										</option>
