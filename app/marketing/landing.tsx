@@ -12,14 +12,16 @@ import {
 	PUBLIC_PAGES,
 } from "./content";
 import { AdminShellMock, AgendaMock, InviteMock } from "./mocks";
-import { Cta, Eyebrow } from "./primitives";
+import { Cta, Eyebrow, FOCUS_RING, PLATFORM_BAR } from "./primitives";
 
 const SHELL = "mx-auto w-full max-w-[1120px] px-6";
 const H2 =
 	"font-display text-[clamp(1.6rem,3vw,2.2rem)] font-semibold leading-[1.12] tracking-[-0.015em] text-balance text-fg";
 const LEAD = "max-w-[40rem] text-[15.5px] leading-relaxed text-fg-muted";
-const NAV_LINK =
-	"rounded text-[13.5px] font-medium text-fg-muted transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol";
+const NAV_LINK = cn(
+	"rounded text-[13.5px] font-medium text-fg-muted transition-colors hover:text-fg",
+	FOCUS_RING,
+);
 
 function TopNav() {
 	return (
@@ -27,10 +29,7 @@ function TopNav() {
 			<div
 				className={cn(SHELL, "flex h-16 items-center justify-between gap-4")}
 			>
-				<Link
-					to="/"
-					className="rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-				>
+				<Link to="/" className={cn("rounded", FOCUS_RING)}>
 					<Wordmark />
 				</Link>
 				<nav className="hidden items-center gap-8 md:flex">
@@ -94,10 +93,7 @@ function Hero() {
 				<div className="starting:translate-y-3 starting:opacity-0 transition-[opacity,translate] duration-500 ease-out motion-reduce:transition-none">
 					<AdminShellMock />
 				</div>
-				<div
-					aria-hidden="true"
-					className="mx-8 h-[5px] rounded-[2px] bg-petrol sm:mx-14"
-				/>
+				<div aria-hidden="true" className={cn(PLATFORM_BAR, "mx-8 sm:mx-14")} />
 			</div>
 		</section>
 	);
@@ -242,7 +238,10 @@ function PublicPages() {
 						<Link
 							key={page.to}
 							to={page.to}
-							className="group flex flex-col gap-1.5 rounded-card border border-hair bg-surface p-5 shadow-card transition-colors duration-150 ease-out hover:bg-chip focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+							className={cn(
+								"group flex flex-col gap-1.5 rounded-card border border-hair bg-surface p-5 shadow-card transition-colors duration-150 ease-out hover:bg-chip",
+								FOCUS_RING,
+							)}
 						>
 							<span className="flex items-center gap-2 text-[15px] font-semibold text-fg">
 								{page.label}

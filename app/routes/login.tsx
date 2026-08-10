@@ -2,6 +2,7 @@
 import { eq } from "drizzle-orm";
 import { Form, redirect } from "react-router";
 import { z } from "zod";
+import { AuthPage } from "~/marketing/auth";
 import { getDb } from "~/db";
 import { users } from "~/db/schema";
 import {
@@ -13,21 +14,17 @@ import {
 	safeRedirect,
 	verifyPasswordTimingEqual,
 } from "~/lib/auth";
-import {
-	Button,
-	ErrorText,
-	Field,
-	Input,
-	Panel,
-	TextLink,
-	Wordmark,
-} from "~/ui";
+import { Button, ErrorText, Field, Input, TextLink } from "~/ui";
 import type { Route } from "./+types/login";
 
 const Credentials = z.object({
 	email: z.string().email(),
 	password: z.string().min(1),
 });
+
+export function meta(_: Route.MetaArgs) {
+	return [{ title: "Sign in — OpenRostrum" }];
+}
 
 export async function loader({ context, request }: Route.LoaderArgs) {
 	if (await getUser(context.cloudflare.env, request)) throw redirect("/admin");
@@ -67,34 +64,40 @@ export async function action({ context, request }: Route.ActionArgs) {
 
 export default function Login({ actionData }: Route.ComponentProps) {
 	return (
-		<main className="mx-auto flex min-h-screen max-w-[360px] flex-col justify-center gap-7 px-6 py-16">
-			<div className="flex justify-center">
-				<Wordmark size={21} />
-			</div>
-			<Panel>
-				<Form method="post" className="flex flex-col gap-[13px]">
-					<Field label="Email">
-						<Input
-							name="email"
-							type="email"
-							autoComplete="username"
-							required
-							placeholder="you@conference.org"
-						/>
-					</Field>
-					<Field label="Password">
-						<Input
-							name="password"
-							type="password"
-							autoComplete="current-password"
-							required
-						/>
-					</Field>
-					<Button type="submit">Sign in</Button>
-					{actionData?.error && <ErrorText>{actionData.error}</ErrorText>}
-					<TextLink to="/forgot-password">Forgot your password?</TextLink>
-				</Form>
-			</Panel>
-		</main>
+		<AuthPage
+			title="Sign in to OpenRostrum"
+			nav={{
+				prompt: "New to OpenRostrum?",
+				label: "Create your account",
+				to: "/signup",
+			}}
+			below={<TextLink to="/forgot-password">Forgot your password?</TextLink>}
+		>
+			<Form method="post" className="flex flex-col gap-[13px]">
+				<Field label="Email">
+					<Input
+						name="email"
+						type="email"
+						autoComplete="username"
+						required
+						placeholder="you@conference.org"
+					/>
+				</Field>
+				<Field label="Password">
+					<Input
+						name="password"
+						type="password"
+						autoComplete="current-password"
+						required
+					/>
+				</Field>
+				<Button type="submit">Sign in</Button>
+				{actionData?.error && (
+					<div role="alert">
+						<ErrorText>{actionData.error}</ErrorText>
+					</div>
+				)}
+			</Form>
+		</AuthPage>
 	);
 }

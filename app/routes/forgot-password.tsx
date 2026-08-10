@@ -2,6 +2,7 @@
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { Form } from "react-router";
 import { z } from "zod";
+import { AuthNote, AuthPage } from "~/marketing/auth";
 import { getDb } from "~/db";
 import { passwordResets, users } from "~/db/schema";
 import { hashPassword, normalizeEmail } from "~/lib/auth";
@@ -9,16 +10,7 @@ import { escapeHtml } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { getEmailSender } from "~/ports/email";
 import { track } from "~/lib/track";
-import {
-	Button,
-	ErrorText,
-	Field,
-	Input,
-	PageHeader,
-	Panel,
-	TextLink,
-	Wordmark,
-} from "~/ui";
+import { Button, ErrorText, Field, Input, TextLink } from "~/ui";
 import type { Route } from "./+types/forgot-password";
 
 const RequestReset = z.object({
@@ -27,6 +19,10 @@ const RequestReset = z.object({
 
 const RESET_TTL_MS = 1000 * 60 * 60; // 1 hour
 const RESEND_THROTTLE_MS = 1000 * 60 * 5; // blunts inbox-bombing a victim
+
+export function meta(_: Route.MetaArgs) {
+	return [{ title: "Reset your password — OpenRostrum" }];
+}
 
 export async function action({ context, request }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
@@ -113,56 +109,64 @@ export async function action({ context, request }: Route.ActionArgs) {
 }
 
 export default function ForgotPassword({ actionData }: Route.ComponentProps) {
+	if (actionData?.sent) {
+		return (
+			<AuthPage
+				title="Check your inbox"
+				nav={{
+					prompt: "New to OpenRostrum?",
+					label: "Create your account",
+					to: "/signup",
+				}}
+				below={<TextLink to="/login">Back to sign in</TextLink>}
+			>
+				<AuthNote>
+					If an account exists for {actionData.email}, a password-reset link is
+					on its way. The link expires in one hour.
+				</AuthNote>
+			</AuthPage>
+		);
+	}
 	return (
-		<main className="mx-auto flex min-h-screen max-w-[380px] flex-col justify-center gap-7 px-6 py-16">
-			<div className="flex justify-center">
-				<Wordmark size={21} />
-			</div>
-			{actionData?.sent ? (
-				<PageHeader
-					title="Check your inbox"
-					subtitle={`If an account exists for ${actionData.email}, a password-reset link is on its way. The link expires in one hour.`}
-				/>
-			) : (
-				<div className="flex flex-col gap-5">
-					<PageHeader
-						title="Forgot your password?"
-						subtitle="Enter your account email and we'll send you a link to choose a new one."
+		<AuthPage
+			title="Forgot your password?"
+			subtitle="Enter your account email and we'll send you a link to choose a new one."
+			nav={{
+				prompt: "New to OpenRostrum?",
+				label: "Create your account",
+				to: "/signup",
+			}}
+			below={<TextLink to="/login">Back to sign in</TextLink>}
+		>
+			<Form method="post" className="flex flex-col gap-[13px]">
+				<Field label="Email" error={actionData?.fieldError}>
+					<Input
+						name="email"
+						type="email"
+						required
+						placeholder="you@conference.org"
+						invalid={Boolean(actionData?.fieldError)}
 					/>
-					<Panel>
-						<Form method="post" className="flex flex-col gap-[13px]">
-							<Field label="Email" error={actionData?.fieldError}>
-								<Input
-									name="email"
-									type="email"
-									required
-									placeholder="you@conference.org"
-									invalid={Boolean(actionData?.fieldError)}
-								/>
-							</Field>
-							<Button type="submit">Send reset link</Button>
-							{actionData?.formError && (
-								<ErrorText>{actionData.formError}</ErrorText>
-							)}
-						</Form>
-					</Panel>
-				</div>
-			)}
-			<div className="flex justify-center">
-				<TextLink to="/login">Back to sign in</TextLink>
-			</div>
-		</main>
+				</Field>
+				<Button type="submit">Send reset link</Button>
+				{actionData?.formError && (
+					<div role="alert">
+						<ErrorText>{actionData.formError}</ErrorText>
+					</div>
+				)}
+			</Form>
+		</AuthPage>
 	);
 }
 
 export function ErrorBoundary() {
 	return (
-		<main className="mx-auto flex min-h-screen max-w-[380px] flex-col justify-center px-6 py-16">
-			<PageHeader
-				title="Something went wrong"
-				tone="danger"
-				subtitle="Please refresh and try again."
-			/>
-		</main>
+		<AuthPage
+			title="Something went wrong"
+			tone="danger"
+			below={<TextLink to="/login">Back to sign in</TextLink>}
+		>
+			<AuthNote>Please refresh and try again.</AuthNote>
+		</AuthPage>
 	);
 }

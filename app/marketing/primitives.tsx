@@ -8,6 +8,12 @@ import { cn } from "~/ui/cn";
 // tool doesn't. It stays on the same @theme tokens so it reads as one product —
 // petrol is still the only accent, and the headline stays ink.
 
+export const FOCUS_RING =
+	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol";
+
+/** The brand mark's petrol platform at page scale — call sites own the inset. */
+export const PLATFORM_BAR = "h-[5px] rounded-[2px] bg-petrol";
+
 export function Eyebrow({ children }: { children: ReactNode }) {
 	return (
 		<span className="inline-flex items-center gap-2.5 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-fg-muted">
@@ -20,7 +26,7 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 const CTA_BASE = cn(
 	"inline-flex items-center justify-center gap-2 rounded-control font-medium",
 	"transition-[background-color,transform,box-shadow] duration-160 ease-out",
-	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
+	FOCUS_RING,
 	"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
 );
 
