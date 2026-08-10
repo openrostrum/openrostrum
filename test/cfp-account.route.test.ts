@@ -225,7 +225,7 @@ describe("account step — Turnstile", () => {
 		expect(await db.select().from(users)).toHaveLength(0);
 		expect(await db.select().from(contacts)).toHaveLength(0);
 
-		const [url, init] = stub.mock.calls[0] as [string, RequestInit];
+		const [url, init] = stub.mock.calls[0] as unknown as [string, RequestInit];
 		expect(url).toBe(
 			"https://challenges.cloudflare.com/turnstile/v0/siteverify",
 		);

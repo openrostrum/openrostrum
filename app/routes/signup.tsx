@@ -11,7 +11,7 @@ import {
 	isSecureRequest,
 	normalizeEmail,
 } from "~/lib/auth";
-import { errorMessage } from "~/lib/errors";
+import { errorChainIncludes, errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import { getTurnstile } from "~/ports/turnstile";
 import {
@@ -116,8 +116,9 @@ export async function action({
 		);
 	} catch (error) {
 		// Race with a concurrent signup for the same email lands here — same
-		// decided steering message as the pre-check, never a 500.
-		if (errorMessage(error).includes("UNIQUE constraint failed: users.email")) {
+		// decided steering message as the pre-check, never a 500. Drizzle wraps
+		// the D1 constraint error, so the check walks the cause chain.
+		if (errorChainIncludes(error, "UNIQUE constraint failed: users.email")) {
 			track("signup.existing_email", {});
 			return { existingAccount: true, values };
 		}

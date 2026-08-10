@@ -7,7 +7,7 @@ import { getDb } from "~/db";
 import { emailTemplates } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { templateKindLabel } from "~/lib/email-render";
-import { errorMessage } from "~/lib/errors";
+import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -46,15 +46,6 @@ const AUTO_TRIGGER_LABELS: Record<string, string> = {
 
 const CATEGORIES = ["all", "lifecycle", "custom"] as const;
 type Category = (typeof CATEGORIES)[number];
-
-/** Drizzle wraps the D1 error — the "UNIQUE constraint failed" text lives on
- * the cause chain, not the top-level message. */
-function isUniqueViolation(error: unknown): boolean {
-	for (let e = error; e instanceof Error; e = e.cause) {
-		if (/UNIQUE constraint failed/i.test(e.message)) return true;
-	}
-	return false;
-}
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;

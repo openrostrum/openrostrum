@@ -384,7 +384,7 @@ describe("end-to-end conflict surface", () => {
 		});
 		const data = await callLoader();
 		const conflicts = detectConflicts(
-			data.sessions as Parameters<typeof detectConflicts>[0],
+			data.sessions as unknown as Parameters<typeof detectConflicts>[0],
 			data.rooms,
 		);
 		expect(conflicts).toHaveLength(1);
@@ -404,7 +404,7 @@ describe("auto-place", () => {
 		expect(data.sessions.every((s) => s.startsAt != null)).toBe(true);
 		expect(
 			detectConflicts(
-				data.sessions as Parameters<typeof detectConflicts>[0],
+				data.sessions as unknown as Parameters<typeof detectConflicts>[0],
 				data.rooms,
 			),
 		).toEqual([]);
