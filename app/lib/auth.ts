@@ -25,6 +25,17 @@ export function homePathForRole(role: AppRole): string {
 	return "/portal";
 }
 
+/** Same-origin internal path, or null if the target is external/unsafe
+ * (blocks //host, /\host, scheme tricks) — the open-redirect guard for every
+ * user-supplied redirectTo. Callers fall back to their own default. */
+export function safeRedirect(requested: string): string | null {
+	if (!requested.startsWith("/")) return null;
+	const resolved = new URL(requested, "http://sentinel.invalid");
+	return resolved.origin === "http://sentinel.invalid"
+		? resolved.pathname + resolved.search + resolved.hash
+		: null;
+}
+
 /**
  * Password hashing runs on WebCrypto PBKDF2 (bcrypt does not run in workerd).
  * Sessions are server-side rows in `auth_sessions`; the cookie holds only an
