@@ -1,5 +1,6 @@
 import { data } from "react-router";
-import { getPortalContext, serveBlob } from "~/domain/portal";
+import { serveBlob } from "~/domain/files";
+import { getPortalContext } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.logo";
 

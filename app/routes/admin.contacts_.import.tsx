@@ -7,6 +7,7 @@ import { isContactStatus } from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { parseCsv } from "~/lib/csv";
 import { errorMessage } from "~/lib/errors";
+import { normalizeXUrl } from "~/lib/social";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -298,7 +299,10 @@ export async function action({
 		const values: Partial<Record<(typeof PROFILE_KEYS)[number], string>> = {};
 		for (const key of PROFILE_KEYS) {
 			const v = cell(row, key);
-			if (v) values[key] = v;
+			if (!v) continue;
+			// CSVs usually carry @handles in the X column — canonicalize like
+			// every other write path; keep unrecognizable values verbatim.
+			values[key] = key === "twitterUrl" ? (normalizeXUrl(v) ?? v) : v;
 		}
 
 		const match = byEmail.get(email);

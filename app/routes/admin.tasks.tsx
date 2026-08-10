@@ -186,6 +186,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1,
 	);
 	const editId = url.searchParams.get("edit");
+	const createdId = url.searchParams.get("created");
 
 	const empty = {
 		eventName: null as string | null,
@@ -247,6 +248,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		portalFormOptions: [] as Array<{ id: string; name: string }>,
 		assignTargets: ASSIGN_TARGETS,
 		editId,
+		createdId,
+		createdName: null as string | null,
 	};
 	if (!event) return empty;
 
@@ -484,7 +487,14 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			.from(portalForms)
 			.where(eq(portalForms.eventId, event.id))
 			.orderBy(asc(portalForms.name));
-		return { ...empty, stats, taskOptions, definitions, portalFormOptions };
+		return {
+			...empty,
+			stats,
+			taskOptions,
+			definitions,
+			portalFormOptions,
+			createdName: definitions.find((d) => d.id === createdId)?.name ?? null,
+		};
 	});
 
 	return data(
@@ -563,6 +573,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			dueInDays: d.dueInDays === "" ? null : d.dueInDays,
 			isOnboardingDefault: d.autoAssign === "yes",
 		};
+		let createdId: string | undefined;
 		try {
 			if (intent === "create-task") {
 				const [row] = await timings.time("db", () =>
@@ -571,6 +582,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 						.values({ ...values, eventId: event.id })
 						.returning({ id: tasks.id }),
 				);
+				createdId = row?.id;
 				track("task.created", {
 					eventId: event.id,
 					taskId: row?.id,
@@ -602,9 +614,14 @@ export async function action({ context, request }: Route.ActionArgs) {
 				formError: "Could not save the task — please try again.",
 			} satisfies ActionResult;
 		}
-		return redirect("/admin/tasks?view=definitions", {
-			headers: { "Server-Timing": timings.header() },
-		});
+		// `created` remounts the definitions form client-side so the next
+		// definition starts blank instead of inheriting this one's values.
+		return redirect(
+			createdId
+				? `/admin/tasks?view=definitions&created=${createdId}`
+				: "/admin/tasks?view=definitions",
+			{ headers: { "Server-Timing": timings.header() } },
+		);
 	}
 
 	if (intent === "delete-task") {
@@ -932,6 +949,8 @@ export default function TasksDashboard({
 		portalFormOptions,
 		assignTargets,
 		editId,
+		createdId,
+		createdName,
 	} = loaderData;
 	const [confirmingRemind, setConfirmingRemind] = useState(false);
 	const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
@@ -995,6 +1014,14 @@ export default function TasksDashboard({
 			{actionData?.notice && (
 				<div className="flex">
 					<StatusBadge tone="success">{actionData.notice}</StatusBadge>
+				</div>
+			)}
+			{createdName && !actionData?.fieldErrors && !actionData?.formError && (
+				<div className="flex">
+					<StatusBadge tone="success">
+						Added &quot;{createdName}&quot; — the form below is ready for the
+						next task.
+					</StatusBadge>
 				</div>
 			)}
 			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
@@ -1225,7 +1252,11 @@ export default function TasksDashboard({
 					<Panel>
 						<Form
 							method="post"
-							key={editTask?.id ?? "new"}
+							// Remount (and thereby clear) the uncontrolled inputs when
+							// entering/leaving edit mode AND after every successful create —
+							// otherwise the next definition silently inherits this one's
+							// values.
+							key={editTask ? `edit-${editTask.id}` : `new-${createdId ?? ""}`}
 							className="flex flex-wrap items-end gap-3"
 						>
 							<Input

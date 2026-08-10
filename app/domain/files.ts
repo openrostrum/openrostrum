@@ -1,4 +1,5 @@
 import { and, desc, eq, isNull, ne, type SQL, sql } from "drizzle-orm";
+import { data } from "react-router";
 import type { Db } from "~/db";
 import {
 	contacts,
@@ -7,8 +8,78 @@ import {
 	submissions,
 	taskAssignments,
 } from "~/db/schema";
+import { HEADSHOT_MAX_BYTES, HEADSHOT_TYPES } from "~/lib/headshot";
 import { likeContains } from "~/lib/like";
 import type { BadgeTone } from "~/ui";
+
+export type HeadshotUploadResult =
+	| { ok: true; r2Key: string }
+	| { ok: false; error: string };
+
+/**
+ * THE speaker-headshot write path — portal self-service and the admin contact
+ * record both go through here, so `contacts.headshotKey` (what avatars render)
+ * and the versioned `files` history can never disagree. Validation failures
+ * return; storage failures throw (callers map them to their surface's copy).
+ */
+export async function uploadHeadshot(
+	env: Env,
+	db: Db,
+	args: { eventId: string; contactId: string; file: FormDataEntryValue | null },
+): Promise<HeadshotUploadResult> {
+	const { eventId, contactId, file } = args;
+	if (!(file instanceof File) || file.size === 0) {
+		return { ok: false, error: "Choose an image first." };
+	}
+	const ext = HEADSHOT_TYPES[file.type];
+	if (!ext) {
+		return { ok: false, error: "Use a PNG, JPEG, or WebP image." };
+	}
+	if (file.size > HEADSHOT_MAX_BYTES) {
+		return { ok: false, error: "Keep the image under 5 MB." };
+	}
+	const r2Key = `headshots/${eventId}/${contactId}/${crypto.randomUUID()}.${ext}`;
+	const bytes = await file.arrayBuffer();
+	await env.BLOBS.put(r2Key, bytes, {
+		httpMetadata: { contentType: file.type },
+	});
+	const [prior] = await db
+		.select({ version: files.version })
+		.from(files)
+		.where(and(eq(files.contactId, contactId), eq(files.kind, "headshot")))
+		.orderBy(desc(files.version))
+		.limit(1);
+	await db.batch([
+		db.insert(files).values({
+			eventId,
+			contactId,
+			r2Key,
+			fileName: file.name,
+			kind: "headshot",
+			contentType: file.type,
+			sizeBytes: file.size,
+			version: (prior?.version ?? 0) + 1,
+		}),
+		db
+			.update(contacts)
+			.set({ headshotKey: r2Key })
+			.where(eq(contacts.id, contactId)),
+	]);
+	return { ok: true, r2Key };
+}
+
+/** Streams a private R2 object inline (headshots, portal logos). */
+export async function serveBlob(env: Env, key: string): Promise<Response> {
+	const object = await env.BLOBS.get(key);
+	if (!object) throw data(null, { status: 404 });
+	return new Response(object.body, {
+		headers: {
+			"Content-Type":
+				object.httpMetadata?.contentType ?? "application/octet-stream",
+			"Cache-Control": "private, max-age=3600",
+		},
+	});
+}
 
 export const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
 export const UPLOAD_CONSTRAINTS =

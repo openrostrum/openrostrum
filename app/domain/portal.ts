@@ -352,19 +352,6 @@ export async function listPortalTasks(
 		}));
 }
 
-/** Streams a private R2 object inline (headshots, portal logos). */
-export async function serveBlob(env: Env, key: string): Promise<Response> {
-	const object = await env.BLOBS.get(key);
-	if (!object) throw data(null, { status: 404 });
-	return new Response(object.body, {
-		headers: {
-			"Content-Type":
-				object.httpMetadata?.contentType ?? "application/octet-stream",
-			"Cache-Control": "private, max-age=3600",
-		},
-	});
-}
-
 export type EditWindow = {
 	editable: boolean;
 	/** Why editing is off, in speaker-readable words (null while editable). */
