@@ -696,7 +696,7 @@ export default function Reviewers({
 								</Select>
 							</Field>
 							<Field
-								label={`Submissions for ${selectedReviewer.name ?? selectedReviewer.email} (hold Ctrl/Cmd to pick several)`}
+								label={`Submissions for ${selectedReviewer.name ?? selectedReviewer.email} (hold Ctrl/Cmd to pick several${assignable.length >= 500 ? "; showing the newest 500 — use the plan editor's Assignments tab for the full list" : ""})`}
 							>
 								<Select name="submissionIds" multiple size={8}>
 									{assignable.map((s) => (

@@ -93,3 +93,16 @@ delete rev. 2 (zombie rows → honor-the-delete) and webhook-first sync live in
 | K15 | **Triple gate (accepted → content-approved → agenda-published) reads as a bug** without affordances | FIXED (SCOPE P1 #18): accept spine sets `contentStatus='in_review'`; bulk "Approve all accepted"; dashboard alert "N accepted sessions aren't public yet"; Published/Unpublished chip on the agenda header. Supersedes K10's "stays draft" note — gate mechanics unchanged |
 | K16 | **CSV import deduped silently** ("imported 100, why 97?") | FIXED (SCOPE P1 #17): import ends on a summary — added / merged-by-email / skipped with per-row reasons |
 | K17 | **Task reminder never re-fires after a deadline extension** (one-shot `reminderSentAt`) | FIXED (SCOPE P1 #17): editing `dueAt` clears `reminderSentAt`; reminder `dedupeKey` includes the due date so outbox idempotency doesn't block the re-send |
+
+## Evaluation-lane escalations (2026-08-10) — No-shortcuts valve, owner decisions pending
+
+Raised by the evaluation lane (PR "Evaluation 2.0"); each is deliberately NOT
+built in-lane because the correct home is integration-owned. OPEN until the
+owner decides.
+
+| # | Escalation | Status |
+|---|-----------|--------|
+| E1 | **Multi-line compose surfaces need a `Textarea` primitive (and rich text needs the shared `<RichText/>`)**: reviewer feedback, decision comments, plan/reviewer instructions, and free-text scorecard answers currently render as single-line `Input` — functional, judged-passable, but below the WYSIWYG expectation. A shadow textarea outside `app/ui` would circumvent the design system, so the lane shipped `Input` and swaps in place when the primitive lands. A `Checkbox` primitive would likewise replace the native multi-`Select` pickers. | OPEN (owner: add primitives to `app/ui`) |
+| E2 | **Status→tone maps for evaluation/decision states** (`EVAL_STATUS_TONE`, `REVIEW_DECISION_TONE`) live in `app/lib/evaluation.ts` because their precedent home (`app/ui/status-badge.tsx` next to `SUBMISSION_STATUS_TONE`) is owner-guarded. Move them there on acceptance. | OPEN (owner: accept into `app/ui/status-badge.tsx`) |
+| E3 | **`admin.evaluation._index.tsx` / `reviews._index.tsx` ROUTE-MAP rows**: both list routes double as layouts via a pathname discriminator because the map pins only the parent filenames; adding `_index` rows lets each loader go single-purpose. | OPEN (owner: add ROUTE-MAP rows, then split) |
+| E4 | **`REVIEW_DECISION` / `EVALUATION_STATUS` tuples → `app/db/constants.ts`**: client-side option lists and exactly-typed tone maps need the enums in the client-safe module; today they are defined in `schema.ts` (integration-owned), so the reviewer surface hardcodes the three option labels. | OPEN (owner: move tuples in the same pattern as `SUBMISSION_STATUS`) |

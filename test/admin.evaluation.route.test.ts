@@ -356,6 +356,29 @@ describe("destructive paths with recorded reviews", () => {
 		expect(await db.select().from(evaluationAnswers)).toHaveLength(0);
 	});
 
+	it("the plan LIST delete also survives recorded answers (both surfaces share one path)", async () => {
+		const { db } = await seedEvalBase(env);
+		await callReview(sampleScorecardBody("ev1"), "s1");
+		const result = (await call(
+			listAction,
+			await sessionRequest(
+				env,
+				"u_admin",
+				"http://localhost/admin/evaluation",
+				{
+					method: "POST",
+					body: new URLSearchParams([
+						["intent", "delete-plan"],
+						["planId", "plan1"],
+					]),
+				},
+			),
+		)) as { ok?: string; formError?: string };
+		expect(result.ok).toBeTruthy();
+		expect(await db.select().from(evaluationPlans)).toHaveLength(0);
+		expect(await db.select().from(evaluationAnswers)).toHaveLength(0);
+	});
+
 	it("deleting a PLAN that has recorded answers deletes everything", async () => {
 		const { db } = await seedEvalBase(env);
 		await callReview(sampleScorecardBody("ev1"), "s1");

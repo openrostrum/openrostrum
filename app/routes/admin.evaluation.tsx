@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { and, count, desc, eq, inArray, like } from "drizzle-orm";
+import {
+	and,
+	count,
+	countDistinct,
+	desc,
+	eq,
+	inArray,
+	like,
+} from "drizzle-orm";
 import { Form, Outlet, data, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
@@ -12,6 +20,7 @@ import {
 	submissions,
 	users,
 } from "~/db/schema";
+import { deletePlanDeep } from "~/lib/assign";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
@@ -79,9 +88,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const tab =
 		url.searchParams.get("tab") === "decisions" ? "decisions" : "plans";
 
-	const [planRows, roundRows, poolRows, evalRows] = await timings.time(
-		"db-plans",
-		() =>
+	// Aggregates come back pre-grouped: at real scale a plan holds thousands of
+	// evaluation rows, and six numbers per plan never need them materialized.
+	const [planRows, roundRows, poolCounts, evalCounts, subCounts] =
+		await timings.time("db-plans", () =>
 			Promise.all([
 				db
 					.select()
@@ -103,7 +113,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				db
 					.select({
 						planId: evaluationRounds.planId,
-						userId: roundEvaluators.userId,
+						n: countDistinct(roundEvaluators.userId),
 					})
 					.from(roundEvaluators)
 					.innerJoin(
@@ -114,12 +124,13 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 						evaluationPlans,
 						eq(evaluationPlans.id, evaluationRounds.planId),
 					)
-					.where(eq(evaluationPlans.eventId, event.id)),
+					.where(eq(evaluationPlans.eventId, event.id))
+					.groupBy(evaluationRounds.planId),
 				db
 					.select({
 						planId: evaluationRounds.planId,
-						submissionId: evaluations.submissionId,
 						status: evaluations.status,
+						n: count(),
 					})
 					.from(evaluations)
 					.innerJoin(
@@ -130,16 +141,30 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 						evaluationPlans,
 						eq(evaluationPlans.id, evaluationRounds.planId),
 					)
-					.where(eq(evaluationPlans.eventId, event.id)),
+					.where(eq(evaluationPlans.eventId, event.id))
+					.groupBy(evaluationRounds.planId, evaluations.status),
+				db
+					.select({
+						planId: evaluationRounds.planId,
+						n: countDistinct(evaluations.submissionId),
+					})
+					.from(evaluations)
+					.innerJoin(
+						evaluationRounds,
+						eq(evaluationRounds.id, evaluations.roundId),
+					)
+					.innerJoin(
+						evaluationPlans,
+						eq(evaluationPlans.id, evaluationRounds.planId),
+					)
+					.where(eq(evaluationPlans.eventId, event.id))
+					.groupBy(evaluationRounds.planId),
 			]),
-	);
+		);
 
 	const plans = planRows.map((plan) => {
 		const rounds = roundRows.filter((r) => r.planId === plan.id);
-		const pool = new Set(
-			poolRows.filter((p) => p.planId === plan.id).map((p) => p.userId),
-		);
-		const evals = evalRows.filter((e) => e.planId === plan.id);
+		const evals = evalCounts.filter((e) => e.planId === plan.id);
 		const nextDue = rounds
 			.map((r) => r.closesAt)
 			.filter((d): d is Date => d != null && d.getTime() >= Date.now())
@@ -149,10 +174,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			name: plan.name,
 			status: plan.status,
 			rounds: rounds.length,
-			evaluators: pool.size,
-			submissions: new Set(evals.map((e) => e.submissionId)).size,
-			totalEvals: evals.length,
-			completedEvals: evals.filter((e) => e.status === "completed").length,
+			evaluators: poolCounts.find((p) => p.planId === plan.id)?.n ?? 0,
+			submissions: subCounts.find((s) => s.planId === plan.id)?.n ?? 0,
+			totalEvals: evals.reduce((sum, e) => sum + e.n, 0),
+			completedEvals: evals.find((e) => e.status === "completed")?.n ?? 0,
 			nextDue: nextDue ? formatDay(nextDue) : null,
 		};
 	});
@@ -324,16 +349,18 @@ export async function action({ context, request }: Route.ActionArgs) {
 		}
 		if (intent === "delete-plan") {
 			const planId = String(form.get("planId") ?? "");
-			const deleted = await db
-				.delete(evaluationPlans)
+			const [plan] = await db
+				.select({ id: evaluationPlans.id })
+				.from(evaluationPlans)
 				.where(
 					and(
 						eq(evaluationPlans.id, planId),
 						eq(evaluationPlans.eventId, event.id),
 					),
 				)
-				.returning({ id: evaluationPlans.id });
-			if (deleted.length === 0) return { intent, formError: "Plan not found." };
+				.limit(1);
+			if (!plan) return { intent, formError: "Plan not found." };
+			await deletePlanDeep(db, planId);
 			track("evaluation.plan_deleted", { eventId: event.id, planId });
 			return { intent, ok: "Plan deleted." };
 		}
