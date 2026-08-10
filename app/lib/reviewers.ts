@@ -2,6 +2,7 @@ import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import type { Db } from "~/db";
 import { passwordResets, reviewerTracks, tracks, users } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
+import { fetchChunked } from "~/lib/evaluation";
 
 /**
  * Invited-but-not-yet-onboarded users carry an UNVERIFIABLE password hash:
@@ -132,21 +133,23 @@ export async function activeInviteTokens(
 	userIds: readonly string[],
 ): Promise<Map<string, string>> {
 	if (userIds.length === 0) return new Map();
-	const rows = await db
-		.select({
-			userId: passwordResets.userId,
-			token: passwordResets.token,
-			createdAt: passwordResets.createdAt,
-		})
-		.from(passwordResets)
-		.where(
-			and(
-				inArray(passwordResets.userId, [...userIds]),
-				isNull(passwordResets.usedAt),
-				isNull(passwordResets.organizationId),
-				gt(passwordResets.expiresAt, new Date()),
+	const rows = await fetchChunked([...userIds], (chunk) =>
+		db
+			.select({
+				userId: passwordResets.userId,
+				token: passwordResets.token,
+				createdAt: passwordResets.createdAt,
+			})
+			.from(passwordResets)
+			.where(
+				and(
+					inArray(passwordResets.userId, chunk),
+					isNull(passwordResets.usedAt),
+					isNull(passwordResets.organizationId),
+					gt(passwordResets.expiresAt, new Date()),
+				),
 			),
-		);
+	);
 	const latest = new Map<string, { token: string; createdAt: Date }>();
 	for (const row of rows) {
 		const prev = latest.get(row.userId);

@@ -13,6 +13,7 @@ import {
 	formats,
 	levels,
 	participants,
+	REVIEW_DECISION,
 	reviewerTracks,
 	reviews,
 	roundQuestions,
@@ -53,10 +54,17 @@ import {
 } from "~/ui";
 import type { Route } from "./+types/reviews.$id";
 
+// The decision tuple comes from the schema (single source of truth).
 const Decision = z.object({
-	decision: z.enum(["approve", "maybe", "deny"]),
-	comment: z.string().max(5000).optional(),
-	feedback: z.string().max(5000).optional(),
+	decision: z.enum(REVIEW_DECISION),
+	comment: z
+		.string()
+		.max(5000, "Keep the comment under 5,000 characters.")
+		.optional(),
+	feedback: z
+		.string()
+		.max(5000, "Keep the feedback under 5,000 characters.")
+		.optional(),
 });
 
 /**
@@ -515,9 +523,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				feedback: String(form.get("feedback") ?? "") || undefined,
 			});
 			if (!parsed.success) {
+				const flat = z.flattenError(parsed.error).fieldErrors;
 				return {
 					intent,
-					formError: "Pick approve, maybe, or deny before saving.",
+					formError:
+						flat.comment?.[0] ??
+						flat.feedback?.[0] ??
+						"Pick approve, maybe, or deny before saving.",
 				};
 			}
 			await db

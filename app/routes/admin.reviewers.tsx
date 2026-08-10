@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Fragment } from "react";
 import { and, count, eq, inArray, notInArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Form, data, redirect } from "react-router";
@@ -17,7 +16,7 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { ensureQuickRound, mintEvaluations } from "~/lib/assign";
 import { errorMessage } from "~/lib/errors";
-import { REVIEWABLE_EXCLUDED, utcDayKey } from "~/lib/evaluation";
+import { fetchChunked, REVIEWABLE_EXCLUDED, utcDayKey } from "~/lib/evaluation";
 import { escapeHtmlText } from "~/lib/html";
 import {
 	activeInviteTokens,
@@ -376,16 +375,20 @@ export async function action({
 			if (!registry.some((r) => r.id === userId)) {
 				return { intent, formError: "Reviewer not found." };
 			}
-			const valid = await db
-				.select({ id: submissions.id })
-				.from(submissions)
-				.where(
-					and(
-						eq(submissions.eventId, event.id),
-						inArray(submissions.id, submissionIds),
-						notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
+			// Chunked: the multi-select can submit hundreds of ids — one inArray
+			// over all of them would blow D1's bound-parameter cap.
+			const valid = await fetchChunked(submissionIds, (chunk) =>
+				db
+					.select({ id: submissions.id })
+					.from(submissions)
+					.where(
+						and(
+							eq(submissions.eventId, event.id),
+							inArray(submissions.id, chunk),
+							notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
+						),
 					),
-				);
+			);
 			if (valid.length !== submissionIds.length) {
 				return {
 					intent,
@@ -544,98 +547,94 @@ export default function Reviewers({
 				</THead>
 				<TBody>
 					{reviewers.map((r) => (
-						<Fragment key={r.id}>
-							<Tr selected={selected?.userId === r.id}>
-								<Td kind="strong">{r.name ?? "—"}</Td>
-								<Td kind="mono">{r.email}</Td>
-								<Td>
-									<div className="flex flex-wrap gap-3">
-										{r.tracks.map((t) => (
-											<Chip key={t.id} color={t.color}>
-												{t.name}
-											</Chip>
-										))}
+						<Tr key={r.id} selected={selected?.userId === r.id}>
+							<Td kind="strong">{r.name ?? "—"}</Td>
+							<Td kind="mono">{r.email}</Td>
+							<Td>
+								<div className="flex flex-wrap gap-3">
+									{r.tracks.map((t) => (
+										<Chip key={t.id} color={t.color}>
+											{t.name}
+										</Chip>
+									))}
+								</div>
+							</Td>
+							<Td kind="mono">
+								{r.completed}/{r.assigned}
+							</Td>
+							<Td>
+								{r.invited ? (
+									<StatusBadge tone="info">Invited</StatusBadge>
+								) : (
+									<StatusBadge tone="success">Active</StatusBadge>
+								)}
+							</Td>
+							<Td>
+								{r.inviteLink ? (
+									<div className="flex items-center gap-2">
+										<Input
+											readOnly
+											value={r.inviteLink}
+											size={28}
+											aria-label={`Invite link for ${r.name ?? r.email}`}
+											onFocus={(e) => e.currentTarget.select()}
+										/>
+										<Button
+											type="button"
+											variant="ghost"
+											onClick={() => {
+												void navigator.clipboard.writeText(r.inviteLink ?? "");
+												setCopiedId(r.id);
+											}}
+										>
+											{copiedId === r.id ? "Copied" : "Copy"}
+										</Button>
 									</div>
-								</Td>
-								<Td kind="mono">
-									{r.completed}/{r.assigned}
-								</Td>
-								<Td>
-									{r.invited ? (
-										<StatusBadge tone="info">Invited</StatusBadge>
-									) : (
-										<StatusBadge tone="success">Active</StatusBadge>
-									)}
-								</Td>
-								<Td>
-									{r.inviteLink ? (
-										<div className="flex items-center gap-2">
-											<Input
-												readOnly
-												value={r.inviteLink}
-												size={28}
-												aria-label={`Invite link for ${r.name ?? r.email}`}
-												onFocus={(e) => e.currentTarget.select()}
-											/>
-											<Button
-												type="button"
-												variant="ghost"
-												onClick={() => {
-													void navigator.clipboard.writeText(
-														r.inviteLink ?? "",
-													);
-													setCopiedId(r.id);
-												}}
-											>
-												{copiedId === r.id ? "Copied" : "Copy"}
+								) : (
+									"—"
+								)}
+							</Td>
+							<Td>
+								<div className="flex gap-2">
+									<Button
+										type="button"
+										variant="ghost"
+										onClick={() =>
+											setSelected({ userId: r.id, mode: "assign" })
+										}
+									>
+										Assign
+									</Button>
+									<Button
+										type="button"
+										variant="ghost"
+										onClick={() =>
+											setSelected({ userId: r.id, mode: "tracks" })
+										}
+									>
+										Tracks
+									</Button>
+									{r.invited && (
+										<Form method="post">
+											<Input type="hidden" name="intent" value="reinvite" />
+											<Input type="hidden" name="userId" value={r.id} />
+											<Button type="submit" variant="ghost">
+												Re-invite
 											</Button>
-										</div>
-									) : (
-										"—"
+										</Form>
 									)}
-								</Td>
-								<Td>
-									<div className="flex gap-2">
-										<Button
-											type="button"
-											variant="ghost"
-											onClick={() =>
-												setSelected({ userId: r.id, mode: "assign" })
-											}
-										>
-											Assign
-										</Button>
-										<Button
-											type="button"
-											variant="ghost"
-											onClick={() =>
-												setSelected({ userId: r.id, mode: "tracks" })
-											}
-										>
-											Tracks
-										</Button>
-										{r.invited && (
-											<Form method="post">
-												<Input type="hidden" name="intent" value="reinvite" />
-												<Input type="hidden" name="userId" value={r.id} />
-												<Button type="submit" variant="ghost">
-													Re-invite
-												</Button>
-											</Form>
-										)}
-										<Button
-											type="button"
-											variant="ghost"
-											onClick={() =>
-												setSelected({ userId: r.id, mode: "remove" })
-											}
-										>
-											Remove
-										</Button>
-									</div>
-								</Td>
-							</Tr>
-						</Fragment>
+									<Button
+										type="button"
+										variant="ghost"
+										onClick={() =>
+											setSelected({ userId: r.id, mode: "remove" })
+										}
+									>
+										Remove
+									</Button>
+								</div>
+							</Td>
+						</Tr>
 					))}
 					{reviewers.length === 0 && (
 						<EmptyRow colSpan={7}>

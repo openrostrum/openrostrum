@@ -17,14 +17,14 @@ import {
 	tracks,
 	users,
 } from "~/db/schema";
-import { mintEvaluations } from "~/lib/assign";
+import { deletePlanDeep, deleteRoundDeep, mintEvaluations } from "~/lib/assign";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
 	dateInputValue,
 	distributeAssignments,
 	EVAL_STATUS_TONE,
-	evaluationScore,
+	fetchChunked,
 	formatDay,
 	formatScore,
 	meanScore,
@@ -33,6 +33,8 @@ import {
 	REVIEWABLE_EXCLUDED,
 	utcDayKey,
 } from "~/lib/evaluation";
+import { Pager } from "~/lib/pager";
+import { loadPlanScores } from "~/lib/plan-scores";
 import { listEventReviewers } from "~/lib/reviewers";
 import { escapeHtmlText } from "~/lib/html";
 import { createTimings, track } from "~/lib/track";
@@ -52,7 +54,6 @@ import {
 	StatusBadge,
 	Tab,
 	Table,
-	TableFooter,
 	Tabs,
 	TBody,
 	Td,
@@ -386,77 +387,22 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		const sort = url.searchParams.get("sort") ?? "score_desc";
 		const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
 		const subParam = url.searchParams.get("sub");
-		const [evalRows, answerRows, subRows] = await timings.time(
-			"db-results",
-			() =>
-				Promise.all([
-					db
-						.select({
-							id: evaluations.id,
-							roundId: evaluations.roundId,
-							submissionId: evaluations.submissionId,
-							status: evaluations.status,
-							submittedAt: evaluations.submittedAt,
-							abstainReason: evaluations.abstainReason,
-							name: users.name,
-							email: users.email,
-						})
-						.from(evaluations)
-						.innerJoin(users, eq(users.id, evaluations.evaluatorId))
-						.innerJoin(
-							evaluationRounds,
-							eq(evaluationRounds.id, evaluations.roundId),
-						)
-						.where(eq(evaluationRounds.planId, plan.id)),
-					db
-						.select({
-							evaluationId: evaluationAnswers.evaluationId,
-							questionId: evaluationAnswers.questionId,
-							valueNumber: evaluationAnswers.valueNumber,
-							valueText: evaluationAnswers.valueText,
-						})
-						.from(evaluationAnswers)
-						.innerJoin(
-							evaluations,
-							eq(evaluations.id, evaluationAnswers.evaluationId),
-						)
-						.innerJoin(
-							evaluationRounds,
-							eq(evaluationRounds.id, evaluations.roundId),
-						)
-						.where(eq(evaluationRounds.planId, plan.id)),
-					db
-						.selectDistinct({
-							id: submissions.id,
-							title: submissions.title,
-							status: submissions.status,
-						})
-						.from(submissions)
-						.innerJoin(
-							evaluations,
-							eq(evaluations.submissionId, submissions.id),
-						)
-						.innerJoin(
-							evaluationRounds,
-							eq(evaluationRounds.id, evaluations.roundId),
-						)
-						.where(eq(evaluationRounds.planId, plan.id)),
-				]),
+		const scores = await timings.time("db-results", () =>
+			loadPlanScores(db, plan.id),
 		);
-		const speakerRows = await timings.time("db-speakers", async () => {
-			const ids = subRows.map((s) => s.id);
-			const out: Array<{
-				submissionId: string;
-				firstName: string;
-				lastName: string;
-				role: string;
-			}> = [];
-			// Chunked inArray keeps each statement under D1's bound-parameter cap.
-			for (let i = 0; i < ids.length; i += 80) {
-				const chunk = ids.slice(i, i + 80);
-				if (chunk.length === 0) continue;
-				out.push(
-					...(await db
+		const subMap = new Map<string, { title: string; status: string }>();
+		for (const e of scores.evalRows) {
+			subMap.set(e.submissionId, {
+				title: e.submissionTitle,
+				status: e.submissionStatus,
+			});
+		}
+		const subRows = [...subMap].map(([id, v]) => ({ id, ...v }));
+		const speakerRows = await timings.time("db-speakers", () =>
+			fetchChunked(
+				subRows.map((s) => s.id),
+				(chunk) =>
+					db
 						.select({
 							submissionId: participants.submissionId,
 							firstName: contacts.firstName,
@@ -465,39 +411,12 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 						})
 						.from(participants)
 						.innerJoin(contacts, eq(contacts.id, participants.contactId))
-						.where(inArray(participants.submissionId, chunk))),
-				);
-			}
-			return out;
-		});
-		const questionsByRound = new Map<
-			string,
-			Array<{
-				id: string;
-				type: "rating" | "dropdown" | "text";
-				weight: number;
-			}>
-		>();
-		for (const q of questions) {
-			const list = questionsByRound.get(q.roundId) ?? [];
-			list.push({ id: q.id, type: q.type, weight: q.weight });
-			questionsByRound.set(q.roundId, list);
-		}
-		const answersByEval = new Map<string, typeof answerRows>();
-		for (const a of answerRows) {
-			const list = answersByEval.get(a.evaluationId) ?? [];
-			list.push(a);
-			answersByEval.set(a.evaluationId, list);
-		}
-		const scored = evalRows.map((e) => ({
+						.where(inArray(participants.submissionId, chunk)),
+			),
+		);
+		const scored = scores.evalRows.map((e) => ({
 			...e,
-			score:
-				e.status === "completed"
-					? evaluationScore(
-							questionsByRound.get(e.roundId) ?? [],
-							answersByEval.get(e.id) ?? [],
-						)
-					: null,
+			score: scores.scoreOf(e),
 		}));
 		const speakersFor = (submissionId: string) =>
 			speakerRows
@@ -556,14 +475,14 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					speakers: speakersFor(sub.id),
 					evaluations: mine.map((e) => ({
 						id: e.id,
-						evaluator: e.name ?? e.email,
+						evaluator: e.evaluatorName ?? e.evaluatorEmail,
 						round: roundViews.find((r) => r.id === e.roundId)?.name ?? "Round",
 						status: e.status,
 						abstainReason: e.abstainReason,
 						score: formatScore(e.score),
 						submittedAt: e.submittedAt ? formatDay(e.submittedAt) : "—",
-						answers: (answersByEval.get(e.id) ?? []).map((a) => {
-							const q = questions.find((qq) => qq.id === a.questionId);
+						answers: (scores.answersByEval.get(e.id) ?? []).map((a) => {
+							const q = scores.questions.find((qq) => qq.id === a.questionId);
 							return {
 								question: q?.label ?? "Question",
 								value:
@@ -649,7 +568,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			};
 		}
 		if (intent === "delete-plan") {
-			await db.delete(evaluationPlans).where(eq(evaluationPlans.id, plan.id));
+			await deletePlanDeep(db, plan.id);
 			track("evaluation.plan_deleted", { eventId: event.id, planId: plan.id });
 			return redirect("/admin/evaluation");
 		}
@@ -706,7 +625,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		if (intent === "delete-round") {
 			const roundId = String(form.get("roundId") ?? "");
 			if (!roundOf(roundId)) return { intent, formError: "Round not found." };
-			await db.delete(evaluationRounds).where(eq(evaluationRounds.id, roundId));
+			await deleteRoundDeep(db, roundId);
 			track("evaluation.round_deleted", { eventId: event.id, roundId });
 			return { intent, ok: "Round deleted." };
 		}
@@ -748,6 +667,36 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				return { intent, roundId, ok: `Question “${values.label}” added.` };
 			}
 			const questionId = String(form.get("questionId") ?? "");
+			// Changing a question's TYPE after answers exist would silently drop
+			// recorded values from every aggregate — label/weight/scale edits stay
+			// allowed, the type is frozen once anyone answered.
+			const [current] = await db
+				.select({ type: roundQuestions.type })
+				.from(roundQuestions)
+				.where(
+					and(
+						eq(roundQuestions.id, questionId),
+						eq(roundQuestions.roundId, roundId),
+					),
+				)
+				.limit(1);
+			if (!current) return { intent, formError: "Question not found." };
+			if (current.type !== values.type) {
+				const [{ n: answered }] = (await db
+					.select({ n: count() })
+					.from(evaluationAnswers)
+					.where(eq(evaluationAnswers.questionId, questionId))) as [
+					{ n: number },
+				];
+				if (answered > 0) {
+					return {
+						intent,
+						roundId,
+						formError:
+							"This question already has recorded answers — its type can't change. Add a new question instead.",
+					};
+				}
+			}
 			await db
 				.update(roundQuestions)
 				.set(values)
@@ -1987,37 +1936,6 @@ function ResultsTab({
 			</Table>
 			<Pager page={page} total={total} link={(p) => link({ page: p })} />
 		</>
-	);
-}
-
-function Pager({
-	page,
-	total,
-	link,
-}: {
-	page: number;
-	total: number;
-	link: (page: number) => string;
-}) {
-	if (total <= PAGE_SIZE) return null;
-	const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-	return (
-		<div className="flex items-center gap-3">
-			{page > 1 && (
-				<ButtonLink to={link(page - 1)} variant="ghost">
-					Previous
-				</ButtonLink>
-			)}
-			<TableFooter>
-				{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of{" "}
-				{total}
-			</TableFooter>
-			{page < pages && (
-				<ButtonLink to={link(page + 1)} variant="ghost">
-					Next
-				</ButtonLink>
-			)}
-		</div>
 	);
 }
 

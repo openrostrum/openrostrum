@@ -30,6 +30,7 @@ import {
 	REVIEWABLE_EXCLUDED,
 	roundWritable,
 } from "~/lib/evaluation";
+import { Pager } from "~/lib/pager";
 import { createTimings } from "~/lib/track";
 import {
 	Button,
@@ -45,7 +46,6 @@ import {
 	StatusBadge,
 	Tab,
 	Table,
-	TableFooter,
 	Tabs,
 	TBody,
 	Td,
@@ -522,8 +522,12 @@ function Queue({ data: d }: { data: QueueData }) {
 							)}
 						</TBody>
 					</Table>
-					{assignedItems && assignedItems.total > PAGE_SIZE && (
-						<Pagination page={page} total={assignedItems.total} link={link} />
+					{assignedItems && (
+						<Pager
+							page={page}
+							total={assignedItems.total}
+							link={(p) => link({ page: p })}
+						/>
 					)}
 				</>
 			)}
@@ -588,40 +592,14 @@ function Queue({ data: d }: { data: QueueData }) {
 							)}
 						</TBody>
 					</Table>
-					{trackItems && trackItems.total > PAGE_SIZE && (
-						<Pagination page={page} total={trackItems.total} link={link} />
+					{trackItems && (
+						<Pager
+							page={page}
+							total={trackItems.total}
+							link={(p) => link({ page: p })}
+						/>
 					)}
 				</>
-			)}
-		</div>
-	);
-}
-
-function Pagination({
-	page,
-	total,
-	link,
-}: {
-	page: number;
-	total: number;
-	link: (over: Record<string, string | number>) => string;
-}) {
-	const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-	return (
-		<div className="flex items-center gap-3">
-			{page > 1 && (
-				<ButtonLink to={link({ page: page - 1 })} variant="ghost">
-					Previous
-				</ButtonLink>
-			)}
-			<TableFooter>
-				{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of{" "}
-				{total}
-			</TableFooter>
-			{page < pages && (
-				<ButtonLink to={link({ page: page + 1 })} variant="ghost">
-					Next
-				</ButtonLink>
 			)}
 		</div>
 	);

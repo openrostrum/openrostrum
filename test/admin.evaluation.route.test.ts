@@ -3,12 +3,16 @@ import { and, eq, like } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
 	emailOutbox,
+	evaluationAnswers,
 	evaluationPlans,
+	evaluationRounds,
 	evaluations,
 	events,
 	organizations,
+	reviews,
 	roundEvaluators,
 	roundQuestions,
+	submissions,
 	users,
 } from "../app/db/schema";
 import { action as reviewAction } from "../app/routes/reviews.$id";
@@ -17,7 +21,10 @@ import {
 	loader as planLoader,
 } from "../app/routes/admin.evaluation.$planId";
 import { loader as exportLoader } from "../app/routes/admin.evaluation.export[.csv]";
-import { action as listAction } from "../app/routes/admin.evaluation";
+import {
+	action as listAction,
+	loader as listLoader,
+} from "../app/routes/admin.evaluation";
 import {
 	CONTEXT_OF,
 	sampleScorecardBody,
@@ -315,6 +322,93 @@ describe("scorecard integrity", () => {
 				.from(roundQuestions)
 				.where(eq(roundQuestions.id, "q_fresh")),
 		).toHaveLength(0);
+	});
+});
+
+describe("destructive paths with recorded reviews", () => {
+	// The answers table RESTRICTs question deletion, which also aborts the
+	// parent cascade — plan/round deletion must keep working after real
+	// reviews exist, exactly as the confirm copy promises.
+	it("deleting a ROUND that has recorded answers deletes it and its answers", async () => {
+		const { db } = await seedEvalBase(env);
+		await callReview(sampleScorecardBody("ev1"), "s1");
+		expect((await db.select().from(evaluationAnswers)).length).toBeGreaterThan(
+			0,
+		);
+		const result = (await call(
+			planAction,
+			await sessionRequest(
+				env,
+				"u_admin",
+				"http://localhost/admin/evaluation/plan1",
+				{
+					method: "POST",
+					body: new URLSearchParams([
+						["intent", "delete-round"],
+						["roundId", "r1"],
+					]),
+				},
+			),
+			"plan1",
+		)) as { ok?: string; formError?: string };
+		expect(result.ok).toBeTruthy();
+		expect(await db.select().from(evaluationRounds)).toHaveLength(0);
+		expect(await db.select().from(evaluationAnswers)).toHaveLength(0);
+	});
+
+	it("deleting a PLAN that has recorded answers deletes everything", async () => {
+		const { db } = await seedEvalBase(env);
+		await callReview(sampleScorecardBody("ev1"), "s1");
+		const response = (await call(
+			planAction,
+			await sessionRequest(
+				env,
+				"u_admin",
+				"http://localhost/admin/evaluation/plan1",
+				{
+					method: "POST",
+					body: new URLSearchParams([["intent", "delete-plan"]]),
+				},
+			),
+			"plan1",
+		)) as Response;
+		expect(response.status).toBe(302); // redirect back to the plan list
+		expect(await db.select().from(evaluationPlans)).toHaveLength(0);
+		expect(await db.select().from(evaluations)).toHaveLength(0);
+		expect(await db.select().from(evaluationAnswers)).toHaveLength(0);
+	});
+});
+
+describe("decisions tally at scale", () => {
+	it("survives 120 reviewed submissions (chunked under D1's parameter cap)", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		const subs = Array.from({ length: 120 }, (_, i) => ({
+			id: `bulk${i}`,
+			eventId: "e1",
+			title: `Bulk talk ${i}`,
+			status: "pending" as const,
+		}));
+		for (let i = 0; i < subs.length; i += 10) {
+			await db.insert(submissions).values(subs.slice(i, i + 10));
+		}
+		const revs = subs.map((s, i) => ({
+			id: `rev${i}`,
+			submissionId: s.id,
+			reviewerId: "u_rev",
+			decision: "approve" as const,
+		}));
+		for (let i = 0; i < revs.length; i += 10) {
+			await db.insert(reviews).values(revs.slice(i, i + 10));
+		}
+		const result = (await call(
+			listLoader,
+			await sessionRequest(
+				env,
+				"u_admin",
+				"http://localhost/admin/evaluation?tab=decisions",
+			),
+		)) as { data: { decisions: { total: number } | null } };
+		expect(result.data.decisions?.total).toBe(120);
 	});
 });
 

@@ -27,6 +27,23 @@ export const REVIEW_DECISION_TONE: Record<string, BadgeTone> = {
 	deny: "danger",
 };
 
+/**
+ * Run an id-list query in slices so no statement exceeds D1's ~100
+ * bound-parameter cap — every `inArray` over an unbounded id list must go
+ * through this.
+ */
+export async function fetchChunked<T>(
+	ids: readonly string[],
+	fetchSlice: (chunk: string[]) => Promise<T[]>,
+	chunkSize = 80,
+): Promise<T[]> {
+	const out: T[] = [];
+	for (let i = 0; i < ids.length; i += chunkSize) {
+		out.push(...(await fetchSlice(ids.slice(i, i + chunkSize))));
+	}
+	return out;
+}
+
 export type ScoreQuestion = {
 	id: string;
 	type: "rating" | "dropdown" | "text";

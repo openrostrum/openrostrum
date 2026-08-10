@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { Db } from "~/db";
 import {
+	evaluationAnswers,
 	evaluationPlans,
 	evaluationRounds,
 	evaluations,
@@ -65,6 +66,51 @@ export async function mintEvaluations(
 	const [first, ...rest] = statements;
 	if (first) await db.batch([first, ...rest]);
 	return fresh.length;
+}
+
+/**
+ * Deleting a plan (or round) must delete its recorded answers FIRST:
+ * `evaluation_answers.question_id` is RESTRICT (so a scorecard edit can never
+ * silently destroy scores), which also aborts the parent cascade — without
+ * this pre-delete, plan/round deletion fails permanently once anyone has
+ * reviewed. Both statements run in one batch.
+ */
+export async function deletePlanDeep(db: Db, planId: string): Promise<void> {
+	await db.batch([
+		db
+			.delete(evaluationAnswers)
+			.where(
+				inArray(
+					evaluationAnswers.evaluationId,
+					db
+						.select({ id: evaluations.id })
+						.from(evaluations)
+						.innerJoin(
+							evaluationRounds,
+							eq(evaluationRounds.id, evaluations.roundId),
+						)
+						.where(eq(evaluationRounds.planId, planId)),
+				),
+			),
+		db.delete(evaluationPlans).where(eq(evaluationPlans.id, planId)),
+	]);
+}
+
+export async function deleteRoundDeep(db: Db, roundId: string): Promise<void> {
+	await db.batch([
+		db
+			.delete(evaluationAnswers)
+			.where(
+				inArray(
+					evaluationAnswers.evaluationId,
+					db
+						.select({ id: evaluations.id })
+						.from(evaluations)
+						.where(eq(evaluations.roundId, roundId)),
+				),
+			),
+		db.delete(evaluationRounds).where(eq(evaluationRounds.id, roundId)),
+	]);
 }
 
 /**

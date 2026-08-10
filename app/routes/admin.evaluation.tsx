@@ -15,10 +15,12 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
+	fetchChunked,
 	formatDay,
 	REVIEW_DECISION_TONE as DECISION_TONE,
 	REVIEW_PAGE_SIZE as PAGE_SIZE,
 } from "~/lib/evaluation";
+import { Pager } from "~/lib/pager";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -34,7 +36,6 @@ import {
 	StatusBadge,
 	Tab,
 	Table,
-	TableFooter,
 	Tabs,
 	TBody,
 	Td,
@@ -174,24 +175,26 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				.groupBy(reviews.submissionId, reviews.decision),
 		);
 		const reviewedIds = [...new Set(tallies.map((t) => t.submissionId))];
-		const rows =
-			reviewedIds.length === 0
-				? []
-				: await db
-						.select({
-							id: submissions.id,
-							title: submissions.title,
-							status: submissions.status,
-							createdAt: submissions.createdAt,
-						})
-						.from(submissions)
-						.where(
-							and(
-								inArray(submissions.id, reviewedIds),
-								q ? like(submissions.title, `%${q}%`) : undefined,
-							),
-						)
-						.orderBy(desc(submissions.createdAt));
+		// Chunked: an event can have hundreds of reviewed submissions, and one
+		// inArray over all of them would blow D1's bound-parameter cap.
+		const rows = (
+			await fetchChunked(reviewedIds, (chunk) =>
+				db
+					.select({
+						id: submissions.id,
+						title: submissions.title,
+						status: submissions.status,
+						createdAt: submissions.createdAt,
+					})
+					.from(submissions)
+					.where(
+						and(
+							inArray(submissions.id, chunk),
+							q ? like(submissions.title, `%${q}%`) : undefined,
+						),
+					),
+			)
+		).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 		const total = rows.length;
 		const pageRows = rows
 			.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -547,7 +550,6 @@ function DecisionsTab({
 }) {
 	if (!decisions) return null;
 	const { rows, total, page, q, detail } = decisions;
-	const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 	const pageLink = (p: number) =>
 		`?tab=decisions&page=${p}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
 	return (
@@ -639,24 +641,7 @@ function DecisionsTab({
 					)}
 				</TBody>
 			</Table>
-			{total > PAGE_SIZE && (
-				<div className="flex items-center gap-3">
-					{page > 1 && (
-						<ButtonLink to={pageLink(page - 1)} variant="ghost">
-							Previous
-						</ButtonLink>
-					)}
-					<TableFooter>
-						{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of{" "}
-						{total}
-					</TableFooter>
-					{page < pages && (
-						<ButtonLink to={pageLink(page + 1)} variant="ghost">
-							Next
-						</ButtonLink>
-					)}
-				</div>
-			)}
+			<Pager page={page} total={total} link={(p) => pageLink(p)} />
 		</>
 	);
 }

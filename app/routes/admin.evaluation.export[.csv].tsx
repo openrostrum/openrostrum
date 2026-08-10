@@ -1,21 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "~/db";
-import {
-	evaluationAnswers,
-	evaluationPlans,
-	evaluationRounds,
-	evaluations,
-	roundQuestions,
-	submissions,
-	users,
-} from "~/db/schema";
+import { evaluationPlans } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
-import {
-	evaluationScore,
-	formatScore,
-	meanScore,
-	toCsv,
-} from "~/lib/evaluation";
+import { formatScore, meanScore, toCsv } from "~/lib/evaluation";
+import { loadPlanScores } from "~/lib/plan-scores";
 import { createTimings, track } from "~/lib/track";
 import type { Route } from "./+types/admin.evaluation.export[.csv]";
 
@@ -49,92 +37,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	if (!plan) throw new Response("Not found", { status: 404 });
 
 	const timings = createTimings();
-	const [rounds, questions, evalRows, answerRows] = await timings.time(
-		"db",
-		() =>
-			Promise.all([
-				db
-					.select()
-					.from(evaluationRounds)
-					.where(eq(evaluationRounds.planId, plan.id))
-					.orderBy(evaluationRounds.position, evaluationRounds.createdAt),
-				db
-					.select({
-						id: roundQuestions.id,
-						roundId: roundQuestions.roundId,
-						label: roundQuestions.label,
-						type: roundQuestions.type,
-						weight: roundQuestions.weight,
-						position: roundQuestions.position,
-					})
-					.from(roundQuestions)
-					.innerJoin(
-						evaluationRounds,
-						eq(evaluationRounds.id, roundQuestions.roundId),
-					)
-					.where(eq(evaluationRounds.planId, plan.id))
-					.orderBy(roundQuestions.position),
-				db
-					.select({
-						id: evaluations.id,
-						roundId: evaluations.roundId,
-						submissionId: evaluations.submissionId,
-						status: evaluations.status,
-						submittedAt: evaluations.submittedAt,
-						abstainReason: evaluations.abstainReason,
-						evaluatorName: users.name,
-						evaluatorEmail: users.email,
-						submissionTitle: submissions.title,
-						submissionStatus: submissions.status,
-					})
-					.from(evaluations)
-					.innerJoin(users, eq(users.id, evaluations.evaluatorId))
-					.innerJoin(submissions, eq(submissions.id, evaluations.submissionId))
-					.innerJoin(
-						evaluationRounds,
-						eq(evaluationRounds.id, evaluations.roundId),
-					)
-					.where(eq(evaluationRounds.planId, plan.id)),
-				db
-					.select({
-						evaluationId: evaluationAnswers.evaluationId,
-						questionId: evaluationAnswers.questionId,
-						valueNumber: evaluationAnswers.valueNumber,
-						valueText: evaluationAnswers.valueText,
-					})
-					.from(evaluationAnswers)
-					.innerJoin(
-						evaluations,
-						eq(evaluations.id, evaluationAnswers.evaluationId),
-					)
-					.innerJoin(
-						evaluationRounds,
-						eq(evaluationRounds.id, evaluations.roundId),
-					)
-					.where(eq(evaluationRounds.planId, plan.id)),
-			]),
-	);
-
+	const scores = await timings.time("db", () => loadPlanScores(db, plan.id));
+	const { rounds, questionsByRound, evalRows, answersByEval, scoreOf } = scores;
 	const roundName = new Map(rounds.map((r) => [r.id, r.name]));
-	const answersByEval = new Map<string, typeof answerRows>();
-	for (const a of answerRows) {
-		const list = answersByEval.get(a.evaluationId) ?? [];
-		list.push(a);
-		answersByEval.set(a.evaluationId, list);
-	}
-	const questionsByRound = new Map<string, typeof questions>();
-	for (const q of questions) {
-		const list = questionsByRound.get(q.roundId) ?? [];
-		list.push(q);
-		questionsByRound.set(q.roundId, list);
-	}
-	const scoreOf = (e: (typeof evalRows)[number]) =>
-		e.status === "completed"
-			? evaluationScore(
-					questionsByRound.get(e.roundId) ?? [],
-					answersByEval.get(e.id) ?? [],
-				)
-			: null;
 
 	let rows: unknown[][];
 	if (report === "individual") {
