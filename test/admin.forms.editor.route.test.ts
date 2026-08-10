@@ -1227,14 +1227,27 @@ describe("stale notify recipients", () => {
 	it("drops recipients who left the org instead of bricking every save", async () => {
 		const { db, cookie } = await seedBase();
 		const formId = await createForm(cookie);
+		// A second org member is the stored recipient — auth is membership-aware,
+		// so the ACTING admin must keep their own membership to stay signed in.
+		await db.insert(users).values({
+			id: "u_leaver",
+			email: "leaver@test.co",
+			passwordHash: await hashPassword("pw"),
+			role: "admin",
+		});
+		await db.insert(organizationMembers).values({
+			id: "om_leaver",
+			organizationId: "org1",
+			userId: "u_leaver",
+		});
 		await action(
-			actionArgs(formId, saveFormBody({}, [["notifyNew", "u_admin"]]), cookie),
+			actionArgs(formId, saveFormBody({}, [["notifyNew", "u_leaver"]]), cookie),
 		);
 		// The recipient leaves the organization; their stored id must not come
 		// back as an unremovable hidden selection.
 		await db
 			.delete(organizationMembers)
-			.where(eq(organizationMembers.id, "om1"));
+			.where(eq(organizationMembers.id, "om_leaver"));
 		const result = (await loader(loaderArgs(formId, cookie))) as unknown as {
 			data: { notify: { newSubmission: string[] } };
 		};
