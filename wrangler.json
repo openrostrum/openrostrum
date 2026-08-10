@@ -24,6 +24,10 @@
 			"bucket_name": "openrostrum-files"
 		}
 	],
+	"ai": {
+		"binding": "AI",
+		"remote": true
+	},
 	"triggers": {
 		"crons": ["0 9 * * *", "0 * * * *"]
 	},

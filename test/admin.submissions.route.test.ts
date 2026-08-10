@@ -163,6 +163,98 @@ describe("admin submissions route", () => {
 		expect(result.eventName).toBeNull();
 	});
 
+	// A filter control that changes nothing is worse than none: each param
+	// must narrow BOTH the rows and the total, so "N total/matching" always
+	// reflects the selection (the loader once ignored its search params).
+	describe("type/status filters", () => {
+		async function loadWith(query: string) {
+			// adminRequest first — it mints u_admin, which the membership row needs.
+			const request = await adminRequest(
+				`http://localhost/admin/submissions${query}`,
+			);
+			const db = getDb(env);
+			await db.insert(organizations).values({ id: "org1", name: "Org" });
+			await joinOrg1();
+			await db
+				.insert(events)
+				.values({ id: "e1", organizationId: "org1", name: "E", slug: "e" });
+			await db.insert(submissions).values([
+				{
+					id: "ab1",
+					eventId: "e1",
+					title: "Abstract pending",
+					type: "abstract",
+					status: "pending",
+				},
+				{
+					id: "ab2",
+					eventId: "e1",
+					title: "Abstract accepted",
+					type: "abstract",
+					status: "accepted",
+				},
+				{
+					id: "se1",
+					eventId: "e1",
+					title: "Session accepted",
+					type: "session",
+					status: "accepted",
+				},
+				{
+					id: "se2",
+					eventId: "e1",
+					title: "Session draft",
+					type: "session",
+					status: "draft",
+				},
+			]);
+			return (await loader({
+				context: CONTEXT,
+				request,
+				params: {},
+			} as unknown as Parameters<typeof loader>[0])) as unknown as {
+				data: {
+					submissions: Array<{ id: string; title: string; status: string }>;
+					total: number;
+					filterType: string;
+					filterStatus: string;
+				};
+			};
+		}
+
+		it("?type=session returns only session rows and a matching total", async () => {
+			const result = await loadWith("?type=session");
+			expect(result.data.submissions.map((s) => s.id).sort()).toEqual([
+				"se1",
+				"se2",
+			]);
+			expect(result.data.total).toBe(2);
+			expect(result.data.filterType).toBe("session");
+		});
+
+		it("?status=accepted returns only accepted rows across both types", async () => {
+			const result = await loadWith("?status=accepted");
+			expect(result.data.submissions.map((s) => s.id).sort()).toEqual([
+				"ab2",
+				"se1",
+			]);
+			expect(result.data.total).toBe(2);
+		});
+
+		it("type and status combine (AND)", async () => {
+			const result = await loadWith("?type=abstract&status=pending");
+			expect(result.data.submissions.map((s) => s.id)).toEqual(["ab1"]);
+			expect(result.data.total).toBe(1);
+		});
+
+		it("unknown filter values fall back to the unfiltered list, never an error", async () => {
+			const result = await loadWith("?type=keynote&status=maybe");
+			expect(result.data.total).toBe(4);
+			expect(result.data.filterType).toBe("");
+			expect(result.data.filterStatus).toBe("");
+		});
+	});
+
 	// Guards against the false-positive that a bare createInsertSchema allows:
 	// an event IS seeded, so a blank title can only be rejected by validation,
 	// not masked by a DB FK error.

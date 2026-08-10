@@ -5,9 +5,9 @@ import { cn } from "~/ui/cn";
 // @theme tokens the live app uses — so the marketing page shows the actual
 // thing, not a stylized impression. Presentational only (aria-hidden).
 //
-// Status tones mirror StatusBadge exactly, minus the dark: variants — the
-// landing is pinned light, but Tailwind's `dark:` keys on the OS media query
-// and would leak dark fills through the pin on a dark machine.
+// Status tones mirror StatusBadge's light half as static palette classes —
+// the landing is pinned light, so StatusBadge's light-dark() pairs would
+// always resolve to these values anyway.
 
 const STATUS = {
 	accepted: "bg-emerald-100 text-emerald-800",

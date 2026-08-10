@@ -33,6 +33,11 @@ export default defineConfig(async () => {
 			tsconfigPaths(),
 			cloudflareTest({
 				wrangler: { configPath: "./wrangler.json" },
+				// The `ai` binding is inherently remote: with remote bindings on, the
+				// pool opens a proxy session to Cloudflare at startup — which needs
+				// wrangler auth (breaks CI) and would let a test reach live Workers AI
+				// (breaks hermeticity). Tests stub the model at the binding seam.
+				remoteBindings: false,
 				miniflare: {
 					bindings: {
 						...blankedDevVars(),

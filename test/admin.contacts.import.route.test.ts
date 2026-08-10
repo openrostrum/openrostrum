@@ -193,6 +193,235 @@ describe("CSV import", () => {
 		expect(vip?.status).toBe("pending");
 	});
 
+	it("merges a full-name column as split first/last — never the whole name into first_name", async () => {
+		const db = getDb(env);
+		const csv = [
+			"Name,Email,Company",
+			"Sam Speaker,SPEAKER@example.com,Agentic Labs",
+			"Grace Hopper,grace@example.com,US Navy",
+		].join("\n");
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{
+				method: "POST",
+				body: importBody(csv, { email: "1", fullName: "0", companyName: "2" }),
+			},
+		);
+		await seedEvent();
+		await db.insert(contacts).values([
+			{
+				id: "c_sam",
+				eventId: "e1",
+				email: "speaker@example.com",
+				firstName: "Sam",
+				lastName: "Speaker",
+			},
+			// Stale last name in the DB — the split half must update it.
+			{
+				id: "c_grace",
+				eventId: "e1",
+				email: "grace@example.com",
+				firstName: "Grace",
+				lastName: "H",
+			},
+		]);
+
+		const result = (
+			(await run(request)) as unknown as {
+				data: { step: string; merged: number; added: number };
+			}
+		).data;
+
+		expect(result.step).toBe("done");
+		expect(result.merged).toBe(2);
+		expect(result.added).toBe(0);
+		const [sam] = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.id, "c_sam"));
+		expect(sam?.firstName).toBe("Sam");
+		expect(sam?.lastName).toBe("Speaker");
+		expect(sam?.companyName).toBe("Agentic Labs");
+		const [grace] = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.id, "c_grace"));
+		expect(grace?.firstName).toBe("Grace");
+		expect(grace?.lastName).toBe("Hopper");
+	});
+
+	it("splits full names on add: last space, 'Last, First', and mononyms", async () => {
+		const db = getDb(env);
+		const csv = [
+			"Name,Email",
+			"Ada Lovelace,ada@example.com",
+			'"Watson, Mary Jane",mj@example.com',
+			"Plato,plato@academy.gr",
+		].join("\n");
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{ method: "POST", body: importBody(csv, { email: "1", fullName: "0" }) },
+		);
+		await seedEvent();
+
+		const result = (
+			(await run(request)) as unknown as {
+				data: { step: string; added: number };
+			}
+		).data;
+
+		expect(result.step).toBe("done");
+		expect(result.added).toBe(3);
+		const byEmail = new Map(
+			(await db.select().from(contacts)).map((c) => [c.email, c]),
+		);
+		expect(byEmail.get("ada@example.com")).toMatchObject({
+			firstName: "Ada",
+			lastName: "Lovelace",
+		});
+		expect(byEmail.get("mj@example.com")).toMatchObject({
+			firstName: "Mary Jane",
+			lastName: "Watson",
+		});
+		expect(byEmail.get("plato@academy.gr")).toMatchObject({
+			firstName: "Plato",
+			lastName: "",
+		});
+	});
+
+	it("merging a mononym full name never blanks the existing last name", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{
+				method: "POST",
+				body: importBody("Name,Email\nSam,speaker@example.com", {
+					email: "1",
+					fullName: "0",
+				}),
+			},
+		);
+		await seedEvent();
+		await db.insert(contacts).values({
+			id: "c_sam",
+			eventId: "e1",
+			email: "speaker@example.com",
+			firstName: "Sam",
+			lastName: "Speaker",
+		});
+
+		await run(request);
+
+		const [sam] = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.id, "c_sam"));
+		expect(sam?.firstName).toBe("Sam");
+		expect(sam?.lastName).toBe("Speaker");
+	});
+
+	it("re-importing the same file merges every row and adds nothing", async () => {
+		const db = getDb(env);
+		const csv = [
+			"Name,Email,Company",
+			"Ada Lovelace,ADA@Example.com,Analytical Engines",
+			"Grace Hopper,grace.hopper@example.com,US Navy",
+		].join("\n");
+		const mapping = { email: "1", fullName: "0", companyName: "2" };
+		const first = await adminRequest("http://localhost/admin/contacts/import", {
+			method: "POST",
+			body: importBody(csv, mapping),
+		});
+		await seedEvent();
+		await run(first);
+
+		const setCookie = await createSession(env, "u_admin");
+		const again = new Request("http://localhost/admin/contacts/import", {
+			method: "POST",
+			body: importBody(csv, mapping),
+			headers: { Cookie: setCookie.split(";")[0] ?? "" },
+		});
+		const result = (
+			(await run(again)) as unknown as {
+				data: { added: number; merged: number; skipped: number };
+			}
+		).data;
+
+		expect(result.added).toBe(0);
+		expect(result.merged).toBe(2);
+		expect(result.skipped).toBe(0);
+		const rows = await db.select().from(contacts);
+		expect(rows).toHaveLength(2);
+		expect(rows.map((c) => `${c.firstName}|${c.lastName}`).sort()).toEqual([
+			"Ada|Lovelace",
+			"Grace|Hopper",
+		]);
+	});
+
+	it("guesses a bare 'name' header as the full-name column, unless split columns exist", async () => {
+		const upload = (fileBody: string) => {
+			const form = new FormData();
+			form.set("intent", "upload");
+			form.set(
+				"file",
+				new File([fileBody], "roster.csv", { type: "text/csv" }),
+			);
+			return form;
+		};
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{ method: "POST", body: upload("Name,Email\nAda Lovelace,a@b.co") },
+		);
+		await seedEvent();
+		const single = (await run(request)) as {
+			guesses?: Record<string, number | null>;
+		};
+		expect(single.guesses?.fullName).toBe(0);
+
+		const setCookie = await createSession(env, "u_admin");
+		const both = (await run(
+			new Request("http://localhost/admin/contacts/import", {
+				method: "POST",
+				body: upload("Name,First Name,Last Name,Email\nx,Ada,Lovelace,a@b.co"),
+				headers: { Cookie: setCookie.split(";")[0] ?? "" },
+			}),
+		)) as { guesses?: Record<string, number | null> };
+		expect(both.guesses?.firstName).toBe(1);
+		expect(both.guesses?.lastName).toBe(2);
+		// Guessing full name TOO would trip the exclusivity check on defaults.
+		expect(both.guesses?.fullName).toBeNull();
+	});
+
+	it("refuses a mapping with no name column, and one with both name styles", async () => {
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{
+				method: "POST",
+				body: importBody("a,b\nx,y@z.co", { email: "1" }),
+			},
+		);
+		await seedEvent();
+		const none = (await run(request)) as { step: string; formError?: string };
+		expect(none.step).toBe("map");
+		expect(none.formError).toMatch(/map a name column/i);
+
+		const setCookie = await createSession(env, "u_admin");
+		const both = (await run(
+			new Request("http://localhost/admin/contacts/import", {
+				method: "POST",
+				body: importBody("name,first,email\nAda Lovelace,Ada,a@b.co", {
+					email: "2",
+					fullName: "0",
+					firstName: "1",
+				}),
+				headers: { Cookie: setCookie.split(";")[0] ?? "" },
+			}),
+		)) as { step: string; formError?: string };
+		expect(both.step).toBe("map");
+		expect(both.formError).toMatch(/not both/i);
+		expect(await getDb(env).select().from(contacts)).toHaveLength(0);
+	});
+
 	it("refuses an unmapped email column — dedupe would be meaningless", async () => {
 		const request = await adminRequest(
 			"http://localhost/admin/contacts/import",

@@ -33,9 +33,12 @@ export const MERGE_TAGS = [
 
 export type MergeTag = (typeof MERGE_TAGS)[number]["tag"];
 
-/** Keyed on the published tag union so a typo'd key at a send site is a
- * compile error instead of silently-deleted content in a delivered email. */
-export type MergeContext = Partial<Record<MergeTag, string | null>>;
+/** FULL record on the published tag union: a typo'd key is a compile error,
+ * and a tag added to MERGE_TAGS fails compilation at every template-pipeline
+ * site — a partial context is how a tag renders resolved in the editor
+ * preview and blank in the delivered email. `null` = "no value here" and
+ * renders as empty string. */
+export type MergeContext = Record<MergeTag, string | null>;
 
 const TAG_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 

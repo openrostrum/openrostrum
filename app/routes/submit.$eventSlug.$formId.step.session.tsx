@@ -58,6 +58,7 @@ import { submissions } from "~/db/schema";
 import { getUser, requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
 import {
 	Button,
@@ -364,6 +365,7 @@ export default function SessionStep({
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const saveFetcher = useFetcher<SessionActionResult>();
+	const busy = useBusy();
 	const [errors, setErrors] = useState<Record<string, string>>({});
 
 	const base = submitBasePath(params.eventSlug, params.formId);
@@ -588,13 +590,15 @@ export default function SessionStep({
 						<Button
 							variant="ghost"
 							type="button"
-							disabled={saveFetcher.state !== "idle"}
+							disabled={busy}
 							onClick={saveDraft}
 						>
 							{saveFetcher.state !== "idle" ? "Saving…" : "Save as draft"}
 						</Button>
 					)}
-					<Button type="button" onClick={advance}>
+					{/* Advancing while a draft save is in flight would carry a stale
+					    (sid-less) wizard state into the review step — busy covers it. */}
+					<Button type="button" disabled={busy} onClick={advance}>
 						{layout.form.participantsStep
 							? "Next step →"
 							: "Continue to review →"}
@@ -621,6 +625,7 @@ function DraftsHub({
 	portalPath: string | null;
 }) {
 	const deleteFetcher = useFetcher<SessionActionResult>();
+	const busy = useBusy();
 	const [confirming, setConfirming] = useState<string | null>(null);
 
 	return (
@@ -691,6 +696,7 @@ function DraftsHub({
 				confirm={
 					<Button
 						type="button"
+						disabled={busy}
 						onClick={() => {
 							if (confirming) {
 								deleteFetcher.submit(

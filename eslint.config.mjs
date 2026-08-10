@@ -108,6 +108,7 @@ export default [
 		plugins: { openrostrum: openrostrumPlugin },
 		settings: { react: { version: "19.2.1" } },
 		rules: {
+			"openrostrum/no-dark-variants": "error",
 			"openrostrum/no-raw-tailwind-colors": "error",
 			"openrostrum/structured-tailwind-classname": "error",
 			"react/react-in-jsx-scope": "off", // React 19 / RR7 — no import needed

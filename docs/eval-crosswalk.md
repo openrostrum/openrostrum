@@ -36,7 +36,7 @@ doesn't — never hide a feature, and never gate one behind an emailed link.
 | CFP-15 | 2 | Accepted submission becomes session w/ metadata, no re-entry | P0 #4 accept spine (`app/domain/accept.ts`) |
 | CFP-16 | 2 | Editing locks after close | **P1 #19 (new)** |
 
-## 02 Abstract Management (28 pts judged; ABS-14 N/A unless we claim AI)
+## 02 Abstract Management (29 pts judged — ABS-14 is claimed: AI review shipped)
 
 | ID | W | Criterion (short) | Owner |
 |----|---|-------------------|-------|
@@ -53,7 +53,7 @@ doesn't — never hide a feature, and never gate one behind an emailed link.
 | ABS-11 | 2 | Co-authors w/ role labels persist to organizer views | P0 #2 participants + P1 #19 (add by edit) |
 | ABS-12 | 1 | Conflict-of-interest recusal | P1 #10 — `evaluations.status='abstained'` |
 | ABS-13 | 2 | Review scores export (CSV) | P2 #3 committed set — `admin.evaluation.export.csv` |
-| ABS-14 | 1 | AI triage (only if claimed) | N/A — we don't claim AI review (P2 #7 skipped) |
+| ABS-14 | 1 | AI triage (only if claimed) | P2 #7 SHIPPED — `/admin/evaluation?tab=ai` (Workers AI first-pass score + rationale, `ai_reviews`; human override persists; AI column in plan results + cumulative CSV) |
 
 ## 03 Speaker Management (36 pts)
 
