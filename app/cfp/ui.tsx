@@ -473,7 +473,7 @@ export function LinkishButton({
 		<button
 			type="submit"
 			{...props}
-			className="rounded-[3px] font-medium text-petrol underline underline-offset-2 hover:text-petrol-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+			className="rounded-[3px] font-medium text-petrol underline underline-offset-2 hover:text-petrol-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol disabled:cursor-default disabled:text-fg-faint disabled:hover:text-fg-faint"
 		>
 			{children}
 		</button>

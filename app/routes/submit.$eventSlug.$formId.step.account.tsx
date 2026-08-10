@@ -17,6 +17,7 @@ import {
 } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
 import { getTurnstile } from "~/ports/turnstile";
 import {
@@ -257,6 +258,7 @@ export default function AccountStep({
 	const layout = useRouteLoaderData<LayoutRoute.ComponentProps["loaderData"]>(
 		"routes/submit.$eventSlug.$formId",
 	);
+	const busy = useBusy();
 	if (!layout) return null;
 	const base = submitBasePath(layout.event.slug, layout.form.publicId);
 	const result = actionData as ActionResult | undefined;
@@ -335,7 +337,7 @@ export default function AccountStep({
 							resetSignal={actionData}
 						/>
 						<div className="flex flex-wrap items-center gap-3">
-							<Button type="submit" name="intent" value="login">
+							<Button type="submit" name="intent" value="login" disabled={busy}>
 								Log In →
 							</Button>
 							<ButtonLink to={base} variant="ghost">
@@ -391,7 +393,12 @@ export default function AccountStep({
 							resetSignal={actionData}
 						/>
 						<div className="flex flex-wrap items-center gap-3">
-							<Button type="submit" name="intent" value="signup">
+							<Button
+								type="submit"
+								name="intent"
+								value="signup"
+								disabled={busy}
+							>
 								Create account
 							</Button>
 							<ButtonLink to={base} variant="ghost">
@@ -405,7 +412,12 @@ export default function AccountStep({
 					<>
 						{result?.error && <ErrorText>{result.error}</ErrorText>}
 						<div className="flex flex-wrap items-center gap-3">
-							<Button type="submit" name="intent" value="lookup">
+							<Button
+								type="submit"
+								name="intent"
+								value="lookup"
+								disabled={busy}
+							>
 								Next →
 							</Button>
 							<ButtonLink to={base} variant="ghost">
