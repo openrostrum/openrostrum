@@ -1,3 +1,6 @@
+import { errorMessage } from "~/lib/errors";
+import { track } from "~/lib/track";
+
 /**
  * JOB REGISTRY — parallel-agent-safe scheduled work. Each feature drops
  * `app/jobs/<name>.scheduled.ts` exporting a default ScheduledJob; the worker
@@ -16,10 +19,6 @@ export interface ScheduledJob {
 	run(env: Env, ctx: ExecutionContext): Promise<void>;
 }
 
-// Cadence constants live in ./cadence.ts — jobs must import them from there,
-// never from this module (the eager glob below makes that import circular).
-export { DAILY_CRON, HOURLY_CRON } from "./cadence";
-
 const modules = import.meta.glob<{ default: ScheduledJob }>(
 	"./*.scheduled.ts",
 	{ eager: true },
@@ -33,7 +32,8 @@ export const scheduledJobs: ScheduledJob[] = Object.values(modules).map(
  * Runs the jobs whose `cron` matches this tick's trigger. An empty/absent
  * cron (only possible from a manual `wrangler dev` test trigger without a
  * `?cron=` param) runs everything — in production `controller.cron` always
- * carries the matching expression.
+ * carries the matching expression. Jobs run serially but isolated: one job
+ * throwing must never starve the jobs after it of their tick.
  */
 export async function runScheduledJobs(
 	cron: string | undefined,
@@ -44,6 +44,10 @@ export async function runScheduledJobs(
 		? scheduledJobs.filter((job) => job.cron === cron)
 		: scheduledJobs;
 	for (const job of due) {
-		await job.run(env, ctx);
+		try {
+			await job.run(env, ctx);
+		} catch (error) {
+			track("jobs.run_failed", { job: job.name, error: errorMessage(error) });
+		}
 	}
 }

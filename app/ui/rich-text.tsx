@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { cn } from "./cn";
 
 /**
- * THE shared rich-text editor (Tiptap; B/I/U, lists, links per SCOPE). Every
+ * THE shared rich-text editor (Tiptap; B/I/U, lists, links). Every
  * WYSIWYG surface renders this one component — emails, CFP wizard, portal,
  * contacts, form builder. Sanitization stays a WRITE-boundary concern
  * (`sanitizeHtml` in app/lib/html.ts) — this component only edits.

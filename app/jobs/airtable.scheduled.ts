@@ -18,8 +18,9 @@ const job: ScheduledJob = {
 		try {
 			await runAirtableSync(env, { trigger: "cron" });
 		} catch (error) {
-			// The registry runs jobs serially — a sync failure must never starve
-			// the jobs after it of their tick.
+			// Sync failures are expected operational events (rate limits, breaker),
+			// tracked under their own name so sync health is queryable — distinct
+			// from the registry's last-resort jobs.run_failed.
 			track("sync.job_failed", { error: errorMessage(error) });
 		}
 	},

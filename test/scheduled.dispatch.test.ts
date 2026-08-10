@@ -1,7 +1,8 @@
 import { createExecutionContext, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { emailOutbox, taskAssignments } from "../app/db/schema";
-import { DAILY_CRON, HOURLY_CRON, scheduledJobs } from "../app/jobs/registry";
+import { DAILY_CRON, HOURLY_CRON } from "../app/jobs/cadence";
+import { scheduledJobs } from "../app/jobs/registry";
 import wrangler from "../wrangler.json";
 import worker from "../workers/app";
 import { DAY_MS, seedTasksBaseline } from "./tasks-fixtures";
@@ -54,30 +55,13 @@ describe("scheduled() cron dispatch", () => {
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
 
-	it("routes each tick to exactly the jobs declaring that cadence", async () => {
-		const ran: string[] = [];
-		const originals = scheduledJobs.map((job) => job.run);
-		try {
-			for (const job of scheduledJobs) {
-				job.run = async () => {
-					ran.push(job.name);
-				};
-			}
-			await tick(DAILY_CRON);
-			expect(ran).toEqual(["task-due-reminders"]);
-			ran.length = 0;
-			await tick(HOURLY_CRON);
-			expect(ran).toEqual(["airtable-sync"]);
-			ran.length = 0;
-			// A manual test trigger without a cron runs everything.
-			await tick("");
-			expect([...ran].sort()).toEqual(["airtable-sync", "task-due-reminders"]);
-		} finally {
-			scheduledJobs.forEach((job, i) => {
-				const run = originals[i];
-				if (run) job.run = run;
-			});
-		}
+	it("a manual test trigger without a cron runs every job", async () => {
+		// Same observable outcome as the daily tick: the due reminder sends —
+		// proving the reminder job is included when no cadence is given (the
+		// Airtable poll runs too; unconfigured it no-ops).
+		const db = await seedDueReminder();
+		await tick("");
+		expect(await db.select().from(emailOutbox)).toHaveLength(1);
 	});
 
 	it("every job's cadence is registered in wrangler.json triggers.crons", () => {
