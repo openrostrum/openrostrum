@@ -128,6 +128,7 @@ function SpeakerVisibilityToggle({ speaker }: { speaker: RowSpeaker }) {
 					value="set-speaker-visibility"
 					variant="ghost"
 					icon="eye"
+					disabled={fetcher.state !== "idle"}
 					aria-pressed={!visible}
 					title={
 						visible

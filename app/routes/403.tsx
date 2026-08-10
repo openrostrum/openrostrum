@@ -1,6 +1,6 @@
 // @public — the denial page must render for every role, and for signed-out
 // visitors who followed a stale link.
-import { Form } from "react-router";
+import { Form, useNavigation } from "react-router";
 import { getUser, homePathForRole } from "~/lib/auth";
 import { Button, ButtonLink, EmptyState } from "~/ui";
 import type { Route } from "./+types/403";
@@ -30,6 +30,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 
 export default function Forbidden({ loaderData }: Route.ComponentProps) {
 	const { viewer } = loaderData;
+	const busy = useNavigation().state !== "idle";
 	return (
 		<main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6">
 			<EmptyState
@@ -45,7 +46,7 @@ export default function Forbidden({ loaderData }: Route.ComponentProps) {
 						<div className="flex flex-wrap items-center justify-center gap-2">
 							<ButtonLink to={viewer.homePath}>{viewer.homeLabel}</ButtonLink>
 							<Form method="post" action="/logout">
-								<Button type="submit" variant="ghost">
+								<Button type="submit" variant="ghost" disabled={busy}>
 									Sign out
 								</Button>
 							</Form>
