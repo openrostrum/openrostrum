@@ -1,0 +1,653 @@
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+import { createEvent } from "ics";
+import type { Db } from "~/db";
+import { DECISION_STATUS, SUBMISSION_STATUS } from "~/db/constants";
+import {
+	contacts,
+	emailTemplates,
+	events,
+	participants,
+	rooms,
+	type Submission,
+	submissions,
+	taskAssignments,
+	tasks,
+	users,
+} from "~/db/schema";
+import { normalizeEmail } from "~/lib/auth";
+import { track } from "~/lib/track";
+import { getEmailSender } from "~/ports/email";
+
+/**
+ * The accept/decline spine — the ONE code path for every submission decision
+ * (admin inline flip, bulk edit, compat API, Airtable-inbound). Caller
+ * contract: pass rows you already fetched, authorized, and scoped to your
+ * tenant boundary — the spine takes no org/event parameter and must never
+ * receive a row the caller wasn't allowed to touch. Status changes NEVER
+ * send email; `sendDecisionEmails` is the separate, explicit notification.
+ */
+
+export type SubmissionStatus = (typeof SUBMISSION_STATUS)[number];
+export type DecisionStatus = (typeof DECISION_STATUS)[number];
+
+export interface TransitionResult {
+	submissionId: string;
+	from: SubmissionStatus;
+	to: SubmissionStatus;
+	ok: boolean;
+	/** Human-readable refusal, present when `ok` is false. */
+	reason?: string;
+}
+
+/**
+ * `draft` rows are pre-submission and can never receive a decision; every
+ * other status (including `withdrawn`, whose resolutions are decline or
+ * undo) may take any decision status, and a same-status re-apply is legal.
+ */
+export function canReceiveDecision(
+	from: SubmissionStatus,
+): { ok: true } | { ok: false; reason: string } {
+	if (from === "draft") {
+		return {
+			ok: false,
+			reason:
+				"Draft submissions have not been submitted — no decision applies.",
+		};
+	}
+	return { ok: true };
+}
+
+/**
+ * Transition rows to a decision status — single or bulk, one code path;
+ * illegal rows are skipped and reported per-row. On `accepted` it also
+ * provisions the speaker side (see `planAcceptProvisioning`); leaving
+ * `accepted` never un-provisions. Leaving `withdrawn` clears the withdrawal
+ * metadata ONLY on a genuine undo — the decline path (`decline_queue`,
+ * `declined`) keeps who/when/why as the record of why it ended declined.
+ * All writes per call run in one `db.batch`.
+ */
+export async function transitionSubmissions(
+	db: Db,
+	rows: Submission[],
+	to: DecisionStatus,
+): Promise<TransitionResult[]> {
+	const now = new Date();
+	const results: TransitionResult[] = [];
+	const legal: Submission[] = [];
+	for (const row of rows) {
+		const check = canReceiveDecision(row.status);
+		if (check.ok) {
+			legal.push(row);
+			results.push({ submissionId: row.id, from: row.status, to, ok: true });
+		} else {
+			results.push({
+				submissionId: row.id,
+				from: row.status,
+				to,
+				ok: false,
+				reason: check.reason,
+			});
+		}
+	}
+	if (legal.length === 0) return results;
+
+	const statements: BatchItem<"sqlite">[] = [];
+	for (const row of legal) {
+		const set: Partial<typeof submissions.$inferInsert> = {};
+		if (row.status !== to) {
+			set.status = to;
+			set.statusChangedAt = now;
+		}
+		if (
+			row.status === "withdrawn" &&
+			to !== "declined" &&
+			to !== "decline_queue"
+		) {
+			set.withdrawnAt = null;
+			set.withdrawnById = null;
+			set.withdrawnReason = null;
+		}
+		if (to === "accepted" && row.contentStatus === "draft") {
+			set.contentStatus = "in_review";
+		}
+		if (Object.keys(set).length) {
+			statements.push(
+				db.update(submissions).set(set).where(eq(submissions.id, row.id)),
+			);
+		}
+	}
+
+	const provisioning =
+		to === "accepted" ? await planAcceptProvisioning(db, legal, now) : null;
+	if (provisioning) statements.push(...provisioning.statements);
+
+	if (statements.length) {
+		await db.batch(
+			statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+		);
+	}
+
+	// A same-status re-apply is legal (it re-runs provisioning) but is not a
+	// transition — the event stream must record only real changes.
+	for (const row of legal.filter((r) => r.status !== to)) {
+		track("submission.status_changed", {
+			submissionId: row.id,
+			eventId: row.eventId,
+			from: row.status,
+			to,
+		});
+	}
+	provisioning?.emitEvents();
+	return results;
+}
+
+interface ProvisioningPlan {
+	statements: BatchItem<"sqlite">[];
+	/** Deferred so events fire only after the batch commits. */
+	emitEvents: () => void;
+}
+
+/**
+ * Accept-time provisioning: link speaker contacts to existing accounts by
+ * normalized email (never mints users, never emails — the invite flow is the
+ * explicit path that creates accounts), and mint onboarding task assignments
+ * for every speaker-role contact. The unique(taskId, contactId) index makes
+ * replays no-ops — which also means a submission-scoped task can exist only
+ * ONCE per contact: a second accepted submission for the same speaker skips
+ * it, reported via `accept.assignment_skipped`. Group-type tasks have no
+ * assignable target (no group model) and are never minted.
+ */
+async function planAcceptProvisioning(
+	db: Db,
+	rows: Submission[],
+	now: Date,
+): Promise<ProvisioningPlan> {
+	const ids = rows.map((r) => r.id);
+	const eventIds = [...new Set(rows.map((r) => r.eventId))];
+
+	const speakerRows = await db
+		.select({
+			submissionId: participants.submissionId,
+			contactId: contacts.id,
+			contactEmail: contacts.email,
+			contactUserId: contacts.userId,
+		})
+		.from(participants)
+		.innerJoin(contacts, eq(contacts.id, participants.contactId))
+		.where(
+			and(
+				inArray(participants.submissionId, ids),
+				eq(participants.role, "speaker"),
+			),
+		);
+
+	const taskDefs = await db
+		.select()
+		.from(tasks)
+		.where(
+			and(
+				inArray(tasks.eventId, eventIds),
+				eq(tasks.isOnboardingDefault, true),
+			),
+		);
+
+	const speakerContactIds = [...new Set(speakerRows.map((s) => s.contactId))];
+	const existing =
+		taskDefs.length && speakerContactIds.length
+			? await db
+					.select({
+						taskId: taskAssignments.taskId,
+						contactId: taskAssignments.contactId,
+						submissionId: taskAssignments.submissionId,
+					})
+					.from(taskAssignments)
+					.where(
+						and(
+							inArray(
+								taskAssignments.taskId,
+								taskDefs.map((t) => t.id),
+							),
+							inArray(taskAssignments.contactId, speakerContactIds),
+						),
+					)
+			: [];
+	const existingByKey = new Map(
+		existing.map((e) => [`${e.taskId}:${e.contactId}`, e]),
+	);
+
+	const unlinkedByContact = new Map<string, string>();
+	for (const s of speakerRows) {
+		if (!s.contactUserId) unlinkedByContact.set(s.contactId, s.contactEmail);
+	}
+	const emails = [
+		...new Set([...unlinkedByContact.values()].map(normalizeEmail)),
+	];
+	const userRows = emails.length
+		? await db
+				.select({ id: users.id, email: users.email })
+				.from(users)
+				.where(inArray(users.email, emails))
+		: [];
+	const userByEmail = new Map(userRows.map((u) => [u.email, u.id]));
+
+	const statements: BatchItem<"sqlite">[] = [];
+	const linkedContactIds = new Set<string>();
+	for (const [contactId, email] of unlinkedByContact) {
+		const userId = userByEmail.get(normalizeEmail(email));
+		if (!userId) continue;
+		linkedContactIds.add(contactId);
+		statements.push(
+			db
+				.update(contacts)
+				.set({ userId })
+				.where(and(eq(contacts.id, contactId), isNull(contacts.userId))),
+		);
+	}
+
+	const tasksByEvent = new Map<string, typeof taskDefs>();
+	for (const def of taskDefs) {
+		const list = tasksByEvent.get(def.eventId) ?? [];
+		list.push(def);
+		tasksByEvent.set(def.eventId, list);
+	}
+
+	const values: (typeof taskAssignments.$inferInsert)[] = [];
+	const planned = new Map(existingByKey);
+	type Skip = {
+		submissionId: string;
+		eventId: string;
+		taskId: string;
+		contactId: string;
+	};
+	const skips: Skip[] = [];
+	const perSubmission = new Map<
+		string,
+		{ speakers: number; assignmentsPlanned: number; contactsLinked: number }
+	>();
+	for (const row of rows) {
+		const speakers = speakerRows.filter((s) => s.submissionId === row.id);
+		const stats = {
+			speakers: speakers.length,
+			assignmentsPlanned: 0,
+			contactsLinked: speakers.filter((s) => linkedContactIds.has(s.contactId))
+				.length,
+		};
+		perSubmission.set(row.id, stats);
+		for (const def of tasksByEvent.get(row.eventId) ?? []) {
+			if (def.type === "group") continue;
+			for (const speaker of speakers) {
+				const key = `${def.id}:${speaker.contactId}`;
+				const taken = planned.get(key);
+				if (taken) {
+					// A submission-scoped task already held by another submission is a
+					// real drop, not an idempotent replay — surface it.
+					if (def.type === "submission" && taken.submissionId !== row.id) {
+						skips.push({
+							submissionId: row.id,
+							eventId: row.eventId,
+							taskId: def.id,
+							contactId: speaker.contactId,
+						});
+					}
+					continue;
+				}
+				planned.set(key, {
+					taskId: def.id,
+					contactId: speaker.contactId,
+					submissionId: def.type === "submission" ? row.id : null,
+				});
+				stats.assignmentsPlanned += 1;
+				values.push({
+					taskId: def.id,
+					contactId: speaker.contactId,
+					submissionId: def.type === "submission" ? row.id : null,
+					status: "incomplete",
+					dueAt:
+						def.dueInDays == null
+							? null
+							: new Date(now.getTime() + def.dueInDays * 86_400_000),
+				});
+			}
+		}
+	}
+	if (values.length) {
+		statements.push(
+			db
+				.insert(taskAssignments)
+				.values(values)
+				// Race guard only — the pre-read above already excluded known rows.
+				.onConflictDoNothing({
+					target: [taskAssignments.taskId, taskAssignments.contactId],
+				}),
+		);
+	}
+
+	return {
+		statements,
+		emitEvents() {
+			for (const row of rows) {
+				track("accept.provisioned", {
+					submissionId: row.id,
+					eventId: row.eventId,
+					...perSubmission.get(row.id),
+				});
+			}
+			for (const skip of skips) track("accept.assignment_skipped", skip);
+		},
+	};
+}
+
+/**
+ * Speaker-initiated withdrawal (the portal action's domain half; admin
+ * resolutions can reuse it). The reason is mandatory record, the session is
+ * unscheduled so no withdrawn ghost stays on the agenda, and content columns
+ * are untouched.
+ */
+export async function withdrawSubmission(
+	db: Db,
+	opts: { submission: Submission; byUserId: string; reason: string },
+): Promise<TransitionResult> {
+	const { submission } = opts;
+	const reason = opts.reason.trim();
+	const base = {
+		submissionId: submission.id,
+		from: submission.status,
+		to: "withdrawn",
+	} as const;
+	if (!reason) {
+		return { ...base, ok: false, reason: "A withdrawal reason is required." };
+	}
+	if (submission.status === "draft") {
+		return {
+			...base,
+			ok: false,
+			reason: "Drafts are not submitted — delete the draft instead.",
+		};
+	}
+	if (submission.status === "withdrawn") {
+		return {
+			...base,
+			ok: false,
+			reason: "This submission is already withdrawn.",
+		};
+	}
+	const now = new Date();
+	await db
+		.update(submissions)
+		.set({
+			status: "withdrawn",
+			statusChangedAt: now,
+			withdrawnAt: now,
+			withdrawnById: opts.byUserId,
+			withdrawnReason: reason,
+			startsAt: null,
+			endsAt: null,
+			roomId: null,
+		})
+		.where(eq(submissions.id, submission.id));
+	track("submission.withdrawn", {
+		submissionId: submission.id,
+		eventId: submission.eventId,
+		from: submission.status,
+	});
+	return { ...base, ok: true };
+}
+
+export interface DecisionSendResult {
+	submissionId: string;
+	ok: boolean;
+	to?: string;
+	/** True when the idempotency key already covered this send (no new email). */
+	deduped?: boolean;
+	reason?: string;
+}
+
+/** Product state, not an infrastructure failure — callers show it verbatim. */
+export class MissingTemplateError extends Error {
+	constructor(decision: "accept" | "decline") {
+		super(
+			`The "${decision}" email template is missing for this event — create it under Email Templates before sending decisions.`,
+		);
+		this.name = "MissingTemplateError";
+	}
+}
+
+/**
+ * The EXPLICIT decision notification — never triggered by a status change.
+ * One transactional email per submission (primary speaker contact, fallback
+ * submitter account) from the event's accept/decline template, with an .ics
+ * on accept (exact times when scheduled, otherwise a save-the-date hold that
+ * later schedule updates revise in place via the stable UID). `idempotencyKey`
+ * is minted by the submitting form: a double-submit dedupes, a fresh page is
+ * a deliberate re-send. Stamps `notifiedAt`; a deduped result proves a prior
+ * send, so it back-fills a missing stamp (partial-failure retry). Treat
+ * `notifiedAt` as a dispatch flag — the outbox row's `sentAt` is the
+ * authoritative send time. Refuses more than 100 rows per call (the per-send
+ * cap every caller inherits).
+ */
+export async function sendDecisionEmails(
+	db: Db,
+	env: Env,
+	opts: {
+		event: typeof events.$inferSelect;
+		rows: Submission[];
+		decision: "accept" | "decline";
+		idempotencyKey: string;
+	},
+): Promise<DecisionSendResult[]> {
+	const { event, rows, decision, idempotencyKey } = opts;
+	if (rows.length === 0) return [];
+	if (rows.length > 100) {
+		throw new Error(
+			"Decision emails go out in batches of up to 100 — narrow the selection.",
+		);
+	}
+
+	const [template] = await db
+		.select()
+		.from(emailTemplates)
+		.where(
+			and(
+				eq(emailTemplates.eventId, event.id),
+				eq(emailTemplates.key, decision),
+			),
+		)
+		.limit(1);
+	if (!template) throw new MissingTemplateError(decision);
+
+	const ids = rows.map((r) => r.id);
+	const speakerRows = await db
+		.select({
+			submissionId: participants.submissionId,
+			email: contacts.email,
+		})
+		.from(participants)
+		.innerJoin(contacts, eq(contacts.id, participants.contactId))
+		.where(
+			and(
+				inArray(participants.submissionId, ids),
+				eq(participants.role, "speaker"),
+			),
+		)
+		.orderBy(desc(participants.isPrimary), asc(participants.position));
+
+	const submitterIds = [
+		...new Set(rows.map((r) => r.submitterId).filter((v): v is string => !!v)),
+	];
+	const submitterRows = submitterIds.length
+		? await db
+				.select({ id: users.id, email: users.email })
+				.from(users)
+				.where(inArray(users.id, submitterIds))
+		: [];
+	const submitterEmail = new Map(submitterRows.map((u) => [u.id, u.email]));
+
+	const roomIds = [
+		...new Set(rows.map((r) => r.roomId).filter((v): v is string => !!v)),
+	];
+	const roomRows = roomIds.length
+		? await db
+				.select({ id: rooms.id, name: rooms.name })
+				.from(rooms)
+				.where(inArray(rooms.id, roomIds))
+		: [];
+	const roomName = new Map(roomRows.map((r) => [r.id, r.name]));
+
+	const sender = getEmailSender(env);
+	const results: DecisionSendResult[] = [];
+	const newlySent: string[] = [];
+	const dedupedIds: string[] = [];
+	for (const row of rows) {
+		const to =
+			speakerRows.find((s) => s.submissionId === row.id)?.email ??
+			(row.submitterId ? submitterEmail.get(row.submitterId) : undefined);
+		if (!to) {
+			results.push({
+				submissionId: row.id,
+				ok: false,
+				reason: "No speaker or submitter email on this submission.",
+			});
+			continue;
+		}
+		const room = row.roomId ? roomName.get(row.roomId) : undefined;
+		const result = await sender.send({
+			to,
+			replyTo: template.replyTo ?? undefined,
+			subject: template.subject,
+			html: template.bodyHtml + decisionDetailsHtml(row, event, decision, room),
+			ics:
+				decision === "accept" ? buildDecisionIcs(row, event, room) : undefined,
+			// The decision is part of the identity: an accept then a corrective
+			// decline on the SAME untouched selection must both deliver.
+			dedupeKey: `decision:${decision}:${idempotencyKey}:${row.id}`,
+			eventId: event.id,
+			templateId: template.id,
+			kind: "transactional",
+		});
+		(result.deduped ? dedupedIds : newlySent).push(row.id);
+		track("email.decision_sent", {
+			submissionId: row.id,
+			eventId: event.id,
+			decision,
+			deduped: result.deduped,
+		});
+		results.push({
+			submissionId: row.id,
+			ok: true,
+			to,
+			deduped: result.deduped,
+		});
+	}
+	const now = new Date();
+	if (newlySent.length) {
+		await db
+			.update(submissions)
+			.set({ notifiedAt: now })
+			.where(inArray(submissions.id, newlySent));
+	}
+	if (dedupedIds.length) {
+		await db
+			.update(submissions)
+			.set({ notifiedAt: now })
+			.where(
+				and(
+					inArray(submissions.id, dedupedIds),
+					isNull(submissions.notifiedAt),
+				),
+			);
+	}
+	return results;
+}
+
+/** Stable calendar identity per submission — schedule updates reuse it and bump SEQUENCE so clients revise the entry instead of duplicating it. */
+export function icsUidForSubmission(submissionId: string): string {
+	return `submission-${submissionId}@openrostrum`;
+}
+
+function buildDecisionIcs(
+	row: Submission,
+	event: typeof events.$inferSelect,
+	room: string | undefined,
+): string | undefined {
+	const scheduled = Boolean(row.startsAt && row.endsAt);
+	const start = scheduled ? row.startsAt : event.startsAt;
+	const end = scheduled ? row.endsAt : event.endsAt;
+	if (!start || !end) return undefined;
+	const { error, value } = createEvent({
+		title: scheduled
+			? `${row.title} — ${event.name}`
+			: `${event.name} (save the date): ${row.title}`,
+		start: icsDateArray(start),
+		end: icsDateArray(end),
+		startInputType: "utc",
+		endInputType: "utc",
+		uid: icsUidForSubmission(row.id),
+		sequence: 0,
+		location: (scheduled ? room : undefined) ?? event.location ?? undefined,
+		status: "CONFIRMED",
+	});
+	if (error || !value) {
+		track("email.ics_build_failed", {
+			submissionId: row.id,
+			eventId: row.eventId,
+			error: error?.message ?? "empty ics output",
+		});
+		return undefined;
+	}
+	return value;
+}
+
+function icsDateArray(d: Date): [number, number, number, number, number] {
+	return [
+		d.getUTCFullYear(),
+		d.getUTCMonth() + 1,
+		d.getUTCDate(),
+		d.getUTCHours(),
+		d.getUTCMinutes(),
+	];
+}
+
+/** Appended below the template body so the recipient knows WHICH submission the decision covers (a speaker can have several in flight). */
+function decisionDetailsHtml(
+	row: Submission,
+	event: typeof events.$inferSelect,
+	decision: "accept" | "decline",
+	room: string | undefined,
+): string {
+	const lines = [`<p><strong>Session:</strong> ${escapeHtml(row.title)}</p>`];
+	if (decision === "accept") {
+		if (row.startsAt && row.endsAt) {
+			const when = `${formatInTimezone(row.startsAt, event.timezone)} – ${formatInTimezone(row.endsAt, event.timezone, true)}`;
+			lines.push(
+				`<p><strong>When:</strong> ${escapeHtml(when)}${room ? ` · ${escapeHtml(room)}` : ""}</p>`,
+			);
+		} else {
+			lines.push(
+				"<p><strong>When:</strong> schedule to be announced — you'll receive a calendar update once your session is placed.</p>",
+			);
+		}
+	}
+	return `<hr>${lines.join("")}`;
+}
+
+function formatInTimezone(d: Date, timeZone: string, timeOnly = false): string {
+	try {
+		return new Intl.DateTimeFormat("en-US", {
+			timeZone,
+			...(timeOnly
+				? { timeStyle: "short" }
+				: { dateStyle: "medium", timeStyle: "short" }),
+		}).format(d);
+	} catch {
+		return d.toISOString();
+	}
+}
+
+function escapeHtml(s: string): string {
+	return s
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;");
+}
