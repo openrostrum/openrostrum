@@ -1,5 +1,6 @@
-import { count, sql } from "drizzle-orm";
-import { data, Form, Link, redirect } from "react-router";
+import { and, count, eq, ne, sql } from "drizzle-orm";
+import { useState } from "react";
+import { data, Form, Link, redirect, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
@@ -143,12 +144,25 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	);
 }
 
-export async function action({ context, request }: Route.ActionArgs) {
+type ActionResult = {
+	fieldErrors?: Record<string, string[] | undefined>;
+	formError?: string;
+	/** Same name already on the roster under another email — a non-blocking
+	 * warning: resubmitting with confirmDuplicate creates the contact anyway. */
+	duplicate?: { name: string; email: string };
+};
+
+export async function action({
+	context,
+	request,
+}: Route.ActionArgs): Promise<
+	ActionResult | ReturnType<typeof data<ActionResult>> | Response
+> {
 	const env = context.cloudflare.env;
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
 	if (!event) {
-		return { fieldErrors: undefined, formError: "No event is configured yet." };
+		return { formError: "No event is configured yet." };
 	}
 	const db = getDb(env);
 	const form = await request.formData();
@@ -163,10 +177,38 @@ export async function action({ context, request }: Route.ActionArgs) {
 	if (!parsed.success) {
 		return {
 			fieldErrors: z.flattenError(parsed.error).fieldErrors,
-			formError: undefined,
 		};
 	}
 	const timings = createTimings();
+	if (form.get("confirmDuplicate") !== "1") {
+		const [dup] = await timings.time("dupCheck", () =>
+			db
+				.select({ firstName: contacts.firstName, email: contacts.email })
+				.from(contacts)
+				.where(
+					and(
+						eq(contacts.eventId, event.id),
+						// Same-email rows fall through to the unique-violation field
+						// error below — that message names the real conflict.
+						ne(contacts.email, parsed.data.email),
+						sql`lower(${contacts.firstName}) = lower(${parsed.data.firstName})`,
+						sql`lower(${contacts.lastName}) = lower(${parsed.data.lastName})`,
+					),
+				)
+				.limit(1),
+		);
+		if (dup) {
+			return data<ActionResult>(
+				{
+					duplicate: {
+						name: `${parsed.data.firstName} ${parsed.data.lastName}`.trim(),
+						email: dup.email,
+					},
+				},
+				{ headers: { "Server-Timing": timings.header() } },
+			);
+		}
+	}
 	try {
 		const [created] = await timings.time("db", () =>
 			db
@@ -217,6 +259,17 @@ export default function ContactsRoster({
 	if (status) composeParams.set("status", status);
 	const from = total === 0 ? 0 : (page - 1) * perPage + 1;
 	const to = Math.min(page * perPage, total);
+	const busy = useNavigation().state !== "idle";
+	// The search box is controlled and re-synced from the URL (render-time
+	// adjustment, not an effect): what the box shows is exactly what a Search
+	// click serializes, and a Clear/tab navigation can never leave stale text —
+	// an uncontrolled box and the URL drift apart (judged: empty-q submits).
+	const [query, setQuery] = useState(q);
+	const [syncedQ, setSyncedQ] = useState(q);
+	if (q !== syncedQ) {
+		setSyncedQ(q);
+		setQuery(q);
+	}
 
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
@@ -285,13 +338,37 @@ export default function ContactsRoster({
 					<Field label="Bio">
 						<Textarea name="bio" rows={3} />
 					</Field>
-					<div className="flex items-center gap-3">
-						<Button type="submit" icon="plus">
-							Add speaker
-						</Button>
-						{actionData?.formError && (
-							<ErrorText>{actionData.formError}</ErrorText>
+					<div className="flex flex-col gap-2">
+						{actionData?.duplicate && (
+							<div role="alert">
+								<ErrorText>
+									A contact named {actionData.duplicate.name} already exists for
+									this event ({actionData.duplicate.email}). Create this one
+									anyway?
+								</ErrorText>
+							</div>
 						)}
+						<div className="flex items-center gap-3">
+							<Button type="submit" icon="plus" disabled={busy}>
+								Add speaker
+							</Button>
+							{actionData?.duplicate && (
+								<Button
+									type="submit"
+									name="confirmDuplicate"
+									value="1"
+									variant="ghost"
+									disabled={busy}
+								>
+									Create anyway
+								</Button>
+							)}
+							{actionData?.formError && (
+								<div role="alert">
+									<ErrorText>{actionData.formError}</ErrorText>
+								</div>
+							)}
+						</div>
 					</div>
 				</Form>
 			</Panel>
@@ -315,7 +392,8 @@ export default function ContactsRoster({
 			<Form method="get" className="flex items-center gap-2">
 				<SearchInput
 					name="q"
-					defaultValue={q}
+					value={query}
+					onChange={(e) => setQuery(e.target.value)}
 					placeholder="Search name, email, company…"
 					aria-label="Search contacts"
 				/>

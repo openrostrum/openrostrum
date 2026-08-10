@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
-import { data, Form } from "react-router";
+import { data, Form, useNavigation } from "react-router";
 import { z } from "zod";
 import { type Db, getDb } from "~/db";
 import { contacts } from "~/db/schema";
-import { isContactStatus } from "~/domain/contacts";
+import { isContactStatus, splitFullName } from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { parseCsv } from "~/lib/csv";
 import { errorMessage } from "~/lib/errors";
@@ -34,6 +34,11 @@ const MAX_BYTES = 1_000_000;
 
 const IMPORT_FIELDS = [
 	{ key: "email", label: "Email", required: true },
+	{
+		key: "fullName",
+		label: "Full name (split into first + last)",
+		required: false,
+	},
 	{ key: "firstName", label: "First name", required: false },
 	{ key: "lastName", label: "Last name", required: false },
 	{ key: "jobTitle", label: "Job title", required: false },
@@ -50,14 +55,26 @@ const IMPORT_FIELDS = [
 type ImportFieldKey = (typeof IMPORT_FIELDS)[number]["key"];
 
 /** The mapped columns that copy straight onto contact profile fields —
- * everything except email (the dedupe key) and status (enum-checked). */
+ * everything except email (the dedupe key), status (enum-checked), and the
+ * name columns (derived per row so a full-name column splits, never lands
+ * whole in first_name). */
 const PROFILE_KEYS = IMPORT_FIELDS.map((f) => f.key).filter(
-	(k): k is Exclude<ImportFieldKey, "email" | "status"> =>
-		k !== "email" && k !== "status",
+	(
+		k,
+	): k is Exclude<
+		ImportFieldKey,
+		"email" | "status" | "fullName" | "firstName" | "lastName"
+	> =>
+		k !== "email" &&
+		k !== "status" &&
+		k !== "fullName" &&
+		k !== "firstName" &&
+		k !== "lastName",
 );
 
 const HEADER_GUESSES: Record<ImportFieldKey, string[]> = {
 	email: ["email", "emailaddress", "mail"],
+	fullName: ["name", "fullname", "speakername", "displayname", "contactname"],
 	firstName: ["firstname", "first", "givenname", "forename"],
 	lastName: ["lastname", "last", "surname", "familyname"],
 	jobTitle: ["jobtitle", "title", "role", "position"],
@@ -196,6 +213,11 @@ export async function action({
 		const guesses = Object.fromEntries(
 			IMPORT_FIELDS.map((f) => [f.key, guessColumn(table.headers, f.key)]),
 		) as Record<ImportFieldKey, number | null>;
+		// Split columns win over a bare "name" column: guessing both would trip
+		// the full-name/split-name exclusivity check on untouched defaults.
+		if (guesses.firstName !== null || guesses.lastName !== null) {
+			guesses.fullName = null;
+		}
 		return {
 			step: "map",
 			headers: table.headers,
@@ -238,8 +260,16 @@ export async function action({
 	});
 	if (mapping.email === null)
 		return remap("Map the Email column — it's how duplicates are detected.");
-	if (mapping.firstName === null && mapping.lastName === null) {
-		return remap("Map at least one name column (first or last name).");
+	const hasSplitName = mapping.firstName !== null || mapping.lastName !== null;
+	if (mapping.fullName !== null && hasSplitName) {
+		return remap(
+			"Map either the full-name column or the separate first/last columns — not both.",
+		);
+	}
+	if (mapping.fullName === null && !hasSplitName) {
+		return remap(
+			"Map a name column — first name, last name, or a single full-name column.",
+		);
 	}
 
 	const cell = (row: string[], key: ImportFieldKey): string => {
@@ -262,8 +292,10 @@ export async function action({
 		const row = table.rows[i] ?? [];
 		const rowNum = i + 2; // header is row 1
 		const rawEmail = cell(row, "email");
-		const firstName = cell(row, "firstName");
-		const lastName = cell(row, "lastName");
+		const fullName = cell(row, "fullName");
+		const split = fullName ? splitFullName(fullName) : null;
+		const firstName = split ? split.firstName : cell(row, "firstName");
+		const lastName = split ? split.lastName : cell(row, "lastName");
 		const name = `${firstName} ${lastName}`.trim();
 		const base = { row: rowNum, name, email: rawEmail };
 
@@ -308,6 +340,12 @@ export async function action({
 		const match = byEmail.get(email);
 		if (match) {
 			const changes: Partial<typeof contacts.$inferInsert> = { ...values };
+			// Names merge like every profile field: non-empty values only, and
+			// always the SPLIT halves — a full-name cell must never land whole
+			// in first_name on top of an existing contact.
+			if (firstName && firstName !== match.firstName)
+				changes.firstName = firstName;
+			if (lastName && lastName !== match.lastName) changes.lastName = lastName;
 			if (status) changes.status = status;
 			const hasChanges = Object.keys(changes).length > 0;
 			if (hasChanges) {
@@ -398,6 +436,9 @@ const OUTCOME_TONE = {
 
 export default function ImportContacts({ actionData }: Route.ComponentProps) {
 	const state = actionData;
+	// One import can write hundreds of rows — a double-click must never run it
+	// twice, so both step buttons disable while the submission is in flight.
+	const busy = useNavigation().state !== "idle";
 
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
@@ -427,10 +468,20 @@ export default function ImportContacts({ actionData }: Route.ComponentProps) {
 							contact fields next, so any column order works.
 						</p>
 						<div className="flex items-center gap-3">
-							<Button type="submit" name="intent" value="upload" icon="export">
-								Upload and map columns
+							<Button
+								type="submit"
+								name="intent"
+								value="upload"
+								icon="export"
+								disabled={busy}
+							>
+								{busy ? "Uploading…" : "Upload and map columns"}
 							</Button>
-							{state?.formError && <ErrorText>{state.formError}</ErrorText>}
+							{state?.formError && (
+								<div role="alert">
+									<ErrorText>{state.formError}</ErrorText>
+								</div>
+							)}
 						</div>
 					</Form>
 				</Panel>
@@ -467,13 +518,22 @@ export default function ImportContacts({ actionData }: Route.ComponentProps) {
 								))}
 							</div>
 							<div className="flex items-center gap-3">
-								<Button type="submit" name="intent" value="import">
-									Import {state.rowCount} rows
+								<Button
+									type="submit"
+									name="intent"
+									value="import"
+									disabled={busy}
+								>
+									{busy ? "Importing…" : `Import ${state.rowCount} rows`}
 								</Button>
 								<ButtonLink to="/admin/contacts/import" variant="ghost">
 									Start over
 								</ButtonLink>
-								{state.formError && <ErrorText>{state.formError}</ErrorText>}
+								{state.formError && (
+									<div role="alert">
+										<ErrorText>{state.formError}</ErrorText>
+									</div>
+								)}
 							</div>
 						</div>
 					</Panel>
@@ -513,7 +573,11 @@ export default function ImportContacts({ actionData }: Route.ComponentProps) {
 									{state.skipped} skipped
 								</StatusBadge>
 							</div>
-							{state.formError && <ErrorText>{state.formError}</ErrorText>}
+							{state.formError && (
+								<div role="alert">
+									<ErrorText>{state.formError}</ErrorText>
+								</div>
+							)}
 							<div className="flex items-center gap-2">
 								<ButtonLink to="/admin/contacts">View the roster</ButtonLink>
 								<ButtonLink to="/admin/contacts/import" variant="ghost">
