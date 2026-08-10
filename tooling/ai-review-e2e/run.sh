@@ -12,7 +12,7 @@ cleanup() {
 	printf '{"stage":"%s","exitCode":%d}\n' "$stage" "$code" \
 		>/tmp/ai-review-e2e-stage.json
 	if [ -n "$server_pid" ]; then
-		kill "$server_pid" 2>/dev/null || true
+		kill -- "-$server_pid" 2>/dev/null || true
 		wait "$server_pid" 2>/dev/null || true
 	fi
 	rm -f .dev.vars
@@ -23,7 +23,7 @@ trap cleanup EXIT
 
 start_app() {
 	local log_file=$1
-	pnpm dev:worktree >"$log_file" 2>&1 &
+	setsid pnpm dev:worktree >"$log_file" 2>&1 &
 	server_pid=$!
 	local url=""
 	for _ in $(seq 1 120); do
@@ -44,7 +44,7 @@ start_app() {
 }
 
 stop_app() {
-	kill "$server_pid" 2>/dev/null || true
+	kill -- "-$server_pid" 2>/dev/null || true
 	wait "$server_pid" 2>/dev/null || true
 	server_pid=""
 }
