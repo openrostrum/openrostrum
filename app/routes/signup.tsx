@@ -3,12 +3,11 @@ import { eq } from "drizzle-orm";
 import { Form, redirect, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
-import { organizationMembers, users } from "~/db/schema";
+import { users } from "~/db/schema";
 import {
 	createSession,
 	getUser,
 	hashPassword,
-	homePathForRole,
 	isSecureRequest,
 	normalizeEmail,
 } from "~/lib/auth";
@@ -52,16 +51,9 @@ type ActionResult = {
 
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
-	const user = await getUser(env, request);
-	if (user) {
-		if (user.role !== "admin") throw redirect(homePathForRole(user.role));
-		const [membership] = await getDb(env)
-			.select({ id: organizationMembers.id })
-			.from(organizationMembers)
-			.where(eq(organizationMembers.userId, user.id))
-			.limit(1);
-		throw redirect(membership ? "/admin" : "/onboarding");
-	}
+	// Signed-in visitors go to /onboarding, whose access gate owns the
+	// member/role routing — one home for that knowledge, not two.
+	if (await getUser(env, request)) throw redirect("/onboarding");
 	return {};
 }
 
@@ -71,7 +63,7 @@ export async function action({
 }: Route.ActionArgs): Promise<ActionResult | Response> {
 	const env = context.cloudflare.env;
 	// @public route — no session required; Turnstile is the bot gate instead
-	// (keyless deployments resolve to the no-op adapter by recorded decision).
+	// (a keyless deployment resolves to the no-op adapter).
 	const form = await request.formData();
 	const values = {
 		name: String(form.get("name") ?? ""),

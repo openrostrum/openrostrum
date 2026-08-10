@@ -158,8 +158,8 @@ export async function action({
 			]),
 		);
 	} catch (error) {
-		// Event slugs are one global namespace (recorded trade-off) — a taken
-		// slug is a normal user-facing outcome, not a server error.
+		// Event slugs are one global namespace — a taken slug is a normal
+		// user-facing outcome, not a server error.
 		if (errorMessage(error).includes("UNIQUE constraint failed: events.slug")) {
 			return {
 				fieldErrors: {

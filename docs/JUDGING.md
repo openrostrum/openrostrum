@@ -22,7 +22,7 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
 
 | Persona | Email | Notes |
 |---|---|---|
-| Organizer/admin | `admin@example.com` | Pre-seeded as a member of the "Demo" organization (the tenant the sandbox event lives in — multi-org per `docs/multi-tenancy-design.md`). Organizer sign-up is live at `/signup`: it creates a fresh account + organization + first event, and new sign-ups can never see the Demo org, nor it them (membership-scoped tenancy) |
+| Organizer/admin | `admin@example.com` | Pre-seeded as a member of the "Demo" organization (the tenant the sandbox event lives in — multi-org per `docs/multi-tenancy-design.md`). Organizer sign-up is live at `/signup`: it creates a fresh account + its own organization + first event; new sign-ups never see the Demo org or its data, nor it theirs |
 | Reviewer | `reviewer@example.com` | Password login works; reviewer management also shows a **copyable invite link** for new reviewers |
 | Speaker | `speaker@example.com` pre-seeded, or sign up at the public CFP form | Email+password; no magic links anywhere |
 
