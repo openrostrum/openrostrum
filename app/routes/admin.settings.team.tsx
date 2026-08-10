@@ -12,8 +12,10 @@ import {
 import {
 	destroySession,
 	getActiveEvent,
+	mintSentinelHash,
 	normalizeEmail,
 	requireAdmin,
+	SENTINEL_HASH_PREFIX,
 } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
@@ -38,11 +40,6 @@ import {
 import type { Route } from "./+types/admin.settings.team";
 
 const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
-
-// Provenance for invite-minted accounts: never verifiable (non-pbkdf2 scheme),
-// and read back as "this account has never had a usable credential" — the fact
-// that makes re-inviting and revoke-GC safe. Accept overwrites it atomically.
-const SENTINEL_HASH_PREFIX = "invite-pending$";
 
 const InviteSchema = z.object({
 	name: z.string().trim().min(1, "Name is required").max(200),
@@ -367,7 +364,7 @@ async function inviteMember(
 				email,
 				name: parsed.data.name,
 				role: "admin",
-				passwordHash: `${SENTINEL_HASH_PREFIX}${crypto.randomUUID()}`,
+				passwordHash: mintSentinelHash(),
 			}),
 			...inviteTokenStatements(db, org, userId, token),
 		]);

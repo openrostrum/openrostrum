@@ -132,6 +132,8 @@ describe("compose bulk email", () => {
 		expect(outbox[0]?.html).toContain("Hi Alice,");
 		expect(outbox[0]?.html).toContain("/portals/devflow/portal-public");
 		expect(outbox[0]?.html).not.toContain("{{");
+		// The footer's "reply to this email" opt-out must reach the organizer.
+		expect(outbox[0]?.replyTo).toBe("admin@test.co");
 	});
 
 	it("ignores a double submit: the same sendKey never delivers twice", async () => {

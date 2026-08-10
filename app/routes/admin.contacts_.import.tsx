@@ -48,6 +48,13 @@ const IMPORT_FIELDS = [
 
 type ImportFieldKey = (typeof IMPORT_FIELDS)[number]["key"];
 
+/** The mapped columns that copy straight onto contact profile fields —
+ * everything except email (the dedupe key) and status (enum-checked). */
+const PROFILE_KEYS = IMPORT_FIELDS.map((f) => f.key).filter(
+	(k): k is Exclude<ImportFieldKey, "email" | "status"> =>
+		k !== "email" && k !== "status",
+);
+
 const HEADER_GUESSES: Record<ImportFieldKey, string[]> = {
 	email: ["email", "emailaddress", "mail"],
 	firstName: ["firstname", "first", "givenname", "forename"],
@@ -198,7 +205,6 @@ export async function action({
 		};
 	}
 
-	// intent === "import" — run the mapped, deduped import.
 	const csvB64 = String(form.get("csvB64") ?? "");
 	if (!csvB64) return { step: "upload", formError: "Upload a CSV file first." };
 	const table = parseCsv(utf8FromBase64(csvB64));
@@ -289,18 +295,6 @@ export async function action({
 		const statusNote =
 			statusRaw && !status ? ` (unknown status "${statusRaw}" ignored)` : "";
 
-		const PROFILE_KEYS = [
-			"firstName",
-			"lastName",
-			"jobTitle",
-			"companyName",
-			"mobilePhone",
-			"bio",
-			"logisticsNotes",
-			"linkedinUrl",
-			"twitterUrl",
-			"websiteUrl",
-		] as const;
 		const values: Partial<Record<(typeof PROFILE_KEYS)[number], string>> = {};
 		for (const key of PROFILE_KEYS) {
 			const v = cell(row, key);
@@ -338,18 +332,11 @@ export async function action({
 		writes.push({
 			rowIndex: results.length,
 			statement: db.insert(contacts).values({
+				...values,
 				eventId: event.id,
 				email,
 				firstName,
 				lastName,
-				jobTitle: values.jobTitle ?? null,
-				companyName: values.companyName ?? null,
-				mobilePhone: values.mobilePhone ?? null,
-				bio: values.bio ?? null,
-				logisticsNotes: values.logisticsNotes ?? null,
-				linkedinUrl: values.linkedinUrl ?? null,
-				twitterUrl: values.twitterUrl ?? null,
-				websiteUrl: values.websiteUrl ?? null,
 				status: status ?? "pending",
 			}),
 		});

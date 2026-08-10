@@ -23,6 +23,12 @@ export type MergeValues = Partial<Record<MergeTag, string | null>>;
 
 const TAG_PATTERN = /\{\{\s*([a-z_]+)\s*\}\}/g;
 
+/** Whether the template references a tag, with the SAME whitespace tolerance
+ * the renderer applies — a guard using a literal match would miss "{{ tag }}". */
+export function templateUsesTag(template: string, tag: MergeTag): boolean {
+	return [...template.matchAll(TAG_PATTERN)].some((m) => m[1] === tag);
+}
+
 export function renderMergeFields(
 	template: string,
 	values: MergeValues,

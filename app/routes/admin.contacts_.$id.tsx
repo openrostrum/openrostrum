@@ -2,7 +2,7 @@ import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { useState } from "react";
 import { data, Form, isRouteErrorResponse, redirect } from "react-router";
 import { z } from "zod";
-import { getDb } from "~/db";
+import { type Db, getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import {
 	contacts,
@@ -15,8 +15,15 @@ import {
 	tasks,
 	users,
 } from "~/db/schema";
+import { ConfirmDialog } from "~/features/contacts/confirm-dialog";
 import { Textarea } from "~/features/contacts/textarea";
-import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
+import {
+	getActiveEvent,
+	hasSetPassword,
+	mintSentinelHash,
+	normalizeEmail,
+	requireAdmin,
+} from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { formatDateUTC } from "~/lib/format";
 import { escapeHtml } from "~/lib/html";
@@ -44,11 +51,6 @@ import {
 	Tr,
 } from "~/ui";
 import type { Route } from "./+types/admin.contacts_.$id";
-
-/** House sentinel-hash convention (see admin.settings.team.tsx): a non-PBKDF2
- * hash marks an account that exists only for invite/linking purposes — no
- * password can verify against it until the invitee sets one. */
-const SENTINEL_HASH_PREFIX = "invite-pending$";
 
 const UpdateContact = insertContactSchema
 	.pick({
@@ -156,7 +158,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			.from(users)
 			.where(eq(users.id, contact.userId))
 			.limit(1);
-		hasPassword = account?.passwordHash.startsWith("pbkdf2$") ?? false;
+		hasPassword = account ? hasSetPassword(account.passwordHash) : false;
 		if (hasPassword) {
 			const portalId = (await firstPortalsByEvent(db, event.id)).get(event.id);
 			if (portalId) inviteUrl = portalUrl(origin, event.slug, portalId);
@@ -226,14 +228,15 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			.limit(1);
 
 		let accountId = existing?.id;
-		const statements = [];
+		type BatchStatement = Parameters<Db["batch"]>[0][number];
+		const statements: BatchStatement[] = [];
 		if (!existing) {
 			accountId = crypto.randomUUID();
 			statements.push(
 				db.insert(users).values({
 					id: accountId,
 					email,
-					passwordHash: `${SENTINEL_HASH_PREFIX}${crypto.randomUUID()}`,
+					passwordHash: mintSentinelHash(),
 					name: `${contact.firstName} ${contact.lastName}`.trim(),
 					role: "speaker",
 				}),
@@ -248,7 +251,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			);
 		}
 
-		const hasPassword = existing?.passwordHash.startsWith("pbkdf2$") ?? false;
+		const hasPassword = existing
+			? hasSetPassword(existing.passwordHash)
+			: false;
 		let token: string | null = null;
 		if (!hasPassword && accountId) {
 			token = crypto.randomUUID();
@@ -270,10 +275,8 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		const inviteUrl = token ? `${origin}/set-password/${token}` : portalLink;
 
 		try {
-			if (statements.length === 1) await statements[0];
-			if (statements.length > 1) {
-				await db.batch(statements as unknown as Parameters<typeof db.batch>[0]);
-			}
+			const [head, ...rest] = statements;
+			if (head) await db.batch([head, ...rest]);
 			await getEmailSender(env).send({
 				to: email,
 				subject: `Your speaker portal for ${event.name}`,
@@ -670,39 +673,18 @@ export default function ContactRecord({
 			</div>
 
 			{confirmingDelete && (
-				<div
-					role="dialog"
-					aria-modal="true"
-					aria-label={`Delete ${name}`}
-					className="fixed inset-0 z-50 flex items-center justify-center p-6"
-				>
-					<div className="w-full max-w-md">
-						<Panel>
-							<div className="flex flex-col gap-3">
-								<strong>Delete {name}?</strong>
-								<p>
-									This removes their profile, session roles, and task
-									assignments for this event. Their sessions themselves are
-									kept. This cannot be undone.
-								</p>
-								<div className="flex items-center justify-end gap-2">
-									<Button
-										type="button"
-										variant="ghost"
-										onClick={() => setConfirmingDelete(false)}
-									>
-										Cancel
-									</Button>
-									<Form method="post">
-										<Button type="submit" name="intent" value="delete">
-											Delete contact
-										</Button>
-									</Form>
-								</div>
-							</div>
-						</Panel>
-					</div>
-				</div>
+				<ConfirmDialog
+					title={`Delete ${name}?`}
+					body="This removes their profile, session roles, and task assignments for this event. Their sessions themselves are kept. This cannot be undone."
+					onCancel={() => setConfirmingDelete(false)}
+					actions={
+						<Form method="post">
+							<Button type="submit" name="intent" value="delete">
+								Delete contact
+							</Button>
+						</Form>
+					}
+				/>
 			)}
 		</div>
 	);

@@ -13,6 +13,7 @@ import {
 	type MergeValues,
 	renderEmailHtml,
 	renderMergeFields,
+	templateUsesTag,
 } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { escapeHtml } from "~/lib/html";
@@ -173,16 +174,13 @@ export async function action({ context, request }: Route.ActionArgs) {
 	const db = getDb(env);
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "send");
-	const statusRaw = form.get("status");
-	const ids = String(form.get("ids") ?? "")
-		.split(",")
-		.map((s) => s.trim())
-		.filter(Boolean);
-	const selection: RecipientSelection = {
-		ids: ids.length > 0 ? ids : undefined,
-		q: String(form.get("q") ?? ""),
-		status: isContactStatus(statusRaw) ? statusRaw : null,
-	};
+	const selection = selectionFromParams(
+		new URLSearchParams({
+			ids: String(form.get("ids") ?? ""),
+			q: String(form.get("q") ?? ""),
+			status: String(form.get("status") ?? ""),
+		}),
+	);
 	const recipients = await resolveRecipients(db, event.id, selection);
 	const echo = {
 		subject: String(form.get("subject") ?? ""),
@@ -233,7 +231,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 		});
 	}
 
-	// intent === "send"
 	const parsed = Composition.safeParse(echo);
 	if (!parsed.success) {
 		return formStep({ fieldErrors: z.flattenError(parsed.error).fieldErrors });
@@ -248,7 +245,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 	if (
 		!portalLink &&
-		`${parsed.data.subject}\n${parsed.data.body}`.includes("{{portal_link}}")
+		templateUsesTag(
+			`${parsed.data.subject}\n${parsed.data.body}`,
+			"portal_link",
+		)
 	) {
 		return formStep({
 			formError:
@@ -273,6 +273,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 					`<p>You're receiving this because you're a speaker contact for ${escapeHtml(event.name)}. Reply to this email if you'd rather not receive announcements about this event.</p>`;
 				const result = await sender.send({
 					to: normalizeEmail(contact.email),
+					// The footer says "reply to this email" — replies must actually
+					// reach the organizer who composed it, not the sender address.
+					replyTo: user.email,
 					subject: renderMergeFields(parsed.data.subject, values),
 					html,
 					kind: "bulk",
