@@ -1726,6 +1726,8 @@ function RuleEditor({
 		chosen?.valueKind === "number"
 			? ["equals", "not_equals", "gt", "lt"]
 			: ["equals", "not_equals"];
+	const valuesMissing =
+		chosen?.valueKind === "options" && chosen.valueOptions.length === 0;
 	if (choices.length === 0) {
 		return (
 			<Panel>
@@ -1784,9 +1786,11 @@ function RuleEditor({
 							<Select
 								value={value}
 								onChange={(e) => setValue(e.target.value)}
-								disabled={!chosen}
+								disabled={!chosen || valuesMissing}
 							>
-								<option value="">Choose a value…</option>
+								<option value="">
+									{valuesMissing ? "No values yet" : "Choose a value…"}
+								</option>
 								{(chosen?.valueOptions ?? []).map((o) => (
 									<option key={o.value} value={o.value}>
 										{o.label}
@@ -1831,6 +1835,13 @@ function RuleEditor({
 						Close
 					</Button>
 				</div>
+				{valuesMissing && chosen && (
+					<p>
+						“{chosen.label}” has no options yet — add them in the{" "}
+						<TextLink to="/admin/settings/library">Library</TextLink> to build a
+						rule on it.
+					</p>
+				)}
 				{fetcher.data?.formError && (
 					<ErrorText>{fetcher.data.formError}</ErrorText>
 				)}

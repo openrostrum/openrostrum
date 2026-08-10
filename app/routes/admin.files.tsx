@@ -14,7 +14,7 @@ import {
 	type UploadErrorCode,
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
-import { formatBytes, formatDateUTC } from "~/lib/format";
+import { formatBytes, formatInTz } from "~/lib/format";
 import { createTimings } from "~/lib/track";
 import {
 	Button,
@@ -75,6 +75,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			sessionOptions: [],
 			uploadError: null,
 			uploaded: false,
+			timezone: "UTC",
 		};
 	}
 	const db = getDb(env);
@@ -109,6 +110,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					? UPLOAD_ERRORS[uploadError as UploadErrorCode]
 					: null,
 			uploaded,
+			timezone: event.timezone,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -136,6 +138,7 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 		sessionOptions,
 		uploadError,
 		uploaded,
+		timezone,
 	} = loaderData;
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	const toggleSelected = (id: string, checked: boolean) => {
@@ -322,7 +325,7 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 								</div>
 							</Td>
 							<Td kind="mono">{formatBytes(f.sizeBytes)}</Td>
-							<Td kind="mono">{formatDateUTC(f.createdAt)}</Td>
+							<Td kind="mono">{formatInTz(f.createdAt, timezone, "date")}</Td>
 						</Tr>
 					))}
 					{rows.length === 0 && (

@@ -113,6 +113,23 @@ const TaskForm = insertTaskSchema.pick({ type: true }).extend({
 	autoAssign: z.enum(["yes", "no"]),
 });
 
+/**
+ * The type decides what an assignment is anchored to: session tasks carry the
+ * submission id, so portal uploads attach to that session in the files
+ * library; speaker tasks never can. Raw enum words hid that consequence.
+ */
+const TASK_TYPE_LABEL: Record<string, string> = {
+	contact: "Speaker",
+	submission: "Session",
+	group: "Group",
+};
+
+const TASK_TYPE_OPTION: Record<(typeof TASK_TYPE)[number], string> = {
+	contact: "Speaker — one per person",
+	submission: "Session — one per accepted session; uploads attach to it",
+	group: "Group",
+};
+
 const AssignForm = z.object({
 	taskId: z.string().min(1, "Pick a task to assign"),
 	target: z.enum([
@@ -1279,7 +1296,7 @@ export default function TasksDashboard({
 								<Select name="type" defaultValue={editTask?.type ?? "contact"}>
 									{loaderData.taskTypes.map((t) => (
 										<option key={t} value={t}>
-											{t}
+											{TASK_TYPE_OPTION[t]}
 										</option>
 									))}
 								</Select>
@@ -1442,7 +1459,7 @@ export default function TasksDashboard({
 							{definitions.map((t) => (
 								<Tr key={t.id} selected={t.id === editId}>
 									<Td kind="strong">{t.name}</Td>
-									<Td>{t.type}</Td>
+									<Td>{TASK_TYPE_LABEL[t.type] ?? t.type}</Td>
 									<Td>
 										{t.formName
 											? `Portal form: ${t.formName}`

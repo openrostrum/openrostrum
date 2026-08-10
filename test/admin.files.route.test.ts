@@ -10,6 +10,8 @@ import {
 import { CONTEXT, authedRequest, postForm } from "./tasks-fixtures";
 import {
 	catchThrown,
+	makeUser,
+	requestAs,
 	seedFilesWorld,
 	thrownStatus,
 	unwrap,
@@ -314,6 +316,29 @@ describe("file detail — versions, review, comments", () => {
 		]);
 		// speaker's comment stays attributed to the version it was made on
 		expect(detail.comments[0]?.version).toBe(1);
+
+		// A double-submitted identical reply BY THE SAME USER lands once (same
+		// guard as the portal); a different teammate saying the same words is a
+		// real comment. postDetail mints a fresh admin per call, so drive the
+		// duplicate pair as one fixed user.
+		await makeUser("u_replier", "replier@test.co", "admin", {
+			activeEventId: "e1",
+			memberOfOrg: "org1",
+		});
+		const url = "http://localhost/admin/files/f_slides_v2";
+		const replyTwice = async () =>
+			detailAction({
+				context: CONTEXT,
+				request: await requestAs(
+					"u_replier",
+					url,
+					postForm(url, { intent: "comment", body: "Ping - any update?" }),
+				),
+				params: { id: "f_slides_v2" },
+			} as unknown as DetailActionArgs);
+		await replyTwice();
+		await replyTwice();
+		expect((await loadDetail("f_slides_v1")).comments).toHaveLength(3);
 	});
 
 	it("rejects an over-long deny note without touching the file or the task", async () => {

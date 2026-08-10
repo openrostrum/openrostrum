@@ -14,6 +14,7 @@ import {
 	tasks,
 } from "~/db/schema";
 import {
+	addFileComment,
 	checkUpload,
 	insertTaskUpload,
 	UPLOAD_CONSTRAINTS,
@@ -160,7 +161,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				version: f.version,
 				fileName: f.fileName,
 				size: formatBytes(f.sizeBytes),
-				uploadedOn: formatInTz(f.createdAt, tz, "date"),
+				uploadedOn: formatInTz(f.createdAt, tz),
 				review: FILE_REVIEW_PROJECTION[f.reviewStatus],
 				reviewNote: f.reviewStatus === "denied" ? f.reviewNote : null,
 				latest: i === 0,
@@ -171,7 +172,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 						author: c.authorName,
 						isYou: c.authorId === user.id,
 						body: c.body,
-						on: formatInTz(c.createdAt, tz, "date"),
+						on: formatInTz(c.createdAt, tz),
 					})),
 			})),
 		};
@@ -443,9 +444,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			)
 			.limit(1);
 		if (!file) throw data(null, { status: 404 });
+		let deduped: boolean;
 		try {
-			await timings.time("db", () =>
-				db.insert(fileComments).values({
+			({ deduped } = await timings.time("db", () =>
+				addFileComment(db, {
 					fileId: file.id,
 					authorId: user.id,
 					authorName: ctx.contact
@@ -453,7 +455,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 						: (user.name ?? user.email),
 					body,
 				}),
-			);
+			));
 		} catch (error) {
 			track("portal.file_comment_failed", {
 				eventId: ctx.event.id,
@@ -467,6 +469,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		track("portal.file_comment_added", {
 			eventId: ctx.event.id,
 			fileId: file.id,
+			deduped,
 		});
 		return data(
 			{ intent, ok: true },

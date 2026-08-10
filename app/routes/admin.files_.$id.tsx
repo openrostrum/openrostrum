@@ -4,6 +4,7 @@ import {
 	data,
 	isRouteErrorResponse,
 	redirect,
+	useNavigation,
 	useRouteError,
 } from "react-router";
 import { getDb } from "~/db";
@@ -16,6 +17,7 @@ import {
 	tasks,
 } from "~/db/schema";
 import {
+	addFileComment,
 	FILE_REVIEW_LABEL,
 	FILE_REVIEW_TONE,
 	getFileChain,
@@ -24,7 +26,7 @@ import {
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatBytes, formatDateUTC } from "~/lib/format";
+import { formatBytes, formatInTz } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import {
 	Button,
@@ -128,10 +130,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				id: c.id,
 				author: c.authorName,
 				body: c.body,
-				on: formatDateUTC(c.createdAt),
+				on: formatInTz(c.createdAt, event.timezone),
 				version: versionById.get(c.fileId) ?? null,
 			})),
 			eventName: event.name,
+			timezone: event.timezone,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -205,15 +208,19 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					fieldErrors: { body: ["Write a comment up to 2,000 characters."] },
 				});
 			}
-			await timings.time("db", () =>
-				db.insert(fileComments).values({
+			const { deduped } = await timings.time("db", () =>
+				addFileComment(db, {
 					fileId: latest.id,
 					authorId: user.id,
 					authorName: user.name ?? user.email,
 					body,
 				}),
 			);
-			track("file.comment_added", { eventId: event.id, fileId: latest.id });
+			track("file.comment_added", {
+				eventId: event.id,
+				fileId: latest.id,
+				deduped,
+			});
 			return redirect(`/admin/files/${params.id}`, {
 				headers: { "Server-Timing": timings.header() },
 			});
@@ -257,8 +264,16 @@ export default function FileDetail({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { latest, versions, submission, contact, assignment, comments } =
-		loaderData;
+	const {
+		latest,
+		versions,
+		submission,
+		contact,
+		assignment,
+		comments,
+		timezone,
+	} = loaderData;
+	const busy = useNavigation().state !== "idle";
 	const inReviewLoop = latest.taskAssignmentId !== null;
 	const speakerName = contact
 		? `${contact.firstName} ${contact.lastName}`
@@ -403,7 +418,7 @@ export default function FileDetail({
 									</Td>
 									<Td kind="strong">{v.fileName}</Td>
 									<Td kind="mono">{formatBytes(v.sizeBytes)}</Td>
-									<Td kind="mono">{formatDateUTC(v.createdAt)}</Td>
+									<Td kind="mono">{formatInTz(v.createdAt, timezone)}</Td>
 									<Td>
 										<StatusBadge
 											tone={FILE_REVIEW_TONE[v.reviewStatus] ?? "neutral"}
@@ -456,7 +471,9 @@ export default function FileDetail({
 								maxLength={2000}
 							/>
 						</Field>
-						<Button type="submit">Post comment</Button>
+						<Button type="submit" disabled={busy}>
+							{busy ? "Posting…" : "Post comment"}
+						</Button>
 					</Form>
 				</div>
 			</Panel>

@@ -4,6 +4,7 @@ import type { Db } from "~/db";
 import {
 	contacts,
 	type FILE_KIND,
+	fileComments,
 	files,
 	submissions,
 	taskAssignments,
@@ -122,6 +123,48 @@ export const UPLOAD_ERRORS = {
 
 /** One rule for how long a deny note / file comment may be, every caller. */
 export const REVIEW_NOTE_MAX = 2000;
+
+/**
+ * THE file-comment write path (portal and admin) — re-posting the thread's
+ * latest comment verbatim is a double-submit (retry, double-click, back-button
+ * repost), so it returns the existing row instead of duplicating it. Posting
+ * the same text again LATER, after someone else replied, is a real comment.
+ */
+export async function addFileComment(
+	db: Db,
+	values: {
+		fileId: string;
+		authorId: string;
+		authorName: string;
+		body: string;
+	},
+): Promise<{ id: string; deduped: boolean }> {
+	// createdAt is second-granular, so "latest" ties on quick exchanges —
+	// rowid is the true insertion order and breaks them.
+	const [latest] = await db
+		.select({
+			id: fileComments.id,
+			authorId: fileComments.authorId,
+			body: fileComments.body,
+		})
+		.from(fileComments)
+		.where(eq(fileComments.fileId, values.fileId))
+		.orderBy(desc(fileComments.createdAt), sql`rowid desc`)
+		.limit(1);
+	if (
+		latest &&
+		latest.authorId === values.authorId &&
+		latest.body === values.body
+	) {
+		return { id: latest.id, deduped: true };
+	}
+	const [inserted] = await db
+		.insert(fileComments)
+		.values(values)
+		.returning({ id: fileComments.id });
+	if (!inserted) throw new Error("file comment insert failed");
+	return { id: inserted.id, deduped: false };
+}
 
 export type UploadErrorCode = keyof typeof UPLOAD_ERRORS;
 

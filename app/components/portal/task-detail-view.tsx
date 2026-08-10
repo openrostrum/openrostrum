@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Form, useFetcher } from "react-router";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
 import {
@@ -38,18 +39,27 @@ function CommentThread({
 	fileId: string;
 	comments: CommentView[];
 }) {
-	const fetcher = useFetcher<TaskDetailActionData>();
+	const fetcher = useFetcher<TaskDetailActionData & { ok?: boolean }>();
+	const formRef = useRef<HTMLFormElement>(null);
+	const busy = fetcher.state !== "idle";
+	// A posted comment leaves the box empty — leftover text re-submitted is
+	// exactly the double-post the server has to dedupe.
+	useEffect(() => {
+		if (!busy && fetcher.data?.ok) formRef.current?.reset();
+	}, [busy, fetcher.data]);
 	return (
 		<div className="mt-2 flex flex-col gap-2 border-l-2 border-hair pl-3">
 			{comments.map((c) => (
 				<div key={c.id} className="flex flex-col">
 					<Muted>
-						{c.isYou ? "You" : c.author} · {c.on}
+						{c.author}
+						{c.isYou ? " (you)" : ""} · {c.on}
 					</Muted>
 					<span className="text-[13px] text-fg">{c.body}</span>
 				</div>
 			))}
 			<fetcher.Form
+				ref={formRef}
 				method="post"
 				action={action}
 				className="flex flex-wrap items-center gap-2"
@@ -62,8 +72,8 @@ function CommentThread({
 					maxLength={2000}
 					required
 				/>
-				<Button type="submit" variant="ghost">
-					Comment
+				<Button type="submit" variant="ghost" disabled={busy}>
+					{busy ? "Posting…" : "Comment"}
 				</Button>
 				{fetcher.data?.intent === "comment" && fetcher.data.formError && (
 					<ErrorText>{fetcher.data.formError}</ErrorText>
