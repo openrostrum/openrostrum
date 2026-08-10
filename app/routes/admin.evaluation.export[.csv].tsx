@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "~/db";
-import { evaluationPlans } from "~/db/schema";
+import { aiReviews, evaluationPlans } from "~/db/schema";
+import { effectiveAiScore } from "~/domain/ai-review";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
-import { formatScore, meanScore, toCsv } from "~/lib/evaluation";
+import { fetchChunked, formatScore, meanScore, toCsv } from "~/lib/evaluation";
 import { loadPlanScores } from "~/lib/plan-scores";
 import { createTimings, track } from "~/lib/track";
 import type { Route } from "./+types/admin.evaluation.export[.csv]";
@@ -96,6 +97,18 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			list.push(e);
 			bySubmission.set(e.submissionId, list);
 		}
+		// The AI first-pass exports alongside — but never inside — the human
+		// aggregate, mirroring the on-screen results table.
+		const aiRows = await fetchChunked([...bySubmission.keys()], (chunk) =>
+			db
+				.select({
+					submissionId: aiReviews.submissionId,
+					score: aiReviews.score,
+					overrideScore: aiReviews.overrideScore,
+				})
+				.from(aiReviews)
+				.where(inArray(aiReviews.submissionId, chunk)),
+		);
 		rows = [
 			[
 				"Submission",
@@ -105,13 +118,16 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				"Abstained",
 				"Aggregate score",
 				...rounds.map((r) => `Avg — ${r.name}`),
+				"AI first-pass score",
+				"AI score overridden",
 			],
-			...[...bySubmission.values()].map((list) => {
+			...[...bySubmission.entries()].map(([submissionId, list]) => {
 				const first = list[0];
 				const completed = list.filter((e) => e.status === "completed");
 				const scores = completed
 					.map(scoreOf)
 					.filter((s): s is number => s != null);
+				const ai = aiRows.find((a) => a.submissionId === submissionId);
 				return [
 					first?.submissionTitle ?? "",
 					first?.submissionStatus ?? "",
@@ -129,6 +145,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 							),
 						),
 					),
+					ai ? formatScore(effectiveAiScore(ai)) : "",
+					ai?.overrideScore != null ? "yes" : "",
 				];
 			}),
 		];

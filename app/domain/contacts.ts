@@ -21,6 +21,28 @@ export function isContactStatus(value: unknown): value is ContactStatus {
 	);
 }
 
+/** "Ada Lovelace" splits on the last space; "Watson, Mary Jane" is
+ * "Last, First"; a mononym becomes the first name only, so a merge never
+ * blanks an existing last name. */
+export function splitFullName(value: string): {
+	firstName: string;
+	lastName: string;
+} {
+	const comma = value.indexOf(",");
+	if (comma !== -1) {
+		return {
+			firstName: value.slice(comma + 1).trim(),
+			lastName: value.slice(0, comma).trim(),
+		};
+	}
+	const parts = value.split(/\s+/).filter(Boolean);
+	if (parts.length <= 1) return { firstName: parts[0] ?? "", lastName: "" };
+	return {
+		firstName: parts.slice(0, -1).join(" "),
+		lastName: parts[parts.length - 1] ?? "",
+	};
+}
+
 /** Escape LIKE wildcards so a user searching "100%" matches literally. */
 function likeContains(column: AnyColumn | SQL, q: string): SQL {
 	const pattern = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;

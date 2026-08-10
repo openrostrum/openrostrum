@@ -58,6 +58,15 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
   come back masked (`j***@a***.com`, `***-***-4567`); statuses are the raw
   pipeline values including queue states; drafts never appear; write
   operations answer an explicit 405.
+- **AI-assisted review lives at `/admin/evaluation` → "AI review" tab.**
+  Per-submission "Run AI review" and a bulk "Run on unscored" action produce a
+  0–10 first-pass score with a written rationale (Workers AI, model id shown
+  on the detail). AI scores are always badge-labeled "AI", never enter the
+  human decision tally or scorecard aggregates, and an organizer can override
+  the number — the override persists with who/when, alongside the AI original.
+  The plan results table and the cumulative CSV carry the AI score in its own
+  column beside the human aggregate. On a deployment without the Workers AI
+  binding the tab states so explicitly instead of scoring.
 - **Draft saves need only a title;** required-field validation applies when
   advancing steps or submitting. Speakers can edit submitted proposals until
   the form's close date; after that, submissions are read-only.

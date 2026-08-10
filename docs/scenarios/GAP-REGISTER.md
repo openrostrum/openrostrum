@@ -69,6 +69,12 @@ in code). Each needs an owner decision or a cross-lane change.
 | L6 | The earlier "Track delete cascade" fix landed only half: `submission_tracks.track_id` and `reviewer_tracks.track_id` are still `cascade` in schema.ts (integration-owned). The Library compensates app-side — the delete statement itself embeds a no-references condition, so the strip cannot happen through this surface — but any other write path could still cascade | Schema change request: `cascade` → `restrict` on both FKs so the DB enforces the register decision everywhere |
 | L7 | `FIELD_TYPE` lives only in `app/db/schema.ts`, so the fields UI keeps a client-safe duplicate in `app/settings/event-form.tsx` (label map is compile-pinned to the schema union; the array is membership-pinned only) | Move `FIELD_TYPE` to `app/db/constants.ts` (the stated home for client-safe enums) and delete the duplicate |
 
+## Lane deferrals (2026-08-10) — ai-review lane
+
+| # | Deferral | Owner follow-up |
+|---|----------|-----------------|
+| A1 | Bulk AI review runs 5 submissions per click (concurrent, inside one request) with an honest "N still unscored — run again" report. At real scale (hundreds of submissions) that is dozens of clicks; the right long-term shape is a background scorer — an opt-in "score new submissions automatically" event setting driving a cron/queue job (both cadences already exist in `wrangler.json`). That needs an event-settings column (integration-owned schema) and a product decision on spend-without-intent, so it exceeds this lane. Residual accepted with it: saves are compare-and-set (a raced write is skipped, never an overwrite), but two admins triggering the same run concurrently still both pay for inference — a claim-before-run ledger needs a schema column and belongs to the same follow-up | Owner call: accept click-batched scoring for the judging window (each batch is bounded by 5×45s worst-case), or schedule the background scorer (settings column + `app/jobs/ai-review.scheduled.ts`, claim-before-run) with a Wave-3 lane |
+
 ## Eval-kit walk findings (2026-08-09) — swyx's v1 judging harness
 
 Source: `docs/reference/killmysaas-evals/` (vendored). Full rubric→owner map:
@@ -160,6 +166,18 @@ owner decides.
 | F1 | **Promote the form-builder interims into `app/ui`**: `RichText` (Tiptap, lift from `admin.forms.$formId.tsx` — the email + public-CFP lanes need WYSIWYG next and must not mint editor #2), `ConfirmDialog`, `Menu` (⋯ actions), `SortableRow` (owns drag transform/transition + drag-state skin; also closes the ref-callback inline-style gap `ui-primitives-only` can't see), `Switch` (On/Off selects are the stand-in), and move `FORM_STATUS_TONE` beside `SUBMISSION_STATUS_TONE` | The lane is hook-blocked from `app/ui/`; until promotion the repo carries route-local stand-ins that violate the shared-primitive rule |
 | F2 | **Seed the demo forms' built-in placements** (`form_fields` rows with `builtin_ref` for the three seed forms, per `defaultBuiltinPlacements` in `app/lib/forms.ts`) | Until then pre-builder forms need the editor's explicit "Set up built-in questions" action, and the public renderer must handle builtin-less forms |
 | F3 | **ROUTE-MAP question**: may the forms list move to `admin.forms._index.tsx` (list) so the editor stops paying a discarded layout-loader run per navigation? | Flat routes make `admin.forms.tsx` the editor's layout; the lane carries a pathname short-circuit + `useOutlet` bail as the in-boundary workaround |
+
+## Contacts/CSV lane escalations (2026-08-10) — No-shortcuts valve, owner decisions pending
+
+Raised by the contacts-CSV fix lane (PR `fix/contacts-csv`); each is deliberately
+NOT built in-lane because the correct home is integration-owned or another
+lane's active surface. OPEN until the owner decides.
+
+| # | Escalation | Status |
+|---|-----------|--------|
+| CC1 | **Contact-level custom fields are unbuildable on the current schema** — Sessionboard manages custom fields per record type incl. Contact (`docs/flows/01-form-builder.md` §Field definition: Library > Fields tabs Contact/Group/Session/Evaluation Plan; `docs/data-model.md` Contact = "locked core + arbitrary custom fields"), but `fields` has no record-type dimension and answers exist only per submission (`submission_answers`) — there is no contact answers table, and submission answers cannot be attributed to one contact on multi-participant submissions. The judged "org-wide fields never surface on contact surfaces" complaint is this gap. In-lane fix was the honest one available: the Library copy now promises only what exists (form placement, per-submission answers) | OPEN (owner: schema decision — `fields.recordType` + `contact_answers`, then contact detail renders/edits applicable fields; until then the copy is the contract) |
+| CC2 | **Five sibling search boxes carry the judged empty-q hydration defect** — the roster fix (controlled input re-synced from the URL) is route-local because `admin.evaluation.tsx`, `admin.files.tsx`, `admin.emails_.history.tsx`, `admin.forms.tsx`, and `reviews.tsx` are other lanes' active surfaces (uncontrolled `defaultValue={q}` GET forms). Consolidation candidate: a URL-synced search-form composition in `app/components/` + a sweep of the five call sites | OPEN (owner: schedule the sweep; adopt the roster pattern as the house search-box shape) |
+| CC3 | **Accessible error/notice semantics belong in primitives** — routes now wrap `ErrorText` in `<div role="alert">` at ~9 call sites (auth-pages precedent followed), and the duplicate-contact warning renders in `ErrorText` for lack of a caution-toned Notice primitive. Fold `role="alert"` into `app/ui/error-text.tsx` and add a Notice primitive, then delete the wrappers | OPEN (owner: `app/ui` change at the next integration sweep) |
 
 ## Stability lane escalation (2026-08-10) — No-shortcuts valve, owner decision pending
 

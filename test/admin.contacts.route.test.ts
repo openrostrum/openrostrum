@@ -176,6 +176,85 @@ describe("contacts roster", () => {
 		);
 	});
 
+	it("warns before creating a same-name contact under a different email", async () => {
+		const db = getDb(env);
+		const body = new URLSearchParams({
+			firstName: "sam",
+			lastName: "SPEAKER",
+			email: "sam.other@example.com",
+		});
+		const request = await adminRequest("http://localhost/admin/contacts", {
+			method: "POST",
+			body,
+		});
+		await seedEvent();
+		await db.insert(contacts).values({
+			id: "c_sam",
+			eventId: "e1",
+			email: "speaker@example.com",
+			firstName: "Sam",
+			lastName: "Speaker",
+		});
+
+		const result = (await action({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0])) as unknown as {
+			data: { duplicate?: { name: string; email: string } };
+		};
+
+		expect(result.data.duplicate?.email).toBe("speaker@example.com");
+		expect(await db.select().from(contacts)).toHaveLength(1);
+
+		body.set("confirmDuplicate", "1");
+		const setCookie = await createSession(env, "u_admin");
+		const confirmed = (await action({
+			context: CONTEXT,
+			request: new Request("http://localhost/admin/contacts", {
+				method: "POST",
+				body,
+				headers: { Cookie: setCookie.split(";")[0] ?? "" },
+			}),
+			params: {},
+		} as unknown as Parameters<typeof action>[0])) as Response;
+		expect(confirmed.status).toBe(302);
+		expect(await db.select().from(contacts)).toHaveLength(2);
+	});
+
+	it("does not name-warn when the conflict is the email itself", async () => {
+		const db = getDb(env);
+		const body = new URLSearchParams({
+			firstName: "Sam",
+			lastName: "Speaker",
+			email: "speaker@example.com",
+		});
+		const request = await adminRequest("http://localhost/admin/contacts", {
+			method: "POST",
+			body,
+		});
+		await seedEvent();
+		await db.insert(contacts).values({
+			id: "c_sam",
+			eventId: "e1",
+			email: "speaker@example.com",
+			firstName: "Sam",
+			lastName: "Speaker",
+		});
+
+		const result = (await action({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0])) as {
+			fieldErrors?: { email?: string[] };
+		};
+
+		// The unique-violation message names the real conflict — not a
+		// create-anyway loop that could never succeed.
+		expect(result.fieldErrors?.email?.[0]).toMatch(/already exists/i);
+	});
+
 	it("rejects a duplicate email with a field error instead of a 500", async () => {
 		const db = getDb(env);
 		const body = new URLSearchParams({
