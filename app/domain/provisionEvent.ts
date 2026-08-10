@@ -50,6 +50,20 @@ const DEFAULT_EMAIL_TEMPLATES = [
 ] as const;
 
 /**
+ * The template keys every event carries. Senders and template editors must
+ * import these instead of hardcoding strings — a key that drifts from this
+ * set means an email that silently never sends.
+ */
+export const EVENT_EMAIL_TEMPLATE_KEYS = DEFAULT_EMAIL_TEMPLATES.map(
+	(t) => t.key,
+) as [
+	(typeof DEFAULT_EMAIL_TEMPLATES)[number]["key"],
+	...(typeof DEFAULT_EMAIL_TEMPLATES)[number]["key"][],
+];
+
+export type EventEmailTemplateKey = (typeof EVENT_EMAIL_TEMPLATE_KEYS)[number];
+
+/**
  * Provision a new event's default email templates.
  *
  * EVERY event-creation path must call this — onboarding does, and the

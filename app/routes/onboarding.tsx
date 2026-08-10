@@ -197,9 +197,9 @@ export default function Onboarding({ actionData }: Route.ComponentProps) {
 	const busy = useNavigation().state !== "idle";
 	const timeZones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);
 	const echoed = actionData?.values;
-	// Inputs stay UNCONTROLLED so the form still works without JS; the slug
-	// suggestion and timezone guess are layered on via key-remounts.
-	const [suggestedSlug, setSuggestedSlug] = useState("");
+	// The slug tracks the event name until it is edited by hand (SSR renders
+	// the value as a plain attribute, so the field still works without JS).
+	const [slug, setSlug] = useState(echoed?.slug ?? "");
 	const [slugEdited, setSlugEdited] = useState(false);
 
 	// Preselect the visitor's own timezone — a client-only signal, applied to
@@ -252,7 +252,7 @@ export default function Onboarding({ actionData }: Route.ComponentProps) {
 							defaultValue={echoed?.eventName}
 							invalid={Boolean(actionData?.fieldErrors?.eventName?.[0])}
 							onChange={(e) => {
-								if (!slugEdited) setSuggestedSlug(slugify(e.target.value));
+								if (!slugEdited) setSlug(slugify(e.target.value));
 							}}
 						/>
 					</Field>
@@ -261,13 +261,15 @@ export default function Onboarding({ actionData }: Route.ComponentProps) {
 						error={actionData?.fieldErrors?.slug?.[0]}
 					>
 						<Input
-							key={`slug-${suggestedSlug}`}
 							name="slug"
 							required
 							placeholder="devcon-2027"
-							defaultValue={suggestedSlug || (echoed?.slug ?? "")}
+							value={slug}
 							invalid={Boolean(actionData?.fieldErrors?.slug?.[0])}
-							onChange={() => setSlugEdited(true)}
+							onChange={(e) => {
+								setSlug(e.target.value);
+								setSlugEdited(true);
+							}}
 						/>
 					</Field>
 					<div className="flex flex-wrap gap-3 [&>label]:min-w-[180px] [&>label]:flex-1">

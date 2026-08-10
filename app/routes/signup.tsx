@@ -62,8 +62,8 @@ export async function action({
 	request,
 }: Route.ActionArgs): Promise<ActionResult | Response> {
 	const env = context.cloudflare.env;
-	// @public route — no session required; Turnstile is the bot gate instead
-	// (a keyless deployment resolves to the no-op adapter).
+	// @public route — no session required. The Turnstile token is verified
+	// through the port; a keyless deployment resolves to the no-op adapter.
 	const form = await request.formData();
 	const values = {
 		name: String(form.get("name") ?? ""),
