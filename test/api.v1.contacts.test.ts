@@ -122,6 +122,15 @@ describe("speakers vs contacts", () => {
 		expect(asContact.status).toBe(200);
 	});
 
+	it("refuses an updatedAt filter loudly — contacts track no update timestamp", async () => {
+		const { status, json } = await apiJson("/api/v1/event/e_a1/contacts", {
+			token: RAW_TOKENS.orgA,
+			body: { filters: { updatedAt: { after: "2020-01-01T00:00:00Z" } } },
+		});
+		expect(status).toBe(400);
+		expect(json).toMatchObject({ error: "bad_request" });
+	});
+
 	it("another org's contact id 404s through this event", async () => {
 		const { status } = await apiJson("/api/v1/event/e_a1/contacts/c_b", {
 			token: RAW_TOKENS.orgA,

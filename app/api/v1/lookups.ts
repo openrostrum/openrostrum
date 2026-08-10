@@ -28,7 +28,7 @@ import {
 	serializeRoom,
 	serializeTag,
 	serializeTrack,
-} from "./serializers";
+} from "~/lib/compat/serializers";
 
 /**
  * Event Settings lookups, mirroring the spec's dual shape per catalog:

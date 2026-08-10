@@ -10,6 +10,7 @@ import {
 	contacts,
 	events,
 	fields,
+	files,
 	formats,
 	languages,
 	levels,
@@ -142,6 +143,7 @@ export async function seedApiFixtures(): Promise<void> {
 			jobTitle: "Professor",
 			companyName: "State University",
 			logisticsNotes: PII.logistics,
+			headshotKey: "headshots/jane.png",
 		},
 		{
 			id: "c_hidden",
@@ -266,6 +268,17 @@ export async function seedApiFixtures(): Promise<void> {
 		submissionId: "sub_accepted",
 		fieldId: "fld_notes",
 		value: "Need a projector",
+	});
+	await db.insert(files).values({
+		id: "f_slides",
+		eventId: "e_a1",
+		submissionId: "sub_accepted",
+		contactId: "c_speaker",
+		r2Key: "files/slides.pdf",
+		fileName: "slides.pdf",
+		kind: "slides",
+		contentType: "application/pdf",
+		sizeBytes: 12,
 	});
 	await db.insert(participants).values([
 		{

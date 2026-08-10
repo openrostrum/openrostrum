@@ -4,26 +4,33 @@ import {
 	count,
 	desc,
 	eq,
-	gte,
 	inArray,
 	isNull,
 	like,
-	lte,
 	ne,
 	type SQL,
 } from "drizzle-orm";
 import { getDb } from "~/db";
 import {
+	files,
 	languages,
 	submissions,
 	submissionTags,
 	submissionTracks,
 } from "~/db/schema";
 import {
+	type FileWithContact,
+	type SerializeContext,
+	serializeSession,
+	serializeSessionStatusRow,
+	type SessionWithRelations,
+	type UnassignedStyle,
+} from "~/lib/compat/serializers";
+import {
 	type ApiApp,
 	type ApiContext,
 	apiStatusSchema,
-	type DateRange,
+	dateRangeConds,
 	expandSet,
 	notFound,
 	parseBody,
@@ -38,30 +45,13 @@ import {
 	parsePageParams,
 	searchEnvelope,
 } from "./pagination";
-import {
-	type SerializeContext,
-	serializeSession,
-	serializeSessionStatusRow,
-	type SessionWithRelations,
-	type UnassignedStyle,
-} from "./serializers";
 
 /**
  * Drafts are hidden from the API — never listed, and a draft id resolves 404
- * (flows/09 §2.1, the "Own draft" row). Every session read carries this.
+ * (exposure-matrix law). Every session read carries this.
  */
 function visibleSessions(eventId: string): SQL[] {
 	return [eq(submissions.eventId, eventId), ne(submissions.status, "draft")];
-}
-
-function dateConds(
-	column: typeof submissions.createdAt | typeof submissions.updatedAt,
-	range: DateRange | undefined,
-): SQL[] {
-	const conds: SQL[] = [];
-	if (range?.before) conds.push(lte(column, range.before));
-	if (range?.after) conds.push(gte(column, range.after));
-	return conds;
 }
 
 function orderFor(sort: SortOptions | undefined) {
@@ -92,19 +82,46 @@ const sessionInclude = {
 	},
 } as const;
 
+/** Attachments for a page of sessions (parents + their subsessions), one query. */
+export async function filesForSessions(
+	env: Env,
+	rows: SessionWithRelations[],
+): Promise<Map<string, FileWithContact[]>> {
+	const ids = rows.flatMap((r) => [r.id, ...r.subsessions.map((s) => s.id)]);
+	const map = new Map<string, FileWithContact[]>();
+	if (ids.length === 0) return map;
+	const fileRows = await getDb(env).query.files.findMany({
+		where: inArray(files.submissionId, ids),
+		with: { contact: true },
+		orderBy: [asc(files.createdAt), asc(files.id)],
+	});
+	for (const file of fileRows) {
+		if (!file.submissionId) continue;
+		const bucket = map.get(file.submissionId) ?? [];
+		bucket.push(file);
+		map.set(file.submissionId, bucket);
+	}
+	return map;
+}
+
 async function serializeContextFor(
 	c: ApiContext,
+	rows: SessionWithRelations[],
 	unassigned: UnassignedStyle,
 	subsessionDetails: boolean,
 ): Promise<SerializeContext> {
-	const eventLanguages = await getDb(c.env)
-		.select()
-		.from(languages)
-		.where(eq(languages.eventId, c.get("event").id));
+	const [eventLanguages, filesBySubmission] = await Promise.all([
+		getDb(c.env)
+			.select()
+			.from(languages)
+			.where(eq(languages.eventId, c.get("event").id)),
+		filesForSessions(c.env, rows),
+	]);
 	return {
 		origin: new URL(c.req.url).origin,
 		unassigned,
 		eventLanguages,
+		filesBySubmission,
 		subsessionDetails,
 	};
 }
@@ -138,9 +155,9 @@ export function registerSessionRoutes(app: ApiApp): void {
 		const conds = [
 			...visibleSessions(c.get("event").id),
 			isNull(submissions.parentId),
+			...dateRangeConds(submissions.createdAt, body.filters?.createdAt),
+			...dateRangeConds(submissions.updatedAt, body.filters?.updatedAt),
 		];
-		conds.push(...dateConds(submissions.createdAt, body.filters?.createdAt));
-		conds.push(...dateConds(submissions.updatedAt, body.filters?.updatedAt));
 		if (body.filters?.status)
 			conds.push(eq(submissions.status, body.filters.status));
 		if (body.filters?.isAbstract !== undefined) {
@@ -156,6 +173,7 @@ export function registerSessionRoutes(app: ApiApp): void {
 		);
 		const ctx = await serializeContextFor(
 			c,
+			rows,
 			"empty-object",
 			expandSet(c, body.expand).has("subsession_details"),
 		);
@@ -224,6 +242,7 @@ export function registerSessionRoutes(app: ApiApp): void {
 		);
 		const ctx = await serializeContextFor(
 			c,
+			rows,
 			"null",
 			expandSet(c).has("subsession_details"),
 		);
@@ -246,9 +265,11 @@ export function registerSessionRoutes(app: ApiApp): void {
 		if (body.filters?.deletedAt?.before || body.filters?.deletedAt?.after) {
 			return c.json(searchEnvelope([], pageParams, 0));
 		}
-		const conds = visibleSessions(c.get("event").id);
-		conds.push(...dateConds(submissions.createdAt, body.filters?.createdAt));
-		conds.push(...dateConds(submissions.updatedAt, body.filters?.updatedAt));
+		const conds = [
+			...visibleSessions(c.get("event").id),
+			...dateRangeConds(submissions.createdAt, body.filters?.createdAt),
+			...dateRangeConds(submissions.updatedAt, body.filters?.updatedAt),
+		];
 		if (body.filters?.status)
 			conds.push(eq(submissions.status, body.filters.status));
 		const sort: SortOptions | undefined =
@@ -292,6 +313,7 @@ export function registerSessionRoutes(app: ApiApp): void {
 		if (!row) throw notFound("Session");
 		const ctx = await serializeContextFor(
 			c,
+			[row],
 			"empty-object",
 			expandSet(c).has("subsession_details"),
 		);

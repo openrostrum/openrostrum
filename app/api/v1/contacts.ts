@@ -1,22 +1,13 @@
-import {
-	and,
-	asc,
-	count,
-	desc,
-	eq,
-	gte,
-	inArray,
-	lte,
-	ne,
-	type SQL,
-} from "drizzle-orm";
-import { z } from "zod";
+import { and, asc, count, desc, eq, inArray, ne, type SQL } from "drizzle-orm";
+import type { z } from "zod";
 import { getDb } from "~/db";
 import { contacts, participants, submissions } from "~/db/schema";
+import { serializeContact } from "~/lib/compat/serializers";
 import {
 	type ApiApp,
 	type ApiContext,
-	type DateRange,
+	ApiError,
+	dateRangeConds,
 	notFound,
 	parseBody,
 	readJsonBody,
@@ -24,18 +15,25 @@ import {
 	type SortOptions,
 } from "./context";
 import { offsetOf, parsePageParams, searchEnvelope } from "./pagination";
-import { serializeContact } from "./serializers";
 
 type RecordSearchBody = z.infer<typeof recordSearchSchema>;
 
-function dateConds(range: DateRange | undefined): SQL[] {
-	const conds: SQL[] = [];
-	if (range?.before) conds.push(lte(contacts.createdAt, range.before));
-	if (range?.after) conds.push(gte(contacts.createdAt, range.after));
-	return conds;
+/**
+ * Contacts carry no update timestamp. An updatedAt FILTER would silently
+ * return wrong-column rows, so it is refused loudly; an updatedAt SORT only
+ * reorders and falls back to creation order.
+ */
+function contactFilterConds(body: RecordSearchBody): SQL[] {
+	if (body.filters?.updatedAt) {
+		throw new ApiError(
+			400,
+			"bad_request",
+			"Contacts do not track update timestamps; filter by createdAt instead.",
+		);
+	}
+	return dateRangeConds(contacts.createdAt, body.filters?.createdAt);
 }
 
-// Contacts carry no updatedAt column; both sort orders resolve to createdAt.
 function orderFor(sort: SortOptions | undefined) {
 	const dir = sort?.sort === "asc" ? asc : desc;
 	return [dir(contacts.createdAt), asc(contacts.id)];
@@ -75,8 +73,7 @@ async function contactSearchResponse(
 	const conds = [
 		eq(contacts.eventId, c.get("event").id),
 		...extraConds,
-		...dateConds(body.filters?.createdAt),
-		...dateConds(body.filters?.updatedAt),
+		...contactFilterConds(body),
 	];
 	const db = getDb(c.env);
 	const where = and(...conds);
@@ -103,7 +100,9 @@ async function contactSearchResponse(
 export function registerContactRoutes(app: ApiApp): void {
 	app.post("/event/:eventId/speakers", async (c) => {
 		const body = parseBody(recordSearchSchema, await readJsonBody(c));
-		return contactSearchResponse(c, body, [
+		// `return await` (not bare `return`): adopting the rejected promise a
+		// microtask late trips workerd's eager unhandled-rejection detection.
+		return await contactSearchResponse(c, body, [
 			inArray(contacts.id, speakerContactIds(c, body.filters?.status)),
 		]);
 	});
@@ -126,7 +125,7 @@ export function registerContactRoutes(app: ApiApp): void {
 
 	app.post("/event/:eventId/contacts", async (c) => {
 		const body = parseBody(recordSearchSchema, await readJsonBody(c));
-		return contactSearchResponse(c, body, []);
+		return await contactSearchResponse(c, body, []);
 	});
 
 	app.get("/event/:eventId/contacts/:contactId", async (c) => {

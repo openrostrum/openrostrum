@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { authenticateApiToken, resolveApiTokenEvent } from "~/lib/api-token";
 import { errorMessage } from "~/lib/errors";
-import { track } from "~/lib/track";
+import { createTimings, track } from "~/lib/track";
 import { ApiError, type ApiHonoEnv } from "./context";
 import { registerContactRoutes } from "./contacts";
 import { registerEventRoutes } from "./events";
+import { registerFileRoutes } from "./files";
 import { registerLookupRoutes } from "./lookups";
 import { registerSessionRoutes } from "./sessions";
 
@@ -21,7 +22,9 @@ apiV1.onError((error, c) => {
 	if (error instanceof ApiError) {
 		return c.json({ error: error.code, message: error.message }, error.status);
 	}
-	track("api.request_failed", {
+	// Full error (with stack) to Workers Logs; the client gets a generic body.
+	console.error(error);
+	track("api.serve_failed", {
 		method: c.req.method,
 		path: new URL(c.req.url).pathname,
 		error: errorMessage(error),
@@ -36,21 +39,21 @@ apiV1.notFound((c) =>
 	c.json({ error: "not_found", message: "Not found" }, 404),
 );
 
-// Request log + total timing. Registered first so it wraps auth failures too.
+// Request log + timing. Registered first so it wraps auth failures too.
+// One "total" phase: each handler is a single DB round-trip + serialization,
+// so a finer split would answer no question this one doesn't.
 apiV1.use("*", async (c, next) => {
-	const start = performance.now();
-	await next();
-	const dur = performance.now() - start;
-	c.res.headers.set("Server-Timing", `total;dur=${dur.toFixed(1)}`);
+	const timings = createTimings();
+	await timings.time("total", () => next());
+	c.res.headers.set("Server-Timing", timings.header());
 	const principal = c.get("principal") as
 		| ApiHonoEnv["Variables"]["principal"]
 		| undefined;
-	track("api.request", {
+	track("api.served", {
 		method: c.req.method,
 		path: new URL(c.req.url).pathname,
 		status: c.res.status,
 		tokenId: principal?.id ?? null,
-		dur: Math.round(dur),
 	});
 });
 
@@ -117,3 +120,4 @@ registerEventRoutes(apiV1);
 registerSessionRoutes(apiV1);
 registerContactRoutes(apiV1);
 registerLookupRoutes(apiV1);
+registerFileRoutes(apiV1);

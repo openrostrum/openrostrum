@@ -2,6 +2,7 @@ import type {
 	contacts,
 	events,
 	fields,
+	files,
 	formats,
 	languages,
 	levels,
@@ -16,18 +17,12 @@ import type {
 import { maskEmail, maskPhone } from "./pii";
 
 /**
- * Sessionboard-shape serializers for the /api/v1 compat surface. Field names
- * and nesting mirror docs/reference/sessionboard-openapi.yaml; the field SET
- * is the API column of the flows/09 exposure matrix — raw status enum
- * (queue values included), admin_url, per-speaker is_public, masked
- * emails/phones, and NO evaluation data, withdrawal metadata, or internal
- * contact fields (logistics notes). Hide-PII is hardcoded ON: every email and
- * phone passes through the masks, there is no unmasked variant.
- *
- * SEAM (public JSON feeds, ROUTE-MAP `feeds.*`): the feeds lane should build
- * its session/speaker payloads on these serializers and tighten the
- * projection (feeds drop emails/phones entirely and filter is_public), rather
- * than reserializing from rows.
+ * Sessionboard-shape serializers (field names/nesting per the vendored
+ * OpenAPI spec; field SET per the data-exposure matrix's API column). Hide-PII
+ * is hardcoded ON — every email/phone passes the masks, no unmasked variant
+ * exists. The public JSON feeds are expected to build on these and TIGHTEN
+ * the projection (drop emails/phones, filter is_public) — hence app/lib, not
+ * a route-feature directory.
  */
 
 type EventRow = typeof events.$inferSelect;
@@ -42,8 +37,10 @@ type SessionStatusRow = typeof sessionStatuses.$inferSelect;
 type ParticipantRow = typeof participants.$inferSelect;
 type AnswerRow = typeof submissionAnswers.$inferSelect;
 type SubmissionRow = typeof submissions.$inferSelect;
+type FileRow = typeof files.$inferSelect;
 
 export type ParticipantWithContact = ParticipantRow & { contact: ContactRow };
+export type FileWithContact = FileRow & { contact: ContactRow | null };
 
 export type SubsessionWithRelations = SubmissionRow & {
 	format: FormatRow | null;
@@ -68,11 +65,13 @@ export type SessionWithRelations = SubsessionWithRelations & {
 export type UnassignedStyle = "empty-object" | "null";
 
 export type SerializeContext = {
-	/** Deployment origin for `admin_url` deep links. */
+	/** Deployment origin for `admin_url` deep links and file/photo URLs. */
 	origin: string;
 	unassigned: UnassignedStyle;
 	/** The event's language picklist — resolves `submissions.language` text to a Language object. */
 	eventLanguages: LanguageRow[];
+	/** Session file attachments keyed by submission id (parents AND subsessions). */
+	filesBySubmission: Map<string, FileWithContact[]>;
 	/** Sessions 2.0 `subsession_details` expand. */
 	subsessionDetails?: boolean;
 };
@@ -165,8 +164,8 @@ export function serializeLanguage(language: LanguageRow) {
 
 /**
  * The decision pipeline the API serves raw. `draft` is deliberately absent:
- * drafts are hidden from the API (flows/09 §2.1), so the status catalog never
- * advertises a value no response can carry.
+ * drafts are hidden from the API, so the catalog never advertises a value no
+ * response can carry.
  */
 export const CORE_STATUS_CATALOG = [
 	{ slug: "pending", name: "Pending" },
@@ -209,9 +208,19 @@ export function serializeCustomStatus(row: SessionStatusRow) {
 /* --------------------------------------------------------------- contacts --- */
 
 /**
- * Full Contact record (speakers/contacts endpoints). Email/phones masked;
- * internal fields (logistics notes, user linkage) never serialized;
- * speaker_score / speaker_fee do not exist here and must never appear.
+ * Headshot bytes are served inside the token-authed API surface (unlike
+ * Sessionboard's public CDN links) — consumers fetch photo_url with the same
+ * x-access-token header.
+ */
+function photoUrl(contact: ContactRow, origin: string): string | null {
+	if (!contact.headshotKey) return null;
+	return `${origin}/api/v1/event/${contact.eventId}/contacts/${contact.id}/photo`;
+}
+
+/**
+ * Full Contact record. Email/phones masked; internal fields (logistics
+ * notes, user linkage) never serialized; speaker_score / speaker_fee do not
+ * exist here and must never appear.
  */
 export function serializeContact(contact: ContactRow, origin: string) {
 	return {
@@ -222,7 +231,7 @@ export function serializeContact(contact: ContactRow, origin: string) {
 		email: maskEmail(contact.email),
 		created_at: iso(contact.createdAt),
 		updated_at: null,
-		photo_url: null,
+		photo_url: photoUrl(contact, origin),
 		company_name: contact.companyName,
 		title: contact.jobTitle,
 		about: contact.bio,
@@ -281,11 +290,12 @@ function serializeParticipantRole(role: ProgramRole) {
 
 /**
  * Contact embedded on a session. Hidden speakers stay in the payload flagged
- * `is_public: false` (flows/09 rule j) — the API is a truth surface; only the
- * public embeds/feeds drop them.
+ * `is_public: false` — the API is a truth surface; only the public
+ * embeds/feeds drop them.
  */
 export function serializeSessionSpeaker(
 	participant: ParticipantWithContact & { role: ProgramRole },
+	origin: string,
 ) {
 	const contact = participant.contact;
 	return {
@@ -297,7 +307,7 @@ export function serializeSessionSpeaker(
 		email: maskEmail(contact.email),
 		created_at: iso(contact.createdAt),
 		updated_at: null,
-		photo_url: null,
+		photo_url: photoUrl(contact, origin),
 		company_name: contact.companyName,
 		title: contact.jobTitle,
 		about: contact.bio,
@@ -313,11 +323,39 @@ export function serializeSessionSpeaker(
 
 function serializeSessionParticipant(
 	participant: ParticipantWithContact & { role: ProgramRole },
+	origin: string,
 ) {
 	return {
 		session_participant_id: participant.id,
 		is_primary: participant.isPrimary,
-		...serializeSessionSpeaker(participant),
+		...serializeSessionSpeaker(participant, origin),
+	};
+}
+
+/* ------------------------------------------------------------------ files --- */
+
+/**
+ * A session file attachment in the spec's Content shape. `url` streams the
+ * bytes through the token-authed API (there is no public CDN); the assigned
+ * participant's email is masked like every other contact email.
+ */
+export function serializeContent(file: FileWithContact, origin: string) {
+	return {
+		id: file.id,
+		url: `${origin}/api/v1/event/${file.eventId}/sessions/${file.submissionId}/files/${file.id}/download`,
+		title: file.fileName,
+		filename: file.fileName,
+		size: file.sizeBytes,
+		mimetype: file.contentType,
+		created_at: iso(file.createdAt),
+		updated_at: null,
+		assigned_participant_id: file.contactId,
+		assigned_participant_email: file.contact
+			? maskEmail(file.contact.email)
+			: null,
+		assigned_participant_name: file.contact
+			? `${file.contact.firstName} ${file.contact.lastName}`.trim()
+			: null,
 	};
 }
 
@@ -390,6 +428,12 @@ function customStatusRef(row: SessionStatusRow | null) {
 	return row ? { id: row.id, name: row.name } : null;
 }
 
+function contentFor(row: SubmissionRow, ctx: SerializeContext) {
+	return (ctx.filesBySubmission.get(row.id) ?? []).map((f) =>
+		serializeContent(f, ctx.origin),
+	);
+}
+
 /**
  * Shared field core of every session-shaped payload. Deliberately absent, per
  * the exposure matrix: withdrawal metadata (who/why), evaluation data, drafts
@@ -416,19 +460,22 @@ function sessionCore(row: SubsessionWithRelations, ctx: SerializeContext) {
 		capacity: row.capacity,
 		speakers: program
 			.filter((p) => p.role === "speaker")
-			.map(serializeSessionSpeaker),
+			.map((p) => serializeSessionSpeaker(p, ctx.origin)),
 		chairpersons: program
 			.filter((p) => p.role === "chairperson")
-			.map(serializeSessionSpeaker),
+			.map((p) => serializeSessionSpeaker(p, ctx.origin)),
 		moderators: program
 			.filter((p) => p.role === "moderator")
-			.map(serializeSessionSpeaker),
-		participants: program.map(serializeSessionParticipant),
+			.map((p) => serializeSessionSpeaker(p, ctx.origin)),
+		participants: program.map((p) =>
+			serializeSessionParticipant(p, ctx.origin),
+		),
 		tags: row.submissionTags.map((st) => serializeTag(st.tag)),
 		language: nestedLanguage(row.language, ctx),
 		level: nestedLevel(row.level, ctx),
 		format: nestedFormat(row.format, ctx),
 		room: nestedRoom(row.room, ctx),
+		content: contentFor(row, ctx),
 	};
 }
 
@@ -451,9 +498,11 @@ function serializeSubsession(
 		format: nestedFormat(row.format, ctx),
 		speakers: program
 			.filter((p) => p.role === "speaker")
-			.map(serializeSessionSpeaker),
-		participants: program.map(serializeSessionParticipant),
-		content: [],
+			.map((p) => serializeSessionSpeaker(p, ctx.origin)),
+		participants: program.map((p) =>
+			serializeSessionParticipant(p, ctx.origin),
+		),
+		content: contentFor(row, ctx),
 	};
 }
 
@@ -478,18 +527,18 @@ export function serializeSession(
 				? []
 				: [firstTrack, ...restTracks].map((st) => serializeTrack(st.track)),
 		subsessions: row.subsessions.map((s) => serializeSubsession(s, ctx)),
-		content: [],
 		admin_url: `${ctx.origin}/admin/submissions/${row.id}`,
 	};
 }
 
-/** Lightweight row for POST /sessions/status. Nothing soft-deletes here, so `deleted_at` is always null. */
-export function serializeSessionStatusRow(
-	row: SubmissionRow & {
-		customStatus: SessionStatusRow | null;
-		subsessions?: (SubmissionRow & { customStatus: SessionStatusRow | null })[];
-	},
-) {
+/* ----------------------------------------------------------- status search --- */
+
+type StatusSearchRow = SubmissionRow & {
+	customStatus: SessionStatusRow | null;
+};
+
+/** Nothing soft-deletes in this app, so `deleted_at` is always null. */
+function statusRow(row: StatusSearchRow, subsessions: unknown[]) {
 	return {
 		id: row.id,
 		status: row.status,
@@ -502,19 +551,16 @@ export function serializeSessionStatusRow(
 		deleted_at: null,
 		created_at: iso(row.createdAt),
 		updated_at: iso(row.updatedAt),
-		subsessions: (row.subsessions ?? []).map((s) => ({
-			id: s.id,
-			status: s.status,
-			custom_status_id: s.customStatusId,
-			custom_status: s.customStatus
-				? serializeCustomStatus(s.customStatus)
-				: null,
-			is_abstract: s.type === "abstract",
-			composition_status: STANDALONE_COMPOSITION,
-			deleted_at: null,
-			created_at: iso(s.createdAt),
-			updated_at: iso(s.updatedAt),
-			subsessions: [],
-		})),
+		subsessions,
 	};
+}
+
+/** Lightweight row for the sessions-by-status search. */
+export function serializeSessionStatusRow(
+	row: StatusSearchRow & { subsessions?: StatusSearchRow[] },
+) {
+	return statusRow(
+		row,
+		(row.subsessions ?? []).map((s) => statusRow(s, [])),
+	);
 }

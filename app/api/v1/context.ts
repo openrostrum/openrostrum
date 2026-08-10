@@ -1,3 +1,5 @@
+import { gte, lte, type SQL } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { events } from "~/db/schema";
@@ -57,6 +59,17 @@ export const dateRangeSchema = z.object({
 	after: z.coerce.date().optional(),
 });
 export type DateRange = z.infer<typeof dateRangeSchema>;
+
+/** before/after bounds → SQL conditions on the given timestamp column. */
+export function dateRangeConds(
+	column: AnySQLiteColumn,
+	range: DateRange | undefined,
+): SQL[] {
+	const conds: SQL[] = [];
+	if (range?.before) conds.push(lte(column, range.before));
+	if (range?.after) conds.push(gte(column, range.after));
+	return conds;
+}
 
 export const sortSchema = z.object({
 	order: z.enum(["createdAt", "updatedAt"]).optional(),

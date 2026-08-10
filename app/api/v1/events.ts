@@ -4,7 +4,7 @@ import { events } from "~/db/schema";
 import { apiTokenEventFilter } from "~/lib/api-token";
 import type { ApiApp } from "./context";
 import { offsetOf, parsePageParams, searchEnvelope } from "./pagination";
-import { serializeEvent } from "./serializers";
+import { serializeEvent } from "~/lib/compat/serializers";
 
 export function registerEventRoutes(app: ApiApp): void {
 	app.get("/events", async (c) => {

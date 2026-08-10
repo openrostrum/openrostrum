@@ -7,7 +7,7 @@ import { track } from "~/lib/track";
 /**
  * Tenant resolution for `x-access-token` bearer tokens (the /api/v1 compat
  * surface). Tokens are organization-scoped, optionally restricted to one
- * event; every read the API serves must stay inside apiTokenEventFilter.
+ * event; every read the API serves resolves through apiTokenEventFilter.
  */
 
 export type ApiTokenPrincipal = {
@@ -84,18 +84,6 @@ export function apiTokenEventFilter(principal: ApiTokenPrincipal): SQL {
 	);
 	if (!filter) throw new Error("empty api-token event filter");
 	return filter;
-}
-
-/** The event ids this token may read. */
-export async function listApiTokenEventIds(
-	env: Env,
-	principal: ApiTokenPrincipal,
-): Promise<string[]> {
-	const rows = await getDb(env)
-		.select({ id: events.id })
-		.from(events)
-		.where(apiTokenEventFilter(principal));
-	return rows.map((r) => r.id);
 }
 
 /**
