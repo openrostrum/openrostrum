@@ -41,13 +41,10 @@ import {
 } from "./engine";
 
 /**
- * The one background sync engine: pull → merge → push, org-guarded
- * (docs/airtable-sync-design.md + docs/multi-tenancy-design.md §Airtable).
- * Triggered by the cron job, the webhook route, and the admin "Sync now"
- * button — NEVER by a serving request. The env-configured base is bound to
- * the Demo organization: every row selection filters
- * `events.organizationId = 'org_demo'`, so no other tenant's rows can ever
- * reach the base, register as deleted, or accept inbound edits.
+ * Background-only sync: pull → merge → push (docs/airtable-sync-design.md).
+ * The env base is bound to the Demo organization — every row selection
+ * filters `events.organizationId = 'org_demo'` (docs/multi-tenancy-design.md
+ * §Airtable), so no other tenant's rows can reach the base or take edits.
  */
 export const DEMO_ORG_ID = "org_demo";
 
@@ -67,7 +64,6 @@ export interface SyncRunOptions {
 export interface SyncDeps {
 	/** Injected in tests; defaults to the env-configured base. */
 	base?: AirtableBase;
-	now?: () => Date;
 }
 
 export interface TableRunStats {
@@ -95,19 +91,14 @@ type DecisionTarget = (typeof DECISION_STATUS)[number];
 
 /* ------------------------------------------------------------- sync state --- */
 
-// Run state (breaker pause, run lock, last outcome) lives in reserved
-// airtable_links rows: it MUST survive across ticks and isolates,
-// airtable_links is the sync engine's own table, and "$sync" can never
-// collide with a real table name. All record selection below filters
-// tableName to SYNCED_TABLES, so these rows never enter reconciliation.
-// (The reserved shapes are documented in docs/airtable-sync-design.md,
-// Decision 5.)
+// Run state lives in reserved tableName='$sync' rows (design doc, Decision
+// 5): it must survive across ticks/isolates, and every reconciliation select
+// filters tableName to SYNCED_TABLES so these rows never enter a plan. The
+// webhook high-water mark has its OWN row: its writer (the route) does not
+// hold the run lock, so it must never share a blob with the runner's state.
 const STATE_TABLE = "$sync";
 const STATE_RECORD = "state";
 const LOCK_RECORD = "lock";
-// The webhook high-water mark gets its own row so the unlocked webhook route
-// and the locked runner never read-modify-write the same blob (a ping landing
-// mid-run must not be lost to the run's final state write).
 const WEBHOOK_RECORD = "webhook";
 // A tick is seconds of wall time; a lock this old belongs to a crashed run.
 const LOCK_TTL_MS = 5 * 60_000;
@@ -147,23 +138,28 @@ export async function readSyncState(db: Db): Promise<SyncState> {
 	return (row?.snapshot as SyncState | null) ?? {};
 }
 
-export async function writeSyncState(db: Db, state: SyncState): Promise<void> {
+async function upsertStateRow(
+	db: Db,
+	recordId: string,
+	snapshot: Record<string, unknown>,
+): Promise<void> {
 	await db
 		.insert(airtableLinks)
 		.values({
 			tableName: STATE_TABLE,
-			recordId: STATE_RECORD,
-			airtableId: STATE_TABLE,
-			baseSnapshot: state as Record<string, unknown>,
+			recordId,
+			airtableId: `${STATE_TABLE}:${recordId}`,
+			baseSnapshot: snapshot,
 			syncedAt: new Date(),
 		})
 		.onConflictDoUpdate({
 			target: [airtableLinks.tableName, airtableLinks.recordId],
-			set: {
-				baseSnapshot: state as Record<string, unknown>,
-				syncedAt: new Date(),
-			},
+			set: { baseSnapshot: snapshot, syncedAt: new Date() },
 		});
+}
+
+export async function writeSyncState(db: Db, state: SyncState): Promise<void> {
+	await upsertStateRow(db, STATE_RECORD, state as Record<string, unknown>);
 }
 
 export async function readLastWebhookPing(db: Db): Promise<string | null> {
@@ -193,27 +189,13 @@ export async function recordWebhookPing(
 	if (!timestamp) return { replayed: false };
 	const last = await readLastWebhookPing(db);
 	if (last && timestamp <= last) return { replayed: true };
-	const snapshot = { lastWebhookAt: timestamp };
-	await db
-		.insert(airtableLinks)
-		.values({
-			tableName: STATE_TABLE,
-			recordId: WEBHOOK_RECORD,
-			airtableId: `${STATE_TABLE}:${WEBHOOK_RECORD}`,
-			baseSnapshot: snapshot,
-			syncedAt: new Date(),
-		})
-		.onConflictDoUpdate({
-			target: [airtableLinks.tableName, airtableLinks.recordId],
-			set: { baseSnapshot: snapshot, syncedAt: new Date() },
-		});
+	await upsertStateRow(db, WEBHOOK_RECORD, { lastWebhookAt: timestamp });
 	return { replayed: false };
 }
 
 /**
- * At-most-one tick at a time: overlapping triggers (webhook ping during a
- * cron pass, a double-clicked Sync now) would double-apply plans computed
- * from the same stale reads. The lock row insert is atomic on the
+ * At-most-one tick at a time — overlapping triggers would double-apply plans
+ * computed from the same stale reads. The insert is atomic on the
  * (tableName, recordId) unique index; a crashed run's lock is stolen after
  * its TTL.
  */
@@ -426,12 +408,14 @@ export async function runAirtableSync(
 		track("sync.skipped", { reason: "not_configured", trigger });
 		return { status: "not_configured" };
 	}
-	const now = deps.now?.() ?? new Date();
+	const now = new Date();
 	if (!(await acquireRunLock(db, now))) {
 		track("sync.skipped", { reason: "already_running", trigger });
 		return { status: "already_running" };
 	}
 	try {
+		// The lock is exclusive over the state row's writers, so this read
+		// stays authoritative for the whole run.
 		const state = await readSyncState(db);
 		// The server-side resume gate: acknowledgement only means something
 		// while a pause is actually in force.
@@ -441,13 +425,20 @@ export async function runAirtableSync(
 			return { status: "paused" };
 		}
 		try {
-			return await reconcileAll(db, base, env, opts.trigger, acknowledge, now);
+			return await reconcileAll(
+				db,
+				base,
+				env,
+				opts.trigger,
+				acknowledge,
+				state,
+				now,
+			);
 		} catch (error) {
 			const message = errorMessage(error);
 			track("sync.run_failed", { trigger, error: message });
-			const fresh = await readSyncState(db);
 			await writeSyncState(db, {
-				...fresh,
+				...state,
 				lastRunAt: now.toISOString(),
 				lastRunTrigger: trigger,
 				lastRunStatus: "failed",
@@ -485,6 +476,7 @@ async function reconcileAll(
 	env: Env,
 	trigger: SyncTrigger,
 	acknowledgeDeletions: boolean,
+	state: SyncState,
 	now: Date,
 ): Promise<SyncRunResult> {
 	const demoEvents = await db
@@ -586,9 +578,8 @@ async function reconcileAll(
 				trigger,
 			});
 		}
-		const fresh = await readSyncState(db);
 		await writeSyncState(db, {
-			...fresh,
+			...state,
 			pausedAt: now.toISOString(),
 			pausedReason: `${detail} synced rows were deleted in Airtable in one pass. Sync is paused so an accidental mass-delete can't archive them all — review the base, then resume to apply the deletions.`,
 			lastRunAt: now.toISOString(),
@@ -628,11 +619,8 @@ async function reconcileAll(
 	}
 
 	if (acknowledgeDeletions) track("sync.resumed", { trigger });
-	// Merge onto a FRESH read — a webhook ping that landed mid-run must not
-	// lose its lastWebhookAt to this write.
-	const fresh = await readSyncState(db);
 	await writeSyncState(db, {
-		...fresh,
+		...state,
 		...(acknowledgeDeletions
 			? { pausedAt: undefined, pausedReason: undefined }
 			: {}),
@@ -641,7 +629,7 @@ async function reconcileAll(
 		lastRunStatus: "ok",
 		lastRunTables: tables,
 		lastError: undefined,
-		recentConflicts: [...conflicts, ...(fresh.recentConflicts ?? [])].slice(
+		recentConflicts: [...conflicts, ...(state.recentConflicts ?? [])].slice(
 			0,
 			MAX_RECENT_CONFLICTS,
 		),

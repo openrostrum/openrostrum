@@ -352,11 +352,11 @@ async function planAcceptProvisioning(
 }
 
 /**
- * Withdrawal — the ONE code path that sets `withdrawn` (portal action, admin
- * resolutions, Airtable-inbound sync). The reason is mandatory record; a null
- * `byUserId` records a system-initiated withdrawal (e.g. the row was deleted
- * in the team's Airtable base). The session is unscheduled so no withdrawn
- * ghost stays on the agenda, and content columns are untouched.
+ * Withdrawal — the shared domain path (portal/admin resolutions,
+ * Airtable-inbound sync). The reason is mandatory record; a null `byUserId`
+ * records a system-initiated withdrawal (e.g. the row was deleted in the
+ * team's Airtable base). The session is unscheduled so no withdrawn ghost
+ * stays on the agenda, and content columns are untouched.
  */
 export async function withdrawSubmission(
 	db: Db,

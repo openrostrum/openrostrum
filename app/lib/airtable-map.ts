@@ -10,15 +10,11 @@ import { TASK_STATUS } from "~/db/schema";
 import type { AirtableFields, AirtableFieldValue } from "~/ports/airtable";
 
 /**
- * The per-table field-class map — the ONE declaration of what syncs and how
- * (docs/airtable-sync-design.md, Decision 2). Anything not declared here is
- * team-private: never read from the base, never written, never snapshotted —
- * which is what makes the team's own columns safe to add.
- *
- *   app-owned    pushed; an inbound edit is corrected back on the next tick
- *   descriptive  three-way merged; a true conflict → Airtable wins
- *   workflow     an inbound edit is a TRANSITION REQUEST through the domain
- *                path; illegal transitions are rejected and written back
+ * The ONE declaration of what syncs and how (docs/airtable-sync-design.md,
+ * Decision 2): app-owned = inbound edits corrected back · descriptive =
+ * three-way merged, Airtable wins conflicts · workflow = transition request
+ * through the domain path. Anything NOT declared here is team-private —
+ * never read from the base, never written, never snapshotted.
  */
 export type FieldClass = "app-owned" | "descriptive" | "workflow";
 
