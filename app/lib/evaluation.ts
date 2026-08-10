@@ -1,7 +1,8 @@
 /**
- * Pure evaluation logic shared by the admin plan editor, the reviewer surface,
- * and the CSV export. No DB access here — routes fetch, this computes — so the
- * scoring/distribution contracts are unit-testable against fixed fixtures.
+ * The review lane's shared vocabulary: scoring/distribution math (pure and
+ * unit-tested against fixed fixtures), the constants both surfaces must agree
+ * on (reviewable statuses, page size, badge tones), date/lock helpers, and
+ * the chunk helper that keeps id-list queries under D1's parameter cap.
  */
 
 import type { BadgeTone } from "~/ui";
