@@ -30,7 +30,7 @@ Seven agents each read the actual screenshots for their modules and produced a f
 Each is now reflected in `SCOPE.md`, the relevant flow doc, and the coverage map.
 
 **Form builder**
-- The current builder is a **4-page wizard: Welcome Screen → Session Information → Speaker Information → Form Settings.** There is **no Payments step and no Submission-Setup/Abstracts-vs-Sessions step** in this generation (live schema flag `cfp_payment_step_in_wizard: false` confirms). Earlier docs said 6–7 steps — wrong.
+- ⚠️ **Superseded structural claim — build the 7-step builder per `SCOPE.md` P0 #1 / [`VERSION-NOTE.md`](VERSION-NOTE.md).** For the record, the *newest* Sessionboard UI generation showed a 4-page wizard (Welcome Screen → Session Information → Speaker Information → Form Settings; no Payments step; `cfp_payment_step_in_wizard: false`); the field detail below is what remains authoritative here.
 - There is **no separate Notifications step**; admin-notify dropdowns + confirmation-email editor + reminder toggle all live inside **Form Settings**.
 - Page-3 H1 is **"Contact Information"** (stepper label "Speaker Information"); speaker limit is a **−/+ stepper (default 6)** — narration claims a 15 cap, but the UI shows no cap, so treat 15 as unverified.
 - Two "Unique Contact Settings" toggles: *Allow users to submit new information for existing contacts* (off) and *Notify existing contacts…* (on).

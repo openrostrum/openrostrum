@@ -10,9 +10,9 @@ Researched 2026-08-08 from Sessionboard's official knowledge base (learn.session
 | [03-emails-communications.md](03-emails-communications.md) | Every automated email + trigger, manual sends, templates/themes, deliverability | P0 (confirmation, reminders) / P1 (template editor) | 23 |
 | [04-review-accept-decline.md](04-review-accept-decline.md) | Status machine, queue staging + portal masking, manual accept/decline emails, participant acceptance | P0 | 10 |
 | [05-evaluations.md](05-evaluations.md) | Evaluation plans, rounds, scorecards, evaluator UI, assignment rules (the real "category routing") | P0 (thin) / P1 (rounds, rules) | 37 |
-| [06-agenda-embeds.md](06-agenda-embeds.md) | Drag-drop scheduling, conflict detection (2 classes), views, embeds architecture, wf2025 reference | P0 (agenda) / P2 #2 (embeds) | 12 |
+| [06-agenda-embeds.md](06-agenda-embeds.md) | Drag-drop scheduling, conflict detection (2 classes), views, embeds architecture, wf2025 reference | P0 (agenda) / P1 #16 (embeds — promoted 2026-08-09) | 12 |
 | [07-portals-tasks.md](07-portals-tasks.md) | Portal model (audience segments), access provisioning, tasks/forms/file-requests, completion tracking | P0 (tasks thin) / P1 (depth) | 29 |
-| [08-settings-data-api.md](08-settings-data-api.md) | Event settings, import/export, dashboards, full API inventory (177 ops), webhooks (20 events) | P1 (settings) / P2 (API #4, import/export #3) | 18 |
+| [08-settings-data-api.md](08-settings-data-api.md) | Event settings, import/export, dashboards, full API inventory (177 ops), webhooks (20 events) | P1 (settings / API #20 / CSV import #17 — promoted 2026-08-09) | 18 |
 | [09-data-exposure.md](09-data-exposure.md) | Who sees what, where: actor/surface model, 7 entity exposure matrices (R/W/Masked/Hidden), 27 masking rules, write-permission map, leak checklist | Cross-cutting (authz spec for every tier) | — |
 
 ## Research verdicts on the former open questions

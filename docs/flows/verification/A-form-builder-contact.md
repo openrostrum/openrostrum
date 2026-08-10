@@ -8,7 +8,9 @@
 - `docs/reference/guidde/ALL-CAPTIONS.md` — sections "01-form-builder" (37 steps) and "02-create-contact" (12 steps)
 - `docs/reference/public-form-definition.json` — the LIVE rendered form schema (event "AI.Engineer Sandbox Event"; the screenshots are from a separate demo event "Sessionboard Conference", so field *values* differ but the UI structure is identical)
 
-**Headline result:** The builder in THIS generation is a **4-page wizard**, not 6–7. The pages are **Welcome Screen → Session Information → Speaker Information → Form Settings**. There is **no Submission Setup step, no Abstract-vs-Session picker, no Payments & Fees step, and no separate Notifications step** in this UI. Notifications live inside Form Settings.
+> ⚠️ **SUPERSEDED STRUCTURAL CLAIM — do not build from this headline.** The 4-page-wizard finding below describes Sessionboard's *newest* UI generation; the authoritative build target is the **7-step builder** per `SCOPE.md` P0 #1 and [`VERSION-NOTE.md`](VERSION-NOTE.md). The **field-level inventories** in this doc remain valid and are why it's kept.
+
+~~**Headline result:** The builder in THIS generation is a **4-page wizard**, not 6–7.~~ (Superseded — see banner above.) The pages observed in the newest UI were Welcome Screen → Session Information → Speaker Information → Form Settings, with notifications inside Form Settings.
 
 ---
 

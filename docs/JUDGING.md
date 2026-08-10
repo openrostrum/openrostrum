@@ -2,7 +2,7 @@
 
 This file feeds the eval kit's `submissionNotes` and is written for whoever
 points `sbek` (or their own hands) at the deployed site. Placeholders marked
-`⏳` are filled at deploy time — CI fails the submission checklist if any remain.
+`⏳` are filled at deploy time — grep this file for `⏳` before submitting; any that remain are unfinished.
 
 ## Entry points
 

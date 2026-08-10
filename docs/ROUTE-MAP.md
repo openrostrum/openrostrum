@@ -27,7 +27,6 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Portals admin | `admin.portals.tsx` · `admin.portal-forms.tsx` · `admin.file-requests.tsx` | `/admin/portals` … | 3 | todo |
 | Public CFP | `submit.$eventSlug.$formId.tsx` (+ `.step.*`) | `/submit/:eventSlug/:formId` | 2 | todo |
 | Speaker portal | `portals.$eventSlug.$portalId.tsx` (+ `home/submissions/profile/tasks`) | `/portals/:eventSlug/:portalId/*` | 2 | todo |
-| Public schedule / speakers (P2) | `schedule.$eventSlug.tsx` · `speakers.$eventSlug.tsx` | `/schedule/:eventSlug` … | P2 | todo |
 | Create event | `admin.events.new.tsx` | `/admin/events/new` | 1 | todo |
 | Event switcher (action) | `admin.events.switch.tsx` | `/admin/events/switch` (POST → sets `users.activeEventId`) | 0/1 | todo |
 | Reviewer management | `admin.reviewers.tsx` | `/admin/reviewers` (add reviewer + track assignment + invite) | 1 | todo |

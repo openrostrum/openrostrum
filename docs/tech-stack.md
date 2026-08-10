@@ -30,7 +30,7 @@ The definitive stack for the Sessionboard clone. Cloudflare-native, TypeScript e
 | Forms | **React Hook Form** + Zod resolver (pin resolver + zod together) | — |
 | Calendar files | **`ics`** (plain utility, not a port) | — |
 | Auth | ownable session module in D1; hashing via **WebCrypto PBKDF2** (or native `node:crypto.scrypt`) | — |
-| Compat API (P2) | **Hono** sub-app mounted on splat route `/api/v1/*` (one deployable, shared Drizzle/Zod) | — |
+| Compat API (P1 #20) | **Hono** sub-app mounted on splat route `/api/v1/*` (one deployable, shared Drizzle/Zod) | — |
 | Package manager / bundler | **pnpm** / **Vite** | — |
 | Lint | **ESLint** (flat) + typescript-eslint + react/hooks/jsx-a11y + custom AST rules in `tooling/eslint-rules/` + `no-restricted-*` seams. Custom rules ported from the `cloudflare-agent-exercise` repo; skipped its CF-Workflow/AI-agent/monorepo-specific rules. | 9.x |
 | Format | **Biome** — formatter only; its linter is disabled (ESLint owns linting). | 2.x |
@@ -62,7 +62,7 @@ Everything that differs between local and cloud sits behind a typed interface wi
 - **React Router imports:** import from `react-router` only — never `react-router-dom` or `@remix-run/*`, and never the `json()`/`defer()` helpers (return plain objects). An ESLint `no-restricted-imports` rule fails lint on violations; `react-router typegen` is wired into the typecheck script.
 - **Client bundle:** public and schedule pages render SSR and stay light; Tiptap and dnd-kit are lazy-loaded / code-split so they never ship to public visitors. (They don't count against the 10 MB Worker script cap — they're static assets — but they hurt public-page load if shipped everywhere, and load speed is judged.)
 - **Tailwind v4:** CSS-first config (`@import "tailwindcss"` + `@theme`). No `tailwind.config.js`.
-- **shadcn:** the deps + `cn` util (`app/lib/utils.ts`) + `components.json` are committed; components are added centrally by the integration owner before the swarm; agents do not run `npx shadcn add`.
+- **No shadcn:** the planned shadcn substrate was removed 2026-08-10 (never imported; its `cn` conflicted with `app/ui/cn.ts`). UI composes the hand-rolled `app/ui` primitives exclusively — enforced by the `ui-primitives-only` ESLint rule; agents never run `npx shadcn add`.
 - **Routing:** file-based (`@react-router/fs-routes` `flatRoutes()`). Each feature owns a file in `app/routes/` per `docs/ROUTE-MAP.md`; nobody edits `app/routes.ts`. `admin.tsx` is the admin shell layout; `admin.*.tsx` are its children.
 - **Nav:** each feature contributes one `app/nav/<feature>.nav.ts` (pure data); the shell auto-discovers via `import.meta.glob` — no shared nav file to edit.
 - **Async jobs:** the daily cron is pre-declared (`wrangler.json` `triggers.crons`) and `workers/app.ts` dispatches to `app/jobs/*.scheduled.ts`; reminder/other jobs add a file, not an entrypoint edit.
