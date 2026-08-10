@@ -410,13 +410,19 @@ Expected: all portal-task tests pass.
 
 - [ ] **Step 5: Route validated submissions through the helper**
 
-Import `persistInitialPortalFormResponse`. Replace the direct update with:
+Import `persistInitialPortalFormResponse`. Inside the `submit-form` branch, narrow the route invariant once:
+
+```ts
+if (!ctx.contact) throw data(null, { status: 404 });
+```
+
+Replace the direct update with:
 
 ```ts
 const persisted = await timings.time("db", () =>
 	persistInitialPortalFormResponse(db, {
 		assignmentId: assignment.id,
-		contactId: ctx.contact?.id ?? "",
+		contactId: ctx.contact.id,
 		answers,
 		completedAt: new Date(),
 	}),
