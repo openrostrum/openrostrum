@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import { Panel } from "~/ui";
+import { SectionHeading } from "./section-heading";
 
-/** Overview stat: caps label over a mono count (counts are data literals —
- * the design system's mono territory), with an optional context line. */
+// Stat numerals are mono (counts are data literals) at the existing 23px
+// scale point. A dedicated stat type role is an app/ui candidate for the
+// integration consolidation sweep.
 export function StatCard({
 	label,
 	value,
@@ -15,9 +17,7 @@ export function StatCard({
 	return (
 		<Panel>
 			<div className="flex flex-col gap-[6px]">
-				<span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-					{label}
-				</span>
+				<SectionHeading>{label}</SectionHeading>
 				<span className="font-mono text-[23px] font-medium tabular-nums text-fg">
 					{value}
 				</span>
@@ -41,7 +41,7 @@ export function StatCell({
 	return (
 		<div className="flex flex-col items-start gap-[6px]">
 			{label}
-			<span className="pl-1 font-mono text-[16px] font-medium tabular-nums text-fg">
+			<span className="pl-1 font-mono text-[13px] font-medium tabular-nums text-fg">
 				{count}
 			</span>
 		</div>

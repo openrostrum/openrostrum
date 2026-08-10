@@ -12,16 +12,17 @@ import {
 	taskAssignments,
 	tasks,
 } from "~/db/schema";
+import { formIsOpen } from "~/domain/forms";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import {
 	calendarDaysUntil,
 	eventCountdown,
-	formatCalendarDate,
 	greetingForHour,
+	resolveTimezone,
 	zonedDateLine,
 	zonedHour,
-	zonedShortDate,
 } from "~/lib/event-time";
+import { formatDateUTC, formatInTz } from "~/lib/format";
 import { createTimings } from "~/lib/track";
 import {
 	ButtonLink,
@@ -77,7 +78,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		};
 	}
 
-	const tz = event.timezone;
+	const tz = resolveTimezone(event.timezone);
 	const db = getDb(env);
 	const timings = createTimings();
 
@@ -189,11 +190,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const formCards = formRows
 		.map((f) => {
 			const counts = formCounts.find((c) => c.formId === f.id);
-			// A past close date closes an open form at that instant, whatever its
-			// stored status says — the public form gates on closeAt the same way.
-			const isOpen =
-				f.status === "open" &&
-				(f.closeAt === null || f.closeAt.getTime() > now.getTime());
+			const isOpen = formIsOpen(f, now);
 			return {
 				id: f.id,
 				name: f.internalName,
@@ -202,7 +199,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					: f.status === "draft"
 						? ("draft" as const)
 						: ("closed" as const),
-				closeDate: f.closeAt ? formatCalendarDate(f.closeAt) : null,
+				closeDate: f.closeAt ? formatDateUTC(f.closeAt) : null,
 				closesInDays:
 					isOpen && f.closeAt ? calendarDaysUntil(now, f.closeAt, tz) : null,
 				submitted: counts?.submitted ?? 0,
@@ -227,7 +224,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		title: r.title,
 		status: r.status,
 		formName: r.form?.internalName ?? "Manual",
-		submitted: zonedShortDate(r.createdAt, tz),
+		submitted: formatInTz(r.createdAt, tz, "date"),
 		speakers: r.participants
 			.filter((p) => p.role === "speaker")
 			.sort(
@@ -241,8 +238,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		{
 			event: {
 				name: event.name,
-				startDate: event.startsAt ? formatCalendarDate(event.startsAt) : null,
-				endDate: event.endsAt ? formatCalendarDate(event.endsAt) : null,
+				startDate: event.startsAt ? formatDateUTC(event.startsAt) : null,
+				endDate: event.endsAt ? formatDateUTC(event.endsAt) : null,
 			},
 			greeting: greet(now, tz, firstName),
 			dateLine: zonedDateLine(now, tz),

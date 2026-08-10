@@ -22,65 +22,41 @@ import { authedRequest, CONTEXT, seedTasksBaseline } from "./tasks-fixtures";
 // speakers, 1 accepted session unscheduled, 1 not content-approved, 1 speaker
 // owing tasks, and exactly one form closing inside the 7-day window.
 
-type LoaderData = {
-	event: { name: string } | null;
-	greeting: string;
-	countdown:
-		| { phase: "unset" }
-		| { phase: "upcoming"; days: number }
-		| { phase: "running"; day: number; ofDays: number }
-		| { phase: "ended" };
-	stats: {
-		submissions: number;
-		drafts: number;
-		acceptedSpeakers: number;
-		acceptedSessions: number;
-	};
-	statusCounts: Record<string, number>;
-	alerts: {
-		notPublic: number;
-		unscheduled: number;
-		outstandingSpeakers: number;
-		closingSoon: {
-			count: number;
-			firstName: string | null;
-			firstDays: number | null;
-		};
-	};
-	recent: Array<{
-		id: string;
-		title: string;
-		status: string;
-		formName: string;
-		speakers: string[];
-	}>;
-	forms: Array<{
-		id: string;
-		name: string;
-		state: string;
-		submitted: number;
-		drafts: number;
-		limit: number | null;
-	}>;
-};
+// Loader-derived types: the with-event branch returns `data(body, { headers })`,
+// the no-event branch a plain object — typing from the real return value means
+// a shape change here fails to compile instead of silently drifting.
+type LoaderReturn = Awaited<ReturnType<typeof loader>>;
+type FullData = Extract<LoaderReturn, { data: unknown }>["data"];
+type NoEventData = Exclude<LoaderReturn, { data: unknown }>;
 
-/** The loader returns `data(body, { headers })` with an event and a plain
- * object without one — read through the wrapper either way. */
-function unwrap(result: unknown): LoaderData {
-	const maybe = result as { data?: LoaderData };
-	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
-		? maybe.data
-		: (result as LoaderData);
+function unwrap(result: LoaderReturn): FullData | NoEventData {
+	return "data" in result ? result.data : result;
 }
 
-async function runLoader(request: Request): Promise<LoaderData> {
-	return unwrap(
+async function runLoader(request: Request): Promise<FullData> {
+	const result = unwrap(
 		await loader({
 			context: CONTEXT,
 			request,
 			params: {},
 		} as unknown as Parameters<typeof loader>[0]),
 	);
+	if (result.event === null) {
+		throw new Error("expected an active event on the dashboard");
+	}
+	return result;
+}
+
+async function runLoaderNoEvent(request: Request): Promise<NoEventData> {
+	const result = unwrap(
+		await loader({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof loader>[0]),
+	);
+	if (result.event !== null) throw new Error("expected the no-event shape");
+	return result;
 }
 
 /** Noon UTC `n` calendar days after today in the event zone (the seeded event
@@ -446,7 +422,7 @@ describe("empty states", () => {
 	it("an admin whose org has no events gets the no-event shape, not a crash", async () => {
 		const db = getDb(env);
 		await db.insert(organizations).values({ id: "org3", name: "Eventless" });
-		const data = await runLoader(await authedForOrg("org3", null));
+		const data = await runLoaderNoEvent(await authedForOrg("org3", null));
 		expect(data.event).toBeNull();
 		expect(data.greeting).toMatch(/^Good (morning|afternoon|evening)/);
 	});

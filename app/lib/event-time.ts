@@ -1,31 +1,35 @@
 /**
- * Event-calendar time. `events.startsAt`/`endsAt` (and the seed's form close
+ * Event-calendar day math. `events.startsAt`/`endsAt` (and seeded close
  * dates) hold CALENDAR DATES encoded as UTC midnight — the onboarding-form
  * convention — while "today" is whatever date it currently is in the EVENT's
- * timezone. Day math therefore compares the stored UTC calendar date against
- * the event-local today; mixing in the server's local zone would shift the
- * countdown by a day around midnight.
+ * timezone. Day arithmetic therefore compares the stored UTC calendar date
+ * against the event-local today; mixing in the server's local zone would
+ * shift the countdown by a day around midnight. Rendering helpers live in
+ * `format.ts` — this module only does zone-aware arithmetic.
  */
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** `events.timezone` is user-influenced — an unknown zone falls back to UTC
- * rather than crashing the dashboard. */
-function zonedFormatter(
-	timeZone: string,
-	options: Intl.DateTimeFormatOptions,
-): Intl.DateTimeFormat {
+/**
+ * `events.timezone` can be written by future non-form paths (CSV import,
+ * Airtable team edits); an unknown zone must degrade to UTC once at the
+ * loader boundary, not crash every date on the page. Callers pass the
+ * resolved zone to everything below and to `formatInTz`.
+ */
+export function resolveTimezone(timeZone: string): string {
 	try {
-		return new Intl.DateTimeFormat("en-US", { ...options, timeZone });
+		new Intl.DateTimeFormat("en-US", { timeZone });
+		return timeZone;
 	} catch {
-		return new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" });
+		return "UTC";
 	}
 }
 
 /** The instant's calendar date in `timeZone`, as UTC-midnight epoch ms —
  * a common currency for whole-day arithmetic. */
 export function zonedCalendarDate(instant: Date, timeZone: string): number {
-	const fmt = zonedFormatter(timeZone, {
+	const fmt = new Intl.DateTimeFormat("en-US", {
+		timeZone,
 		year: "numeric",
 		month: "2-digit",
 		day: "2-digit",
@@ -48,7 +52,11 @@ export function utcCalendarDate(instant: Date): number {
 
 /** Hour-of-day (0–23) in `timeZone`. */
 export function zonedHour(instant: Date, timeZone: string): number {
-	const fmt = zonedFormatter(timeZone, { hour: "numeric", hourCycle: "h23" });
+	const fmt = new Intl.DateTimeFormat("en-US", {
+		timeZone,
+		hour: "numeric",
+		hourCycle: "h23",
+	});
 	const hour = fmt.formatToParts(instant).find((p) => p.type === "hour")?.value;
 	return Number(hour ?? 0);
 }
@@ -61,28 +69,10 @@ export function greetingForHour(hour: number): string {
 
 /** "Sunday, August 10, 2026" in the event's timezone. */
 export function zonedDateLine(instant: Date, timeZone: string): string {
-	return zonedFormatter(timeZone, {
+	return new Intl.DateTimeFormat("en-US", {
+		timeZone,
 		weekday: "long",
 		month: "long",
-		day: "numeric",
-		year: "numeric",
-	}).format(instant);
-}
-
-/** "Oct 12, 2026" for a UTC-midnight calendar date (event/close dates). */
-export function formatCalendarDate(date: Date): string {
-	return date.toLocaleDateString("en-US", {
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-		timeZone: "UTC",
-	});
-}
-
-/** "Aug 10, 2026" for a real instant (e.g. createdAt), in the event's zone. */
-export function zonedShortDate(instant: Date, timeZone: string): string {
-	return zonedFormatter(timeZone, {
-		month: "short",
 		day: "numeric",
 		year: "numeric",
 	}).format(instant);

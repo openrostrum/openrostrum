@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-/** Caps section label (same voice as table headers) with an optional
- * right-aligned aside — typically a "View all" TextLink. */
+// Deliberately the same caps voice as the table header (Th) — one label
+// voice across the tool, so a re-skin edits it in two known places.
 export function SectionHeading({
 	children,
 	aside,

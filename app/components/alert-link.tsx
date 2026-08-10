@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { TextLink } from "~/ui";
 
-/** An "also check" row: what needs attention, then the surface that fixes it. */
 export function AlertLink({
 	to,
 	action,

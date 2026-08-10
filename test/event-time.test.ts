@@ -3,8 +3,8 @@ import {
 	calendarDaysUntil,
 	eventCountdown,
 	greetingForHour,
+	resolveTimezone,
 	zonedCalendarDate,
-	zonedHour,
 } from "../app/lib/event-time";
 
 // Oracles are hand-computed calendar arithmetic (e.g. Aug 10 → Oct 12 =
@@ -19,11 +19,12 @@ describe("zonedCalendarDate", () => {
 		expect(zonedCalendarDate(instant, LA)).toBe(Date.UTC(2026, 7, 10));
 		expect(zonedCalendarDate(instant, "UTC")).toBe(Date.UTC(2026, 7, 11));
 	});
+});
 
-	it("falls back to UTC on an unknown timezone instead of throwing", () => {
-		const instant = new Date("2026-08-11T01:00:00Z");
-		expect(zonedCalendarDate(instant, "Not/AZone")).toBe(Date.UTC(2026, 7, 11));
-		expect(zonedHour(instant, "Not/AZone")).toBe(1);
+describe("resolveTimezone", () => {
+	it("passes valid zones through and degrades unknown ones to UTC", () => {
+		expect(resolveTimezone("America/Los_Angeles")).toBe("America/Los_Angeles");
+		expect(resolveTimezone("Not/AZone")).toBe("UTC");
 	});
 });
 
