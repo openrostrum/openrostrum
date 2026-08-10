@@ -430,6 +430,45 @@ describe("auto-place", () => {
 });
 
 describe("published-but-hidden affordance", () => {
+	it("keeps a scheduled row visible after its status is removed from the unscheduled tray", async () => {
+		const db = await seedBaseline();
+		await db
+			.update(events)
+			.set({ schedulableStatuses: ["accepted", "accept_queue"] })
+			.where(eq(events.id, "e1"));
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_queue",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		await db.insert(submissions).values({
+			id: "s_queue_unscheduled",
+			eventId: "e1",
+			title: "Another Accept Queue Session",
+			status: "accept_queue",
+			formatId: "fmt_talk",
+		});
+		await db
+			.update(events)
+			.set({ schedulableStatuses: ["accepted"], agendaPublishedAt: new Date() })
+			.where(eq(events.id, "e1"));
+
+		const data = await callLoader();
+
+		expect(data.sessions.find((s) => s.id === "s_queue")).toMatchObject({
+			status: "accept_queue",
+			schedulable: true,
+			startsAt: utc(2026, 10, 12, 16, 30).getTime(),
+			roomId: "room_main",
+		});
+		expect(
+			data.sessions.find((s) => s.id === "s_queue_unscheduled"),
+		).toBeUndefined();
+		expect(data.event?.hiddenFromPublic).toBe(1);
+	});
+
 	it("counts scheduled rows the public schedule withholds, per the public projection rule", async () => {
 		const db = await seedBaseline();
 		await db

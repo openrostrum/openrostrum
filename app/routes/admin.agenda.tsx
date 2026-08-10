@@ -147,7 +147,7 @@ function toAgendaSession(
 		id: s.id,
 		title: s.title,
 		status: s.status,
-		schedulable: schedulable.includes(s.status),
+		schedulable: s.startsAt != null || schedulable.includes(s.status),
 		startsAt: s.startsAt ? s.startsAt.getTime() : null,
 		endsAt: s.endsAt ? s.endsAt.getTime() : null,
 		roomId: s.roomId,
@@ -198,10 +198,10 @@ async function loadSessions(
 			endsAt: true,
 			roomId: true,
 		},
-		where: (s, { and: andW, eq: eqW, inArray, isNull }) =>
+		where: (s, { and: andW, eq: eqW, inArray, isNotNull, isNull, or }) =>
 			andW(
 				eqW(s.eventId, eventId),
-				inArray(s.status, statuses),
+				or(inArray(s.status, statuses), isNotNull(s.startsAt)),
 				isNull(s.parentId),
 			),
 		with: {
