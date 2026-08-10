@@ -51,6 +51,10 @@ describe("public sessions surface", () => {
 
 		const s1 = data.surface.sessions.find((s) => s.id === "s1");
 		expect(s1?.speakers.map((sp) => sp.name)).toEqual(["Ada Zhang"]); // hidden speaker dropped
+		// Card attribution carries the speaker's title + company (fixture
+		// expectation: "Name — Title, Company" on every public speaker mention).
+		expect(s1?.speakers[0]?.jobTitle).toBe("CTO");
+		expect(s1?.speakers[0]?.companyName).toBe("DevFlow");
 		expect(s1?.room).toBe("Main Hall");
 		expect(s1?.timeRange).toBe("9:30 AM – 10:00 AM"); // event TZ, not UTC
 		expect(s1?.description).toBe("Cut the queue."); // rich text stripped
@@ -143,6 +147,8 @@ describe("public speakers + gallery surfaces", () => {
 		);
 		expect(detail.data.surface.detail?.name).toBe("Ada Zhang");
 		expect(detail.data.surface.detail?.bio).toBe("Ships CI pipelines.");
+		expect(detail.data.surface.detail?.jobTitle).toBe("CTO");
+		expect(detail.data.surface.detail?.companyName).toBe("DevFlow");
 	});
 });
 

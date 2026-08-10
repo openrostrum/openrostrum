@@ -114,9 +114,9 @@ INSERT INTO form_fields (id, form_id, field_id, section, position, required, que
  -- show the notes field only when experience = "Experienced"
  ('ff_notes',      'form_sessions', 'fld_notes',      'session', 1, 0, '{"trigger":{"kind":"field","fieldId":"fld_experience"},"operator":"equals","value":"Experienced"}', unixepoch());
 
-INSERT INTO contacts (id, event_id, user_id, email, first_name, last_name, bio, created_at) VALUES
- ('c_sam',  'e_demo', 'u_speaker', 'speaker@example.com', 'Sam',  'Speaker', 'Builder of agents.',        unixepoch()),
- ('c_alex', 'e_demo', NULL,        'alex@example.com',    'Alex', 'Co',      'Co-speaker and RAG nerd.',  unixepoch());
+INSERT INTO contacts (id, event_id, user_id, email, first_name, last_name, job_title, company_name, bio, created_at) VALUES
+ ('c_sam',  'e_demo', 'u_speaker', 'speaker@example.com', 'Sam',  'Speaker', 'Staff Engineer',     'Agentic Labs', 'Builder of agents.',        unixepoch()),
+ ('c_alex', 'e_demo', NULL,        'alex@example.com',    'Alex', 'Co',      'Developer Advocate', 'RAGWorks',     'Co-speaker and RAG nerd.',  unixepoch());
 
 -- One submission per status (drives the review status tabs + dashboard counts).
 INSERT INTO submissions (id, event_id, form_id, type, title, description, status, submitter_id, format_id, level_id, starts_at, ends_at, room_id, created_at, updated_at) VALUES
@@ -211,11 +211,11 @@ INSERT INTO rooms (id, event_id, name, capacity, display_order, created_at) VALU
 
 -- Speakers for the named fixtures. Marco Silva speaks in TWO sessions — the
 -- speaker double-book fixture (AG-S4). No portal logins (user_id NULL).
-INSERT INTO contacts (id, event_id, user_id, email, first_name, last_name, bio, created_at) VALUES
- ('c_noor',  'e_demo', NULL, 'noor.haddad@example.com',  'Noor',  'Haddad', 'Closing keynotes on the post-SaaS stack.', unixepoch()),
- ('c_marco', 'e_demo', NULL, 'marco.silva@example.com',  'Marco', 'Silva',  'Agent swarms and D1 performance.',         unixepoch()),
- ('c_dana',  'e_demo', NULL, 'dana.fields@example.com',  'Dana',  'Fields', 'Panel moderator and CFP skeptic.',         unixepoch()),
- ('c_lena',  'e_demo', NULL, 'lena.ortiz@example.com',   'Lena',  'Ortiz',  'Email deliverability practitioner.',       unixepoch());
+INSERT INTO contacts (id, event_id, user_id, email, first_name, last_name, job_title, company_name, bio, created_at) VALUES
+ ('c_noor',  'e_demo', NULL, 'noor.haddad@example.com',  'Noor',  'Haddad', 'VP of Engineering',   'Post-SaaS Institute', 'Closing keynotes on the post-SaaS stack.', unixepoch()),
+ ('c_marco', 'e_demo', NULL, 'marco.silva@example.com',  'Marco', 'Silva',  'Platform Engineer',   'SwarmScale',          'Agent swarms and D1 performance.',         unixepoch()),
+ ('c_dana',  'e_demo', NULL, 'dana.fields@example.com',  'Dana',  'Fields', 'Program Chair',       'DevFlow Conf',        'Panel moderator and CFP skeptic.',         unixepoch()),
+ ('c_lena',  'e_demo', NULL, 'lena.ortiz@example.com',   'Lena',  'Ortiz',  'Deliverability Lead', 'Inbox Works',         'Email deliverability practitioner.',       unixepoch());
 
 -- SCHEDULED accepted sessions (starts_at/ends_at/room set; durations match the
 -- session's format default). Oct 13 is the densest day.
