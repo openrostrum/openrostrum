@@ -168,8 +168,7 @@ Import `CopyButton` directly from `~/components/copy-button` in both embed route
 - [ ] **Step 5: Replace team invite copy behavior with manual fallback**
 
 ```tsx
-const inputRef = useRef<HTMLInputElement>(null);
-<Input ref={inputRef} readOnly value={link} aria-label="Invite link" size={42} />
+<Input id={id} readOnly value={link} aria-label="Invite link" size={42} />
 <CopyButton
   value={link}
   label="Copy link"
@@ -177,11 +176,14 @@ const inputRef = useRef<HTMLInputElement>(null);
   failedLabel={null}
   resetAfterMs={2000}
   icon={null}
-  onFailure={() => inputRef.current?.select()}
+  onFailure={() => {
+    const input = document.getElementById(id);
+    if (input instanceof HTMLInputElement) input.select();
+  }}
 />
 ```
 
-Preserve the existing focus-to-select behavior and input size.
+Preserve the existing focus-to-select behavior, generated input ID, and input size. The current `Input` primitive does not accept refs, so the shared callback deliberately retains the existing ID-based fallback.
 
 - [ ] **Step 6: Replace reviewer and contact optimistic copy behavior**
 
