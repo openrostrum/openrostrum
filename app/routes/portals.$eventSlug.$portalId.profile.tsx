@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { data, redirect } from "react-router";
 import { z } from "zod";
 import {
@@ -132,10 +132,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			await env.BLOBS.put(r2Key, await file.arrayBuffer(), {
 				httpMetadata: { contentType: file.type },
 			});
-			const prior = await db
-				.select({ id: files.id })
+			const [prior] = await db
+				.select({ version: files.version })
 				.from(files)
-				.where(eq(files.contactId, contact.id));
+				.where(and(eq(files.contactId, contact.id), eq(files.kind, "headshot")))
+				.orderBy(desc(files.version))
+				.limit(1);
 			await db.batch([
 				db.insert(files).values({
 					eventId: ctx.event.id,
@@ -145,7 +147,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					kind: "headshot",
 					contentType: file.type,
 					sizeBytes: file.size,
-					version: prior.length + 1,
+					version: (prior?.version ?? 0) + 1,
 				}),
 				db
 					.update(contacts)

@@ -1,7 +1,6 @@
 import { Form, useFetcher } from "react-router";
 import {
 	Button,
-	Chip,
 	EmptyState,
 	ErrorText,
 	Input,
@@ -312,7 +311,7 @@ export function TaskDetailView({
 										className="flex flex-col gap-1 border-b border-hair pb-4 last:border-b-0 last:pb-0"
 									>
 										<div className="flex flex-wrap items-center gap-2">
-											<Chip color="var(--color-petrol)">v{f.version}</Chip>
+											<Muted tone="faint">v{f.version}</Muted>
 											{f.latest && (
 												<StatusBadge tone="info">Latest</StatusBadge>
 											)}

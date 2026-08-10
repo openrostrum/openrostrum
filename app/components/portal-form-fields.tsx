@@ -1,4 +1,5 @@
 import { Field, Input, Select } from "~/ui";
+import { CheckboxOption } from "./checkbox-group";
 
 export type PortalFormFieldDef = {
 	name: string;
@@ -7,6 +8,8 @@ export type PortalFormFieldDef = {
 	options?: string[];
 };
 
+// Textarea control skin — Field owns label/error; no textarea primitive
+// exists in app/ui yet (pending-promotion, mirrors Input's control skin).
 const TEXTAREA =
 	"min-h-20 rounded-control bg-surface px-[11px] py-2 text-[13px] text-fg shadow-control placeholder:text-fg-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol";
 
@@ -28,20 +31,13 @@ export function PortalFormFields({
 				const error = errors[field.name];
 				if (field.type === "textarea") {
 					return (
-						<label
-							key={field.name}
-							className="flex flex-col gap-[5px] text-[12.5px]"
-						>
-							<span className="font-medium text-fg-muted">{label}</span>
+						<Field key={field.name} label={label} error={error}>
 							<textarea
 								name={`answer:${field.name}`}
 								defaultValue={defaultValue}
 								className={TEXTAREA}
 							/>
-							{error && (
-								<span className="text-[11.5px] text-danger">{error}</span>
-							)}
-						</label>
+						</Field>
 					);
 				}
 				if (field.type === "dropdown") {
@@ -60,23 +56,17 @@ export function PortalFormFields({
 				}
 				if (field.type === "checkbox") {
 					return (
-						<label
-							key={field.name}
-							className="inline-flex items-center gap-2 text-[13px] text-fg"
-						>
-							<input
-								type="checkbox"
+						<div key={field.name} className="flex flex-col gap-1">
+							<CheckboxOption
 								name={`answer:${field.name}`}
 								value="Yes"
 								defaultChecked={defaultValue === "Yes"}
-								className="h-[15px] w-[15px]"
-								style={{ accentColor: "var(--color-petrol)" }}
+								label={label}
 							/>
-							{label}
 							{error && (
 								<span className="text-[11.5px] text-danger">{error}</span>
 							)}
-						</label>
+						</div>
 					);
 				}
 				const inputType =

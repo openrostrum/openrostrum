@@ -7,7 +7,13 @@ export type TasksViewData = {
 	tasks: TaskRowView[];
 };
 
-function TaskRows({ base, tasks }: { base: string; tasks: TaskRowView[] }) {
+export function TaskRows({
+	base,
+	tasks,
+}: {
+	base: string;
+	tasks: TaskRowView[];
+}) {
 	return (
 		<RowList>
 			{tasks.map((t) => (

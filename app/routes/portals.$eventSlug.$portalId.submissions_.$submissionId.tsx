@@ -57,9 +57,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		subTags,
 		eventFormats,
 		eventLevels,
-		eventLanguages,
-		eventTracks,
-		eventTags,
 		room,
 	] = await timings.time("db2", () =>
 		Promise.all([
@@ -95,18 +92,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				.select({ id: levels.id, name: levels.name })
 				.from(levels)
 				.where(eq(levels.eventId, ctx.event.id)),
-			db
-				.select({ name: languages.name })
-				.from(languages)
-				.where(eq(languages.eventId, ctx.event.id)),
-			db
-				.select({ id: tracks.id, name: tracks.name })
-				.from(tracks)
-				.where(eq(tracks.eventId, ctx.event.id)),
-			db
-				.select({ id: tags.id, name: tags.name })
-				.from(tags)
-				.where(eq(tags.eventId, ctx.event.id)),
 			submission.roomId
 				? db
 						.select({ name: rooms.name })
@@ -116,6 +101,26 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				: Promise.resolve([]),
 		]),
 	);
+
+	// Edit-form option lists exist only while the edit window is open.
+	const [eventLanguages, eventTracks, eventTags] = editWindow.editable
+		? await timings.time("db3", () =>
+				Promise.all([
+					db
+						.select({ name: languages.name })
+						.from(languages)
+						.where(eq(languages.eventId, ctx.event.id)),
+					db
+						.select({ id: tracks.id, name: tracks.name })
+						.from(tracks)
+						.where(eq(tracks.eventId, ctx.event.id)),
+					db
+						.select({ id: tags.id, name: tags.name })
+						.from(tags)
+						.where(eq(tags.eventId, ctx.event.id)),
+				]),
+			)
+		: [[], [], []];
 
 	const tz = ctx.event.timezone;
 	const isAccepted = submission.status === "accepted";
@@ -153,16 +158,14 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				isMe: p.contactUserId === user.id,
 				acceptance:
 					isAccepted && p.role !== "secondary"
-						? (PARTICIPATION_PROJECTION[p.acceptance] ?? null)
+						? PARTICIPATION_PROJECTION[p.acceptance]
 						: null,
 				removable: p.contactUserId !== user.id,
 			})),
 			myParticipation: myParticipant
 				? {
 						id: myParticipant.id,
-						status: PARTICIPATION_PROJECTION[
-							myParticipant.acceptanceStatus
-						] ?? { label: "Confirmation needed", tone: "warning" as const },
+						status: PARTICIPATION_PROJECTION[myParticipant.acceptanceStatus],
 						raw: myParticipant.acceptanceStatus,
 						confirmable: isAccepted,
 					}
@@ -489,14 +492,20 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				position: existing.length,
 			});
 		} catch (error) {
-			// The (submission, contact) pair is unique — surface it as product copy.
+			// Drizzle wraps the SQLite detail in `cause` — read both layers so
+			// only the (submission, contact) uniqueness gets the "already on it"
+			// copy; any other failure must not masquerade as a duplicate.
+			const cause = (error as { cause?: unknown }).cause;
+			const detail = `${errorMessage(error)} ${cause ? errorMessage(cause) : ""}`;
 			track("portal.participant_add_failed", {
 				eventId: ctx.event.id,
 				submissionId: submission.id,
-				error: errorMessage(error),
+				error: detail,
 			});
 			return fail({
-				formError: "This person is already on this submission.",
+				formError: /unique|constraint/i.test(detail)
+					? "This person is already on this submission."
+					: "Could not add this person — please try again.",
 			});
 		}
 		track("portal.participant_added", {

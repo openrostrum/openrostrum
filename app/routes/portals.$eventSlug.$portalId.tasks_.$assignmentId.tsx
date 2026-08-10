@@ -15,8 +15,10 @@ import {
 	tasks,
 } from "~/db/schema";
 import {
+	FILE_REVIEW_PROJECTION,
 	getPortalContext,
 	type PortalContext,
+	type PortalStatus,
 	portalPath,
 	TASK_STATUS_PROJECTION,
 } from "~/domain/portal";
@@ -49,16 +51,6 @@ const EXT_KIND: Record<string, (typeof FILE_KIND)[number]> = {
 	jpg: "other",
 	jpeg: "other",
 	zip: "other",
-};
-
-const FILE_REVIEW_PROJECTION: Record<
-	string,
-	{ label: string; tone: "info" | "success" | "danger" | "neutral" }
-> = {
-	pending: { label: "Pending review", tone: "info" },
-	approved: { label: "Approved", tone: "success" },
-	denied: { label: "Changes requested", tone: "danger" },
-	none: { label: "Uploaded", tone: "neutral" },
 };
 
 /** My assignment or 404 — ownership is the contact chain, never a param. */
@@ -138,10 +130,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			fileName: string;
 			size: string;
 			uploadedOn: string;
-			review: {
-				label: string;
-				tone: "info" | "success" | "danger" | "neutral";
-			};
+			review: PortalStatus;
 			reviewNote: string | null;
 			latest: boolean;
 			comments: Array<{
@@ -187,8 +176,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				fileName: f.fileName,
 				size: formatBytes(f.sizeBytes),
 				uploadedOn: formatInTz(f.createdAt, tz, "date"),
-				review: FILE_REVIEW_PROJECTION[f.reviewStatus] ??
-					FILE_REVIEW_PROJECTION.none ?? { label: "Uploaded", tone: "neutral" },
+				review: FILE_REVIEW_PROJECTION[f.reviewStatus],
 				reviewNote: f.reviewStatus === "denied" ? f.reviewNote : null,
 				latest: i === 0,
 				comments: (commentsByFile.get(f.id) ?? [])
@@ -227,10 +215,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				assignment.status !== "complete" &&
 				assignment.dueAt !== null &&
 				assignment.dueAt < now,
-			status: TASK_STATUS_PROJECTION[assignment.status] ?? {
-				label: "Incomplete",
-				tone: "warning" as const,
-			},
+			status: TASK_STATUS_PROJECTION[assignment.status],
 			isComplete: assignment.status === "complete",
 			completedOn: assignment.completedAt
 				? formatInTz(assignment.completedAt, tz, "date")

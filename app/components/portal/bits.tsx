@@ -1,7 +1,16 @@
 import type { ReactNode } from "react";
+import { Panel } from "~/ui";
 import { cn } from "~/ui/cn";
 
-/** Card = Panel-shaped section with a heading row (portal composition unit). */
+/**
+ * PENDING-PROMOTION VIEW LAYER. These portal view pieces compose ~/ui
+ * primitives wherever one exists (Card wraps Panel below); the handful of
+ * genuinely new visual decisions here (Notice, MetaGrid, PillToggle, text
+ * tiers) are candidates for promotion into app/ui — an integration-owner
+ * decision requested in the owning PR, per the design-system contract.
+ */
+
+/** Panel with a heading row — the portal's card composition unit. */
 export function Card({
 	title,
 	count,
@@ -14,20 +23,22 @@ export function Card({
 	children: ReactNode;
 }) {
 	return (
-		<section className="rounded-card bg-surface p-4 shadow-card">
-			<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-				<h3 className="text-[13px] font-semibold text-fg">
-					{title}
-					{count !== undefined && (
-						<span className="ml-2 font-mono text-[11.5px] font-medium text-fg-muted">
-							{count}
-						</span>
-					)}
-				</h3>
-				{action}
-			</div>
-			{children}
-		</section>
+		<Panel>
+			<section>
+				<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+					<h3 className="text-[13px] font-semibold text-fg">
+						{title}
+						{count !== undefined && (
+							<span className="ml-2 font-mono text-[11.5px] font-medium text-fg-muted">
+								{count}
+							</span>
+						)}
+					</h3>
+					{action}
+				</div>
+				{children}
+			</section>
+		</Panel>
 	);
 }
 
@@ -75,7 +86,11 @@ export function Strong({ children }: { children: ReactNode }) {
 	return <span className="text-[13px] font-medium text-fg">{children}</span>;
 }
 
-/** Inline notice — closed windows, denials, success feedback. */
+/**
+ * Inline notice — closed windows, denials, success feedback. Neutral chip
+ * ground for every tone: petrol is reserved for wayfinding/selection (the
+ * petrol law), so success is carried by the copy, danger by the text color.
+ */
 export function Notice({
 	tone,
 	children,
@@ -87,13 +102,11 @@ export function Notice({
 		<div
 			role={tone === "danger" ? "alert" : "status"}
 			className={cn(
-				"rounded-control px-3 py-2 text-[12.5px]",
-				tone === "info" && "bg-chip text-fg-muted",
-				tone === "success" && "bg-petrol-wash text-petrol",
-				tone === "danger" && "bg-chip text-danger",
+				"rounded-control bg-chip px-3 py-2 text-[12.5px]",
+				tone === "danger" ? "text-danger" : "text-fg-muted",
 			)}
 		>
-			{children}
+			{tone === "success" ? <>✓ {children}</> : children}
 		</div>
 	);
 }

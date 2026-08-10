@@ -1,7 +1,9 @@
-import type { BadgeTone } from "~/ui";
+import type { PortalStatus } from "~/domain/portal";
 
-/** Loader-serialized status projection (label + tone, never a raw enum). */
-export type StatusView = { label: string; tone: BadgeTone };
+/** Loader-serialized status projection (label + tone, never a raw enum).
+ * Type-only re-export of the domain projection — erased at build, so the
+ * server module never enters the client bundle. */
+export type StatusView = PortalStatus;
 
 export type ParticipationView = {
 	id: string;

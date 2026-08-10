@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Avatar, EmptyState, StatusBadge, TextLink } from "~/ui";
 import { RichHtml } from "../rich-html";
 import { Card, Muted, PillToggle, Row, RowList } from "./bits";
+import { TaskRows } from "./tasks-view";
 import type { StatusView, TaskRowView } from "./types";
 
 export type HomeViewData = {
@@ -163,30 +164,7 @@ export function HomeView({ data }: { data: HomeViewData }) {
 						body="Tasks from the event team appear here — most arrive once a session is accepted."
 					/>
 				) : (
-					<RowList>
-						{visibleTasks.map((t) => (
-							<Row
-								key={t.id}
-								right={
-									<StatusBadge tone={t.status.tone}>
-										{t.status.label}
-									</StatusBadge>
-								}
-							>
-								<TextLink to={`${base}/tasks/${t.id}`}>{t.name}</TextLink>
-								<div>
-									{t.required && <Muted>Required</Muted>}
-									{t.required && t.due && <Muted> · </Muted>}
-									{t.due && (
-										<Muted tone={t.overdue ? "danger" : "muted"}>
-											{t.overdue ? "Overdue — was due " : "Due "}
-											{t.due}
-										</Muted>
-									)}
-								</div>
-							</Row>
-						))}
-					</RowList>
+					<TaskRows base={base} tasks={visibleTasks} />
 				)}
 			</Card>
 		</div>

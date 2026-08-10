@@ -6,11 +6,14 @@ import {
 	type Contact,
 	contacts,
 	events,
+	FILE_REVIEW_STATUS,
 	formats,
 	forms,
+	PARTICIPANT_ACCEPTANCE,
 	participants,
 	portals,
 	submissions,
+	TASK_STATUS,
 	taskAssignments,
 	tasks,
 	users,
@@ -51,10 +54,24 @@ export function portalStatus(
 }
 
 /** Per-person acceptance, in portal words ("declined" reads as Withdrawn). */
-export const PARTICIPATION_PROJECTION: Record<string, PortalStatus> = {
+export const PARTICIPATION_PROJECTION: Record<
+	(typeof PARTICIPANT_ACCEPTANCE)[number],
+	PortalStatus
+> = {
 	pending: { label: "Confirmation needed", tone: "warning" },
 	accepted: { label: "Confirmed", tone: "success" },
 	declined: { label: "Withdrawn", tone: "neutral" },
+};
+
+/** File-request review states, in portal words. */
+export const FILE_REVIEW_PROJECTION: Record<
+	(typeof FILE_REVIEW_STATUS)[number],
+	PortalStatus
+> = {
+	pending: { label: "Pending review", tone: "info" },
+	approved: { label: "Approved", tone: "success" },
+	denied: { label: "Changes requested", tone: "danger" },
+	none: { label: "Uploaded", tone: "neutral" },
 };
 
 export type PortalContext = {
@@ -212,10 +229,7 @@ export async function listPortalSubmissions(
 				createdAt: row.createdAt.getTime(),
 				participation: {
 					id: row.participantId,
-					status: PARTICIPATION_PROJECTION[row.acceptance] ?? {
-						label: "Confirmation needed",
-						tone: "warning",
-					},
+					status: PARTICIPATION_PROJECTION[row.acceptance],
 					raw: row.acceptance,
 					// Per-person Confirm/Withdraw exists ONLY on Accepted sessions.
 					confirmable: row.status === "accepted",
@@ -268,7 +282,10 @@ export async function requireOwnedSubmission(
 	return { submission, myParticipant };
 }
 
-export const TASK_STATUS_PROJECTION: Record<string, PortalStatus> = {
+export const TASK_STATUS_PROJECTION: Record<
+	(typeof TASK_STATUS)[number],
+	PortalStatus
+> = {
 	incomplete: { label: "Incomplete", tone: "warning" },
 	complete: { label: "Complete", tone: "success" },
 	pending_feedback: { label: "Pending review", tone: "info" },
@@ -320,10 +337,7 @@ export async function listPortalTasks(
 			type: r.type,
 			isFileRequest: r.isFileRequest,
 			hasForm: r.portalFormId !== null,
-			status: TASK_STATUS_PROJECTION[r.status] ?? {
-				label: "Incomplete",
-				tone: "warning" as const,
-			},
+			status: TASK_STATUS_PROJECTION[r.status],
 			open: r.status !== "complete",
 			dueAtMs: r.dueAt?.getTime() ?? null,
 			overdue: r.status !== "complete" && !!r.dueAt && r.dueAt < now,
