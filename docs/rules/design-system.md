@@ -30,6 +30,7 @@ All chrome colors resolve via `light-dark()` — components never write `dark:` 
 - **IBM Plex Sans** (`font-sans`): 13px body · 12.5px secondary · 11px/600 caps labels (+0.06em) · weights 400/500/600 only. **No weight changes between states** (layout shift).
 - **IBM Plex Mono 500** (`font-mono`): data literals only — IDs, counts, dates, pagination — always `tabular-nums`. Never headings (terminal cosplay).
 - **Grid**: 34px controls · 46px table rows · 8px spacing steps.
+- **Form-stack rhythm** (sanctioned exception to the 8px steps): vertical field stacks inside a form use `gap-[13px]`; page-level stacks on the focused auth/onboarding screens (login, signup, set-password, unsubscribe) use `gap-7` (28px). 13px sits between "fields are one unit" (8px reads cramped with 34px controls + 5px label gaps) and "fields are separate cards" (16px) — shipped house-wide, so treat it as the rule, not a drift.
 - Fonts self-hosted in `public/fonts/` (woff2 + OFL license texts); preloaded in `root.tsx`. No font CDN, ever.
 
 ## Brand mark

@@ -19,5 +19,5 @@ review criterion.
 - **One shared rich-text editor** (`<RichText/>`) everywhere WYSIWYG is needed — never a second editor.
 - **Public pages are mobile-friendly** (CFP form, speaker portal, schedule/embed); admin may be desktop-only.
 - **Lists show skeletons, never spinners; pages target sub-second loads** — no loading-spinner theater.
-- **Turnstile lives only on the public CFP form**, behind its port; the judged deploy ships WITHOUT Turnstile keys (capability → no-op pass) so the agent isn't blocked by a challenge it can't solve.
+- **Turnstile lives on the public CFP form and `/signup`** (the two anonymous write surfaces — SCOPE #22), behind its port; the judged deploy ships WITHOUT Turnstile keys (capability → no-op pass) so the agent isn't blocked by a challenge it can't solve — that keyless window covers `/signup` too.
 - **Suppression/unsubscribe applies to announcements only** (`kind:"announcement"` / bulk). Everything that is a consequence of the recipient's own submission or account — confirmation, accept/decline, invites, password resets, task/draft reminders, schedule updates — is `kind:"transactional"` and ALWAYS delivers; unsubscribing must never hide an acceptance.
