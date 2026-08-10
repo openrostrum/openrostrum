@@ -67,12 +67,10 @@ function useOptimisticTheme(): Theme | null {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-	// The document's color scheme: a route pin wins (handle.colorScheme —
-	// "light" keeps the marketing homepage canonical, "os" keeps embeds on the
-	// viewer's OS), then the visitor's cookie choice, then the stylesheet's
-	// `color-scheme: light dark` lets the OS decide. Inline style wins over the
-	// stylesheet, and app.css keeps color-scheme off <body> so the pin inherits
-	// everywhere — every light-dark() token follows it.
+	// Route pin (handle.colorScheme: marketing "light", embeds "os") beats the
+	// visitor's cookie choice, which beats the OS default. The inline style
+	// wins over the stylesheet, and app.css keeps color-scheme off <body>, so
+	// every light-dark() token below inherits the pin.
 	const pin = useMatches().reduce<SchemePin | null>((found, match) => {
 		const declared = (match.handle as { colorScheme?: SchemePin } | undefined)
 			?.colorScheme;
