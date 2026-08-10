@@ -3,6 +3,7 @@ import { getDb } from "../app/db";
 import {
 	contacts,
 	events,
+	organizationMembers,
 	organizations,
 	participants,
 	portalForms,
@@ -145,6 +146,14 @@ export async function authedRequest(
 		role: opts.role ?? "admin",
 		activeEventId: opts.activeEventId === undefined ? "e1" : opts.activeEventId,
 	});
+	// Admin surfaces resolve events through org membership (event → org → member).
+	if ((opts.role ?? "admin") === "admin") {
+		await db.insert(organizationMembers).values({
+			id: `om_${id}`,
+			organizationId: "org1",
+			userId: id,
+		});
+	}
 	const setCookie = await createSession(env, id);
 	const headers = new Headers(init?.headers);
 	headers.set("Cookie", setCookie.split(";")[0] ?? "");
