@@ -94,8 +94,11 @@ export async function transitionSubmissions(
 
 	const statements: BatchItem<"sqlite">[] = [];
 	for (const row of legal) {
-		const set: Partial<typeof submissions.$inferInsert> = { status: to };
-		if (row.status !== to) set.statusChangedAt = now;
+		const set: Partial<typeof submissions.$inferInsert> = {};
+		if (row.status !== to) {
+			set.status = to;
+			set.statusChangedAt = now;
+		}
 		if (
 			row.status === "withdrawn" &&
 			to !== "declined" &&
@@ -108,18 +111,26 @@ export async function transitionSubmissions(
 		if (to === "accepted" && row.contentStatus === "draft") {
 			set.contentStatus = "in_review";
 		}
-		statements.push(
-			db.update(submissions).set(set).where(eq(submissions.id, row.id)),
-		);
+		if (Object.keys(set).length) {
+			statements.push(
+				db.update(submissions).set(set).where(eq(submissions.id, row.id)),
+			);
+		}
 	}
 
 	const provisioning =
 		to === "accepted" ? await planAcceptProvisioning(db, legal, now) : null;
 	if (provisioning) statements.push(...provisioning.statements);
 
-	await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+	if (statements.length) {
+		await db.batch(
+			statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+		);
+	}
 
-	for (const row of legal) {
+	// A same-status re-apply is legal (it re-runs provisioning) but is not a
+	// transition — the event stream must record only real changes.
+	for (const row of legal.filter((r) => r.status !== to)) {
 		track("submission.status_changed", {
 			submissionId: row.id,
 			eventId: row.eventId,
@@ -410,7 +421,10 @@ export class MissingTemplateError extends Error {
  * later schedule updates revise in place via the stable UID). `idempotencyKey`
  * is minted by the submitting form: a double-submit dedupes, a fresh page is
  * a deliberate re-send. Stamps `notifiedAt`; a deduped result proves a prior
- * send, so it back-fills a missing stamp (partial-failure retry).
+ * send, so it back-fills a missing stamp (partial-failure retry). Treat
+ * `notifiedAt` as a dispatch flag — the outbox row's `sentAt` is the
+ * authoritative send time. Refuses more than 100 rows per call (the per-send
+ * cap every caller inherits).
  */
 export async function sendDecisionEmails(
 	db: Db,
@@ -424,6 +438,11 @@ export async function sendDecisionEmails(
 ): Promise<DecisionSendResult[]> {
 	const { event, rows, decision, idempotencyKey } = opts;
 	if (rows.length === 0) return [];
+	if (rows.length > 100) {
+		throw new Error(
+			"Decision emails go out in batches of up to 100 — narrow the selection.",
+		);
+	}
 
 	const [template] = await db
 		.select()
@@ -499,7 +518,9 @@ export async function sendDecisionEmails(
 			html: template.bodyHtml + decisionDetailsHtml(row, event, decision, room),
 			ics:
 				decision === "accept" ? buildDecisionIcs(row, event, room) : undefined,
-			dedupeKey: `decision:${idempotencyKey}:${row.id}`,
+			// The decision is part of the identity: an accept then a corrective
+			// decline on the SAME untouched selection must both deliver.
+			dedupeKey: `decision:${decision}:${idempotencyKey}:${row.id}`,
 			eventId: event.id,
 			templateId: template.id,
 			kind: "transactional",

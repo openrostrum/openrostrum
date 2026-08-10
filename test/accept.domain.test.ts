@@ -656,6 +656,57 @@ describe("send decisions", () => {
 		expect(await d.select().from(emailOutbox)).toHaveLength(2);
 	});
 
+	it("a corrective decline after an accept on the SAME selection still delivers", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const row = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(row.id, "c_omar", "omar.haddad@example.com");
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		await sendDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "key-A",
+		});
+		// The admin clicked accept by mistake and corrects with decline WITHOUT
+		// touching the selection — the same form key must not swallow it.
+		const corrective = await sendDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "decline",
+			idempotencyKey: "key-A",
+		});
+		expect(corrective[0]?.deduped).toBe(false);
+		const outbox = await d.select().from(emailOutbox);
+		expect(outbox).toHaveLength(2);
+		expect(new Set(outbox.map((o) => o.templateId))).toEqual(
+			new Set(["et_accept", "et_decline"]),
+		);
+	});
+
+	it("refuses more than 100 rows per send for every caller", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+		const rows = await Promise.all(
+			Array.from({ length: 101 }, () =>
+				insertSubmission({ status: "accept_queue" }),
+			),
+		);
+		await expect(
+			sendDecisionEmails(d, env, {
+				event,
+				rows,
+				decision: "accept",
+				idempotencyKey: "key-1",
+			}),
+		).rejects.toThrow(/batches of up to 100/i);
+		expect(await d.select().from(emailOutbox)).toHaveLength(0);
+	});
+
 	it("decline uses the decline template and attaches no calendar invite", async () => {
 		const d = await seedBase();
 		await seedDecisionTemplates();
