@@ -1,7 +1,9 @@
 // The theme is `color-scheme` on <html> (cookie-persisted, tri-state), so a
 // `dark:` variant — which keys on the OS media query — desyncs the moment a
 // visitor overrides the OS. All colors resolve via light-dark() instead.
-const darkVariant = /(?:^|\s)(?:[\w-]+:)*dark:\S+/u;
+// Prefix `(?:\S*:)?` covers stacked variants in both word form (hover:dark:)
+// and bracket form ([&_svg]:dark:); light-dark( never matches — no colon.
+const darkVariant = /(?:^|\s)(?:\S*:)?dark:\S+/u;
 
 function checkString(context, node, value) {
 	if (darkVariant.test(value)) {

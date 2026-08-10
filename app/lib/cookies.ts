@@ -1,7 +1,9 @@
-// The one cookie codec — every cookie the app reads or sets goes through
-// here (session auth, theme). Pass `secure` from `isSecureRequest(request)`:
-// a `Secure` cookie set over local http is silently dropped by browsers
-// (Safari, LAN hosts).
+// The one codec for the app's first-party state cookies (session id, theme).
+// The contract is deliberately narrow: token-safe values (no `;`/`=`) and a
+// fixed HttpOnly/SameSite=Lax/Path=/ attribute set — a cookie needing more
+// widens this signature, it doesn't fork the codec. Pass `secure` from
+// `isSecureRequest(request)`: a `Secure` cookie set over local http is
+// silently dropped by browsers (Safari, LAN hosts).
 
 export function readCookie(request: Request, name: string): string | null {
 	const header = request.headers.get("Cookie");
