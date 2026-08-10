@@ -1,7 +1,7 @@
 import { and, count, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { useState } from "react";
-import { Form, data, redirect, useFetcher } from "react-router";
+import { Form, data, redirect, useFetcher, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 // Client-safe enums come from ~/db/constants (pure) — importing them from
@@ -25,6 +25,7 @@ import {
 	transitionSubmissions,
 } from "~/domain/accept";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { parseSubmissionFilters } from "~/lib/submission-list.server";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import {
@@ -42,6 +43,7 @@ import {
 	Table,
 	TBody,
 	Td,
+	TextLink,
 	Th,
 	THead,
 	Tr,
@@ -99,7 +101,23 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	// lets a client run this loader alone via `?_routes=`, skipping the layout.
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
-	if (!event) return { submissions: [], total: 0, eventName: null };
+	if (!event) {
+		return {
+			submissions: [],
+			total: 0,
+			eventName: null,
+			filterType: "",
+			filterStatus: "",
+		};
+	}
+	const { filterType, filterStatus } = parseSubmissionFilters(
+		new URL(request.url),
+	);
+	const where = and(
+		eq(submissions.eventId, event.id), // scope to the ACTIVE event
+		filterType ? eq(submissions.type, filterType) : undefined,
+		filterStatus ? eq(submissions.status, filterStatus) : undefined,
+	);
 	const db = getDb(env);
 	const timings = createTimings();
 	const [rows, totalRow] = await timings.time("db", () =>
@@ -108,7 +126,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				// Columns match what the table renders — full rows (descriptions,
 				// whole contact records) made cost scale with content size.
 				columns: { id: true, title: true, status: true },
-				where: (s, { eq }) => eq(s.eventId, event.id), // scope to the ACTIVE event
+				where,
 				with: {
 					format: { columns: { name: true } },
 					participants: { columns: { id: true } },
@@ -122,12 +140,18 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			db
 				.select({ n: count() })
 				.from(submissions)
-				.where(eq(submissions.eventId, event.id))
+				.where(where)
 				.then((r) => r[0]),
 		]),
 	);
 	return data(
-		{ submissions: rows, total: totalRow?.n ?? 0, eventName: event.name },
+		{
+			submissions: rows,
+			total: totalRow?.n ?? 0,
+			eventName: event.name,
+			filterType,
+			filterStatus,
+		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
@@ -154,7 +178,14 @@ export async function action({ context, request }: Route.ActionArgs) {
 		return bulkSetStatusAction(db, event.id, form);
 	}
 	if (intent === "send-accept" || intent === "send-decline") {
-		return sendDecisionsAction(db, env, event, form, intent);
+		return sendDecisionsAction(
+			db,
+			env,
+			event,
+			form,
+			intent,
+			new URL(request.url).origin,
+		);
 	}
 
 	return createSubmission(db, event.id, user.id, form);
@@ -413,6 +444,7 @@ async function sendDecisionsAction(
 	event: NonNullable<Awaited<ReturnType<typeof getActiveEvent>>>,
 	form: FormData,
 	intent: "send-accept" | "send-decline",
+	origin: string,
 ) {
 	const parsed = SendDecisions.safeParse({
 		submissionIds: form.getAll("submissionIds"),
@@ -447,6 +479,7 @@ async function sendDecisionsAction(
 				rows: eligible,
 				decision,
 				idempotencyKey,
+				origin,
 			}),
 		);
 	} catch (error) {
@@ -574,7 +607,11 @@ export default function Submissions({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { submissions: rows, total } = loaderData;
+	const { submissions: rows, total, filterType, filterStatus } = loaderData;
+	const filtered = Boolean(filterType || filterStatus);
+	// Disabled-while-submitting: a double-clicked document POST fires twice
+	// before the response lands, and a duplicate create is a real row.
+	const busy = useNavigation().state !== "idle";
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	// The send idempotency key is minted per SELECTION and held in client
 	// state, so loader revalidation can't rotate it: retrying a failed (or
@@ -602,7 +639,10 @@ export default function Submissions({
 		actionData && "skipped" in actionData ? actionData.skipped : undefined;
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
-			<PageHeader title="Submissions" count={`${total} total`} />
+			<PageHeader
+				title="Submissions"
+				count={filtered ? `${total} matching` : `${total} total`}
+			/>
 
 			<Panel>
 				<Form method="post" className="flex flex-wrap items-end gap-3">
@@ -627,7 +667,7 @@ export default function Submissions({
 							))}
 						</Select>
 					</Field>
-					<Button type="submit" icon="plus">
+					<Button type="submit" icon="plus" disabled={busy}>
 						Add submission
 					</Button>
 					{formError && <ErrorText>{formError}</ErrorText>}
@@ -657,7 +697,7 @@ export default function Submissions({
 						name="intent"
 						value="bulk-set-status"
 						variant="ghost"
-						disabled={selected.size === 0}
+						disabled={selected.size === 0 || busy}
 					>
 						Apply status
 					</Button>
@@ -666,7 +706,7 @@ export default function Submissions({
 						name="intent"
 						value="send-accept"
 						icon="mail"
-						disabled={selected.size === 0 || !sendKey}
+						disabled={selected.size === 0 || !sendKey || busy}
 					>
 						Send accept emails + finalize
 					</Button>
@@ -676,16 +716,74 @@ export default function Submissions({
 						value="send-decline"
 						variant="ghost"
 						icon="mail"
-						disabled={selected.size === 0 || !sendKey}
+						disabled={selected.size === 0 || !sendKey || busy}
 					>
 						Send decline emails + finalize
 					</Button>
 				</Form>
+				<p className="pt-3">
+					Apply status stages the decision without emailing anyone (accepting
+					also links speaker accounts and mints onboarding tasks). Send emails +
+					finalize is the one action that notifies speakers and sets the final
+					status.
+				</p>
 				{notice && <p className="pt-3">{notice}</p>}
 				{skipped?.map((s) => (
 					<ErrorText key={s}>Skipped {s}</ErrorText>
 				))}
 			</Panel>
+
+			<div className="flex flex-wrap items-end gap-3">
+				<Form method="get" className="flex flex-wrap items-end gap-3">
+					<Field label="Filter by type">
+						<Select key={filterType} name="type" defaultValue={filterType}>
+							<option value="">All types</option>
+							{SUBMISSION_TYPE.map((t) => (
+								<option key={t} value={t}>
+									{t}
+								</option>
+							))}
+						</Select>
+					</Field>
+					<Field label="Filter by status">
+						<Select
+							key={filterStatus}
+							name="status"
+							defaultValue={filterStatus}
+						>
+							<option value="">All statuses</option>
+							{SUBMISSION_STATUS.map((s) => (
+								<option key={s} value={s}>
+									{s.replace("_", " ")}
+								</option>
+							))}
+						</Select>
+					</Field>
+					<Button type="submit" variant="ghost" icon="filter">
+						Filter
+					</Button>
+					{filtered && (
+						<TextLink to="/admin/submissions">Clear filters</TextLink>
+					)}
+				</Form>
+				{/* Separate GET form: a resource route needs a document request. */}
+				<Form
+					method="get"
+					action="/admin/submissions/export.csv"
+					reloadDocument
+					className="ml-auto"
+				>
+					{filterType && (
+						<Input type="hidden" name="type" value={filterType} readOnly />
+					)}
+					{filterStatus && (
+						<Input type="hidden" name="status" value={filterStatus} readOnly />
+					)}
+					<Button type="submit" variant="ghost" icon="export">
+						Export CSV{filtered ? " (filtered)" : ""}
+					</Button>
+				</Form>
+			</div>
 
 			<Table>
 				<THead>
@@ -737,8 +835,9 @@ export default function Submissions({
 					)}
 					{rows.length === 0 && (
 						<EmptyRow colSpan={6}>
-							No submissions yet — share your call for papers and talks will
-							land here.
+							{filtered
+								? "No submissions match these filters — clear them to see everything."
+								: "No submissions yet — share your call for papers and talks will land here."}
 						</EmptyRow>
 					)}
 				</TBody>

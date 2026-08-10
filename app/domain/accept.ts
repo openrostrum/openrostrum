@@ -1,12 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { createEvent } from "ics";
 import type { Db } from "~/db";
 import { DECISION_STATUS, SUBMISSION_STATUS } from "~/db/constants";
 import {
 	contacts,
 	emailTemplates,
 	events,
+	forms,
 	participants,
 	rooms,
 	type Submission,
@@ -16,8 +16,16 @@ import {
 	users,
 } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
+import { formatInTimeZone } from "~/lib/dates";
+import {
+	type MergeContext,
+	renderBody,
+	renderSubject,
+} from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { formatScheduleRange } from "~/lib/format-date";
+import { buildIcs } from "~/lib/ics";
+import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";
 import { type EmailResult, getEmailSender } from "~/ports/email";
 
@@ -448,6 +456,8 @@ export async function sendDecisionEmails(
 		rows: Submission[];
 		decision: "accept" | "decline";
 		idempotencyKey: string;
+		/** Request origin for {{portal_link}}; omitted → APP_ORIGIN fallback. */
+		origin?: string | null;
 	},
 ): Promise<DecisionSendResult[]> {
 	const { event, rows, decision, idempotencyKey } = opts;
@@ -475,6 +485,8 @@ export async function sendDecisionEmails(
 		.select({
 			submissionId: participants.submissionId,
 			email: contacts.email,
+			firstName: contacts.firstName,
+			lastName: contacts.lastName,
 		})
 		.from(participants)
 		.innerJoin(contacts, eq(contacts.id, participants.contactId))
@@ -491,11 +503,11 @@ export async function sendDecisionEmails(
 	];
 	const submitterRows = submitterIds.length
 		? await db
-				.select({ id: users.id, email: users.email })
+				.select({ id: users.id, email: users.email, name: users.name })
 				.from(users)
 				.where(inArray(users.id, submitterIds))
 		: [];
-	const submitterEmail = new Map(submitterRows.map((u) => [u.id, u.email]));
+	const submitterById = new Map(submitterRows.map((u) => [u.id, u]));
 
 	const roomIds = [
 		...new Set(rows.map((r) => r.roomId).filter((v): v is string => !!v)),
@@ -508,14 +520,40 @@ export async function sendDecisionEmails(
 		: [];
 	const roomName = new Map(roomRows.map((r) => [r.id, r.name]));
 
+	const formIds = [
+		...new Set(rows.map((r) => r.formId).filter((v): v is string => !!v)),
+	];
+	const formRows = formIds.length
+		? await db
+				.select({
+					id: forms.id,
+					externalTitle: forms.externalTitle,
+					closeAt: forms.closeAt,
+				})
+				.from(forms)
+				.where(inArray(forms.id, formIds))
+		: [];
+	const formById = new Map(formRows.map((f) => [f.id, f]));
+
+	const origin = opts.origin ?? emailOrigin(env);
+	const portalPublicId = (await firstPortalsByEvent(db, event.id)).get(
+		event.id,
+	);
+	const portalLink =
+		origin && portalPublicId
+			? portalUrl(origin, event.slug, portalPublicId)
+			: null;
+
 	const sender = getEmailSender(env);
 	const results: DecisionSendResult[] = [];
 	const newlySent: string[] = [];
 	const dedupedIds: string[] = [];
 	for (const row of rows) {
-		const to =
-			speakerRows.find((s) => s.submissionId === row.id)?.email ??
-			(row.submitterId ? submitterEmail.get(row.submitterId) : undefined);
+		const speaker = speakerRows.find((s) => s.submissionId === row.id);
+		const submitter = row.submitterId
+			? submitterById.get(row.submitterId)
+			: undefined;
+		const to = speaker?.email ?? submitter?.email;
 		if (!to) {
 			results.push({
 				submissionId: row.id,
@@ -525,14 +563,42 @@ export async function sendDecisionEmails(
 			continue;
 		}
 		const room = row.roomId ? roomName.get(row.roomId) : undefined;
+		// The SAME renderer the template editor previews with — a sent email must
+		// never carry a literal {{merge_tag}} the preview showed resolved.
+		// Speaker names stay structured (splitting would mangle "Mary Jane");
+		// only the submitter fallback needs a split — users.name is one field.
+		const [subFirst = "", ...subRest] = (submitter?.name ?? "")
+			.trim()
+			.split(/\s+/);
+		const firstName = speaker ? speaker.firstName : subFirst;
+		const lastName = speaker ? speaker.lastName : subRest.join(" ");
+		const form = row.formId ? formById.get(row.formId) : undefined;
+		const ctx: MergeContext = {
+			first_name: firstName,
+			last_name: lastName,
+			full_name: `${firstName} ${lastName}`.trim(),
+			email: to,
+			event_name: event.name,
+			session_title: row.title,
+			session_date_time: row.startsAt
+				? formatInTimeZone(row.startsAt, event.timezone)
+				: null,
+			session_room: room ?? null,
+			portal_link: portalLink,
+			form_title: form?.externalTitle ?? null,
+			form_close_date: form?.closeAt
+				? formatInTimeZone(form.closeAt, event.timezone)
+				: null,
+		};
 		let result: EmailResult;
 		try {
 			result = await sender.send({
 				to,
 				replyTo: template.replyTo ?? undefined,
-				subject: template.subject,
+				subject: renderSubject(template.subject, ctx),
 				html:
-					template.bodyHtml + decisionDetailsHtml(row, event, decision, room),
+					renderBody(template.bodyHtml, ctx) +
+					decisionDetailsHtml(row, event, decision, room),
 				ics:
 					decision === "accept"
 						? buildDecisionIcs(row, event, room)
@@ -611,38 +677,20 @@ function buildDecisionIcs(
 	const start = scheduled ? row.startsAt : event.startsAt;
 	const end = scheduled ? row.endsAt : event.endsAt;
 	if (!start || !end) return undefined;
-	const { error, value } = createEvent({
-		title: scheduled
-			? `${row.title} — ${event.name}`
-			: `${event.name} (save the date): ${row.title}`,
-		start: icsDateArray(start),
-		end: icsDateArray(end),
-		startInputType: "utc",
-		endInputType: "utc",
-		uid: icsUidForSubmission(row.id),
-		sequence: 0,
-		location: (scheduled ? room : undefined) ?? event.location ?? undefined,
-		status: "CONFIRMED",
+	return buildIcs({
+		calendarName: event.name,
+		events: [
+			{
+				uid: icsUidForSubmission(row.id),
+				start,
+				end,
+				title: scheduled
+					? `${row.title} — ${event.name}`
+					: `${event.name} (save the date): ${row.title}`,
+				location: (scheduled ? room : undefined) ?? event.location ?? undefined,
+			},
+		],
 	});
-	if (error || !value) {
-		track("email.ics_build_failed", {
-			submissionId: row.id,
-			eventId: row.eventId,
-			error: error?.message ?? "empty ics output",
-		});
-		return undefined;
-	}
-	return value;
-}
-
-function icsDateArray(d: Date): [number, number, number, number, number] {
-	return [
-		d.getUTCFullYear(),
-		d.getUTCMonth() + 1,
-		d.getUTCDate(),
-		d.getUTCHours(),
-		d.getUTCMinutes(),
-	];
 }
 
 /** Appended below the template body so the recipient knows WHICH submission the decision covers (a speaker can have several in flight). */
