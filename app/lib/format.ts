@@ -35,6 +35,17 @@ export function formatInTz(
 	}).format(date);
 }
 
+/** "Sunday, August 10, 2026" — the dashboard greeting's date line, in the event's timezone. */
+export function formatDateLine(date: Date, timeZone: string): string {
+	return new Intl.DateTimeFormat("en-US", {
+		timeZone,
+		weekday: "long",
+		month: "long",
+		day: "numeric",
+		year: "numeric",
+	}).format(date);
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
 	if (bytes == null) return "—";
 	if (bytes < 1024) return `${bytes} B`;

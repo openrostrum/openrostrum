@@ -19,10 +19,9 @@ import {
 	eventCountdown,
 	greetingForHour,
 	resolveTimezone,
-	zonedDateLine,
 	zonedHour,
 } from "~/lib/event-time";
-import { formatDateUTC, formatInTz } from "~/lib/format";
+import { formatDateLine, formatDateUTC, formatInTz } from "~/lib/format";
 import { createTimings } from "~/lib/track";
 import {
 	ButtonLink,
@@ -74,7 +73,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		return {
 			event: null,
 			greeting: greet(now, "UTC", firstName),
-			dateLine: zonedDateLine(now, "UTC"),
+			dateLine: formatDateLine(now, "UTC"),
 		};
 	}
 
@@ -242,7 +241,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				endDate: event.endsAt ? formatDateUTC(event.endsAt) : null,
 			},
 			greeting: greet(now, tz, firstName),
-			dateLine: zonedDateLine(now, tz),
+			dateLine: formatDateLine(now, tz),
 			countdown: eventCountdown(now, tz, event.startsAt, event.endsAt),
 			stats: {
 				submissions: submissionsTotal,

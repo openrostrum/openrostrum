@@ -26,7 +26,8 @@ export function resolveTimezone(timeZone: string): string {
 }
 
 /** The instant's calendar date in `timeZone`, as UTC-midnight epoch ms —
- * a common currency for whole-day arithmetic. */
+ * a common currency for whole-day arithmetic. Pass "UTC" to read a stored
+ * UTC-midnight calendar date back out. */
 export function zonedCalendarDate(instant: Date, timeZone: string): number {
 	const fmt = new Intl.DateTimeFormat("en-US", {
 		timeZone,
@@ -39,15 +40,6 @@ export function zonedCalendarDate(instant: Date, timeZone: string): number {
 		if (p.type !== "literal") parts[p.type] = Number(p.value);
 	}
 	return Date.UTC(parts.year ?? 1970, (parts.month ?? 1) - 1, parts.day ?? 1);
-}
-
-/** The instant's UTC calendar date as UTC-midnight epoch ms. */
-export function utcCalendarDate(instant: Date): number {
-	return Date.UTC(
-		instant.getUTCFullYear(),
-		instant.getUTCMonth(),
-		instant.getUTCDate(),
-	);
 }
 
 /** Hour-of-day (0–23) in `timeZone`. */
@@ -67,17 +59,6 @@ export function greetingForHour(hour: number): string {
 	return "Good evening";
 }
 
-/** "Sunday, August 10, 2026" in the event's timezone. */
-export function zonedDateLine(instant: Date, timeZone: string): string {
-	return new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		weekday: "long",
-		month: "long",
-		day: "numeric",
-		year: "numeric",
-	}).format(instant);
-}
-
 export type EventCountdown =
 	| { phase: "unset" }
 	| { phase: "upcoming"; days: number }
@@ -93,9 +74,12 @@ export function eventCountdown(
 ): EventCountdown {
 	if (!startsAt) return { phase: "unset" };
 	const today = zonedCalendarDate(now, timeZone);
-	const start = utcCalendarDate(startsAt);
+	const start = zonedCalendarDate(startsAt, "UTC");
 	// A missing/inverted end date degrades to a one-day event, never a crash.
-	const end = Math.max(start, endsAt ? utcCalendarDate(endsAt) : start);
+	const end = Math.max(
+		start,
+		endsAt ? zonedCalendarDate(endsAt, "UTC") : start,
+	);
 	if (today < start) {
 		return { phase: "upcoming", days: Math.round((start - today) / DAY_MS) };
 	}
@@ -115,6 +99,7 @@ export function calendarDaysUntil(
 	timeZone: string,
 ): number {
 	return Math.round(
-		(utcCalendarDate(date) - zonedCalendarDate(now, timeZone)) / DAY_MS,
+		(zonedCalendarDate(date, "UTC") - zonedCalendarDate(now, timeZone)) /
+			DAY_MS,
 	);
 }
