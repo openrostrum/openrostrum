@@ -1,6 +1,6 @@
 import { and, asc, count, eq, or, sql } from "drizzle-orm";
-import { useState } from "react";
-import { data, Form, redirect } from "react-router";
+import { useRef, useState } from "react";
+import { data, Form, redirect, useSubmit } from "react-router";
 import { getDb } from "~/db";
 import { contacts, portals } from "~/db/schema";
 import { getActiveEvent, isSecureRequest, requireAdmin } from "~/lib/auth";
@@ -246,6 +246,8 @@ export default function PortalsAdmin({
 	const [portalPublicId, setPortalPublicId] = useState(
 		portals[0]?.publicId ?? "",
 	);
+	const submit = useSubmit();
+	const searchDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
 
 	if (!eventName) {
 		return (
@@ -331,6 +333,15 @@ export default function PortalsAdmin({
 								name="q"
 								placeholder="Search speakers by name or email…"
 								defaultValue={q}
+								onChange={(e) => {
+									// Search-as-you-type: debounced GET resubmit; replace so
+									// every keystroke doesn't mint a history entry.
+									const form = e.currentTarget.form;
+									clearTimeout(searchDebounce.current);
+									searchDebounce.current = setTimeout(() => {
+										if (form) submit(form, { replace: true });
+									}, 200);
+								}}
 							/>
 							<Button type="submit" variant="ghost" icon="search">
 								Search
