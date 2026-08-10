@@ -2,9 +2,10 @@ import { eq } from "drizzle-orm";
 import { Form, data, useNavigation } from "react-router";
 import { getDb } from "~/db";
 import { events } from "~/db/schema";
-import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { getActiveEvent, listMyEvents, requireAdmin } from "~/lib/auth";
 import { bytesToBase64 } from "~/lib/base64";
 import { errorMessage } from "~/lib/errors";
+import { toSwitcherEvents } from "~/lib/event-switcher.server";
 import { createTimings, track } from "~/lib/track";
 import {
 	eventDetailsValues,
@@ -23,12 +24,19 @@ import {
 } from "~/settings/event-form";
 import {
 	Button,
+	ButtonLink,
 	ErrorText,
 	Field,
 	Input,
 	PageHeader,
 	Panel,
 	StatusBadge,
+	Table,
+	TBody,
+	Td,
+	Th,
+	THead,
+	Tr,
 } from "~/ui";
 import type { Route } from "./+types/admin.settings._index";
 
@@ -80,18 +88,20 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
 	if (!event) {
-		return { event: null, values: null, images: null };
+		return { event: null, values: null, images: null, myEvents: [] };
 	}
 	const timings = createTimings();
 	const images = await timings.time("r2", async () => ({
 		logo: await imagePreview(env, event.logoKey),
 		background: await imagePreview(env, event.backgroundKey),
 	}));
+	const myEvents = toSwitcherEvents(await listMyEvents(env, user.id), event.id);
 	return data(
 		{
 			event: { id: event.id },
 			values: eventDetailsValues(event),
 			images,
+			myEvents,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -354,7 +364,7 @@ export default function EventDetails({
 	actionData,
 }: Route.ComponentProps) {
 	const busy = useNavigation().state !== "idle";
-	const { event, values, images } = loaderData;
+	const { event, values, images, myEvents } = loaderData;
 	const details = actionData?.intent === "details" ? actionData : undefined;
 
 	// The layout renders the no-event empty state; nothing to show here.
@@ -401,6 +411,56 @@ export default function EventDetails({
 					</div>
 				</div>
 			</Panel>
+			<div className="flex flex-col gap-4">
+				<PageHeader
+					title="Events"
+					count={`${myEvents.length} total`}
+					subtitle="Every event in your organization. Switching changes which event the whole admin area shows."
+					actions={
+						<ButtonLink to="/admin/events/new" variant="ghost" icon="plus">
+							New event
+						</ButtonLink>
+					}
+				/>
+				<Table>
+					<THead>
+						<Th>Event</Th>
+						<Th>Type</Th>
+						<Th>Dates</Th>
+						<Th />
+					</THead>
+					<TBody>
+						{myEvents.map((row) => (
+							<Tr key={row.id} selected={row.isCurrent}>
+								<Td kind="strong">{row.name}</Td>
+								<Td>{row.type}</Td>
+								<Td kind="mono">{row.dates ?? "—"}</Td>
+								<Td>
+									{row.isCurrent ? (
+										"Current event"
+									) : (
+										<Form method="post" action="/admin/events/switch">
+											<Input
+												type="hidden"
+												name="eventId"
+												defaultValue={row.id}
+											/>
+											<Input
+												type="hidden"
+												name="redirectTo"
+												defaultValue="/admin/settings"
+											/>
+											<Button type="submit" variant="ghost" disabled={busy}>
+												Switch to
+											</Button>
+										</Form>
+									)}
+								</Td>
+							</Tr>
+						))}
+					</TBody>
+				</Table>
+			</div>
 		</div>
 	);
 }

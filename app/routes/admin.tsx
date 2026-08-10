@@ -1,5 +1,7 @@
 import { Outlet } from "react-router";
+import { EventSwitcher } from "~/components/event-switcher";
 import { requireAdmin } from "~/lib/auth";
+import { getSwitcherData } from "~/lib/event-switcher.server";
 import { navBySection } from "~/nav/registry";
 import { Sidebar, SidebarSection, SideNavLink } from "~/ui";
 import type { IconName } from "~/ui";
@@ -13,14 +15,24 @@ import type { Route } from "./+types/admin";
  * `app/nav/*.nav.ts`, so features add entries without touching this file.
  */
 export async function loader({ context, request }: Route.LoaderArgs) {
-	const user = await requireAdmin(context.cloudflare.env, request);
-	return { user: { name: user.name, email: user.email } };
+	const env = context.cloudflare.env;
+	const user = await requireAdmin(env, request);
+	const switcher = await getSwitcherData(env, user);
+	return {
+		user: { name: user.name, email: user.email },
+		activeEvent: switcher.activeEvent,
+		events: switcher.events,
+	};
 }
 
 export default function AdminShell({ loaderData }: Route.ComponentProps) {
 	return (
 		<div className="flex min-h-screen">
 			<Sidebar user={loaderData.user}>
+				<EventSwitcher
+					activeEventName={loaderData.activeEvent?.name ?? null}
+					events={loaderData.events}
+				/>
 				{navBySection().map(([section, items]) => (
 					<SidebarSection key={section} label={section}>
 						{items.map((item) => (
