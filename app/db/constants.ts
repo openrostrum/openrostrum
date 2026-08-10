@@ -59,3 +59,11 @@ export const PARTICIPANT_ROLE = [
 	"moderator",
 	"secondary",
 ] as const;
+
+export type ParticipantRole = (typeof PARTICIPANT_ROLE)[number];
+export const PARTICIPANT_ROLE_LABELS: Record<ParticipantRole, string> = {
+	speaker: "Speaker",
+	chairperson: "Chairperson",
+	moderator: "Moderator",
+	secondary: "Secondary contact",
+};

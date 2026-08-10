@@ -57,6 +57,13 @@
       "when": 1786391887067,
       "tag": "0007_third_psynapse",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786402449601,
+      "tag": "0009_co_presenter_roles",
+      "breakpoints": true
     }
   ]
 }
