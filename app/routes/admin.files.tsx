@@ -239,6 +239,13 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 			</Form>
 
 			<Form method="get" action="/admin/files/export.zip" id="zip-export">
+				{/* selections made on OTHER pages have no checkbox in the DOM —
+				    without these the export silently drops them */}
+				{[...selected]
+					.filter((id) => !rows.some((r) => r.id === id))
+					.map((id) => (
+						<Input key={id} type="hidden" name="fileIds" value={id} />
+					))}
 				<div className="flex flex-wrap items-center gap-3">
 					<Button type="submit" icon="export" disabled={selected.size === 0}>
 						Download ZIP ({selected.size} selected)

@@ -177,4 +177,56 @@ describe("bulk ZIP export", () => {
 		const foreign = await catchThrown(() => exportZip("?fileIds=f_foreign"));
 		expect(thrownStatus(foreign)).toBe(404);
 	});
+
+	it("refuses a selection whose metadata exceeds the 1 GB archive limit", async () => {
+		const db = await seedFilesWorld();
+		// size check reads size_bytes metadata, never the blobs
+		await db.insert(files).values([
+			{
+				id: "f_big1",
+				eventId: "e1",
+				submissionId: "s1",
+				r2Key: "z/big1",
+				fileName: "raw-video-1.zip",
+				kind: "other",
+				sizeBytes: 600 * 1024 * 1024,
+				version: 1,
+			},
+			{
+				id: "f_big2",
+				eventId: "e1",
+				submissionId: "s2",
+				r2Key: "z/big2",
+				fileName: "raw-video-2.zip",
+				kind: "other",
+				sizeBytes: 600 * 1024 * 1024,
+				version: 1,
+			},
+		]);
+		const thrown = await catchThrown(() => exportZip("?all=1"));
+		expect(thrownStatus(thrown)).toBe(400);
+	});
+
+	it("handles a selection larger than D1's bound-variable cap", async () => {
+		const db = await seedFilesWorld();
+		const ids: string[] = [];
+		for (let i = 0; i < 120; i += 1) {
+			const id = `f_many_${i}`;
+			ids.push(id);
+			await env.BLOBS.put(`z/many_${i}`, "x");
+			await db.insert(files).values({
+				id,
+				eventId: "e1",
+				submissionId: "s1",
+				r2Key: `z/many_${i}`,
+				fileName: `asset-${i}.png`,
+				kind: "other",
+				sizeBytes: 1,
+				version: 1,
+			});
+		}
+		const query = `?${ids.map((id) => `fileIds=${id}`).join("&")}`;
+		const entries = await exportZip(query);
+		expect(entries).toHaveLength(120);
+	});
 });

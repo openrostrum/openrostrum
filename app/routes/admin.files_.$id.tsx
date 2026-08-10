@@ -19,6 +19,7 @@ import {
 	FILE_REVIEW_LABEL,
 	FILE_REVIEW_TONE,
 	getFileChain,
+	REVIEW_NOTE_MAX,
 	setFileReview,
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
@@ -155,44 +156,51 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 
 	try {
 		if (intent === "approve" || intent === "deny") {
-			// Decisions always target the LATEST version — the one under review.
+			// Decisions target the LATEST version, and exist only for the task
+			// upload loop — direct admin uploads have nothing to approve.
+			const assignmentId = latest.taskAssignmentId;
+			if (!assignmentId) {
+				return withTimings({
+					formError: "This upload isn't part of a review loop.",
+				});
+			}
+			const reviewed = { id: latest.id, taskAssignmentId: assignmentId };
 			if (intent === "approve") {
-				await timings.time("db", () => setFileReview(db, latest, "approved"));
+				await timings.time("db", () => setFileReview(db, reviewed, "approved"));
 				track("file.approved", {
 					eventId: event.id,
 					fileId: latest.id,
-					assignmentId: latest.taskAssignmentId,
+					assignmentId,
 				});
 				return withTimings({
-					notice: latest.taskAssignmentId
-						? "Upload approved — the speaker's task is complete."
-						: "Upload approved.",
+					notice: "Upload approved — the speaker's task is complete.",
 				});
 			}
 			const note = String(form.get("reviewNote") ?? "").trim();
-			if (note.length > 2000) {
+			if (note.length > REVIEW_NOTE_MAX) {
 				return withTimings({
 					fieldErrors: {
 						reviewNote: ["Keep the note under 2,000 characters."],
 					},
 				});
 			}
-			await timings.time("db", () => setFileReview(db, latest, "denied", note));
+			await timings.time("db", () =>
+				setFileReview(db, reviewed, "denied", note),
+			);
 			track("file.denied", {
 				eventId: event.id,
 				fileId: latest.id,
-				assignmentId: latest.taskAssignmentId,
+				assignmentId,
 			});
 			return withTimings({
-				notice: latest.taskAssignmentId
-					? "Changes requested — the task reopened, and the speaker can upload a new version."
-					: "Changes requested on this upload.",
+				notice:
+					"Changes requested — the task reopened, and the speaker can upload a new version.",
 			});
 		}
 
 		if (intent === "comment") {
 			const body = String(form.get("body") ?? "").trim();
-			if (!body || body.length > 2000) {
+			if (!body || body.length > REVIEW_NOTE_MAX) {
 				return withTimings({
 					fieldErrors: { body: ["Write a comment up to 2,000 characters."] },
 				});
@@ -333,15 +341,11 @@ export default function FileDetail({
 				</TBody>
 			</Table>
 
-			{(inReviewLoop || latest.reviewStatus !== "none") && (
+			{inReviewLoop && (
 				<Panel>
 					<PageHeader
 						title="Review this upload"
-						subtitle={
-							inReviewLoop
-								? "Approving completes the speaker's task; requesting changes reopens it so they can upload a new version. No email is sent either way — the speaker sees the outcome in their portal."
-								: "Record a review outcome on this upload."
-						}
+						subtitle="Approving completes the speaker's task; requesting changes reopens it so they can upload a new version. No email is sent either way — the speaker sees the outcome in their portal."
 					/>
 					<div className="mt-3 flex flex-wrap items-end gap-3">
 						{latest.reviewStatus !== "approved" && (

@@ -10,7 +10,7 @@ import {
 	taskAssignments,
 	tasks,
 } from "~/db/schema";
-import { setFileReview } from "~/domain/files";
+import { REVIEW_NOTE_MAX, setFileReview } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatBytes, formatDateUTC, parseDueDate } from "~/lib/format";
@@ -211,7 +211,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		if (intent === "approve-file" || intent === "deny-file") {
 			const fileId = String(form.get("fileId") ?? "");
 			const [file] = await db
-				.select({ id: files.id, taskAssignmentId: files.taskAssignmentId })
+				.select({ id: files.id })
 				.from(files)
 				.where(
 					and(
@@ -224,8 +224,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			if (!file) {
 				return withTimings({ formError: "That upload no longer exists." });
 			}
+			const reviewed = { id: file.id, taskAssignmentId: row.assignment.id };
 			if (intent === "approve-file") {
-				await timings.time("db", () => setFileReview(db, file, "approved"));
+				await timings.time("db", () => setFileReview(db, reviewed, "approved"));
 				track("task.file_approved", {
 					eventId: event.id,
 					assignmentId: row.assignment.id,
@@ -236,7 +237,16 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				} satisfies ActionResult);
 			}
 			const note = String(form.get("reviewNote") ?? "").trim();
-			await timings.time("db", () => setFileReview(db, file, "denied", note));
+			if (note.length > REVIEW_NOTE_MAX) {
+				return withTimings({
+					fieldErrors: {
+						reviewNote: ["Keep the note under 2,000 characters."],
+					},
+				});
+			}
+			await timings.time("db", () =>
+				setFileReview(db, reviewed, "denied", note),
+			);
 			track("task.file_denied", {
 				eventId: event.id,
 				assignmentId: row.assignment.id,
@@ -438,10 +448,14 @@ export default function TaskAssignmentDetail({
 							<Form method="post" className="flex flex-wrap items-end gap-2">
 								<Input type="hidden" name="intent" value="deny-file" />
 								<Input type="hidden" name="fileId" value={uploads[0].id} />
-								<Field label="Note (optional)">
+								<Field
+									label="Note (optional)"
+									error={actionData?.fieldErrors?.reviewNote?.[0]}
+								>
 									<Input
 										name="reviewNote"
 										placeholder="Why it needs a re-upload"
+										maxLength={2000}
 									/>
 								</Field>
 								<Button type="submit" variant="ghost">

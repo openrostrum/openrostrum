@@ -42,12 +42,15 @@ export const UPLOAD_ACCEPT = Object.keys(EXT_KIND)
  * pages map codes to copy — free text never rides a URL. */
 export const UPLOAD_ERRORS = {
 	"choose-file": "Choose a file first.",
-	"bad-type": "That file type isn't accepted — see the stated formats.",
+	"bad-type": UPLOAD_CONSTRAINTS,
 	"too-large": "Keep the file under 25 MB.",
 	"foreign-submission": "That submission does not belong to this event.",
 	"no-event": "No event is configured yet.",
 	failed: "The upload failed — please try again.",
 } as const;
+
+/** One rule for how long a deny note / file comment may be, every caller. */
+export const REVIEW_NOTE_MAX = 2000;
 
 export type UploadErrorCode = keyof typeof UPLOAD_ERRORS;
 
@@ -80,7 +83,7 @@ export type UploadCheck =
 export function checkUpload(file: File): UploadCheck {
 	const kind = uploadKindForName(file.name);
 	if (!kind) {
-		return { ok: false, code: "bad-type", error: UPLOAD_CONSTRAINTS };
+		return { ok: false, code: "bad-type", error: UPLOAD_ERRORS["bad-type"] };
 	}
 	if (file.size > UPLOAD_MAX_BYTES) {
 		return {
@@ -137,10 +140,11 @@ type ChainValues = {
 
 type BatchItem = Parameters<Db["batch"]>[0][number];
 
-/** Appends a row to its chain: version = max+1 computed INSIDE the insert
- * (a double-submit can't mint duplicate versions on single-writer D1), then
- * the portal-shared flag migrates to this latest version — the portal lists
- * shared rows flat, so the flag lives on exactly one version per chain. */
+/** Appends a row to its chain in ONE batch (D1 has no transactions): the
+ * insert mints version = max+1 via a scalar subquery (a double-submit can't
+ * duplicate versions), the portal-shared flag migrates to this latest version
+ * (the portal lists shared rows flat — one flagged version per chain), and
+ * caller statements (e.g. the assignment flip) commit atomically with it. */
 async function appendToChain(
 	db: Db,
 	chain: SQL,
@@ -148,17 +152,25 @@ async function appendToChain(
 	alongside: BatchItem[] = [],
 ): Promise<{ id: string; version: number }> {
 	const id = crypto.randomUUID();
-	await db.run(sql`
-		insert into ${files} (id, event_id, submission_id, contact_id, task_assignment_id,
-			r2_key, file_name, kind, content_type, size_bytes, version, review_status,
-			shared_to_portal, created_at)
-		select ${id}, ${values.eventId}, ${values.submissionId}, ${values.contactId},
-			${values.taskAssignmentId}, ${values.r2Key}, ${values.fileName}, ${values.kind},
-			${values.contentType}, ${values.sizeBytes},
-			coalesce((select max(${files.version}) from ${files} where ${chain}), 0) + 1,
-			${values.reviewStatus}, ${values.sharedToPortal ? 1 : 0},
-			${Math.floor(Date.now() / 1000)}`);
-	await db.batch([
+	const [inserted] = await db.batch([
+		db
+			.insert(files)
+			.values({
+				id,
+				eventId: values.eventId,
+				submissionId: values.submissionId,
+				contactId: values.contactId,
+				taskAssignmentId: values.taskAssignmentId,
+				r2Key: values.r2Key,
+				fileName: values.fileName,
+				kind: values.kind,
+				contentType: values.contentType,
+				sizeBytes: values.sizeBytes,
+				version: sql`coalesce((select max(${files.version}) from ${files} where ${chain}), 0) + 1`,
+				reviewStatus: values.reviewStatus,
+				sharedToPortal: values.sharedToPortal,
+			})
+			.returning({ id: files.id, version: files.version }),
 		db
 			.update(files)
 			.set({ sharedToPortal: true })
@@ -175,11 +187,7 @@ async function appendToChain(
 			.where(and(chain, ne(files.id, id))),
 		...alongside,
 	]);
-	const [row] = await db
-		.select({ id: files.id, version: files.version })
-		.from(files)
-		.where(eq(files.id, id))
-		.limit(1);
+	const row = inserted[0];
 	if (!row) throw new Error("file insert failed");
 	return row;
 }
@@ -249,29 +257,24 @@ export async function insertTaskUpload(
 	);
 }
 
-/** Approve completes the owning task; deny reopens it (back to incomplete)
- * so the portal offers the re-upload path with the note as "Changes
- * requested". Deny sends no email by design — Sessionboard parity. */
+/** Review exists ONLY for task uploads. Approve completes the owning task;
+ * deny reopens it (back to incomplete) so the portal offers the re-upload
+ * path with the note as "Changes requested". No email either way — parity. */
 export async function setFileReview(
 	db: Db,
-	file: Pick<FileRow, "id" | "taskAssignmentId">,
+	file: { id: string; taskAssignmentId: string },
 	decision: "approved" | "denied",
 	note?: string | null,
 ): Promise<void> {
-	const fileUpdate = db
-		.update(files)
-		.set(
-			decision === "approved"
-				? { reviewStatus: "approved", reviewNote: null }
-				: { reviewStatus: "denied", reviewNote: note?.trim() || null },
-		)
-		.where(eq(files.id, file.id));
-	if (!file.taskAssignmentId) {
-		await fileUpdate;
-		return;
-	}
 	await db.batch([
-		fileUpdate,
+		db
+			.update(files)
+			.set(
+				decision === "approved"
+					? { reviewStatus: "approved", reviewNote: null }
+					: { reviewStatus: "denied", reviewNote: note?.trim() || null },
+			)
+			.where(eq(files.id, file.id)),
 		db
 			.update(taskAssignments)
 			.set(

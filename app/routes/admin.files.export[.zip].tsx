@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
 import { contacts, submissions } from "~/db/schema";
@@ -34,36 +34,58 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 
 	const ranked = rankedChainsSql(event.id);
 	// Selected ids (whatever version they point at) resolve to chain keys —
-	// inside the event-scoped ranking, so foreign ids simply drop out.
-	let chainFilter = sql``;
+	// inside the event-scoped ranking, so foreign ids simply drop out. Both
+	// IN lists run in slices: D1 caps bound variables per statement.
+	let selectedKeys: string[] | null = null;
 	if (!all) {
-		const idList = sql.join(
-			fileIds.map((id) => sql`${id}`),
-			sql`, `,
-		);
-		const keys = await db.all<{ grp: string }>(
-			sql`select distinct grp from ${ranked} r where r.id in (${idList})`,
-		);
-		if (keys.length === 0) throw data(null, { status: 404 });
-		const keyList = sql.join(
-			keys.map((k) => sql`${k.grp}`),
-			sql`, `,
-		);
-		chainFilter = sql` and r.grp in (${keyList})`;
+		const keys = new Set<string>();
+		for (const idSlice of slices(fileIds)) {
+			const found = await db.all<{ grp: string }>(
+				sql`select distinct grp from ${ranked} r where r.id in (${sql.join(
+					idSlice.map((id) => sql`${id}`),
+					sql`, `,
+				)})`,
+			);
+			for (const k of found) keys.add(k.grp);
+		}
+		if (keys.size === 0) throw data(null, { status: 404 });
+		selectedKeys = [...keys];
 	}
 
-	const latest = await db.all<{
+	type LatestRow = {
 		id: string;
 		r2_key: string;
 		file_name: string;
 		size_bytes: number | null;
 		submission_id: string | null;
 		contact_id: string | null;
-	}>(sql`
+	};
+	const latestQuery = (filter: SQL) =>
+		db.all<LatestRow>(sql`
 		select id, r2_key, file_name, size_bytes, submission_id, contact_id
 		from ${ranked} r
-		where r.rn = 1${chainFilter}
-		order by r.submission_id, r.file_name`);
+		where r.rn = 1${filter}`);
+	let latest: LatestRow[];
+	if (selectedKeys) {
+		latest = [];
+		for (const keySlice of slices(selectedKeys)) {
+			latest.push(
+				...(await latestQuery(
+					sql` and r.grp in (${sql.join(
+						keySlice.map((k) => sql`${k}`),
+						sql`, `,
+					)})`,
+				)),
+			);
+		}
+	} else {
+		latest = await latestQuery(sql``);
+	}
+	latest.sort(
+		(a, b) =>
+			(a.submission_id ?? "").localeCompare(b.submission_id ?? "") ||
+			a.file_name.localeCompare(b.file_name),
+	);
 	if (latest.length === 0) {
 		throw data("Nothing to export yet — no files match.", { status: 404 });
 	}
@@ -196,6 +218,10 @@ async function folderNames(
 	}
 	folders.set("", claim("Event files"));
 	return folders;
+}
+
+function* slices<T>(items: T[], size = 80): Generator<T[]> {
+	for (let i = 0; i < items.length; i += size) yield items.slice(i, i + size);
 }
 
 function uniquePath(used: Set<string>, folder: string, name: string): string {
