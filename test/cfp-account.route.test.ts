@@ -196,6 +196,30 @@ describe("account step — login", () => {
 	});
 });
 
+describe("account step — logout (the wizard footer's 'log out')", () => {
+	it("destroys the SERVER session row, clears the cookie, and returns to the wizard", async () => {
+		await seedCfp();
+		const speaker = await createSpeaker();
+		const db = getDb(env);
+		expect(await db.select().from(authSessions)).toHaveLength(1);
+
+		const response = (await action({
+			context: CONTEXT,
+			request: formRequest(URL_, { intent: "logout" }, speaker.cookie),
+			params: PARAMS,
+		} as unknown as Parameters<typeof action>[0])) as Response;
+
+		expect(response.status).toBe(302);
+		expect(response.headers.get("Location")).toBe(
+			`/submit/${FIX.eventSlug}/${FIX.formPublicId}`,
+		);
+		expect(response.headers.get("Set-Cookie")).toContain("Max-Age=0");
+		// The row must be GONE — a cleared cookie alone would leave a live
+		// session an attacker (or shared machine) could keep using.
+		expect(await db.select().from(authSessions)).toHaveLength(0);
+	});
+});
+
 describe("account step — Turnstile", () => {
 	// Oracle: Cloudflare's siteverify contract — a `success: false` verdict (or
 	// a missing token, which siteverify also rejects) must block account

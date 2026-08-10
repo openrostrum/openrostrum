@@ -46,6 +46,7 @@ import {
 } from "~/cfp/wizard";
 import { getDb } from "~/db";
 import { getUser } from "~/lib/auth";
+import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
 import { Button, ButtonLink, ErrorText, Field, Input, Panel } from "~/ui";
 import type { SessionActionResult } from "./submit.$eventSlug.$formId.step.session";
@@ -88,6 +89,7 @@ export default function ParticipantStep({
 	const ctx = useOutletContext<WizardCtx>();
 	const navigate = useNavigate();
 	const saveFetcher = useFetcher<SessionActionResult>();
+	const busy = useBusy();
 	const [errors, setErrors] = useState<ParticipantErrors>({
 		rows: {},
 		form: [],
@@ -415,13 +417,13 @@ export default function ParticipantStep({
 						<Button
 							variant="ghost"
 							type="button"
-							disabled={saveFetcher.state !== "idle"}
+							disabled={busy}
 							onClick={saveDraft}
 						>
 							{saveFetcher.state !== "idle" ? "Saving…" : "Save as draft"}
 						</Button>
 					)}
-					<Button type="button" onClick={continueToReview}>
+					<Button type="button" disabled={busy} onClick={continueToReview}>
 						Continue to review →
 					</Button>
 				</div>
