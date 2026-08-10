@@ -22,7 +22,9 @@ decision still needed. Corroboration = how many walkers hit it independently.
 
 | Gap | Resolution |
 |-----|------------|
-| Accept-spine idempotency: no unique constraint can work (NULL `submissionId` distinct in SQLite) | SPEC'D: `WHERE NOT EXISTS` guards in `app/domain/accept.ts` spec |
+| Accept-spine idempotency: no unique constraint can work (NULL `submissionId` distinct in SQLite) | SUPERSEDED by the landed schema: `unique(taskId, contactId)` on `task_assignments` (walk-07 #1) + a planning-time pre-read + `onConflictDoNothing` race guard in `app/domain/accept.ts`. CONSEQUENCE (owner ruling needed): the index caps a submission-scoped task at ONE per contact across submissions — a multi-talk speaker's second accepted submission cannot get its own e.g. slides-upload assignment; the spine surfaces each drop via `accept.assignment_skipped`. Either widen the index to (taskId, contactId, submissionId) with a NOT NULL sentinel, or bless one-per-contact here |
+| Decision-send flow depth (template pick + per-recipient preview + in-app confirm, review scenario RV-S3.2) | DEFERRED (accept-spine PR): the send buttons act on the selection directly with a live count + zero-selection disable; the picker/preview/confirm need a Modal primitive (integration-owned) and belong to the Wave-1 submissions-list surface. Owner schedules it with that lane |
+| Failed decision sends have no Queue/DLQ (tech-stack email rule) | DEFERRED (accept-spine PR): sends run inline in the action, bounded by the 100/send cap + selection-stable idempotency keys (a retry after any failure dedupes already-sent rows). Queues config is integration-owned (`wrangler.json`); owner schedules the queue lane |
 | Auto-assigned tasks have no due-date source | FIXED: `tasks.dueInDays` column; dueAt = acceptedAt + days |
 | File deny state unrepresentable | FIXED: `files.reviewStatus` + `files.reviewNote` |
 | Language options homeless | FIXED: `languages` table (Library-managed, like levels) |
@@ -30,7 +32,7 @@ decision still needed. Corroboration = how many walkers hit it independently.
 | R2 presigned-PUT mandate broken locally + no byte-serving route | FIXED (tech-stack: Worker-mediated up/download) / SPEC'D (routes) |
 | Merge-tag rendering unspecified | SPEC'D: tag list + `app/lib/email-render.ts` (Wave 1) |
 | Manual-send dedupe/double-submit | SPEC'D: form-minted idempotency key in dedupeKey |
-| .ics for unscheduled sessions | DECIDED (rev. 2 — see K14): accept email attaches .ics only if already scheduled, else says "schedule TBA"; the later scheduling triggers the batched schedule-update send with the invite |
+| .ics for unscheduled sessions | DECIDED (rev. 3, accept-spine PR — supersedes rev. 2's "only if scheduled"): the accept email ALWAYS attaches an .ics — exact times + room when scheduled, else a save-the-date hold spanning the event with "schedule to be announced" body copy (scenario 09 blesses the hold; SCOPE P0 #8 wants invites on acceptance). Stable UID = `icsUidForSubmission()` in `app/domain/accept.ts`, accept-time SEQUENCE 0; the batched schedule-update send (K14, unchanged) revises the same UID with SEQUENCE ≥1 — that lane derives the sequence from its schedule-version |
 | `statusChangedAt`/`notifiedAt` writers unassigned | SPEC'D: status-change action / bulk-send flow stamp them |
 | Agenda timezone rule | SPEC'D: store UTC epoch, render in `events.timezone` |
 | `schedulableStatuses` no default | FIXED: defaults to `["accepted"]` |
@@ -93,3 +95,10 @@ delete rev. 2 (zombie rows → honor-the-delete) and webhook-first sync live in
 | K15 | **Triple gate (accepted → content-approved → agenda-published) reads as a bug** without affordances | FIXED (SCOPE P1 #18): accept spine sets `contentStatus='in_review'`; bulk "Approve all accepted"; dashboard alert "N accepted sessions aren't public yet"; Published/Unpublished chip on the agenda header. Supersedes K10's "stays draft" note — gate mechanics unchanged |
 | K16 | **CSV import deduped silently** ("imported 100, why 97?") | FIXED (SCOPE P1 #17): import ends on a summary — added / merged-by-email / skipped with per-row reasons |
 | K17 | **Task reminder never re-fires after a deadline extension** (one-shot `reminderSentAt`) | FIXED (SCOPE P1 #17): editing `dueAt` clears `reminderSentAt`; reminder `dedupeKey` includes the due date so outbox idempotency doesn't block the re-send |
+
+## Build-lane deferrals (recorded for the integration owner)
+
+| # | Deferral | Status |
+|---|----------|--------|
+| T1 | **Task-reminder email sends (cron + bulk) have no Queue DLQ** — tech-stack's email rule wants failed sends queued. Both paths are retry-safe without it (cron: `reminderSentAt` stays unstamped on failure so the next tick retries; bulk: occurrence-keyed `dedupeKey` = contact+day+outstanding-set makes an admin retry resume, not duplicate — both pinned by tests), and the bulk send is a synchronous per-speaker loop that will meet subrequest caps at very large rosters. Queues + the `workers/app.ts` consumer + `wrangler.json` are integration-owned, so the queue-backed send is an OWNER decision, not a lane one. | OPEN — integration owner: wire task-reminder sends through a queue w/ DLQ, or stamp this retry model as accepted |
+| T2 | **Task-due cron + bulk deliverables reminder shipped in the TASKS lane** though SCOPE P1 #17/#18 nominally file them under roster/content-management. Owner: reconcile the scope rows so those lanes don't build duplicates (two `*.scheduled.ts` jobs would double-email). | OPEN — scope-row reconciliation |

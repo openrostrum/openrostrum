@@ -24,7 +24,8 @@ import {
 } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatBytes, formatInTz } from "~/lib/format";
+import { formatBytes, formatDateUTC, formatInTz } from "~/lib/format";
+import { isOverdue } from "~/lib/task-status";
 import { getEmailSender } from "~/ports/email";
 import { createTimings, track } from "~/lib/track";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.tasks_.$assignmentId";
@@ -210,11 +211,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			description: task.description,
 			linkUrl: task.linkUrl,
 			required: task.required,
-			due: assignment.dueAt ? formatInTz(assignment.dueAt, tz, "date") : null,
-			overdue:
-				assignment.status !== "complete" &&
-				assignment.dueAt !== null &&
-				assignment.dueAt < now,
+			due: assignment.dueAt ? formatDateUTC(assignment.dueAt) : null,
+			overdue: isOverdue(assignment.dueAt, assignment.status, now),
 			status: TASK_STATUS_PROJECTION[assignment.status],
 			isComplete: assignment.status === "complete",
 			completedOn: assignment.completedAt

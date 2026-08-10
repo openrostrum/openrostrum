@@ -19,7 +19,8 @@ import {
 	users,
 } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
-import { formatInTz } from "~/lib/format";
+import { formatDateUTC } from "~/lib/format";
+import { isOverdue } from "~/lib/task-status";
 import type { BadgeTone } from "~/ui";
 
 type AppUser = typeof users.$inferSelect;
@@ -345,8 +346,8 @@ export async function listPortalTasks(
 			type: r.type,
 			status: TASK_STATUS_PROJECTION[r.status],
 			open: r.status !== "complete",
-			due: r.dueAt ? formatInTz(r.dueAt, ctx.event.timezone, "date") : null,
-			overdue: r.status !== "complete" && !!r.dueAt && r.dueAt < now,
+			due: r.dueAt ? formatDateUTC(r.dueAt) : null,
+			overdue: isOverdue(r.dueAt, r.status, now),
 			submissionTitle: r.submissionTitle,
 		}));
 }
