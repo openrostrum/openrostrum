@@ -59,6 +59,8 @@ import type { Route } from "./+types/admin.submissions_.$id";
 const CONTENT_STATUS_OPTIONS =
 	CONTENT_STATUS satisfies readonly Submission["contentStatus"][];
 
+const REVISION_LIST_LIMIT = 50;
+
 const ACCEPTANCE_TONE = {
 	pending: "warning",
 	accepted: "success",
@@ -84,6 +86,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const db = getDb(env);
 	const timings = createTimings();
 	const tz = event.timezone;
+	const showAllRevisions =
+		new URL(request.url).searchParams.get("revisions") === "all";
 
 	const payload = await timings.time("db", async () => {
 		const row = await db.query.submissions.findFirst({
@@ -115,13 +119,14 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		});
 		if (!row) return null;
 
-		// Revisions order by INSERTION (rowid), not createdAt: two snapshots can
-		// land in the same second and history must never shuffle.
-		const revisionRows = await db
+		// Ordered by INSERTION (rowid) — createdAt can collide within a second and
+		// history must never shuffle. Metadata only, latest-N by default (restore
+		// re-reads its snapshot from D1): shipping every body once blew the
+		// Worker CPU budget in production; ?revisions=all reaches older rows.
+		const revisionQuery = db
 			.select({
 				id: submissionRevisions.id,
 				title: submissionRevisions.title,
-				description: submissionRevisions.description,
 				createdAt: submissionRevisions.createdAt,
 				editorName: users.name,
 				editorEmail: users.email,
@@ -130,6 +135,12 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			.leftJoin(users, eq(users.id, submissionRevisions.editedById))
 			.where(eq(submissionRevisions.submissionId, row.id))
 			.orderBy(desc(sql`${submissionRevisions}.rowid`));
+		const revisionRows = await (showAllRevisions
+			? revisionQuery
+			: revisionQuery.limit(REVISION_LIST_LIMIT + 1));
+		const revisionsTruncated =
+			!showAllRevisions && revisionRows.length > REVISION_LIST_LIMIT;
+		if (revisionsTruncated) revisionRows.length = REVISION_LIST_LIMIT;
 
 		const [fileRows, withdrawnBy, library] = await Promise.all([
 			db
@@ -206,10 +217,10 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			revisions: revisionRows.map((r) => ({
 				id: r.id,
 				title: r.title,
-				description: r.description,
 				editor: r.editorName ?? r.editorEmail ?? "Unknown",
 				at: formatInTimezone(r.createdAt, tz),
 			})),
+			revisionsTruncated,
 			files: fileRows.map((f) => ({
 				id: f.id,
 				fileName: f.fileName,
@@ -684,6 +695,7 @@ export default function SubmissionDetail({
 		participants,
 		answers,
 		revisions,
+		revisionsTruncated,
 		files: fileRows,
 		reviews,
 		library,
@@ -720,7 +732,14 @@ export default function SubmissionDetail({
 			<div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[3fr_2fr]">
 				<div className="flex flex-col gap-5">
 					<Panel>
-						<Form method="post" className="flex flex-col gap-3">
+						{/* Keyed on the newest revision: every save/restore appends one, and
+						    the uncontrolled inputs must remount to show the revalidated
+						    content — without this a Restore looks like a silent no-op. */}
+						<Form
+							method="post"
+							className="flex flex-col gap-3"
+							key={revisions[0]?.id ?? "unrevised"}
+						>
 							<Input
 								type="hidden"
 								name="intent"
@@ -790,6 +809,12 @@ export default function SubmissionDetail({
 								<EmptyRow colSpan={4}>
 									No revisions yet — saving the content above records the first
 									one.
+								</EmptyRow>
+							)}
+							{revisionsTruncated && (
+								<EmptyRow colSpan={4}>
+									Showing the latest {revisions.length} revisions.{" "}
+									<TextLink to="?revisions=all">Show the full history</TextLink>
 								</EmptyRow>
 							)}
 						</TBody>

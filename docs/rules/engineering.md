@@ -28,6 +28,10 @@ House conventions only. The **mandatory platform rules** (D1 batch, react-router
 
 **Never `events.findMany({ limit: 1 })`.** Call `getActiveEvent(env, user)` and scope every query to that event; the app is multi-event (there is an event switcher).
 
+## Bounded loaders
+
+**Every relational query selects only the columns its projection renders** — never `with: { contact: true }` when the view needs a name (full rows make request cost scale with content size, and on public surfaces they carry PII into the Worker only to drop it at projection; this class of loader produced real production 1102s). **Every list that grows per user action (submissions, revisions, contacts, conflicts, history of any kind) is capped or paginated with an honest truncation signal** — a true count, a "showing first N of M" row, or a show-all link; never a silently clipped table. A surface whose product IS the whole curated set (the agenda board, the public program) is bounded by the event's size instead — column narrowing still applies there. Workers meter CPU per request, so payload size IS a correctness constraint, not a nicety — however generous the plan's budget (at the time of writing: the free plan's ~10ms, which real loaders exceeded).
+
 ## Routes, nav, seams
 
 Add your route as a **new file** in `app/routes/` per [`ROUTE-MAP.md`](../ROUTE-MAP.md) — never edit `app/routes.ts`. Sidebar entries are one `app/nav/<feature>.nav.ts` each [lint-enforced: `pure-nav-modules`] — never a shared nav file. External seams go behind a port (`app/ports/*`). Login/logout/403 references live in `app/routes/{login,logout,403}.tsx`.

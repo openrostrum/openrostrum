@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	type AgendaSession,
 	autoPlace,
+	buildConflictRows,
+	type Conflict,
 	conflictSentence,
 	detectConflicts,
 	eventDayList,
@@ -317,5 +319,40 @@ describe("auto-place", () => {
 		});
 		expect(result.placements).toHaveLength(1);
 		expect(result.unplacedIds).toHaveLength(1);
+	});
+});
+
+describe("conflicts-tab rows stay bounded", () => {
+	// Stacked overlapping placements grow conflict pairs quadratically; the tab
+	// once rendered 2 unbounded rows per conflict and exceeded the Worker CPU
+	// budget in production (HTTP 1102) — the table must stay capped with an
+	// honest total.
+	const conflict = (i: number, startMin: number): Conflict => ({
+		aId: `a${i}`,
+		aTitle: `Session A${i}`,
+		bId: `b${i}`,
+		bTitle: `Session B${i}`,
+		kind: "room",
+		roomName: "Main Hall",
+		overlapStartMs: utc(2026, 10, 12, 17, 0) + startMin * 60_000,
+		overlapEndMs: utc(2026, 10, 12, 17, 30) + startMin * 60_000,
+	});
+
+	it("caps rendered rows at 100 while reporting the true total", () => {
+		const conflicts = Array.from({ length: 120 }, (_, i) => conflict(i, i));
+		const { rows, total } = buildConflictRows(conflicts);
+		expect(total).toBe(240); // two sides per conflict
+		expect(rows).toHaveLength(100);
+		// earliest overlaps first — the cap keeps the most urgent rows visible
+		expect(rows[0]?.conflict.overlapStartMs).toBeLessThanOrEqual(
+			rows[99]?.conflict.overlapStartMs ?? 0,
+		);
+	});
+
+	it("returns every row when under the cap", () => {
+		const conflicts = [conflict(1, 0), conflict(2, 5)];
+		const { rows, total } = buildConflictRows(conflicts);
+		expect(total).toBe(4);
+		expect(rows.map((r) => r.sideId)).toEqual(["a1", "b1", "a2", "b2"]);
 	});
 });
