@@ -220,6 +220,50 @@ describe("task definitions", () => {
 		expect(rows).toHaveLength(3); // only the seeded definitions
 	});
 
+	it("flags the new definition in the redirect and loader so the create form resets (consecutive creates must not inherit the previous task's values)", async () => {
+		const db = await seedTasksBaseline();
+		const request = await authedRequest(
+			"http://localhost/admin/tasks",
+			{},
+			postForm("http://localhost/admin/tasks", {
+				intent: "create-task",
+				name: "Task Alpha",
+				type: "contact",
+				dueInDays: "5",
+				required: "yes",
+				autoAssign: "no",
+			}),
+		);
+		const result = await action({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0]);
+		expect(result).toBeInstanceOf(Response);
+		const [row] = await db
+			.select({ id: tasks.id })
+			.from(tasks)
+			.where(and(eq(tasks.eventId, "e1"), eq(tasks.name, "Task Alpha")));
+		expect(row).toBeTruthy();
+		// The `created` flag is what remounts (clears) the client form.
+		expect((result as Response).headers.get("Location")).toBe(
+			`/admin/tasks?view=definitions&created=${row?.id}`,
+		);
+
+		const loaderRequest = await authedRequest(
+			`http://localhost/admin/tasks?view=definitions&created=${row?.id}`,
+		);
+		const loaded = (await loader({
+			context: CONTEXT,
+			request: loaderRequest,
+			params: {},
+		} as unknown as Parameters<typeof loader>[0])) as unknown as {
+			data: { createdId: string | null; createdName: string | null };
+		};
+		expect(loaded.data.createdId).toBe(row?.id);
+		expect(loaded.data.createdName).toBe("Task Alpha");
+	});
+
 	it("creates a task with an attached portal form and due-in-days", async () => {
 		const db = await seedTasksBaseline();
 		const request = await authedRequest(
