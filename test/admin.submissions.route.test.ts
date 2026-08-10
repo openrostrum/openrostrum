@@ -4,6 +4,7 @@ import { getDb } from "../app/db";
 import {
 	contacts,
 	events,
+	organizationMembers,
 	organizations,
 	participants,
 	submissions,
@@ -32,6 +33,14 @@ async function adminRequest(url: string, init?: RequestInit): Promise<Request> {
 	return new Request(url, { ...init, headers });
 }
 
+/** Event access is org membership (getActiveEvent) — every test whose admin
+ * should SEE org1's events needs this row. */
+async function joinOrg1(): Promise<void> {
+	await getDb(env)
+		.insert(organizationMembers)
+		.values({ id: "om1", organizationId: "org1", userId: "u_admin" });
+}
+
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
 describe("admin submissions route", () => {
@@ -39,6 +48,7 @@ describe("admin submissions route", () => {
 		const db = getDb(env);
 		const request = await adminRequest("http://localhost/admin/submissions");
 		await db.insert(organizations).values({ id: "org1", name: "Org" });
+		await joinOrg1();
 		await db.insert(events).values({
 			id: "e1",
 			organizationId: "org1",
@@ -101,6 +111,7 @@ describe("admin submissions route", () => {
 			body,
 		});
 		await db.insert(organizations).values({ id: "org1", name: "Org" });
+		await joinOrg1();
 		await db.insert(events).values({
 			id: "e1",
 			organizationId: "org1",
@@ -121,6 +132,37 @@ describe("admin submissions route", () => {
 		expect(rows[0]?.eventId).toBe("e1"); // server-derived, not client-supplied
 	});
 
+	// The membership-less-admin path (getActiveEvent → null): the surface must
+	// degrade to its designed empty state, never a 500 — and must not fall back
+	// to somebody else's event (the pre-tenancy any-event hole).
+	it("serves the empty state, not another org's data, to an admin with no membership", async () => {
+		const db = getDb(env);
+		const request = await adminRequest("http://localhost/admin/submissions");
+		// An event exists, but u_admin holds no organization_members row for it.
+		await db.insert(organizations).values({ id: "org1", name: "Org" });
+		await db.insert(events).values({
+			id: "e1",
+			organizationId: "org1",
+			name: "E",
+			slug: "e",
+		});
+		await db
+			.insert(submissions)
+			.values({ id: "s1", eventId: "e1", title: "Foreign", status: "pending" });
+
+		const result = (await loader({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof loader>[0])) as unknown as {
+			submissions: unknown[];
+			eventName: string | null;
+		};
+
+		expect(result.submissions).toEqual([]);
+		expect(result.eventName).toBeNull();
+	});
+
 	// Guards against the false-positive that a bare createInsertSchema allows:
 	// an event IS seeded, so a blank title can only be rejected by validation,
 	// not masked by a DB FK error.
@@ -136,6 +178,7 @@ describe("admin submissions route", () => {
 			body,
 		});
 		await db.insert(organizations).values({ id: "org1", name: "Org" });
+		await joinOrg1();
 		await db.insert(events).values({
 			id: "e1",
 			organizationId: "org1",
