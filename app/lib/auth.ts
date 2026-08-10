@@ -27,7 +27,10 @@ export function homePathForRole(role: AppRole): string {
 
 const COOKIE = "__session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
-const PBKDF2_ITERATIONS = 600_000; // OWASP 2023 floor for PBKDF2-HMAC-SHA256
+// The Workers runtime hard-caps PBKDF2 deriveBits at 100k iterations in
+// production (local workerd doesn't enforce it — logins 500 only when
+// deployed, verified live 2026-08-10). 100k is therefore the ceiling here.
+const PBKDF2_ITERATIONS = 100_000;
 
 type AppUser = typeof users.$inferSelect;
 

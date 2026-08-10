@@ -17,13 +17,13 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
 | Feeds | `/feeds/<slug>/sessions.json` · `.xml` · `/feeds/<slug>/agenda.ics` |
 | Compat API | `/api/v1/*` — header `x-access-token: kms-demo-api-token` |
 
-## Seeded credentials (all passwords: `⏳ set at deploy — demo seed uses "password"`)
+## Seeded credentials (all passwords: `password`)
 
 | Persona | Email | Notes |
 |---|---|---|
-| Organizer/admin | `⏳ admin@…` | Pre-seeded; open organizer signup is intentionally OFF |
-| Reviewer | `⏳ reviewer@…` | Password login works; reviewer management also shows a **copyable invite link** for new reviewers |
-| Speaker | sign up at the public CFP form | Email+password; no magic links anywhere |
+| Organizer/admin | `admin@example.com` | Pre-seeded; open organizer signup is intentionally OFF |
+| Reviewer | `reviewer@example.com` | Password login works; reviewer management also shows a **copyable invite link** for new reviewers |
+| Speaker | `speaker@example.com` pre-seeded, or sign up at the public CFP form | Email+password; no magic links anywhere |
 
 ## Behaviors worth knowing (by design, mirrors Sessionboard)
 
@@ -51,5 +51,6 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
 
 ## Reset / seed
 
-`⏳ command or admin action to restore the demo baseline, if exposed on the
-deployment; locally: pnpm db:reset`
+Owner-run: `wrangler d1 execute openrostrum --remote --file drizzle/seed.sql`
+restores the live demo baseline (idempotent — the seed deletes before
+inserting). Locally: `pnpm db:reset`.
