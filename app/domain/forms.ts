@@ -16,3 +16,16 @@ export function formIsOpen(
 		(form.closeAt === null || form.closeAt.getTime() > now.getTime())
 	);
 }
+
+/**
+ * The public CFP entry URL — one shape for every surface that links or
+ * emails a form (`/submit/<event-slug>/<form-public-id>`), so the published
+ * URL contract can only move in one place.
+ */
+export function submitUrl(
+	origin: string,
+	eventSlug: string,
+	formPublicId: string,
+): string {
+	return `${origin}/submit/${eventSlug}/${formPublicId}`;
+}

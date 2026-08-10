@@ -236,7 +236,7 @@ describe("getting-started derivation from live rows", () => {
 
 describe("getting-started dismissal", () => {
 	it("dismiss → hidden for that admin+event; a teammate still sees it", async () => {
-		const { sessionCookie, userId } = await freshOrgAdmin("dismiss");
+		const { sessionCookie } = await freshOrgAdmin("dismiss");
 		const post = new Request("http://localhost/admin", {
 			...postForm("http://localhost/admin", {
 				intent: "dismiss-getting-started",
@@ -251,7 +251,6 @@ describe("getting-started dismissal", () => {
 		expect(response.headers.get("Location")).toBe("/admin");
 		const setCookie = response.headers.get("Set-Cookie") ?? "";
 		expect(setCookie).toContain("or_gs_dismissed=");
-		expect(setCookie).toContain(userId);
 
 		const gsCookie = setCookie.split(";")[0] ?? "";
 		const again = await runLoader(getRequest([sessionCookie, gsCookie]));

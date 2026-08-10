@@ -1,12 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "~/ui";
 
-/**
- * The shared copy-to-clipboard button. Two earlier per-surface copies exist —
- * `CopyFieldButton` (app/widgets/bits.tsx, owner-locked) and the forms
- * editor's local `CopyLinkButton` — and consolidating them onto this one is
- * an integration-sweep item; new features compose this, never a fourth copy.
- */
+/** The shared copy-to-clipboard button — compose this one, never another one-off. */
 export function CopyButton({
 	value,
 	label = "Copy",

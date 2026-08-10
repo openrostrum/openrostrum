@@ -16,7 +16,7 @@ import {
 	tasks,
 	tracks,
 } from "~/db/schema";
-import { formIsOpen } from "~/domain/forms";
+import { formIsOpen, submitUrl } from "~/domain/forms";
 import { deriveGettingStarted } from "~/domain/getting-started";
 import { getActiveEvent, isSecureRequest, requireAdmin } from "~/lib/auth";
 import {
@@ -252,16 +252,12 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		(f) => f.state === "open" && f.closesInDays !== null && f.closesInDays <= 7,
 	);
 
-	// The shareable CFP link points at the open form closing soonest — the one
-	// an organizer is actively collecting through.
-	const openForms = formRows
-		.filter((f) => formIsOpen(f, now))
-		.sort(
-			(a, b) =>
-				(a.closeAt?.getTime() ?? Number.MAX_SAFE_INTEGER) -
-				(b.closeAt?.getTime() ?? Number.MAX_SAFE_INTEGER),
-		);
-	const firstOpenForm = openForms[0];
+	// The shareable CFP link points at the open form closing soonest — the
+	// same form the sorted table shows first, so the two never disagree.
+	const firstOpenCard = formCards.find((f) => f.state === "open");
+	const firstOpenForm = firstOpenCard
+		? formRows.find((f) => f.id === firstOpenCard.id)
+		: undefined;
 	const gettingStarted = {
 		...deriveGettingStarted({
 			hasDates: event.startsAt !== null && event.endsAt !== null,
@@ -272,9 +268,13 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			reviewerCount: reviewerAgg[0]?.n ?? 0,
 			submissionCount: submissionsTotal,
 		}),
-		dismissed: isGettingStartedDismissed(request, user.id, event.id),
+		dismissed: await isGettingStartedDismissed(request, user.id, event.id),
 		cfpUrl: firstOpenForm
-			? `${new URL(request.url).origin}/submit/${event.slug}/${firstOpenForm.publicId}`
+			? submitUrl(
+					new URL(request.url).origin,
+					event.slug,
+					firstOpenForm.publicId,
+				)
 			: null,
 	};
 
@@ -342,7 +342,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	// can't hide the checklist for someone else's event.
 	return redirect("/admin", {
 		headers: {
-			"Set-Cookie": dismissGettingStartedCookie(
+			"Set-Cookie": await dismissGettingStartedCookie(
 				request,
 				user.id,
 				event.id,

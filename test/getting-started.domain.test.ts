@@ -93,45 +93,55 @@ function replay(setCookie: string): string {
 }
 
 describe("getting-started dismissal cookie", () => {
-	it("round-trips: dismissed for exactly that user+event, no other", () => {
-		const setCookie = dismissGettingStartedCookie(
+	it("round-trips: dismissed for exactly that user+event, no other", async () => {
+		const setCookie = await dismissGettingStartedCookie(
 			requestWithCookie(null),
 			"user-1",
 			"event-1",
 			false,
 		);
 		const next = requestWithCookie(replay(setCookie));
-		expect(isGettingStartedDismissed(next, "user-1", "event-1")).toBe(true);
-		expect(isGettingStartedDismissed(next, "user-2", "event-1")).toBe(false);
-		expect(isGettingStartedDismissed(next, "user-1", "event-2")).toBe(false);
+		expect(await isGettingStartedDismissed(next, "user-1", "event-1")).toBe(
+			true,
+		);
+		expect(await isGettingStartedDismissed(next, "user-2", "event-1")).toBe(
+			false,
+		);
+		expect(await isGettingStartedDismissed(next, "user-1", "event-2")).toBe(
+			false,
+		);
 	});
 
-	it("a second event's dismissal keeps the first one", () => {
-		const first = dismissGettingStartedCookie(
+	it("a second event's dismissal keeps the first one", async () => {
+		const first = await dismissGettingStartedCookie(
 			requestWithCookie(null),
 			"user-1",
 			"event-1",
 			false,
 		);
-		const second = dismissGettingStartedCookie(
+		const second = await dismissGettingStartedCookie(
 			requestWithCookie(replay(first)),
 			"user-1",
 			"event-2",
 			false,
 		);
 		const next = requestWithCookie(replay(second));
-		expect(isGettingStartedDismissed(next, "user-1", "event-1")).toBe(true);
-		expect(isGettingStartedDismissed(next, "user-1", "event-2")).toBe(true);
+		expect(await isGettingStartedDismissed(next, "user-1", "event-1")).toBe(
+			true,
+		);
+		expect(await isGettingStartedDismissed(next, "user-1", "event-2")).toBe(
+			true,
+		);
 	});
 
-	it("re-dismissing the same pair does not grow the cookie", () => {
-		const first = dismissGettingStartedCookie(
+	it("re-dismissing the same pair does not grow the cookie", async () => {
+		const first = await dismissGettingStartedCookie(
 			requestWithCookie(null),
 			"user-1",
 			"event-1",
 			false,
 		);
-		const again = dismissGettingStartedCookie(
+		const again = await dismissGettingStartedCookie(
 			requestWithCookie(replay(first)),
 			"user-1",
 			"event-1",
@@ -140,11 +150,11 @@ describe("getting-started dismissal cookie", () => {
 		expect(replay(again)).toBe(replay(first));
 	});
 
-	it("caps stored pairs at 24, dropping the oldest first", () => {
+	it("caps stored pairs at 24, dropping the oldest first", async () => {
 		let cookie: string | null = null;
 		for (let i = 1; i <= 25; i += 1) {
 			cookie = replay(
-				dismissGettingStartedCookie(
+				await dismissGettingStartedCookie(
 					requestWithCookie(cookie),
 					"user-1",
 					`event-${i}`,
@@ -153,13 +163,19 @@ describe("getting-started dismissal cookie", () => {
 			);
 		}
 		const next = requestWithCookie(cookie);
-		expect(isGettingStartedDismissed(next, "user-1", "event-1")).toBe(false);
-		expect(isGettingStartedDismissed(next, "user-1", "event-2")).toBe(true);
-		expect(isGettingStartedDismissed(next, "user-1", "event-25")).toBe(true);
+		expect(await isGettingStartedDismissed(next, "user-1", "event-1")).toBe(
+			false,
+		);
+		expect(await isGettingStartedDismissed(next, "user-1", "event-2")).toBe(
+			true,
+		);
+		expect(await isGettingStartedDismissed(next, "user-1", "event-25")).toBe(
+			true,
+		);
 	});
 
-	it("is HttpOnly and long-lived; Secure only over https", () => {
-		const insecure = dismissGettingStartedCookie(
+	it("is HttpOnly and long-lived; Secure only over https", async () => {
+		const insecure = await dismissGettingStartedCookie(
 			requestWithCookie(null),
 			"u",
 			"e",
@@ -168,7 +184,7 @@ describe("getting-started dismissal cookie", () => {
 		expect(insecure).toContain("HttpOnly");
 		expect(insecure).toMatch(/Max-Age=\d{6,}/);
 		expect(insecure).not.toContain("Secure");
-		const secure = dismissGettingStartedCookie(
+		const secure = await dismissGettingStartedCookie(
 			requestWithCookie(null),
 			"u",
 			"e",

@@ -1,9 +1,7 @@
 /**
- * The dashboard's first-run checklist. Every step's done-state is DERIVED from
- * live data on each load — nothing is stored per step, so work done outside
- * the checklist (or undone: a form deleted, the location cleared) is always
- * reflected honestly. The only stored bit is the explicit dismissal
- * (app/lib/getting-started-dismissal.ts).
+ * The dashboard's first-run checklist. Done-states are DERIVED from live
+ * rows on every load — never stored — so work done or undone outside the
+ * checklist (a deleted form, a cleared location) always reflects honestly.
  */
 
 export const GETTING_STARTED_STEPS = [
