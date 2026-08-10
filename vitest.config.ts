@@ -25,6 +25,16 @@ export default defineConfig(async () => {
 		],
 		test: {
 			setupFiles: ["./test/setup.ts"],
+			deps: {
+				optimizer: {
+					ssr: {
+						enabled: true,
+						// `ics` pulls CJS deps (yup → property-expr) that workerd's
+						// ESM shim can't import raw; pre-bundling restores interop.
+						include: ["ics"],
+					},
+				},
+			},
 		},
 	};
 });

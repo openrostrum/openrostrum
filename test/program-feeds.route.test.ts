@@ -1,0 +1,122 @@
+import { describe, expect, it } from "vitest";
+import { loader } from "../app/routes/feeds.$eventSlug.$kind";
+import { CONTEXT, seedProgram } from "./program.fixtures";
+
+// The feeds are third-party contracts: shape, escaping, calendar validity,
+// and the same public projection as the pages (no PII, approved-only).
+
+function fetchFeed(
+	path: string,
+	slugAndKind?: { slug?: string; kind: string },
+) {
+	const url = new URL(`http://localhost${path}`);
+	const segments = url.pathname.split("/");
+	return loader({
+		context: CONTEXT,
+		request: new Request(url),
+		params: {
+			eventSlug: slugAndKind?.slug ?? segments[2] ?? "",
+			kind: slugAndKind?.kind ?? segments[3] ?? "",
+		},
+	} as never) as Promise<Response>;
+}
+
+describe("program feeds", () => {
+	it("sessions.json carries the public projection only", async () => {
+		await seedProgram();
+		const res = await fetchFeed("/feeds/devflow/sessions.json");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toContain("application/json");
+		const body = (await res.json()) as {
+			event: { slug: string };
+			sessions: Array<{ id: string; speakers: Array<{ name: string }> }>;
+		};
+		expect(body.event.slug).toBe("devflow");
+		expect(body.sessions.map((s) => s.id)).toEqual(["s1", "s2", "s5"]);
+		const raw = JSON.stringify(body);
+		expect(raw).not.toMatch(/@px\.test|555-0001/);
+		expect(raw).not.toMatch(/Hidden Person/);
+	});
+
+	it("sessions.xml escapes markup-significant characters", async () => {
+		await seedProgram();
+		const res = await fetchFeed("/feeds/devflow/sessions.xml");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toContain("application/xml");
+		const xml = await res.text();
+		expect(xml).toContain(
+			"<title>Taming 40-Minute CI &amp; &lt;Scale&gt;</title>",
+		);
+		expect(xml).toContain("<company>Widgets &amp; &lt;Co&gt;</company>");
+		expect(xml).not.toContain("<Scale>"); // raw injection would break consumers
+	});
+
+	it("agenda.ics is a valid calendar of scheduled sessions with stable UIDs, filterable by ?ids=", async () => {
+		await seedProgram();
+		const res = await fetchFeed("/feeds/devflow/agenda.ics");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toContain("text/calendar");
+		const ics = await res.text();
+		expect(ics).toContain("BEGIN:VCALENDAR");
+		expect(ics).toContain("END:VCALENDAR");
+		expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(2); // s1 + s2; s5 has no slot
+		expect(ics).toContain("UID:or-session-s1@openrostrum");
+		expect(ics).toContain("DTSTART:20270512T163000Z");
+		expect(ics).toContain("LOCATION:Main Hall");
+
+		const filtered = await fetchFeed("/feeds/devflow/agenda.ics?ids=s1");
+		const filteredIcs = await filtered.text();
+		expect(filteredIcs.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+		expect(filteredIcs).toContain("UID:or-session-s1@openrostrum");
+	});
+
+	it("agenda.ics is gated on the publish action", async () => {
+		await seedProgram({ agendaPublished: false });
+		const res = await fetchFeed("/feeds/devflow/agenda.ics");
+		expect(res.status).toBe(404);
+	});
+
+	it("speakers.json derives from the same projection (hidden speaker absent)", async () => {
+		await seedProgram();
+		const res = await fetchFeed("/feeds/devflow/speakers.json");
+		const body = (await res.json()) as {
+			speakers: Array<{ name: string; sessions: unknown[] }>;
+		};
+		expect(body.speakers.map((sp) => sp.name)).toEqual([
+			"Bo Alvarez",
+			"Ada Zhang",
+		]);
+		expect(JSON.stringify(body)).not.toMatch(/@px\.test/);
+	});
+
+	it("?embed= applies that embed's filters; a disabled embed 404s", async () => {
+		await seedProgram();
+		const res = await fetchFeed("/feeds/devflow/sessions.json?embed=pub-emb-1");
+		const body = (await res.json()) as { sessions: Array<{ id: string }> };
+		expect(body.sessions.map((s) => s.id)).toEqual(["s1"]); // trackIds: [t1]
+
+		const disabled = await fetchFeed(
+			"/feeds/devflow/sessions.json?embed=pub-emb-2",
+		);
+		expect(disabled.status).toBe(404);
+	});
+
+	it("serves the widget loader script and 404s unknown kinds/formats", async () => {
+		await seedProgram();
+		const js = await fetchFeed("/feeds/devflow/widget.js");
+		expect(js.headers.get("Content-Type")).toContain("text/javascript");
+		expect(await js.text()).toContain("/embed/");
+
+		expect((await fetchFeed("/feeds/devflow/bogus.json")).status).toBe(404);
+		expect((await fetchFeed("/feeds/devflow/sessions.csv")).status).toBe(404);
+		expect((await fetchFeed("/feeds/devflow/sessions")).status).toBe(404);
+		expect(
+			(
+				await fetchFeed("/feeds/nope/sessions.json", {
+					slug: "nope",
+					kind: "sessions.json",
+				})
+			).status,
+		).toBe(404);
+	});
+});
