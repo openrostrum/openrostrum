@@ -1,5 +1,5 @@
 import { and, asc, desc, eq } from "drizzle-orm";
-import { data, Form, redirect, useNavigation } from "react-router";
+import { data, Form, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { apiTokens, events } from "~/db/schema";
@@ -38,6 +38,8 @@ const CreateToken = z.object({
 	eventId: z.string(),
 });
 
+const TOKEN_CAP = 200;
+
 /** `or_` + 128 random bits, hex — recognizable in configs and greppable in
  * leaks. Only its SHA-256 is stored; the raw value renders exactly once. */
 function mintRawToken(): string {
@@ -53,8 +55,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	// Self-authenticate — never rely on the admin.tsx layout loader.
 	const user = await requireAdmin(env, request);
 	const org = await resolveOrg(env, user);
-	const revoked = new URL(request.url).searchParams.get("revoked") === "1";
-	if (!org) return data({ org: null, revoked } as const);
+	if (!org) return data({ org: null } as const);
 
 	const db = getDb(env);
 	const timings = createTimings();
@@ -71,7 +72,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				.from(apiTokens)
 				.leftJoin(events, eq(events.id, apiTokens.eventId))
 				.where(eq(apiTokens.organizationId, org.id))
-				.orderBy(desc(apiTokens.createdAt), desc(apiTokens.id)),
+				.orderBy(desc(apiTokens.createdAt), desc(apiTokens.id))
+				// One past the cap so truncation is detectable, never silent.
+				.limit(TOKEN_CAP + 1),
 			db
 				.select({ id: events.id, name: events.name })
 				.from(events)
@@ -79,6 +82,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				.orderBy(asc(events.createdAt)),
 		]),
 	);
+	const truncated = tokens.length > TOKEN_CAP;
+	if (truncated) tokens.length = TOKEN_CAP;
 	return data(
 		{
 			org: { id: org.id, name: org.name },
@@ -89,8 +94,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				createdAt: formatDateUTC(t.createdAt),
 				lastUsedAt: t.lastUsedAt ? formatDateUTC(t.lastUsedAt) : null,
 			})),
+			tokensTruncated: truncated,
 			events: orgEvents,
-			revoked,
 		} as const,
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -119,10 +124,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 			}
 			return createToken(db, org.id, form);
 		});
-		if (result instanceof Response) {
-			result.headers.append("Server-Timing", timings.header());
-			return result;
-		}
 		return data(result, { headers: { "Server-Timing": timings.header() } });
 	} catch (error) {
 		// Log the detail server-side; never leak SQL / row values into the UI.
@@ -198,7 +199,9 @@ async function revokeToken(db: Db, orgId: string, tokenId: string) {
 		};
 	}
 	track("api.token_revoked", { orgId, tokenId });
-	return redirect("/admin/settings/api?revoked=1");
+	// Data, not PRG: a re-submitted revoke is harmless (answers "no longer
+	// exists"), and revalidation already removes the row from the list.
+	return { revoked: true as const };
 }
 
 export default function ApiTokens({
@@ -230,6 +233,9 @@ export default function ApiTokens({
 		actionData && "fieldErrors" in actionData ? actionData.fieldErrors : null;
 	const formError =
 		actionData && "formError" in actionData ? actionData.formError : null;
+	const revoked = Boolean(
+		actionData && "revoked" in actionData && actionData.revoked,
+	);
 
 	return (
 		<div className="flex flex-col gap-5">
@@ -240,7 +246,7 @@ export default function ApiTokens({
 			/>
 
 			{formError && <ErrorText>{formError}</ErrorText>}
-			{loaderData.revoked && !created && (
+			{revoked && (
 				<p>Token revoked — anything that used it no longer has access.</p>
 			)}
 
@@ -335,6 +341,12 @@ export default function ApiTokens({
 						))}
 					</TBody>
 				</Table>
+			)}
+			{loaderData.tokensTruncated && (
+				<p>
+					Showing the first {tokens.length} tokens (newest first) — revoke
+					unused tokens to shorten this list.
+				</p>
 			)}
 		</div>
 	);

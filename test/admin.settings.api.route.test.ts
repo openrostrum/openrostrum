@@ -69,6 +69,7 @@ type ActionData = {
 	created?: { name: string; raw: string };
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
+	revoked?: boolean;
 };
 
 async function runAction(request: Request): Promise<Response | ActionData> {
@@ -167,7 +168,8 @@ describe("API tokens settings", () => {
 		const result = await runAction(
 			await authedRequest("uA", post({ revoke: row?.id as string })),
 		);
-		expect(result instanceof Response && result.status).toBe(302);
+		expect(result instanceof Response).toBe(false);
+		if (!(result instanceof Response)) expect(result.revoked).toBe(true);
 		expect(
 			await authenticateApiToken(env, created.created?.raw as string),
 		).toBeNull();
