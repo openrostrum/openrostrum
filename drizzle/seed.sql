@@ -168,10 +168,10 @@ INSERT INTO portal_forms (id, event_id, name, title, target_type, schema, create
  ('pf_hotel',  'e_demo', 'Hotel Stay',           'Book your hotel',       'contact', '[{"name":"Hotel name","type":"text","required":true},{"name":"Check-in date","type":"date","required":true}]', unixepoch()),
  ('pf_flight', 'e_demo', 'Flight Reimbursement', 'Submit your flight',    'contact', '[{"name":"Airline","type":"text","required":true},{"name":"Amount (USD)","type":"number","required":true}]',   unixepoch());
 
-INSERT INTO tasks (id, event_id, name, type, description, portal_form_id, is_onboarding_default, required, created_at) VALUES
- ('task_hotel',  'e_demo', 'Hotel & Travel Reservations', 'contact',    'Book your hotel stay.',                 'pf_hotel',  1, 1, unixepoch()),
- ('task_flight', 'e_demo', 'Flight Reimbursement',        'contact',    'Submit your flight for reimbursement.', 'pf_flight', 1, 1, unixepoch()),
- ('task_slides', 'e_demo', 'Presentation Upload',         'submission', 'Upload your slides.',                   NULL,        1, 0, unixepoch());
+INSERT INTO tasks (id, event_id, name, type, description, portal_form_id, is_file_request, is_onboarding_default, required, created_at) VALUES
+ ('task_hotel',  'e_demo', 'Hotel & Travel Reservations', 'contact',    'Book your hotel stay.',                 'pf_hotel',  0, 1, 1, unixepoch()),
+ ('task_flight', 'e_demo', 'Flight Reimbursement',        'contact',    'Submit your flight for reimbursement.', 'pf_flight', 0, 1, 1, unixepoch()),
+ ('task_slides', 'e_demo', 'Presentation Upload',         'submission', 'Upload your slides.',                   NULL,        1, 1, 0, unixepoch());
 
 -- Onboarding tasks auto-assigned to the accepted speaker; incomplete → the
 -- outstanding-tasks dashboard has something to show.

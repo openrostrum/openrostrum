@@ -17,3 +17,16 @@ export const SUBMISSION_STATUS = [
 ] as const;
 
 export const SUBMISSION_TYPE = ["abstract", "session"] as const;
+
+/**
+ * The statuses an admin decision can TARGET (the inline pill dropdown + bulk
+ * edit). `draft` is pre-submission and `withdrawn` is set only by the withdraw
+ * flow (which requires who/why metadata) — neither is a decision target.
+ */
+export const DECISION_STATUS = [
+	"pending",
+	"accept_queue",
+	"accepted",
+	"decline_queue",
+	"declined",
+] as const;
