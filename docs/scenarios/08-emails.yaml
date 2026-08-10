@@ -19,7 +19,10 @@ touches:
   routes:
     [
       admin.emails.tsx,
-      admin.emails.$key.tsx,
+      admin.emails_.$key.tsx,
+      admin.emails_.history.tsx,
+      unsubscribe.$token.tsx,
+      forgot-password.tsx,
       admin.submissions.tsx,
       admin.agenda.tsx,
       admin.forms.$formId.tsx,

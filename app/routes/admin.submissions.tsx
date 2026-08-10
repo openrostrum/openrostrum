@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { useState } from "react";
 import { Form, data, redirect, useFetcher } from "react-router";
 import { z } from "zod";
@@ -10,7 +11,13 @@ import {
 	SUBMISSION_STATUS,
 	SUBMISSION_TYPE,
 } from "~/db/constants";
-import { insertSubmissionSchema, submissions } from "~/db/schema";
+import {
+	contacts,
+	insertSubmissionSchema,
+	participants,
+	submissionRevisions,
+	submissions,
+} from "~/db/schema";
 import {
 	canReceiveDecision,
 	MissingTemplateError,
@@ -45,7 +52,7 @@ import type { Route } from "./+types/admin.submissions";
 // notNull text column to z.string(), which accepts "" — so `.min(1)` is required
 // or every "required" text field silently accepts blank on a direct POST.
 const NewSubmission = insertSubmissionSchema
-	.pick({ title: true, type: true, status: true })
+	.pick({ title: true, type: true, status: true, description: true })
 	.extend({ title: z.string().min(1, "Title is required") });
 
 const SetStatus = z.object({
@@ -138,10 +145,28 @@ export async function action({ context, request }: Route.ActionArgs) {
 		return sendDecisionsAction(db, env, event, form, intent);
 	}
 
+	return createSubmission(db, event.id, user.id, form);
+}
+
+/**
+ * The ONE manual-create path — the inline form on this page AND the
+ * "+ Add Submission / Add Session" drawer on the Abstracts/Sessions tabs both
+ * POST here (the drawer adds description + speaker participants and a `drawer`
+ * flag so errors render in place instead of navigating). Creating AS accepted
+ * routes through the accept spine so provisioning and content gating behave
+ * exactly like a review-time accept.
+ */
+async function createSubmission(
+	db: ReturnType<typeof getDb>,
+	eventId: string,
+	creatorId: string,
+	form: FormData,
+) {
 	const parsed = NewSubmission.safeParse({
 		title: form.get("title"),
 		type: form.get("type") || undefined,
 		status: form.get("status") || undefined,
+		description: form.get("description") || undefined,
 	});
 	if (!parsed.success) {
 		return {
@@ -149,16 +174,81 @@ export async function action({ context, request }: Route.ActionArgs) {
 			formError: undefined,
 		};
 	}
+	const participantContactIds = [
+		...new Set(
+			form
+				.getAll("participantContactIds")
+				.map(String)
+				.filter((v) => v.length > 0),
+		),
+	];
 	const timings = createTimings();
+	const id = crypto.randomUUID();
 	try {
-		await timings.time("db", () =>
-			db.insert(submissions).values({ ...parsed.data, eventId: event.id }),
-		);
+		const refusal = await timings.time("db", async () => {
+			if (participantContactIds.length) {
+				// Speakers attach as existing contacts of THIS event only — a forged
+				// foreign contact id is refused, never written.
+				const owned = await db
+					.select({ id: contacts.id })
+					.from(contacts)
+					.where(
+						and(
+							inArray(contacts.id, participantContactIds),
+							eq(contacts.eventId, eventId),
+						),
+					);
+				if (owned.length !== participantContactIds.length) {
+					return "Some selected contacts do not belong to this event.";
+				}
+			}
+			const desired = parsed.data.status ?? "pending";
+			const statements: BatchItem<"sqlite">[] = [
+				db.insert(submissions).values({
+					...parsed.data,
+					id,
+					// Accepted is reached only THROUGH the spine (below), never by
+					// direct insert — provisioning must run exactly once.
+					status: desired === "accepted" ? "pending" : desired,
+					eventId, // server-derived — never trust a client eventId
+				}),
+			];
+			if (participantContactIds.length) {
+				statements.push(
+					db.insert(participants).values(
+						participantContactIds.map((contactId, i) => ({
+							submissionId: id,
+							contactId,
+							role: "speaker" as const,
+							isPrimary: i === 0,
+							position: i,
+						})),
+					),
+				);
+			}
+			// Creation is the first content save — snapshot it so a later edit can
+			// always be restored back to the original.
+			statements.push(
+				db.insert(submissionRevisions).values({
+					submissionId: id,
+					title: parsed.data.title,
+					description: parsed.data.description ?? "",
+					editedById: creatorId,
+				}),
+			);
+			await db.batch(
+				statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+			);
+			return null;
+		});
+		if (refusal) {
+			return timed(timings, { formError: refusal });
+		}
 	} catch (error) {
 		// Log the detail server-side; show the user a generic message (never leak
 		// SQL / row values into the UI).
 		track("submission.create_failed", {
-			eventId: event.id,
+			eventId,
 			error: errorMessage(error),
 		});
 		return {
@@ -167,10 +257,46 @@ export async function action({ context, request }: Route.ActionArgs) {
 		};
 	}
 	track("submission.created", {
-		eventId: event.id,
+		eventId,
 		type: parsed.data.type,
 		status: parsed.data.status,
+		participants: participantContactIds.length,
 	});
+	// The accept transition runs AFTER the committed create so a spine failure
+	// is reported as exactly what it is — the row exists; a retry must not
+	// re-create it.
+	let warning: string | undefined;
+	if (parsed.data.status === "accepted") {
+		try {
+			const [row] = await timings.time("db", () =>
+				db.select().from(submissions).where(eq(submissions.id, id)),
+			);
+			const [transition] = row
+				? await transitionSubmissions(db, [row], "accepted")
+				: [];
+			if (transition && !transition.ok) {
+				warning = `"${parsed.data.title}" was created as pending — accepting it failed: ${transition.reason}`;
+			}
+		} catch (error) {
+			track("submission.create_accept_failed", {
+				eventId,
+				submissionId: id,
+				error: errorMessage(error),
+			});
+			warning = `"${parsed.data.title}" was created, but accepting it failed — set the status from its detail page.`;
+		}
+	}
+	if (form.get("drawer")) {
+		return data(
+			{ created: true, warning },
+			{ headers: { "Server-Timing": timings.header() } },
+		);
+	}
+	if (warning) {
+		// A document POST can't carry the warning through a redirect — surface
+		// it in place; the created row is already visible in the list below.
+		return timed(timings, { formError: warning });
+	}
 	return redirect("/admin/submissions", {
 		headers: { "Server-Timing": timings.header() },
 	});

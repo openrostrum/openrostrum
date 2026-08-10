@@ -12,6 +12,31 @@ export function errorMessage(value: unknown): string {
 	return toError(value).message;
 }
 
+/**
+ * Drizzle wraps D1 failures ("Failed query: …") with the real constraint
+ * message on `cause` — batch failures surface it on the top-level message —
+ * so constraint detection must walk the whole chain.
+ */
+export function errorChainIncludes(error: unknown, needle: string): boolean {
+	for (let e: unknown = error; e instanceof Error; e = e.cause) {
+		if (e.message.includes(needle)) return true;
+	}
+	return false;
+}
+
 export function errorName(value: unknown): string {
 	return toError(value).name;
+}
+
+/** True when the error (or anything on its cause chain — drizzle wraps the
+ * original D1 error) is a SQLite UNIQUE constraint violation. */
+export function isUniqueViolation(error: unknown): boolean {
+	for (
+		let current: unknown = error;
+		current != null;
+		current = (current as { cause?: unknown }).cause
+	) {
+		if (/unique constraint failed/i.test(errorMessage(current))) return true;
+	}
+	return false;
 }

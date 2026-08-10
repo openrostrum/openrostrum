@@ -16,6 +16,7 @@ import {
 	users,
 } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
+import { formatScheduleRange } from "~/lib/format-date";
 import { track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
 
@@ -352,14 +353,13 @@ async function planAcceptProvisioning(
 }
 
 /**
- * Speaker-initiated withdrawal (the portal action's domain half; admin
- * resolutions can reuse it). The reason is mandatory record, the session is
- * unscheduled so no withdrawn ghost stays on the agenda, and content columns
- * are untouched.
+ * Null `byUserId` = system-initiated withdrawal (e.g. row deleted in the
+ * team's Airtable base); the reason is a mandatory record. Unschedules the
+ * session; content columns stay untouched.
  */
 export async function withdrawSubmission(
 	db: Db,
-	opts: { submission: Submission; byUserId: string; reason: string },
+	opts: { submission: Submission; byUserId: string | null; reason: string },
 ): Promise<TransitionResult> {
 	const { submission } = opts;
 	const reason = opts.reason.trim();
@@ -630,8 +630,8 @@ function decisionDetailsHtml(
 ): string {
 	const lines = [`<p><strong>Session:</strong> ${escapeHtml(row.title)}</p>`];
 	if (decision === "accept") {
-		if (row.startsAt && row.endsAt) {
-			const when = `${formatInTimezone(row.startsAt, event.timezone)} – ${formatInTimezone(row.endsAt, event.timezone, true)}`;
+		const when = formatScheduleRange(row.startsAt, row.endsAt, event.timezone);
+		if (when) {
 			lines.push(
 				`<p><strong>When:</strong> ${escapeHtml(when)}${room ? ` · ${escapeHtml(room)}` : ""}</p>`,
 			);
@@ -642,19 +642,6 @@ function decisionDetailsHtml(
 		}
 	}
 	return `<hr>${lines.join("")}`;
-}
-
-function formatInTimezone(d: Date, timeZone: string, timeOnly = false): string {
-	try {
-		return new Intl.DateTimeFormat("en-US", {
-			timeZone,
-			...(timeOnly
-				? { timeStyle: "short" }
-				: { dateStyle: "medium", timeStyle: "short" }),
-		}).format(d);
-	} catch {
-		return d.toISOString();
-	}
 }
 
 function escapeHtml(s: string): string {

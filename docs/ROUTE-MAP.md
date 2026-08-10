@@ -14,36 +14,36 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Admin shell (layout) | `admin.tsx` | `/admin/*` | 0 | done |
 | Dashboard | `admin._index.tsx` | `/admin` | 0/3 | stub |
 | Submissions (all) | `admin.submissions.tsx` | `/admin/submissions` | 0/1 | done (golden path) |
-| Abstracts / Sessions tabs | `admin.abstracts.tsx` · `admin.sessions.tsx` | `/admin/abstracts` · `/admin/sessions` | 1 | todo |
-| Submission detail/edit | `admin.submissions.$id.tsx` | `/admin/submissions/:id` | 1 | todo |
+| Abstracts / Sessions tabs | `admin.abstracts.tsx` · `admin.sessions.tsx` | `/admin/abstracts` · `/admin/sessions` | 1 | done |
+| Submission detail/edit | `admin.submissions_.$id.tsx` (flat `_`: `admin.submissions.tsx` is a page, not a layout) | `/admin/submissions/:id` | 1 | done |
 | Form builder (list) | `admin.forms.tsx` | `/admin/forms` | 1 | todo |
 | Form builder (editor) | `admin.forms.$formId.tsx` | `/admin/forms/:formId` | 1 | todo |
 | Evaluation | `admin.evaluation.tsx` | `/admin/evaluation` | 3 | todo |
-| Agenda | `admin.agenda.tsx` | `/admin/agenda` | 3 | todo |
+| Agenda | `admin.agenda.tsx` | `/admin/agenda` | 3 | done |
 | Tasks dashboard | `admin.tasks.tsx` | `/admin/tasks` | 3 | done |
-| Email templates | `admin.emails.tsx` · `admin.emails.$key.tsx` | `/admin/emails` | 1 | todo |
-| Event settings | `admin.settings.tsx` | `/admin/settings` | 1 | todo |
-| Library (taxonomies) | `admin.settings.library.tsx` | `/admin/settings/library` | 0/1 | todo |
+| Email templates | `admin.emails.tsx` · `admin.emails_.$key.tsx` (underscore: the editor must not nest inside the list route) | `/admin/emails` · `/admin/emails/:key` | 1 | done |
+| Event settings | `admin.settings.tsx` (shell: header+tabs) · `admin.settings._index.tsx` (details + images) | `/admin/settings` | 1 | done |
+| Library (taxonomies + fields) | `admin.settings.library.tsx` | `/admin/settings/library` | 0/1 | done |
 | Portals admin | `admin.portals.tsx` · `admin.portal-forms.tsx` · `admin.file-requests.tsx` | `/admin/portals` … | 3 | todo |
 | Public CFP | `submit.$eventSlug.$formId.tsx` (+ `.step.*`) | `/submit/:eventSlug/:formId` | 2 | todo |
 | Speaker portal | `portals.$eventSlug.$portalId.tsx` (+ `_index/home/submissions/submissions_.$submissionId/profile/tasks/tasks_.$assignmentId/files/files_.$fileId/headshot/logo` children) | `/portals/:eventSlug/:portalId/*` | 2 | done |
 | Portal resolver (speaker login landing) | `portal.tsx` | `/portal` (resolves the user's portal, else designed empty state) | 2 | done |
-| Create event | `admin.events.new.tsx` | `/admin/events/new` | 1 | todo |
+| Create event | `admin.events.new.tsx` | `/admin/events/new` | 1 | done |
 | Event switcher (action) | `admin.events.switch.tsx` | `/admin/events/switch` (POST → sets `users.activeEventId`; membership-guarded) | 0/1 | done |
 | Reviewer management | `admin.reviewers.tsx` | `/admin/reviewers` (add reviewer + track assignment + invite) | 1 | todo |
 | Reviewer "My Reviews" (reviewer role) | `reviews.tsx` · `reviews.$id.tsx` | `/reviews` · `/reviews/:id` (NOT under `admin.*`) | 1 | todo |
 | Set / reset password (invite + forgot landing) | `set-password.$token.tsx` | `/set-password/:token` | 1 | done |
-| Forgot password (request) | `forgot-password.tsx` | `/forgot-password` (`// @public`) | 1 | todo |
-| Unsubscribe | `unsubscribe.$token.tsx` | `/unsubscribe/:token` (signed token; `// @public`) | 1 | todo |
-| Email history log | `admin.emails.history.tsx` | `/admin/emails/history` | 1 | todo |
+| Forgot password (request) | `forgot-password.tsx` | `/forgot-password` (`// @public`) | 1 | done |
+| Unsubscribe | `unsubscribe.$token.tsx` | `/unsubscribe/:token` (signed token; `// @public`) | 1 | done |
+| Email history log | `admin.emails_.history.tsx` (underscore: sibling of the list route, not its child) | `/admin/emails/history` | 1 | done |
 | Task response view (admin) | `admin.tasks_.$assignmentId.tsx` | `/admin/tasks/:assignmentId` (trailing `_` opts out of nesting under the dashboard) | 1 | done |
 | File upload (presign/mediate) + download | `files.upload.tsx` · `files.$id.tsx` | `/files/upload` (POST) · `/files/:id` (GET bytes, authz-checked) | 1 | done |
 | Central files library + file detail | `admin.files.tsx` · `admin.files_.$id.tsx` | `/admin/files` (library, CNT-13) · `/admin/files/:id` (versions, approve/deny, comments) | 1 | done |
-| Contact record (admin) | `admin.contacts.$id.tsx` | `/admin/contacts/:id` | 1 | todo |
+| Contact record (admin) | `admin.contacts_.$id.tsx` | `/admin/contacts/:id` | 1 | done |
 | CSV export (resource route) | `admin.submissions.export[.csv].tsx` | `/admin/submissions/export.csv` (COMMITTED, P2 #3) | 2 | todo |
-| Contacts / speaker roster (list) | `admin.contacts.tsx` | `/admin/contacts` (search, status filter, + Add) — P1 #17 | 1 | todo |
-| Speaker CSV import | `admin.contacts.import.tsx` | `/admin/contacts/import` (upload → map → dedupe) | 1 | todo |
-| Compose bulk email to speakers | `admin.contacts.compose.tsx` | `/admin/contacts/compose` (merge fields + preview) | 1 | todo |
+| Contacts / speaker roster (list) | `admin.contacts.tsx` | `/admin/contacts` (search, status filter, + Add) — P1 #17 | 1 | done |
+| Speaker CSV import | `admin.contacts_.import.tsx` | `/admin/contacts/import` (upload → map → dedupe) | 1 | done |
+| Compose bulk email to speakers | `admin.contacts_.compose.tsx` | `/admin/contacts/compose` (merge fields + preview) | 1 | done |
 | Evaluation plan editor | `admin.evaluation.$planId.tsx` | `/admin/evaluation/:planId` (rounds/scorecards/pools/assignments) | 3 | todo |
 | Evaluation results export | `admin.evaluation.export[.csv].tsx` | `/admin/evaluation/export.csv` | 3 | todo |
 | Embeds admin | `admin.embeds.tsx` · `admin.embeds_.$id.tsx` (trailing `_`: the editor renders standalone, not nested under the list) | `/admin/embeds` · `/admin/embeds/:id` (P1 #16, EMB-15) | 2 | done |
@@ -58,9 +58,10 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Public speaker gallery | `gallery.$eventSlug.tsx` | `/gallery/:eventSlug` (P1 #16e) | 2 | done |
 | Public feeds (JSON/XML/iCal/basic HTML + widget.js) | `feeds.$eventSlug.$kind.tsx` (the segment carries the extension — flat-routes can't put a param after an escaped dot) | `/feeds/:eventSlug/sessions.json` · `.xml` · `.html` · `speakers.*` · `agenda.ics` · `widget.js` (`// @public`) | 2 | done |
 | Configured embed render | `embed.$publicId.tsx` | `/embed/:publicId` (snippet target; `// @public`) | 2 | done |
-| Compat API (Hono splat) | `api.v1.$.tsx` | `/api/v1/*` (x-access-token; read-only; P1 #20) | 3 | todo |
+| Compat API (Hono splat) | `api.v1.$.tsx` | `/api/v1/*` (x-access-token; read-only; P1 #20) | 3 | done |
 | Harness aliases (redirects) | `dashboard.tsx` · `organizer.tsx` · `sessions._index.tsx` · `speakers._index.tsx` · `schedule._index.tsx` · `agenda.tsx` · `itinerary._index.tsx` · `gallery._index.tsx` | `/dashboard` `/organizer` → `/admin`; bare `/sessions` `/speakers` `/schedule` `/agenda` `/itinerary` `/gallery` → the default event's public page (default = oldest event by createdAt; `/agenda` and `/schedule` both land on the grid) (`// @public`) | 2 | done |
-| Airtable webhook receiver | `hooks.airtable.tsx` | `/hooks/airtable` (POST; HMAC-verified via `X-Airtable-Content-MAC`, no session auth — `// @public`; P1 #15) | 2 | todo |
+| Airtable webhook receiver | `hooks.airtable.tsx` | `/hooks/airtable` (POST; HMAC-verified via `X-Airtable-Content-MAC`, no session auth — `// @public`; P1 #15) | 2 | done |
+| Airtable sync status | `admin.settings.airtable.tsx` | `/admin/settings/airtable` (last sync, breaker alert + resume, Sync now; explicit not-configured states; P1 #15) | 2 | done |
 
 If you need a route not listed here, add the row on the integration branch first
 (so no one else claims the same file), then build it in your worktree.

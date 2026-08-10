@@ -1,5 +1,6 @@
 import { Field, Input, Select } from "~/ui";
 import { CheckboxOption } from "./checkbox-group";
+import { Textarea } from "./textarea";
 
 export type PortalFormFieldDef = {
 	name: string;
@@ -7,11 +8,6 @@ export type PortalFormFieldDef = {
 	required: boolean;
 	options?: string[];
 };
-
-// Field owns label/error; app/ui has no textarea primitive, so this mirrors
-// Input's control skin in one place.
-const TEXTAREA =
-	"min-h-20 rounded-control bg-surface px-[11px] py-2 text-[13px] text-fg shadow-control placeholder:text-fg-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol";
 
 /** Renders a portal form's schema-declared fields (hotel/flight forms etc.). */
 export function PortalFormFields({
@@ -32,10 +28,10 @@ export function PortalFormFields({
 				if (field.type === "textarea") {
 					return (
 						<Field key={field.name} label={label} error={error}>
-							<textarea
+							<Textarea
 								name={`answer:${field.name}`}
 								defaultValue={defaultValue}
-								className={TEXTAREA}
+								rows={4}
 							/>
 						</Field>
 					);

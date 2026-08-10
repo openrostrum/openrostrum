@@ -110,13 +110,23 @@ export default [
 	// Route modules (incl. .ts resource/API routes): an exported `action` must
 	// authenticate (or opt out with a // @public comment), and UI is composed
 	// from ~/ui primitives — no raw elements, skin classes, or inline style.
+	// app/settings hosts route-shared form components (flatRoutes forbids
+	// non-route files in app/routes/), so it carries the same UI discipline.
 	{
-		files: ["app/routes/**/*.{ts,tsx}"],
+		files: ["app/routes/**/*.{ts,tsx}", "app/settings/**/*.{ts,tsx}"],
 		plugins: { openrostrum: openrostrumPlugin },
 		rules: {
 			"openrostrum/require-auth-in-actions": "error",
 			"openrostrum/ui-primitives-only": "error",
 		},
+	},
+
+	// Shared route views: when thin routes delegate their page JSX to app/lib,
+	// the design-system contract follows the JSX, not the file location.
+	{
+		files: ["app/lib/**/*.tsx"],
+		plugins: { openrostrum: openrostrumPlugin },
+		rules: { "openrostrum/ui-primitives-only": "error" },
 	},
 
 	// Nav modules are client-bundled — pure data only (no runtime imports).
