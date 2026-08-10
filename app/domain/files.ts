@@ -132,7 +132,7 @@ const UUID_RE =
  * THE file-comment write path (portal and admin). The client-minted key IS
  * the row id, so a replayed POST trips the primary key atomically and
  * reports success instead of duplicating; the key scopes dedupe alone, so a
- * missing or invalid one falls back to a fresh server key.
+ * missing, invalid, or foreign-colliding one falls back to a fresh server key.
  */
 export async function addFileComment(
 	db: Db,
@@ -153,11 +153,28 @@ export async function addFileComment(
 		await db.insert(fileComments).values({ id, ...comment });
 	} catch (error) {
 		if (
-			errorChainIncludes(error, "UNIQUE constraint failed: file_comments.id")
+			!errorChainIncludes(error, "UNIQUE constraint failed: file_comments.id")
+		) {
+			throw error;
+		}
+		// Only a replay of THIS post dedupes — comment ids are visible to the
+		// client, so a key colliding with some other thread's row is not a
+		// replay and must not swallow the comment.
+		const [existing] = await db
+			.select({ fileId: fileComments.fileId, authorId: fileComments.authorId })
+			.from(fileComments)
+			.where(eq(fileComments.id, id))
+			.limit(1);
+		if (
+			existing &&
+			existing.fileId === comment.fileId &&
+			existing.authorId === comment.authorId
 		) {
 			return { deduped: true };
 		}
-		throw error;
+		await db
+			.insert(fileComments)
+			.values({ id: crypto.randomUUID(), ...comment });
 	}
 	return { deduped: false };
 }

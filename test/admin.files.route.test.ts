@@ -10,6 +10,8 @@ import {
 import { CONTEXT, authedRequest, postForm } from "./tasks-fixtures";
 import {
 	catchThrown,
+	makeUser,
+	requestAs,
 	seedFilesWorld,
 	thrownStatus,
 	unwrap,
@@ -315,19 +317,32 @@ describe("file detail — versions, review, comments", () => {
 		// speaker's comment stays attributed to the version it was made on
 		expect(detail.comments[0]?.version).toBe(1);
 
-		// A double-fired reply replays the same client key and lands once;
-		// the same words under a fresh key are a real comment.
+		// A double-fired reply replays the same client key AS THE SAME USER and
+		// lands once; the same words under a fresh key are a real comment.
+		// (postDetail mints a fresh admin per call, so drive the replay pair
+		// as one fixed user.)
+		await makeUser("u_replier", "replier@test.co", "admin", {
+			activeEventId: "e1",
+			memberOfOrg: "org1",
+		});
+		const url = "http://localhost/admin/files/f_slides_v2";
 		const replayKey = crypto.randomUUID();
-		await postDetail("f_slides_v2", {
-			intent: "comment",
-			commentKey: replayKey,
-			body: "Ping - any update?",
-		});
-		await postDetail("f_slides_v2", {
-			intent: "comment",
-			commentKey: replayKey,
-			body: "Ping - any update?",
-		});
+		const reply = async () =>
+			detailAction({
+				context: CONTEXT,
+				request: await requestAs(
+					"u_replier",
+					url,
+					postForm(url, {
+						intent: "comment",
+						commentKey: replayKey,
+						body: "Ping - any update?",
+					}),
+				),
+				params: { id: "f_slides_v2" },
+			} as unknown as DetailActionArgs);
+		await reply();
+		await reply();
 		expect((await loadDetail("f_slides_v1")).comments).toHaveLength(3);
 		await postDetail("f_slides_v2", {
 			intent: "comment",

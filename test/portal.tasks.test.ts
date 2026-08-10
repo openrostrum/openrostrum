@@ -489,6 +489,19 @@ describe("portal tasks", () => {
 		} as unknown as ActionArgs);
 		expect(unwrap<{ ok?: boolean }>(bare).ok).toBe(true);
 		expect(await thread()).toHaveLength(3);
+
+		// Comment ids are visible in loader payloads — a key colliding with
+		// ANOTHER author's row is not a replay and must not eat the comment.
+		const organizerRowId = crypto.randomUUID();
+		await db.insert(fileComments).values({
+			id: organizerRowId,
+			fileId: upload?.id ?? "",
+			authorId: null,
+			authorName: "Olive Organizer",
+			body: "Looks good.",
+		});
+		await comment("Collides with a foreign id, still lands.", organizerRowId);
+		expect(await thread()).toHaveLength(5);
 	});
 
 	it("serializes comments with the author's real name, an isYou flag, and a date+time stamp", async () => {
