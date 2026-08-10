@@ -64,16 +64,9 @@ export const EVENT_EMAIL_TEMPLATE_KEYS = DEFAULT_EMAIL_TEMPLATES.map(
 export type EventEmailTemplateKey = (typeof EVENT_EMAIL_TEMPLATE_KEYS)[number];
 
 /**
- * Provision a new event's default email templates.
- *
- * EVERY event-creation path must call this — onboarding does, and the
- * create-event flow (`/admin/events/new`) must too: only the seed mints
- * templates otherwise, so a non-seeded event's confirmation email would
- * silently never send.
- *
- * Returns the unexecuted insert so callers can include it in the same
- * `db.batch([...])` as the event insert (an event must never exist without
- * its templates — D1 batches are atomic). Awaiting it directly also works.
+ * Every event-creation path must call this: an event without its default
+ * templates silently never sends its confirmation email. Returns the
+ * unexecuted insert so callers batch it atomically with the event insert.
  */
 export function provisionEventDefaults(db: Db, eventId: string) {
 	return db
