@@ -50,11 +50,6 @@ Scope note: this covers **functional** verification. Pure-aesthetic choices (the
 - **Prod-only platform limits are real:** the Workers runtime caps PBKDF2 `deriveBits` at 100k iterations **in production only** — local workerd doesn't enforce it, so logins 500'd exclusively on the live deploy until `app/lib/auth.ts` and the seeded hashes moved to 100k (found by this gate's first live smoke, fixed 2026-08-10). Lesson: local green ≠ deployed green; the deployed smoke is the oracle that counts.
 - **Deploy how-to (owner lane):** `npx wrangler deploy` from a synced checkout (OAuth session on the owner machine). D1 `openrostrum` = `5f1d8b81-229e-4756-8dbb-c0f926b87921`; custom domain + cron are in `wrangler.json`. CI deploy stays off until repo secrets exist (owner decision: optional).
 
-## Resolved decisions (were "open")
+## Test identities (binding)
 
-- **D1 — test identities:** dedicated seeded accounts (`*@example.com`, password `password`) for app logins, dedicated `<anything>@openrostrum.com` addresses for real-mail tests — the swarm never touches Val's real accounts. Real-provider sends go through the serialized integration lane only.
-- **D5 — Airtable:** live base + PAT provisioned and exercised (see row 7).
-
-## Definition of done for this gate — MET
-
-Every row 🟢 with a recorded how-to-access an agent can pick up cold, and a one-time smoke proof that the oracle was actually exercised. Lifted 2026-08-10.
+App logins use the dedicated seeded accounts (`*@example.com`, password `password`); real-mail tests use dedicated `<anything>@openrostrum.com` addresses. The swarm never touches Val's real accounts, and real-provider sends go through the serialized integration lane only.

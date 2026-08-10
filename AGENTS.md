@@ -24,7 +24,7 @@ One row per topic below, pointing to where the depth lives; an agent reads only 
 | Design system — tokens, primitives, states, the petrol law | building any UI | `docs/design-system.md` |
 | Data model — verified Sessionboard objects/fields/statuses (parity mandate) | modeling data, schema, Airtable | `docs/data-model.md` |
 | Runtime truth — events, timings, log queries | debugging runtime behavior | `docs/observability.md` |
-| Verification gate (build-blocking) | before build starts | `VERIFICATION-CAPABILITIES.md` |
+| Verification oracles — how to self-verify each surface | before verifying any feature | `VERIFICATION-CAPABILITIES.md` |
 | Airtable sync design | sync work | `docs/airtable-sync-design.md` |
 | Grader-facing deploy notes | deploy time | `docs/JUDGING.md` |
 
