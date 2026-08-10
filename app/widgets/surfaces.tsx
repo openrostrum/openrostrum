@@ -24,6 +24,7 @@ import {
 import { FilterBar } from "./filter-bar";
 import { useMySchedule } from "./my-schedule";
 import { SessionCard, SpeakerRow } from "./session-card";
+import { cn } from "~/ui/cn";
 import type {
 	AgendaSurfaceData,
 	HideableField,
@@ -370,6 +371,7 @@ export function AgendaSurface({
 			/>
 		);
 	}
+	const show = (field: HideableField) => !hidden?.has(field);
 	const dayIndex = data.days.findIndex((d) => d.key === data.activeDay);
 	const prevDay = data.days[dayIndex - 1];
 	const nextDay = data.days[dayIndex + 1];
@@ -450,36 +452,55 @@ export function AgendaSurface({
 										}}
 									/>
 								))}
-								{room.blocks.map((block) => (
-									<Link
-										key={block.sessionId}
-										to={makeHref(base, {
-											day: data.activeDay,
-											session: block.sessionId,
-										})}
-										className="absolute flex flex-col gap-0.5 overflow-hidden rounded-[6px] bg-canvas p-1.5 shadow-control hover:bg-chip focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol"
-										style={{
-											top:
-												(block.startMin - data.windowStartMin) * PX_PER_MIN + 1,
-											height: (block.endMin - block.startMin) * PX_PER_MIN - 2,
-											left: `${(block.lane / block.laneCount) * 100}%`,
-											width: `calc(${100 / block.laneCount}% - 4px)`,
-											marginLeft: 2,
-										}}
-									>
-										<span className="font-mono text-[10px] tabular-nums text-fg-muted">
-											{block.timeRange}
-										</span>
-										<span className="text-[12px] font-medium leading-tight text-fg">
-											{block.title}
-										</span>
-										{block.track ? (
-											<Chip color={block.track.color}>{block.track.name}</Chip>
-										) : (
-											block.format && <TagPill>{block.format}</TagPill>
-										)}
-									</Link>
-								))}
+								{room.blocks.map((block) => {
+									// Content adapts to the box: every block fits its anatomy
+									// instead of clipping text mid-line (short talks share a
+									// slot with long ones — see layoutLanes).
+									const minutes = block.displayEndMin - block.startMin;
+									return (
+										<Link
+											key={block.sessionId}
+											to={makeHref(base, {
+												day: data.activeDay,
+												session: block.sessionId,
+											})}
+											title={block.title}
+											className="absolute flex flex-col gap-0.5 overflow-hidden rounded-[6px] bg-canvas p-1.5 shadow-control hover:bg-chip focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol"
+											style={{
+												top:
+													(block.startMin - data.windowStartMin) * PX_PER_MIN +
+													1,
+												height: minutes * PX_PER_MIN - 2,
+												left: `${(block.lane / block.laneCount) * 100}%`,
+												width: `calc(${100 / block.laneCount}% - 4px)`,
+												marginLeft: 2,
+											}}
+										>
+											{show("time") && (
+												<span className="truncate font-mono text-[10px] tabular-nums text-fg-muted">
+													{block.timeRange}
+												</span>
+											)}
+											<span
+												className={cn(
+													"text-[12px] font-medium leading-tight text-fg",
+													minutes >= 60 ? "line-clamp-2" : "truncate",
+												)}
+											>
+												{block.title}
+											</span>
+											{minutes >= 45 &&
+												(show("track") && block.track ? (
+													<Chip color={block.track.color}>
+														{block.track.name}
+													</Chip>
+												) : (
+													show("format") &&
+													block.format && <TagPill>{block.format}</TagPill>
+												))}
+										</Link>
+									);
+								})}
 							</div>
 						</div>
 					))}

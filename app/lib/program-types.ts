@@ -107,6 +107,9 @@ export type AgendaBlock = {
 	format: string | null;
 	startMin: number;
 	endMin: number;
+	/** endMin floored to a legible minimum block size — lanes are laid out on
+	 * this, so a short session's rendered box never underlaps a neighbor. */
+	displayEndMin: number;
 	lane: number;
 	laneCount: number;
 };
