@@ -5,6 +5,8 @@ declare namespace Cloudflare {
 	interface Env {
 		RESEND_API_KEY?: string;
 		TURNSTILE_SECRET?: string;
+		/** Public widget site key — paired with TURNSTILE_SECRET; both or neither. */
+		TURNSTILE_SITE_KEY?: string;
 		AIRTABLE_API_KEY?: string;
 		AIRTABLE_BASE_ID?: string;
 		/** Public origin (e.g. https://openrostrum.com) for links in cron-sent

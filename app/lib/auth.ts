@@ -141,6 +141,26 @@ export async function verifyPassword(
 	return diff === 0;
 }
 
+// A valid hash at the CURRENT iteration count, used only to equalize timing
+// when the email doesn't exist. It must stay at PBKDF2_ITERATIONS: a dummy
+// minted at a higher count than the Workers runtime cap would make the
+// unknown-email path THROW in production instead of returning false.
+const TIMING_DUMMY_HASH =
+	"pbkdf2$100000$aSqRq0XCE+U62GUmG1OUqg==$7007E8kKOtwNCfhBs3QTdUh/aS1iJwcjCfU//25YYjU=";
+
+/**
+ * Login-path verify that costs the same whether or not the account exists, so
+ * response timing can't reveal account existence. Pass the stored hash when
+ * the user row was found, undefined when it wasn't.
+ */
+export async function verifyPasswordTimingEqual(
+	password: string,
+	stored: string | null | undefined,
+): Promise<boolean> {
+	const ok = await verifyPassword(password, stored ?? TIMING_DUMMY_HASH);
+	return stored != null && ok;
+}
+
 /* --------------------------------------------------------------- sessions --- */
 
 /** True over HTTPS (prod) — false on local `http://` dev, where `Secure` would
