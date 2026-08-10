@@ -1,11 +1,11 @@
-import { and, asc, count, eq, or, sql } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import { useRef, useState } from "react";
 import { data, Form, redirect, useSubmit } from "react-router";
 import { getDb } from "~/db";
+import { contactFilter } from "~/domain/contacts";
 import { contacts, portals } from "~/db/schema";
 import { getActiveEvent, isSecureRequest, requireAdmin } from "~/lib/auth";
 import { formatDateUTC } from "~/lib/format";
-import { likeContains } from "~/lib/like";
 import {
 	clearPreviewCookie,
 	contactDisplayName,
@@ -63,8 +63,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		}>,
 		contacts: [] as Array<{
 			id: string;
-			firstName: string;
-			lastName: string;
+			name: string;
 			email: string;
 			hasAccount: boolean;
 		}>,
@@ -75,16 +74,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 
 	const db = getDb(env);
 	const timings = createTimings();
-	const likePattern = likeContains(q);
-	const contactSearch = q
-		? or(
-				sql`${contacts.firstName} LIKE ${likePattern} ESCAPE '\\'`,
-				sql`${contacts.lastName} LIKE ${likePattern} ESCAPE '\\'`,
-				sql`${contacts.email} LIKE ${likePattern} ESCAPE '\\'`,
-				sql`${contacts.firstName} || ' ' || ${contacts.lastName} LIKE ${likePattern} ESCAPE '\\'`,
-			)
-		: undefined;
-	const contactScope = and(eq(contacts.eventId, event.id), contactSearch);
+	// THE roster predicate — the preview picker must match the same people the
+	// Contacts roster search does, or "who matches" diverges between surfaces.
+	const contactScope = contactFilter(event.id, { q });
 
 	const result = await timings.time("db", async () => {
 		const portalRows = await db
@@ -127,8 +119,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			})),
 			contacts: contactRows.map((c) => ({
 				id: c.id,
-				firstName: c.firstName,
-				lastName: c.lastName,
+				name: contactDisplayName(c),
 				email: c.email,
 				hasAccount: c.userId !== null,
 			})),
@@ -331,7 +322,7 @@ export default function PortalsAdmin({
 						<Form method="get" className="flex flex-wrap items-end gap-3">
 							<SearchInput
 								name="q"
-								placeholder="Search speakers by name or email…"
+								placeholder="Search speakers by name, email, or company…"
 								defaultValue={q}
 								onChange={(e) => {
 									// Search-as-you-type: debounced GET resubmit; replace so
@@ -372,9 +363,7 @@ export default function PortalsAdmin({
 						<TBody>
 							{contacts.map((c) => (
 								<Tr key={c.id}>
-									<Td kind="strong">
-										{c.firstName} {c.lastName}
-									</Td>
+									<Td kind="strong">{c.name}</Td>
 									<Td kind="mono">{c.email}</Td>
 									<Td>
 										{c.hasAccount ? (
