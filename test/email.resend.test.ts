@@ -5,7 +5,8 @@ import { createResendEmailSender } from "../app/ports/email";
 // Idempotency-Key header) — from Resend's docs, not read off the adapter. These
 // pin the mapping a refactor could silently break; fetch (the process boundary)
 // is the only thing mocked.
-const env = { RESEND_API_KEY: "re_test" } as unknown as Env;
+const FROM = "OpenRostrum <noreply@test.example>";
+const env = { RESEND_API_KEY: "re_test", EMAIL_FROM: FROM } as unknown as Env;
 
 function mockFetch(status: number, json: unknown) {
 	return vi.fn(async () => new Response(JSON.stringify(json), { status }));
@@ -38,13 +39,18 @@ describe("Resend email adapter", () => {
 		);
 		const body = JSON.parse(init.body as string);
 		expect(body).toMatchObject({
-			from: expect.stringContaining("openrostrum.com"),
+			from: FROM,
 			to: ["a@b.com"],
 			subject: "Hi",
 			html: "<p>x</p>",
 			reply_to: "org@e.com",
 		});
 		expect(body.attachments).toBeUndefined();
+	});
+
+	it("throws (never sends from a wrong domain) when EMAIL_FROM is unset", () => {
+		const noFrom = { RESEND_API_KEY: "re_test" } as unknown as Env;
+		expect(() => createResendEmailSender(noFrom)).toThrow(/EMAIL_FROM/);
 	});
 
 	it("attaches the ics as a text/calendar part, base64-encoded", async () => {

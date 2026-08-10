@@ -111,9 +111,6 @@ function withSuppression(env: Env, sender: EmailSender): EmailSender {
 }
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
-// Verified sending domain (see VERIFICATION-CAPABILITIES.md #4). SPF/DKIM live
-// on openrostrum.com; sending as any other domain silently fails delivery.
-const DEFAULT_FROM = "OpenRostrum <noreply@openrostrum.com>";
 
 /** base64 of a UTF-8 string — btoa alone corrupts non-Latin1 bytes. */
 function base64Utf8(s: string): string {
@@ -125,10 +122,19 @@ function base64Utf8(s: string): string {
 
 /** Prod adapter: real mail via Resend from the verified openrostrum.com domain. */
 export function createResendEmailSender(env: Env): EmailSender {
+	// The verified sender, e.g. "OpenRostrum <noreply@yourdomain.com>". Set per
+	// deployment (wrangler var / self-host config) — never hardcode a domain, so
+	// a fork sends from THEIR verified Resend domain. Fail loud if missing.
+	const from = env.EMAIL_FROM;
+	if (!from) {
+		throw new Error(
+			"EMAIL_FROM is not configured — set it to your verified Resend sender address.",
+		);
+	}
 	return {
 		async send(msg) {
 			const body: Record<string, unknown> = {
-				from: DEFAULT_FROM,
+				from,
 				to: [msg.to],
 				subject: msg.subject,
 				html: msg.html,

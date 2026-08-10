@@ -21,6 +21,19 @@ pnpm dev        # http://localhost:5173
 
 `pnpm verify` runs the full gate (map check, typecheck, lint, stylelint, tests in workerd against real D1) — run it before every commit.
 
+## Deploy your own
+
+The committed config holds no account-specific values, so a fork deploys cleanly:
+
+```bash
+wrangler d1 create openrostrum          # prints your database id
+cp .deploy.env.example .deploy.env      # set CF_D1_DATABASE_ID (+ EMAIL_FROM)
+pnpm db:migrate:remote && wrangler d1 execute openrostrum --remote --file=./drizzle/seed.sql
+pnpm deploy                             # injects your .deploy.env, then deploys
+```
+
+Set secrets on the worker for real integrations (all optional — each falls back to a local/no-op adapter when unset): `wrangler secret put RESEND_API_KEY`, `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`. Email also needs `EMAIL_FROM` (a sender on your Resend-verified domain) — set it in `.deploy.env`. See `.dev.vars.example` for the full list.
+
 ## Stack
 
 React Router 7 (framework mode) · Cloudflare Workers · D1 + Drizzle · R2 · Tailwind v4 · Vitest (workers pool). Agent-built in parallel git worktrees with functional self-verification; the conventions that make that work live in `CLAUDE.md` and `docs/`.

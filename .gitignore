@@ -221,3 +221,6 @@ docs/**/*.mp4
 docs/**/*.pdf
 docs/coverage-map.html
 # (text ground-truth — *.md, *.json — stays tracked)
+
+### Deployer-specific config (real D1 id / sender) — never commit ###
+.deploy.env
