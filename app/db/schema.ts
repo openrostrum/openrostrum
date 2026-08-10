@@ -957,6 +957,34 @@ export const evaluationAnswers = sqliteTable(
 	],
 );
 
+/**
+ * The AI first-pass review of a submission — at most one row per submission
+ * (re-running replaces it in place). `overrideScore` is an organizer's
+ * correction: when set it is the effective score, with the AI's original kept
+ * visible. AI scores never enter human evaluation aggregates.
+ */
+export const aiReviews = sqliteTable(
+	"ai_reviews",
+	{
+		id: id(),
+		submissionId: text("submission_id")
+			.notNull()
+			.references(() => submissions.id, { onDelete: "cascade" }),
+		/** 0–10 first-pass score produced by the model. */
+		score: real("score").notNull(),
+		rationale: text("rationale").notNull(),
+		model: text("model").notNull(),
+		overrideScore: real("override_score"),
+		overrideById: text("override_by_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		overrideAt: integer("override_at", { mode: "timestamp" }),
+		createdAt: createdAt(),
+		updatedAt: updatedAt(),
+	},
+	(t) => [unique("ai_reviews_submission_uq").on(t.submissionId)],
+);
+
 /* ----------------------------------------------------------- portals/tasks --- */
 
 export const TASK_TYPE = ["contact", "group", "submission"] as const;
@@ -1757,6 +1785,17 @@ export const reviewsRelations = relations(reviews, ({ one }) => ({
 	}),
 	reviewer: one(users, {
 		fields: [reviews.reviewerId],
+		references: [users.id],
+	}),
+}));
+
+export const aiReviewsRelations = relations(aiReviews, ({ one }) => ({
+	submission: one(submissions, {
+		fields: [aiReviews.submissionId],
+		references: [submissions.id],
+	}),
+	overrideBy: one(users, {
+		fields: [aiReviews.overrideById],
 		references: [users.id],
 	}),
 }));

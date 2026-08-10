@@ -21,6 +21,7 @@ import {
 import { stepPath, submitBasePath, type WizardCtx } from "~/cfp/wizard";
 import { getDb } from "~/db";
 import { getUser } from "~/lib/auth";
+import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
 import { createTimings } from "~/lib/track";
 import { EmptyState, Panel } from "~/ui";
@@ -101,6 +102,7 @@ function LoggedInBar({
 	base: string;
 }) {
 	const fetcher = useFetcher();
+	const busy = useBusy();
 	return (
 		<FootNote>
 			You are logged in as {user.name ?? user.email} ({user.email}). Not you?{" "}
@@ -109,7 +111,7 @@ function LoggedInBar({
 				action={`${base}/step/account`}
 				className="inline"
 			>
-				<LinkishButton name="intent" value="logout">
+				<LinkishButton name="intent" value="logout" disabled={busy}>
 					Click here to log out
 				</LinkishButton>
 			</fetcher.Form>
