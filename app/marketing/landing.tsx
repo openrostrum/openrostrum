@@ -346,6 +346,10 @@ function Comparison() {
 	);
 }
 
+// Risk-reversal before the closing ask. Claims stay literal enough to
+// survive the click-through ("your own Cloudflare account", "public on
+// GitHub"); self-hosting is the escape hatch, never a second product; and
+// ink-primary is reserved page-wide for /signup, so off-site CTAs stay ghost.
 function OpenSource() {
 	return (
 		<section id="open-source" className="scroll-mt-16 border-t border-hair">
@@ -355,13 +359,13 @@ function OpenSource() {
 						<Eyebrow>Open source</Eyebrow>
 						<h2 className={H2}>Own the software your event runs on.</h2>
 						<p className={LEAD}>
-							OpenRostrum is MIT-licensed and built in the open. Use the hosted
-							app here, or deploy your own instance and hold the database, the
-							files, and every speaker record yourself — the step-by-step guide
-							is in the README.
+							OpenRostrum is MIT-licensed, and the full source and history are
+							public on GitHub. If you ever want out of the hosted app, take
+							everything with you: deploy to your own Cloudflare account and
+							hold the database, the files, and every speaker record yourself.
 						</p>
 						<div className="flex flex-wrap gap-3 pt-2">
-							<Cta href={GITHUB_URL} external>
+							<Cta href={GITHUB_URL} variant="ghost" external>
 								View on GitHub
 							</Cta>
 							<Cta href={DEPLOY_GUIDE_URL} variant="ghost" external>
@@ -371,16 +375,16 @@ function OpenSource() {
 					</div>
 					<ul className="flex flex-col gap-4 rounded-card border border-hair bg-surface p-6 shadow-card sm:p-8">
 						<Bullet>
-							One codebase, no gated edition — self-hosted runs everything the
-							hosted app runs.
+							One codebase, no gated edition — every feature ships to hosted and
+							self-hosted alike, with no paid tier to unlock.
 						</Bullet>
 						<Bullet>
-							Your data stays portable: CSV exports, file bundles, and JSON,
-							XML, and iCal feeds.
+							Your data leaves whenever you want it to: CSV exports, a .zip of
+							every uploaded file, and JSON, XML, and iCal feeds.
 						</Bullet>
 						<Bullet>
-							MIT license — inspect it, extend it, and never lose access to the
-							tool your event depends on.
+							MIT license — you never lose access to the tool your event depends
+							on, even if we disappear tomorrow.
 						</Bullet>
 					</ul>
 				</div>
@@ -458,7 +462,10 @@ function Footer() {
 							and program management.
 						</p>
 					</div>
-					<div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
+					{/* No "Live event" column here: footer links describe the product,
+					    not one demo event's public pages — those are all reachable from
+					    the "Public pages" section above (and /schedule from both CTAs). */}
+					<div className="grid grid-cols-2 gap-10">
 						<FooterCol
 							title="Product"
 							links={[
@@ -467,13 +474,6 @@ function Footer() {
 								{ label: "Features", href: "#features" },
 								{ label: "Compare", href: "#compare" },
 							]}
-						/>
-						<FooterCol
-							title="Live event"
-							links={PUBLIC_PAGES.map((page) => ({
-								label: page.label,
-								to: page.to,
-							}))}
 						/>
 						<FooterCol
 							title="Open source"
