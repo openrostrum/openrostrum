@@ -347,7 +347,9 @@ function Block({
 				{conflict && <Icon name="calendar" size={11} />}
 				<span className="min-w-0 truncate">{title}</span>
 			</span>
-			<span className="font-mono text-[10px] text-fg-muted">{room}</span>
+			<span className="font-mono text-[10px] tabular-nums text-fg-muted">
+				{room}
+			</span>
 			{conflict && (
 				<span className="font-mono text-[10px] font-medium text-danger">
 					room conflict

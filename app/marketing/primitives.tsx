@@ -19,9 +19,9 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 
 const CTA_BASE = cn(
 	"inline-flex items-center justify-center gap-2 rounded-control font-medium",
-	"transition-[background-color,transform,box-shadow] duration-150 ease-out",
+	"transition-[background-color,transform,box-shadow] duration-160 ease-out",
 	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
-	"active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
+	"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
 );
 
 const CTA_SIZE = {
