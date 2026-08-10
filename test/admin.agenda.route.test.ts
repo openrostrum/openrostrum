@@ -1,0 +1,465 @@
+import { env } from "cloudflare:test";
+import { describe, expect, it } from "vitest";
+import { detectConflicts } from "../app/agenda/lib";
+import { getDb } from "../app/db";
+import {
+	contacts,
+	events,
+	formats,
+	organizations,
+	participants,
+	rooms,
+	submissions,
+	users,
+} from "../app/db/schema";
+import { createSession, hashPassword } from "../app/lib/auth";
+import { action, loader } from "../app/routes/admin.agenda";
+
+// Fixtures mirror scenario 06's seed baseline; expected UTC instants come from
+// the scenario walk's SQL literals (event TZ America/Los_Angeles, PDT=UTC-7),
+// not from the code under test.
+
+const utc = (y: number, mo: number, d: number, h: number, min = 0): Date =>
+	new Date(Date.UTC(y, mo - 1, d, h, min));
+
+const CONTEXT = { cloudflare: { env, ctx: {} } };
+
+async function seedBaseline() {
+	const db = getDb(env);
+	await db.insert(users).values({
+		id: "u_admin",
+		email: "admin@test.co",
+		passwordHash: await hashPassword("pw"),
+		role: "admin",
+	});
+	await db.insert(organizations).values({ id: "org1", name: "Org" });
+	await db.insert(events).values({
+		id: "e1",
+		organizationId: "org1",
+		name: "AI.Engineer Sandbox Event",
+		slug: "sandbox",
+		timezone: "America/Los_Angeles",
+		startsAt: utc(2026, 10, 12, 0),
+		endsAt: utc(2026, 10, 14, 0),
+	});
+	await db.insert(rooms).values([
+		{ id: "room_main", eventId: "e1", name: "Main Hall", displayOrder: 0 },
+		{ id: "room_305", eventId: "e1", name: "Room 305", displayOrder: 1 },
+	]);
+	await db.insert(formats).values([
+		{
+			id: "fmt_keynote",
+			eventId: "e1",
+			name: "Featured Keynote",
+			defaultDurationMins: 45,
+		},
+		{ id: "fmt_talk", eventId: "e1", name: "Talk", defaultDurationMins: 30 },
+	]);
+	await db.insert(contacts).values([
+		{
+			id: "c_marco",
+			eventId: "e1",
+			email: "marco@test.co",
+			firstName: "Marco",
+			lastName: "Silva",
+		},
+	]);
+	await db.insert(submissions).values([
+		{
+			id: "s_keynote",
+			eventId: "e1",
+			title: "Closing Keynote: The Post-SaaS Stack",
+			status: "accepted",
+			formatId: "fmt_keynote",
+		},
+		{
+			id: "s_live",
+			eventId: "e1",
+			title: "Live Demo: Agent Swarms in Production",
+			status: "accepted",
+			formatId: "fmt_talk",
+		},
+		{
+			id: "s_office",
+			eventId: "e1",
+			title: "Office Hours: D1 Performance Clinic",
+			status: "accepted",
+			formatId: "fmt_talk",
+		},
+		{
+			id: "s_pending",
+			eventId: "e1",
+			title: "SOC 2 for Startups: A War Story",
+			status: "pending",
+			formatId: "fmt_talk",
+		},
+		{
+			id: "s_queue",
+			eventId: "e1",
+			title: "GPU Pricing Deep Dive",
+			status: "accept_queue",
+			formatId: "fmt_talk",
+		},
+	]);
+	await db.insert(participants).values([
+		{ id: "p1", submissionId: "s_live", contactId: "c_marco" },
+		{ id: "p2", submissionId: "s_office", contactId: "c_marco" },
+	]);
+	return db;
+}
+
+async function adminRequest(body?: URLSearchParams): Promise<Request> {
+	const setCookie = await createSession(env, "u_admin");
+	const headers = new Headers();
+	headers.set("Cookie", setCookie.split(";")[0] ?? "");
+	return new Request("http://localhost/admin/agenda", {
+		method: body ? "POST" : "GET",
+		body,
+		headers,
+	});
+}
+
+type ActionData = {
+	ok: boolean;
+	formError?: string;
+	fieldErrors?: Record<string, string[] | undefined>;
+	placed?: number;
+	unplaced?: number;
+};
+
+function unwrap<T>(result: unknown): T {
+	const r = result as { data?: T };
+	return (r && typeof r === "object" && "data" in r ? r.data : result) as T;
+}
+
+async function callAction(fields: Record<string, string>): Promise<ActionData> {
+	const request = await adminRequest(new URLSearchParams(fields));
+	const result = await action({
+		context: CONTEXT,
+		request,
+		params: {},
+	} as unknown as Parameters<typeof action>[0]);
+	return unwrap<ActionData>(result);
+}
+
+type LoaderData = {
+	event: {
+		days: string[];
+		schedulableStatuses: string[];
+		dayStartMin: number;
+		dayEndMin: number;
+		publishedAt: number | null;
+	} | null;
+	sessions: {
+		id: string;
+		status: string;
+		schedulable: boolean;
+		startsAt: number | null;
+		roomId: string | null;
+		speakers: { contactId: string }[];
+	}[];
+	rooms: { id: string; name: string; capacity: number | null }[];
+};
+
+async function callLoader(): Promise<LoaderData> {
+	const request = await adminRequest();
+	const result = await loader({
+		context: CONTEXT,
+		request,
+		params: {},
+	} as unknown as Parameters<typeof loader>[0]);
+	return unwrap<LoaderData>(result);
+}
+
+describe("agenda loader", () => {
+	it("serves the event days and only schedulable (+draft) sessions at the accepted-only baseline", async () => {
+		await seedBaseline();
+		const data = await callLoader();
+		expect(data.event?.days).toEqual([
+			"2026-10-12",
+			"2026-10-13",
+			"2026-10-14",
+		]);
+		expect(data.event?.schedulableStatuses).toEqual(["accepted"]);
+		const ids = data.sessions.map((s) => s.id).sort();
+		// Negative fixtures: pending and accept-queue rows are absent entirely.
+		expect(ids).toEqual(["s_keynote", "s_live", "s_office"]);
+		expect(data.sessions.every((s) => s.schedulable)).toBe(true);
+	});
+
+	it("widening schedulable statuses makes the accept-queue fixture schedulable, never pending", async () => {
+		const db = await seedBaseline();
+		await db
+			.update(events)
+			.set({ schedulableStatuses: ["accepted", "accept_queue"] });
+		const data = await callLoader();
+		const queue = data.sessions.find((s) => s.id === "s_queue");
+		expect(queue?.schedulable).toBe(true);
+		expect(data.sessions.find((s) => s.id === "s_pending")).toBeUndefined();
+	});
+});
+
+describe("schedule / move / unschedule", () => {
+	it("derives the end time from the format default on first placement (45-min keynote at 9:30 AM)", async () => {
+		const db = await seedBaseline();
+		const result = await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		expect(result.ok).toBe(true);
+		const row = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_keynote"),
+		});
+		expect(row?.startsAt).toEqual(utc(2026, 10, 12, 16, 30)); // 9:30 AM PDT
+		expect(row?.endsAt).toEqual(utc(2026, 10, 12, 17, 15)); // +45 min from the FORMAT
+		expect(row?.roomId).toBe("room_main");
+	});
+
+	it("preserves the existing duration on a move (2:00 PM next day → still 45 min)", async () => {
+		const db = await seedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const result = await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_305",
+			day: "2026-10-13",
+			startMinutes: "840",
+		});
+		expect(result.ok).toBe(true);
+		const row = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_keynote"),
+		});
+		expect(row?.startsAt).toEqual(utc(2026, 10, 13, 21, 0)); // 2:00 PM PDT
+		expect(row?.endsAt).toEqual(utc(2026, 10, 13, 21, 45));
+		expect(row?.roomId).toBe("room_305");
+	});
+
+	it("unschedule clears start, end AND room; re-scheduling re-derives from the format", async () => {
+		const db = await seedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_live",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "600",
+		});
+		const cleared = await callAction({
+			intent: "unschedule",
+			submissionId: "s_live",
+		});
+		expect(cleared.ok).toBe(true);
+		let row = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_live"),
+		});
+		expect(row?.startsAt).toBeNull();
+		expect(row?.endsAt).toBeNull();
+		expect(row?.roomId).toBeNull();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_live",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "600",
+		});
+		row = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_live"),
+		});
+		expect(row?.endsAt).toEqual(utc(2026, 10, 12, 17, 30)); // Talk default 30 min
+	});
+
+	it("rejects scheduling a non-schedulable status and writes nothing", async () => {
+		const db = await seedBaseline();
+		const result = await callAction({
+			intent: "schedule",
+			submissionId: "s_pending",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		expect(result.ok).toBe(false);
+		expect(result.formError).toBeTruthy();
+		const row = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_pending"),
+		});
+		expect(row?.startsAt).toBeNull();
+		expect(row?.roomId).toBeNull();
+	});
+
+	it("rejects a room belonging to another event (tenancy) and times outside the day window", async () => {
+		const db = await seedBaseline();
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org1",
+			name: "Other",
+			slug: "other",
+		});
+		await db
+			.insert(rooms)
+			.values({ id: "room_foreign", eventId: "e2", name: "Foreign" });
+		const foreignRoom = await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_foreign",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		expect(foreignRoom.ok).toBe(false);
+		const outsideWindow = await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "360", // 6:00 AM < default 8:00 day start
+		});
+		expect(outsideWindow.ok).toBe(false);
+		const outsideDays = await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-20",
+			startMinutes: "570",
+		});
+		expect(outsideDays.ok).toBe(false);
+		const row = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_keynote"),
+		});
+		expect(row?.startsAt).toBeNull();
+	});
+});
+
+describe("end-to-end conflict surface", () => {
+	it("two placements that overlap in one room show up as a room conflict on reload", async () => {
+		await seedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_live",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "600", // 10:00–10:30 AM
+		});
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "615", // 10:15–11:00 AM — same room, overlapping
+		});
+		const data = await callLoader();
+		const conflicts = detectConflicts(
+			data.sessions as Parameters<typeof detectConflicts>[0],
+			data.rooms,
+		);
+		expect(conflicts).toHaveLength(1);
+		expect(conflicts[0]?.kind).toBe("room");
+		expect(conflicts[0]?.roomName).toBe("Main Hall");
+	});
+});
+
+describe("auto-place", () => {
+	it("places every unscheduled schedulable session with zero conflicts, inside the window", async () => {
+		const db = await seedBaseline();
+		const result = await callAction({ intent: "autoplace" });
+		expect(result.ok).toBe(true);
+		expect(result.placed).toBe(3);
+		expect(result.unplaced).toBe(0);
+		const data = await callLoader();
+		expect(data.sessions.every((s) => s.startsAt != null)).toBe(true);
+		expect(
+			detectConflicts(
+				data.sessions as Parameters<typeof detectConflicts>[0],
+				data.rooms,
+			),
+		).toEqual([]);
+		// Negative fixtures stay untouched.
+		const pending = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_pending"),
+		});
+		expect(pending?.startsAt).toBeNull();
+	});
+});
+
+describe("publish + settings", () => {
+	it("publish stamps agendaPublishedAt; unpublish clears it", async () => {
+		const db = await seedBaseline();
+		const before = Date.now();
+		const published = await callAction({ intent: "publish" });
+		expect(published.ok).toBe(true);
+		let event = await db.query.events.findFirst({
+			where: (e, { eq }) => eq(e.id, "e1"),
+		});
+		expect(event?.agendaPublishedAt?.getTime()).toBeGreaterThanOrEqual(
+			Math.floor(before / 1000) * 1000,
+		);
+		const unpublished = await callAction({ intent: "unpublish" });
+		expect(unpublished.ok).toBe(true);
+		event = await db.query.events.findFirst({
+			where: (e, { eq }) => eq(e.id, "e1"),
+		});
+		expect(event?.agendaPublishedAt).toBeNull();
+	});
+
+	it("settings update the day window, schedulable statuses, and format durations", async () => {
+		const db = await seedBaseline();
+		const body = new URLSearchParams({
+			intent: "settings",
+			dayStartMin: "420",
+			dayEndMin: "1320",
+			duration_fmt_keynote: "60",
+			duration_fmt_talk: "30",
+		});
+		body.append("schedulableStatuses", "accepted");
+		body.append("schedulableStatuses", "accept_queue");
+		const request = await adminRequest(body);
+		const result = unwrap<ActionData>(
+			await action({
+				context: CONTEXT,
+				request,
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
+		expect(result.ok).toBe(true);
+		const event = await db.query.events.findFirst({
+			where: (e, { eq }) => eq(e.id, "e1"),
+		});
+		expect(event?.agendaDayStartMin).toBe(420);
+		expect(event?.agendaDayEndMin).toBe(1320);
+		expect(event?.schedulableStatuses).toEqual(["accepted", "accept_queue"]);
+		const keynote = await db.query.formats.findFirst({
+			where: (f, { eq }) => eq(f.id, "fmt_keynote"),
+		});
+		expect(keynote?.defaultDurationMins).toBe(60);
+	});
+
+	it("rejects an inverted day window and an empty status set without writing", async () => {
+		const db = await seedBaseline();
+		const inverted = await callAction({
+			intent: "settings",
+			dayStartMin: "1080",
+			dayEndMin: "480",
+		});
+		expect(inverted.ok).toBe(false);
+		expect(inverted.fieldErrors?.dayEndMin?.[0]).toBeTruthy();
+		const noStatuses = await callAction({
+			intent: "settings",
+			dayStartMin: "480",
+			dayEndMin: "1080",
+		});
+		expect(noStatuses.ok).toBe(false);
+		expect(noStatuses.formError).toBeTruthy();
+		const event = await db.query.events.findFirst({
+			where: (e, { eq }) => eq(e.id, "e1"),
+		});
+		expect(event?.agendaDayStartMin).toBe(480);
+		expect(event?.agendaDayEndMin).toBe(1080);
+		expect(event?.schedulableStatuses).toEqual(["accepted"]);
+	});
+});
