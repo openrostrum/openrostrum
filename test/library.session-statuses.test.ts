@@ -12,6 +12,7 @@ import {
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
 import { action, loader } from "../app/routes/admin.settings.library";
+import { unwrap } from "./tasks-fixtures";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
@@ -20,13 +21,6 @@ type LibResult = {
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
 };
-
-function unwrap<T>(result: unknown): T {
-	const maybe = result as { data?: T };
-	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
-		? maybe.data
-		: (result as T);
-}
 
 /** Two tenants: u_a admins e_a, u_b admins e_b — the cross-tenant probe. */
 async function seed(): Promise<void> {

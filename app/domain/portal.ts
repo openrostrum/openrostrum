@@ -20,7 +20,10 @@ import {
 } from "~/db/schema";
 import { normalizeEmail, userCanAccessEvent } from "~/lib/auth";
 import { formatDateUTC } from "~/lib/format";
-import { previewContactForEvent } from "~/lib/portal-preview";
+import {
+	contactDisplayName,
+	previewContactForEvent,
+} from "~/lib/portal-preview";
 import { isOverdue } from "~/lib/task-status";
 import type { BadgeTone } from "~/ui";
 
@@ -133,10 +136,7 @@ export async function getPortalContext(
 				event,
 				portal,
 				contact: previewContact,
-				preview: {
-					contactName:
-						`${previewContact.firstName} ${previewContact.lastName}`.trim(),
-				},
+				preview: { contactName: contactDisplayName(previewContact) },
 			};
 		}
 	}

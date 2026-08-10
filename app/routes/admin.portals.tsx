@@ -8,6 +8,7 @@ import { formatDateUTC } from "~/lib/format";
 import { likeContains } from "~/lib/like";
 import {
 	clearPreviewCookie,
+	contactDisplayName,
 	previewContactForEvent,
 	startPreviewCookie,
 } from "~/lib/portal-preview";
@@ -113,10 +114,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			.where(contactScope);
 		const previewContact = await previewContactForEvent(db, request, event.id);
 		const previewing = previewContact
-			? {
-					contactName:
-						`${previewContact.firstName} ${previewContact.lastName}`.trim(),
-				}
+			? { contactName: contactDisplayName(previewContact) }
 			: null;
 		const origin = url.origin;
 		return {

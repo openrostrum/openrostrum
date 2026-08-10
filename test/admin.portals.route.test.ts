@@ -6,6 +6,7 @@ import {
 	CONTEXT,
 	postForm,
 	seedTasksBaseline,
+	unwrap,
 } from "./tasks-fixtures";
 
 type LoaderData = {
@@ -15,13 +16,6 @@ type LoaderData = {
 	contactsTotal: number;
 	previewing: { contactName: string } | null;
 };
-
-function unwrap<T>(result: unknown): T {
-	const maybe = result as { data?: T };
-	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
-		? maybe.data
-		: (result as T);
-}
 
 /** Baseline + a second tenant (org2/e2) for cross-event forgery probes. */
 async function seedWithForeignTenant() {

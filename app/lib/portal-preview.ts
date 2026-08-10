@@ -30,6 +30,14 @@ export function clearPreviewCookie(secure: boolean): string {
 	return cookieHeader(COOKIE, "", 0, secure);
 }
 
+/** One home for the previewed speaker's display name. */
+export function contactDisplayName(contact: {
+	firstName: string;
+	lastName: string;
+}): string {
+	return `${contact.firstName} ${contact.lastName}`.trim();
+}
+
 /** The contact the preview cookie names, verified to belong to `eventId` —
  * or null. Authorization is NOT checked here: callers must verify the session
  * user may preview this event (admin role + org membership). */
@@ -48,9 +56,7 @@ export async function previewContactForEvent(
 	return contact ?? null;
 }
 
-/** The contact id the preview cookie names, or null. Authorization is NOT
- * checked here — callers must verify the session user may preview it. */
-export function readPreviewContactId(request: Request): string | null {
+function readPreviewContactId(request: Request): string | null {
 	const value = readCookie(request, COOKIE);
 	return value ? decodeURIComponent(value) : null;
 }

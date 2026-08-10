@@ -21,6 +21,7 @@ import {
 	CONTEXT,
 	postForm,
 	seedTasksBaseline,
+	unwrap,
 } from "./tasks-fixtures";
 
 // The TK-S4 fixture: "AV Requirements" with a required dropdown Microphone
@@ -49,13 +50,6 @@ type LoaderData = {
 		usedByTasks: number;
 	}>;
 };
-
-function unwrap<T>(result: unknown): T {
-	const maybe = result as { data?: T };
-	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
-		? maybe.data
-		: (result as T);
-}
 
 async function post(
 	fields: Record<string, string>,

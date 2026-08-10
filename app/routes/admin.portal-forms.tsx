@@ -3,6 +3,7 @@ import { useState } from "react";
 import { data, Form, redirect } from "react-router";
 import { z } from "zod";
 import {
+	PORTAL_FIELD_TYPE_LABELS,
 	PORTAL_FIELD_TYPES,
 	type PortalFieldType,
 	PortalFormFields,
@@ -14,7 +15,6 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
-import { FIELD_TYPE_LABELS } from "~/settings/event-form";
 import { RichText } from "~/ui/rich-text-lazy";
 import {
 	Button,
@@ -523,7 +523,7 @@ function FormEditor({
 									>
 										{PORTAL_FIELD_TYPES.map((t) => (
 											<option key={t} value={t}>
-												{FIELD_TYPE_LABELS[t]}
+												{PORTAL_FIELD_TYPE_LABELS[t]}
 											</option>
 										))}
 									</Select>

@@ -13,6 +13,17 @@ export const PORTAL_FIELD_TYPES = [
 
 export type PortalFieldType = (typeof PORTAL_FIELD_TYPES)[number];
 
+/** Builder-facing labels — keyed off the PORTAL type union, not the CFP
+ * fields schema, so a portal-only field type never needs a CFP change. */
+export const PORTAL_FIELD_TYPE_LABELS: Record<PortalFieldType, string> = {
+	text: "Text",
+	textarea: "Text area",
+	dropdown: "Dropdown",
+	checkbox: "Checkbox",
+	number: "Number",
+	date: "Date",
+};
+
 export type PortalFormFieldDef = {
 	name: string;
 	type: string;

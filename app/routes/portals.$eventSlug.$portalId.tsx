@@ -92,7 +92,14 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 				</div>
 			</header>
 			<main className="flex-1 py-5">
-				<Outlet />
+				{/* Native fieldset[disabled] turns off EVERY nested control in every
+				    child view at once — the UI honors "actions are disabled" without
+				    each portal page knowing about preview (the server chokepoint
+				    still refuses hand-crafted POSTs). min-w-0 cancels the fieldset
+				    min-content default that would break narrow layouts. */}
+				<fieldset disabled={preview !== null} className="min-w-0">
+					<Outlet />
+				</fieldset>
 			</main>
 			<footer>
 				<FooterNote>
@@ -128,7 +135,7 @@ export function ErrorBoundary() {
 				}
 				subtitle={
 					previewBlocked
-						? "You are viewing this portal as a speaker — nothing can be submitted or changed while previewing. Go back, or exit the preview from the banner."
+						? "You are viewing this portal as a speaker — nothing can be submitted or changed while previewing. Go back to the portal, or end the preview from the admin Portals page."
 						: notFound
 							? "The link may be wrong, or you may not have access to this content. Check the portal link from your email, or log in with the account you submitted with."
 							: "Please refresh the page or try again in a moment."
