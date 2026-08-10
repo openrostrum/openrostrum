@@ -1,11 +1,12 @@
 import { asc, eq } from "drizzle-orm";
 import { useEffect, useRef } from "react";
-import { Form, redirect, useNavigation } from "react-router";
+import { Form, redirect } from "react-router";
 import { getDb } from "~/db";
 import { events, organizationMembers, organizations, users } from "~/db/schema";
 import { provisionEventDefaults } from "~/domain/provisionEvent";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { useBusy } from "~/lib/use-busy";
 import { createTimings, track } from "~/lib/track";
 import {
 	isSlugTakenError,
@@ -140,7 +141,7 @@ export default function NewEvent({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	const formRef = useRef<HTMLFormElement>(null);
 	const fieldErrorCount = Object.values(actionData?.fieldErrors ?? {}).filter(
 		(msgs) => msgs?.length,
