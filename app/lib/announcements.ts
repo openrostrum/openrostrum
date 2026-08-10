@@ -3,7 +3,10 @@ import {
 	type EmailResult,
 	getEmailSender,
 } from "~/ports/email";
-import { mintUnsubscribeToken, unsubscribeUrl } from "~/lib/unsubscribe";
+import {
+	assertUnsubscribeSigningConfigured,
+	unsubscribeUrl,
+} from "~/lib/unsubscribe";
 
 /**
  * Throws when this deployment cannot send a compliant announcement (the
@@ -12,8 +15,8 @@ import { mintUnsubscribeToken, unsubscribeUrl } from "~/lib/unsubscribe";
  * a per-recipient "failed" outcome. The thrown message is the operator-facing
  * copy; don't rewrite it at the call site.
  */
-export async function assertAnnouncementsConfigured(env: Env): Promise<void> {
-	await mintUnsubscribeToken(env, "preflight@example.com");
+export function assertAnnouncementsConfigured(env: Env): void {
+	assertUnsubscribeSigningConfigured(env);
 }
 
 async function appendUnsubscribeFooter(

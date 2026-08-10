@@ -259,7 +259,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 
 	try {
-		await assertAnnouncementsConfigured(env);
+		assertAnnouncementsConfigured(env);
 	} catch (error) {
 		const reason = errorMessage(error);
 		track("contacts.bulk_email_failed", { eventId: event.id, error: reason });
