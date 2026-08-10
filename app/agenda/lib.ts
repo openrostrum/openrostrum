@@ -330,6 +330,37 @@ export function detectConflicts(
 	return out;
 }
 
+export type ConflictRow = {
+	sideId: string;
+	sideTitle: string;
+	conflict: Conflict;
+};
+
+export const MAX_CONFLICT_ROWS = 100;
+
+/**
+ * The Conflicts tab's rows: both sides of every conflict, earliest overlap
+ * first — CAPPED. Two rows per conflict grows quadratically as overlaps stack,
+ * and rendering them all once blew the Worker CPU budget at real scale;
+ * `total` keeps the tab count and the truncation note honest.
+ */
+export function buildConflictRows(conflicts: readonly Conflict[]): {
+	rows: ConflictRow[];
+	total: number;
+} {
+	const all = conflicts
+		.flatMap((c) => [
+			{ sideId: c.aId, sideTitle: c.aTitle, conflict: c },
+			{ sideId: c.bId, sideTitle: c.bTitle, conflict: c },
+		])
+		.sort(
+			(a, b) =>
+				a.conflict.overlapStartMs - b.conflict.overlapStartMs ||
+				a.sideTitle.localeCompare(b.sideTitle),
+		);
+	return { rows: all.slice(0, MAX_CONFLICT_ROWS), total: all.length };
+}
+
 /** Session id → conflicts touching it (drives the red-clock markers). */
 export function conflictsById(
 	conflicts: readonly Conflict[],

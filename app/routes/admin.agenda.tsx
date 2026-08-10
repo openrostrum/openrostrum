@@ -24,6 +24,7 @@ import {
 import {
 	type AgendaSession,
 	autoPlace,
+	buildConflictRows,
 	type Conflict,
 	conflictSentence,
 	conflictsById,
@@ -178,7 +179,18 @@ async function loadSessions(
 	eventId: string,
 	statuses: SubmissionStatus[],
 ) {
+	// Narrow columns everywhere: the board needs titles/times/names only, and
+	// hauling full rows (session descriptions, whole contact records) made this
+	// loader's cost scale with content size, not session count.
 	return db.query.submissions.findMany({
+		columns: {
+			id: true,
+			title: true,
+			status: true,
+			startsAt: true,
+			endsAt: true,
+			roomId: true,
+		},
 		where: (s, { and: andW, eq: eqW, inArray, isNull }) =>
 			andW(
 				eqW(s.eventId, eventId),
@@ -186,9 +198,15 @@ async function loadSessions(
 				isNull(s.parentId),
 			),
 		with: {
-			format: true,
-			submissionTracks: { with: { track: true } },
-			participants: { with: { contact: true } },
+			format: { columns: { name: true, defaultDurationMins: true } },
+			submissionTracks: {
+				columns: {},
+				with: { track: { columns: { id: true, name: true, color: true } } },
+			},
+			participants: {
+				columns: { contactId: true, role: true },
+				with: { contact: { columns: { firstName: true, lastName: true } } },
+			},
 		},
 	});
 }
@@ -804,16 +822,8 @@ export default function Agenda({
 
 	const visibleRooms = loaderData.rooms.filter((r) => r.visible);
 	const statusOptions = [...new Set([...event.schedulableStatuses, "draft"])];
-	const conflictRows = conflicts
-		.flatMap((c) => [
-			{ sideId: c.aId, sideTitle: c.aTitle, conflict: c },
-			{ sideId: c.bId, sideTitle: c.bTitle, conflict: c },
-		])
-		.sort(
-			(a, b) =>
-				a.conflict.overlapStartMs - b.conflict.overlapStartMs ||
-				a.sideTitle.localeCompare(b.sideTitle),
-		);
+	const { rows: conflictRows, total: conflictTotal } =
+		buildConflictRows(conflicts);
 
 	const showsBoard = view === "day" || view === "week" || view === "track";
 	const showsDayStrip = view === "day" || view === "track";
@@ -919,7 +929,7 @@ export default function Agenda({
 				<Tab
 					to={viewLink(searchParams, { view: "conflicts" })}
 					active={view === "conflicts"}
-					count={conflictRows.length}
+					count={conflictTotal}
 				>
 					Conflicts
 				</Tab>
@@ -1079,6 +1089,12 @@ export default function Agenda({
 								</Td>
 							</Tr>
 						))}
+						{conflictTotal > conflictRows.length && (
+							<EmptyRow colSpan={3}>
+								Showing the first {conflictRows.length} of {conflictTotal}{" "}
+								conflict rows — resolve these and the rest surface here.
+							</EmptyRow>
+						)}
 						{conflictRows.length === 0 && (
 							<EmptyRow colSpan={3}>
 								No conflicts — no speaker or room is booked twice at the same
