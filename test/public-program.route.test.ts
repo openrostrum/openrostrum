@@ -152,6 +152,32 @@ describe("public speakers + gallery surfaces", () => {
 	});
 });
 
+describe("public sessions drill-down", () => {
+	it("?session= opens the detail projection even when filters exclude it; unknown ids stay null", async () => {
+		await seedProgram();
+		// q=zzz matches nothing — the detail must still resolve so shared links work.
+		const detail = unwrap<SessionsData>(
+			await call(
+				sessionsLoader,
+				"http://localhost/sessions/devflow?session=s1&q=zzz",
+			),
+		);
+		expect(detail.data.surface.detail?.id).toBe("s1");
+		expect(detail.data.surface.detail?.speakers.map((sp) => sp.name)).toEqual([
+			"Ada Zhang",
+		]);
+		expect(detail.data.surface.total).toBe(0); // list state rides along untouched
+
+		const unknown = unwrap<SessionsData>(
+			await call(
+				sessionsLoader,
+				"http://localhost/sessions/devflow?session=nope",
+			),
+		);
+		expect(unknown.data.surface.detail).toBeNull();
+	});
+});
+
 describe("public agenda + itinerary surfaces", () => {
 	it("builds a day × room grid: days from scheduled sessions, blocks in the right room at the right minutes", async () => {
 		await seedProgram();

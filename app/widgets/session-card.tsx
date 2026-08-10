@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router";
 import { Chip } from "~/ui";
 import { ShowMoreText, SpeakerPhoto, TagPill } from "./bits";
 import type { HideableField, PublicSession } from "~/lib/program-types";
@@ -34,11 +35,14 @@ export function SessionCard({
 	hidden,
 	showDate = true,
 	action,
+	detailHref,
 }: {
 	session: PublicSession;
 	hidden?: ReadonlySet<HideableField>;
 	showDate?: boolean;
 	action?: ReactNode;
+	/** When set, the card title links to the session's detail view. */
+	detailHref?: string;
 }) {
 	const show = (field: HideableField) => !hidden?.has(field);
 	const timeLine = [showDate ? session.dayLabel : null, session.timeRange]
@@ -63,7 +67,16 @@ export function SessionCard({
 							</div>
 						)}
 					<h3 className="font-display text-[16px] font-semibold leading-snug text-fg">
-						{session.title}
+						{detailHref ? (
+							<Link
+								to={detailHref}
+								className="rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+							>
+								{session.title}
+							</Link>
+						) : (
+							session.title
+						)}
 					</h3>
 					{show("time") && (
 						<p className="font-mono text-[11.5px] tabular-nums text-fg-muted">

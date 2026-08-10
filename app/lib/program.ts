@@ -416,6 +416,10 @@ export function buildSessionsData(
 	const filters = parseFilters(url);
 	const filtered = filterSessions(all, filters);
 	const { page, pages, slice } = paginate(filtered, url, SESSIONS_PAGE_SIZE);
+	// Detail resolves against the FULL program (like the agenda's), so a shared
+	// link keeps working even when the viewer's filters would exclude it.
+	const detailId = url.searchParams.get("session");
+	const detail = detailId ? (all.find((s) => s.id === detailId) ?? null) : null;
 	return {
 		sessions: slice,
 		total: filtered.length,
@@ -425,6 +429,7 @@ export function buildSessionsData(
 		facets: facetsFrom(all),
 		filters,
 		hasAnySessions: all.length > 0,
+		detail,
 	};
 }
 

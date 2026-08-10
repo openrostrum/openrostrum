@@ -86,6 +86,7 @@ export type SessionsSurfaceData = {
 	facets: ProgramFacets;
 	filters: ProgramFilters;
 	hasAnySessions: boolean;
+	detail: PublicSession | null;
 };
 
 /** One shape serves the speakers directory AND the gallery — same pipeline. */
