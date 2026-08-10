@@ -11,6 +11,7 @@ import {
 	events,
 	organizations,
 	participants,
+	portals,
 	rooms,
 	type Submission,
 	submissions,
@@ -634,6 +635,68 @@ describe("send decisions", () => {
 			// The send itself never flips status — that is the caller's second step.
 			expect(s.status).toBe("accept_queue");
 		}
+	});
+
+	// The template editor previews rendered merge tags, so the send must run
+	// the same renderer — shipping the raw template means a speaker receives
+	// a literal {{first_name}} in a delivered email.
+	it("resolves merge tags in the SENT subject and body — never a literal {{tag}}", async () => {
+		const d = await seedBase();
+		await d.insert(portals).values({
+			id: "portal1",
+			eventId: "e1",
+			publicId: "pub-abc",
+		});
+		await d.insert(emailTemplates).values({
+			id: "et_accept",
+			eventId: "e1",
+			key: "accept",
+			name: "Accept Sessions",
+			subject: "{{first_name}}, you're in at {{event_name}}!",
+			bodyHtml:
+				"<p>Hi {{full_name}}, your talk {{session_title}} is confirmed. Portal: {{portal_link}}. Unknown: {{no_such_tag}}</p>",
+		});
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Rendering Emails Right",
+		});
+		await d.insert(contacts).values({
+			id: "c_priya",
+			eventId: "e1",
+			email: "priya@example.com",
+			firstName: "Priya",
+			lastName: "Patel",
+		});
+		await d.insert(participants).values({
+			submissionId: row.id,
+			contactId: "c_priya",
+			role: "speaker",
+			isPrimary: true,
+		});
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		const results = await sendDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "render-key",
+			origin: "https://openrostrum.example",
+		});
+		expect(results[0]?.ok).toBe(true);
+
+		const [mail] = await d.select().from(emailOutbox);
+		expect(mail?.subject).toBe("Priya, you're in at DemoConf!");
+		expect(mail?.html).toContain(
+			"Hi Priya Patel, your talk Rendering Emails Right is confirmed",
+		);
+		expect(mail?.html).toContain(
+			"https://openrostrum.example/portals/democonf/pub-abc",
+		);
+		// Template-pipeline policy: every tag is consumed — no literal {{...}}
+		// ever reaches a recipient.
+		expect(mail?.subject).not.toMatch(/\{\{/);
+		expect(mail?.html).not.toMatch(/\{\{/);
 	});
 
 	it("a deduped retry back-fills a missing notifiedAt stamp (partial-failure recovery)", async () => {
