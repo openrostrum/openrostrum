@@ -458,7 +458,10 @@ function Footer() {
 							and program management.
 						</p>
 					</div>
-					<div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
+					{/* No "Live event" column here: footer links describe the product,
+					    not one demo event's public pages — those are all reachable from
+					    the "Public pages" section above (and /schedule from both CTAs). */}
+					<div className="grid grid-cols-2 gap-10">
 						<FooterCol
 							title="Product"
 							links={[
@@ -467,13 +470,6 @@ function Footer() {
 								{ label: "Features", href: "#features" },
 								{ label: "Compare", href: "#compare" },
 							]}
-						/>
-						<FooterCol
-							title="Live event"
-							links={PUBLIC_PAGES.map((page) => ({
-								label: page.label,
-								to: page.to,
-							}))}
 						/>
 						<FooterCol
 							title="Open source"
