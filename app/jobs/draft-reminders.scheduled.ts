@@ -213,6 +213,8 @@ export async function runDraftCloseReminders(
 				email: latest.email,
 				event_name: form.eventName,
 				session_title: latest.title,
+				session_date_time: null,
+				session_room: null,
 				portal_link: portalLink,
 				form_title: formTitle,
 				form_close_date: closeDate,
