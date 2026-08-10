@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { events } from "~/db/schema";
+import { errorChainIncludes } from "~/lib/errors";
 import type { EventDetailsErrors, EventDetailsValues } from "./event-form";
 
 /**
@@ -27,6 +28,17 @@ const optional = (max: number, message: string) =>
 		.max(max, message)
 		.transform((v) => (v === "" ? null : v));
 
+/** Blank form string → null; otherwise a whole number in [1, max]. */
+export const optionalBoundedInt = (max: number, message: string) =>
+	z
+		.string()
+		.trim()
+		.transform((v) => (v === "" ? null : Number(v)))
+		.refine(
+			(v) => v === null || (Number.isInteger(v) && v >= 1 && v <= max),
+			message,
+		);
+
 const EventDetailsForm = z
 	.object({
 		name: z.string().trim().min(1, "Event name is required").max(200),
@@ -49,14 +61,10 @@ const EventDetailsForm = z
 		theme: optional(1000, "Keep the theme under 1,000 characters"),
 		startsAt: z.string().regex(DATETIME_RE, "Pick a start date and time"),
 		endsAt: z.string().regex(DATETIME_RE, "Pick an end date and time"),
-		submissionLimit: z
-			.string()
-			.trim()
-			.transform((v) => (v === "" ? null : Number(v)))
-			.refine(
-				(v) => v === null || (Number.isInteger(v) && v >= 1 && v <= 1_000_000),
-				"Enter a whole number of 1 or more, or leave blank for no limit",
-			),
+		submissionLimit: optionalBoundedInt(
+			1_000_000,
+			"Enter a whole number of 1 or more, or leave blank for no limit",
+		),
 	})
 	// Same "YYYY-MM-DDTHH:mm" shape on both sides, so string order = time order.
 	.refine((v) => v.endsAt >= v.startsAt, {
@@ -134,18 +142,6 @@ export function eventDetailsValues(
 		submissionLimit:
 			event.submissionLimit === null ? "" : String(event.submissionLimit),
 	};
-}
-
-/**
- * Drizzle wraps D1 failures ("Failed query: …") with the real constraint
- * message on `cause` — batch failures surface it on the top-level message —
- * so constraint detection must walk the whole chain.
- */
-export function errorChainIncludes(error: unknown, needle: string): boolean {
-	for (let e: unknown = error; e instanceof Error; e = e.cause) {
-		if (e.message.includes(needle)) return true;
-	}
-	return false;
 }
 
 /** A taken slug is a normal user-facing outcome, not a server error. */

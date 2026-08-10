@@ -59,7 +59,8 @@ in code). Each needs an owner decision or a cross-lane change.
 | L2 | Theme + field-description inputs are single-line `Input`s — no Textarea primitive exists and `app/ui` is integration-owned | Add a `Textarea` primitive (control skin), swap the call sites |
 | L3 | Third hand-rolled bytes→base64 helper landed (settings previews; existing copies in `app/lib/auth.ts`, `app/ports/email.ts`) | Consolidate into one `app/lib` helper |
 | L4 | `/onboarding` keeps its own event form + timezone machinery; the shared `app/settings/event-form` covers settings/create-event only | Converge onboarding onto the shared form (cross-lane) |
-| L5 | Library validation hand-rolls Zod objects — `schema.ts` exports no drizzle-zod insert schemas for tracks/tags/formats/levels/rooms/languages/fields | Export + refine insert schemas from integration-owned `schema.ts` per the golden-path rule |
+| L5 | Library + event-details validation hand-rolls Zod objects — `schema.ts` exports no drizzle-zod insert schemas for events/tracks/tags/formats/levels/rooms/languages/fields | Export + refine insert schemas from integration-owned `schema.ts` per the golden-path rule |
+| L6 | The earlier "Track delete cascade" fix landed only half: `submission_tracks.track_id` and `reviewer_tracks.track_id` are still `cascade` in schema.ts (integration-owned). The Library compensates app-side — the delete statement itself embeds a no-references condition, so the strip cannot happen through this surface — but any other write path could still cascade | Schema change request: `cascade` → `restrict` on both FKs so the DB enforces the register decision everywhere |
 
 ## Eval-kit walk findings (2026-08-09) — swyx's v1 judging harness
 

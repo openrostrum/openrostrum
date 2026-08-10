@@ -55,12 +55,6 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
 
-// Keeps every plain return widened to the one ActionResult shape, so the
-// component can read optional keys off any branch of the union.
-function res(r: ActionResult): ActionResult {
-	return r;
-}
-
 function toBase64(buffer: ArrayBuffer): string {
 	const bytes = new Uint8Array(buffer);
 	let binary = "";
@@ -118,16 +112,21 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	);
 }
 
-export async function action({ context, request }: Route.ActionArgs) {
+export async function action({
+	context,
+	request,
+}: Route.ActionArgs): Promise<
+	ActionResult | ReturnType<typeof data<ActionResult>>
+> {
 	const env = context.cloudflare.env;
 	// Actions MUST self-authenticate — a POST does not run any layout loader.
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
 	if (!event) {
-		return res({
+		return {
 			intent: "details",
 			formError: "There is no event to configure yet — create one first.",
-		});
+		};
 	}
 	const db = getDb(env);
 	const form = await request.formData();
@@ -137,11 +136,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 	if (intent === "details") {
 		const parsed = parseEventDetails(form);
 		if (!parsed.ok) {
-			return res({
+			return {
 				intent: "details",
 				fieldErrors: parsed.fieldErrors,
 				values: parsed.values,
-			});
+			};
 		}
 		try {
 			await timings.time("db", () =>
@@ -149,32 +148,35 @@ export async function action({ context, request }: Route.ActionArgs) {
 			);
 		} catch (error) {
 			if (isSlugTakenError(error)) {
-				return res({
+				return {
 					intent: "details",
 					fieldErrors: { slug: [SLUG_TAKEN_MESSAGE] },
 					values: parsed.values,
-				});
+				};
 			}
 			track("event.settings_update_failed", {
 				eventId: event.id,
 				error: errorMessage(error),
 			});
-			return res({
+			return {
 				intent: "details",
 				formError: "Could not save the event details — please try again.",
 				values: parsed.values,
-			});
+			};
 		}
 		track("event.settings_updated", { eventId: event.id });
-		return data(res({ intent: "details", ok: true }), {
-			headers: { "Server-Timing": timings.header() },
-		});
+		return data(
+			{ intent: "details", ok: true },
+			{
+				headers: { "Server-Timing": timings.header() },
+			},
+		);
 	}
 
 	if (intent === "image.upload" || intent === "image.remove") {
 		const kind = form.get("kind");
 		if (kind !== "logo" && kind !== "background") {
-			return res({ intent: "image", formError: "Unknown image kind." });
+			return { intent: "image", formError: "Unknown image kind." };
 		}
 		const currentKey = kind === "logo" ? event.logoKey : event.backgroundKey;
 		const column = kind === "logo" ? "logoKey" : "backgroundKey";
@@ -200,28 +202,31 @@ export async function action({ context, request }: Route.ActionArgs) {
 				}
 			}
 			track("event.image_removed", { eventId: event.id, kind });
-			return data(res({ intent: "image", kind, ok: true }), {
-				headers: { "Server-Timing": timings.header() },
-			});
+			return data(
+				{ intent: "image", kind, ok: true },
+				{
+					headers: { "Server-Timing": timings.header() },
+				},
+			);
 		}
 
 		const file = form.get("file");
 		if (!(file instanceof File) || file.size === 0) {
-			return res({
+			return {
 				intent: "image",
 				kind,
 				imageError: "Choose an image first.",
-			});
+			};
 		}
 		if (!IMAGE_TYPES[file.type]) {
-			return res({
+			return {
 				intent: "image",
 				kind,
 				imageError: "Use a PNG, JPEG, WebP, or GIF image.",
-			});
+			};
 		}
 		if (file.size > EVENT_IMAGE[kind].maxBytes) {
-			return res({
+			return {
 				intent: "image",
 				kind,
 				imageError: `That file is ${formatBytes(file.size)} — the ${EVENT_IMAGE[
@@ -229,7 +234,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 				].label.toLowerCase()} must be ${formatBytes(
 					EVENT_IMAGE[kind].maxBytes,
 				)} or smaller.`,
-			});
+			};
 		}
 		const safeName =
 			file.name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-80) || "image";
@@ -252,11 +257,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 				kind,
 				error: errorMessage(error),
 			});
-			return res({
+			return {
 				intent: "image",
 				kind,
 				imageError: "Could not store the image — please try again.",
-			});
+			};
 		}
 		// The replaced object is unreachable once the row points elsewhere;
 		// losing this delete only leaks storage, never correctness.
@@ -276,12 +281,15 @@ export async function action({ context, request }: Route.ActionArgs) {
 			kind,
 			sizeBytes: file.size,
 		});
-		return data(res({ intent: "image", kind, ok: true }), {
-			headers: { "Server-Timing": timings.header() },
-		});
+		return data(
+			{ intent: "image", kind, ok: true },
+			{
+				headers: { "Server-Timing": timings.header() },
+			},
+		);
 	}
 
-	return res({ intent: "details", formError: "Unknown action." });
+	return { intent: "details", formError: "Unknown action." };
 }
 
 function ImageBlock({

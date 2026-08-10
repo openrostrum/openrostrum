@@ -1,5 +1,9 @@
-import { and, asc, count, eq, max, or } from "drizzle-orm";
-import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { and, asc, count, eq, max, notExists, or, type SQL } from "drizzle-orm";
+import type {
+	SQLiteColumn,
+	SQLiteInsertValue,
+	SQLiteUpdateSetSource,
+} from "drizzle-orm/sqlite-core";
 import { type ReactNode, useMemo, useState } from "react";
 import { data, useFetcher } from "react-router";
 import { z } from "zod";
@@ -10,20 +14,21 @@ import {
 	formats,
 	languages,
 	levels,
+	reviewerTracks,
 	rooms,
 	submissionTracks,
 	tags,
 	tracks,
 } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { errorChainIncludes } from "~/lib/errors";
 import { createTimings, track as trackEvent } from "~/lib/track";
-import { errorChainIncludes } from "~/settings/event-details.server";
+import { optionalBoundedInt } from "~/settings/event-details.server";
 import { FIELD_TYPE_LABELS, FIELD_TYPES } from "~/settings/event-form";
 import {
 	Button,
 	Chip,
 	EmptyRow,
-	EmptyState,
 	ErrorText,
 	Field,
 	Input,
@@ -57,15 +62,6 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 
 const Name = z.string().trim().min(1, "Name is required").max(120);
 const Color = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Pick a color");
-const OptionalInt = (maxValue: number, message: string) =>
-	z
-		.string()
-		.trim()
-		.transform((v) => (v === "" ? null : Number(v)))
-		.refine(
-			(v) => v === null || (Number.isInteger(v) && v >= 1 && v <= maxValue),
-			message,
-		);
 
 const TrackForm = z.object({ name: Name, color: Color });
 const TagForm = z.object({ name: Name, color: Color });
@@ -80,7 +76,10 @@ const FormatForm = z.object({
 const LevelForm = z.object({ name: Name });
 const RoomForm = z.object({
 	name: Name,
-	capacity: OptionalInt(1_000_000, "Enter a whole number, or leave blank"),
+	capacity: optionalBoundedInt(
+		1_000_000,
+		"Enter a whole number, or leave blank",
+	),
 });
 const LanguageForm = z.object({ name: Name });
 
@@ -94,7 +93,10 @@ const FieldForm = z
 			.trim()
 			.max(500, "Keep the description under 500 characters")
 			.transform((v) => (v === "" ? null : v)),
-		maxLength: OptionalInt(100_000, "Enter a whole number, or leave blank"),
+		maxLength: optionalBoundedInt(
+			100_000,
+			"Enter a whole number, or leave blank",
+		),
 		options: z
 			.string()
 			.trim()
@@ -169,22 +171,23 @@ async function nextPosition(
 }
 
 /**
- * Uniform create/update/delete over one taxonomy table — every write goes
- * through own(); a table with an `inUse` counter refuses deletion while
- * references exist instead of silently stripping them.
+ * Uniform create/update/delete derived from one config per taxonomy table.
+ * Every write goes through own(); a table with an `inUse` guard embeds the
+ * no-references condition IN the delete statement itself, so a reference
+ * created concurrently can never be silently cascade-stripped.
  */
 function taxonomy<T extends TaxonomyTable, S extends z.ZodType>(cfg: {
 	table: T;
 	schema: S;
 	pick(form: FormData): Record<string, FormDataEntryValue | null>;
-	insert(db: Db, eventId: string, data: z.output<S>): Promise<unknown>;
-	update(
-		db: Db,
-		eventId: string,
-		id: string,
-		data: z.output<S>,
-	): Promise<{ id: string }[]>;
-	inUse?(db: Db, id: string): Promise<number>;
+	/** Append-ordered tables: the insert sets `key` to max(column)+1. */
+	position?: { key: "position" | "displayOrder"; column: SQLiteColumn };
+	inUse?: {
+		/** TRUE while nothing references the row — ANDed into the delete. */
+		free(db: Db, id: string): SQL | undefined;
+		/** Refusal message once a delete was blocked by live references. */
+		describe(db: Db, id: string): Promise<string>;
+	};
 }) {
 	const parse = (form: FormData) => cfg.schema.safeParse(cfg.pick(form));
 	return {
@@ -195,7 +198,23 @@ function taxonomy<T extends TaxonomyTable, S extends z.ZodType>(cfg: {
 		): Promise<LibraryResult> {
 			const parsed = parse(form);
 			if (!parsed.success) return { fieldErrors: fieldErrorsOf(parsed.error) };
-			await cfg.insert(db, eventId, parsed.data);
+			const positioned = cfg.position
+				? {
+						[cfg.position.key]: await nextPosition(
+							db,
+							cfg.table,
+							cfg.position.column,
+							eventId,
+						),
+					}
+				: {};
+			// The one write-payload cast: zod output keys are tied to column keys
+			// by the schemas above, and every entity's create is pinned by a test.
+			await db.insert(cfg.table).values({
+				eventId,
+				...positioned,
+				...(parsed.data as Record<string, unknown>),
+			} as SQLiteInsertValue<T>);
 			return { ok: true };
 		},
 		async update(
@@ -206,31 +225,31 @@ function taxonomy<T extends TaxonomyTable, S extends z.ZodType>(cfg: {
 		): Promise<LibraryResult> {
 			const parsed = parse(form);
 			if (!parsed.success) return { fieldErrors: fieldErrorsOf(parsed.error) };
-			const touched = await cfg.update(db, eventId, id, parsed.data);
+			const touched = await db
+				.update(cfg.table)
+				.set(parsed.data as SQLiteUpdateSetSource<T>)
+				.where(own(cfg.table, id, eventId))
+				.returning({ id: cfg.table.id });
 			return touched.length === 0 ? MISSING : { ok: true };
 		},
 		async remove(db: Db, eventId: string, id: string): Promise<LibraryResult> {
+			const guard = cfg.inUse
+				? and(own(cfg.table, id, eventId), cfg.inUse.free(db, id))
+				: own(cfg.table, id, eventId);
+			const gone = await db
+				.delete(cfg.table)
+				.where(guard)
+				.returning({ id: cfg.table.id });
+			if (gone.length > 0) return { ok: true };
 			if (cfg.inUse) {
 				const [owned] = await db
 					.select({ id: cfg.table.id })
 					.from(cfg.table)
 					.where(own(cfg.table, id, eventId))
 					.limit(1);
-				if (!owned) return MISSING;
-				const references = await cfg.inUse(db, id);
-				if (references > 0) {
-					return {
-						formError: `In use by ${references} submission${
-							references === 1 ? "" : "s"
-						} — remove it from them before deleting.`,
-					};
-				}
+				if (owned) return { formError: await cfg.inUse.describe(db, id) };
 			}
-			const gone = await db
-				.delete(cfg.table)
-				.where(own(cfg.table, id, eventId))
-				.returning({ id: cfg.table.id });
-			return gone.length === 0 ? MISSING : { ok: true };
+			return MISSING;
 		},
 	};
 }
@@ -240,34 +259,48 @@ const TAXONOMIES = {
 		table: tracks,
 		schema: TrackForm,
 		pick: (f) => ({ name: f.get("name"), color: f.get("color") }),
-		insert: (db, eventId, d) => db.insert(tracks).values({ eventId, ...d }),
-		update: (db, eventId, id, d) =>
-			db
-				.update(tracks)
-				.set(d)
-				.where(own(tracks, id, eventId))
-				.returning({ id: tracks.id }),
-		// Deleting a referenced track would silently strip submissions' tracks
-		// (routing + agenda data) — refuse while references exist.
-		inUse: async (db, id) => {
-			const [row] = await db
-				.select({ n: count() })
-				.from(submissionTracks)
-				.where(eq(submissionTracks.trackId, id));
-			return row?.n ?? 0;
+		// A referenced track must never be silently cascade-stripped from
+		// submissions or reviewer assignments — the delete refuses instead.
+		inUse: {
+			free: (db, id) =>
+				and(
+					notExists(
+						db
+							.select({ one: submissionTracks.trackId })
+							.from(submissionTracks)
+							.where(eq(submissionTracks.trackId, id)),
+					),
+					notExists(
+						db
+							.select({ one: reviewerTracks.trackId })
+							.from(reviewerTracks)
+							.where(eq(reviewerTracks.trackId, id)),
+					),
+				),
+			describe: async (db, id) => {
+				const [subs] = await db
+					.select({ n: count() })
+					.from(submissionTracks)
+					.where(eq(submissionTracks.trackId, id));
+				const [reviewers] = await db
+					.select({ n: count() })
+					.from(reviewerTracks)
+					.where(eq(reviewerTracks.trackId, id));
+				const parts = [];
+				if (subs?.n)
+					parts.push(`${subs.n} submission${subs.n === 1 ? "" : "s"}`);
+				if (reviewers?.n)
+					parts.push(
+						`${reviewers.n} reviewer assignment${reviewers.n === 1 ? "" : "s"}`,
+					);
+				return `In use by ${parts.join(" and ") || "other records"} — remove it from them before deleting.`;
+			},
 		},
 	}),
 	tag: taxonomy({
 		table: tags,
 		schema: TagForm,
 		pick: (f) => ({ name: f.get("name"), color: f.get("color") }),
-		insert: (db, eventId, d) => db.insert(tags).values({ eventId, ...d }),
-		update: (db, eventId, id, d) =>
-			db
-				.update(tags)
-				.set(d)
-				.where(own(tags, id, eventId))
-				.returning({ id: tags.id }),
 	}),
 	format: taxonomy({
 		table: formats,
@@ -276,79 +309,25 @@ const TAXONOMIES = {
 			name: f.get("name"),
 			defaultDurationMins: f.get("defaultDurationMins"),
 		}),
-		insert: async (db, eventId, d) =>
-			db.insert(formats).values({
-				eventId,
-				position: await nextPosition(db, formats, formats.position, eventId),
-				...d,
-			}),
-		update: (db, eventId, id, d) =>
-			db
-				.update(formats)
-				.set(d)
-				.where(own(formats, id, eventId))
-				.returning({ id: formats.id }),
+		position: { key: "position", column: formats.position },
 	}),
 	level: taxonomy({
 		table: levels,
 		schema: LevelForm,
 		pick: (f) => ({ name: f.get("name") }),
-		insert: async (db, eventId, d) =>
-			db.insert(levels).values({
-				eventId,
-				position: await nextPosition(db, levels, levels.position, eventId),
-				...d,
-			}),
-		update: (db, eventId, id, d) =>
-			db
-				.update(levels)
-				.set(d)
-				.where(own(levels, id, eventId))
-				.returning({ id: levels.id }),
+		position: { key: "position", column: levels.position },
 	}),
 	room: taxonomy({
 		table: rooms,
 		schema: RoomForm,
 		pick: (f) => ({ name: f.get("name"), capacity: f.get("capacity") ?? "" }),
-		insert: async (db, eventId, d) =>
-			db.insert(rooms).values({
-				eventId,
-				displayOrder: await nextPosition(
-					db,
-					rooms,
-					rooms.displayOrder,
-					eventId,
-				),
-				...d,
-			}),
-		update: (db, eventId, id, d) =>
-			db
-				.update(rooms)
-				.set(d)
-				.where(own(rooms, id, eventId))
-				.returning({ id: rooms.id }),
+		position: { key: "displayOrder", column: rooms.displayOrder },
 	}),
 	language: taxonomy({
 		table: languages,
 		schema: LanguageForm,
 		pick: (f) => ({ name: f.get("name") }),
-		insert: async (db, eventId, d) =>
-			db.insert(languages).values({
-				eventId,
-				position: await nextPosition(
-					db,
-					languages,
-					languages.position,
-					eventId,
-				),
-				...d,
-			}),
-		update: (db, eventId, id, d) =>
-			db
-				.update(languages)
-				.set(d)
-				.where(own(languages, id, eventId))
-				.returning({ id: languages.id }),
+		position: { key: "position", column: languages.position },
 	}),
 } as const;
 
@@ -969,17 +948,8 @@ function FieldsSection({ rows }: { rows: FieldRow[] }) {
 }
 
 export default function Library({ loaderData }: Route.ComponentProps) {
-	if (!loaderData.event) {
-		return (
-			<Panel>
-				<EmptyState
-					icon="sliders"
-					title="No event yet"
-					body="The library holds an event's tracks, tags, formats, levels, rooms, languages, and custom fields. Create an event first."
-				/>
-			</Panel>
-		);
-	}
+	// The settings layout renders the no-event empty state; nothing to show.
+	if (!loaderData.event) return null;
 	return (
 		<div className="flex flex-col gap-5">
 			<Section

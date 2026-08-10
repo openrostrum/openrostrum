@@ -8,9 +8,11 @@ import {
 	formFields,
 	forms,
 	formats,
+	languages,
 	levels,
 	organizationMembers,
 	organizations,
+	reviewerTracks,
 	rooms,
 	submissionAnswers,
 	submissionTracks,
@@ -145,6 +147,7 @@ describe("library taxonomies", () => {
 			name: "Auditorium A",
 			capacity: "300",
 		});
+		await post({ intent: "language.create", name: "French" });
 
 		const db = getDb(env);
 		const [track] = await db.select().from(tracks);
@@ -162,6 +165,8 @@ describe("library taxonomies", () => {
 		expect(room).toMatchObject({ eventId: "e_a", capacity: 300 });
 		expect(await db.select().from(tags)).toHaveLength(1);
 		expect(await db.select().from(levels)).toHaveLength(1);
+		const [language] = await db.select().from(languages);
+		expect(language).toMatchObject({ eventId: "e_a", name: "French" });
 	});
 
 	it("rejects a blank name inline and inserts nothing (AE-S3.2)", async () => {
@@ -253,6 +258,26 @@ describe("library taxonomies", () => {
 		await db.delete(submissionTracks);
 		expect((await post({ intent: "track.delete", id: "t_x" })).ok).toBe(true);
 		expect(await db.select().from(tracks)).toHaveLength(0);
+	});
+
+	it("refuses to delete a track that reviewers are assigned to (their routing would silently vanish)", async () => {
+		await seed();
+		const db = getDb(env);
+		await db
+			.insert(tracks)
+			.values({ id: "t_r", eventId: "e_a", name: "Sec", color: "#0EA5E9" });
+		await db.insert(users).values({
+			id: "u_rev",
+			email: "rev@test.co",
+			passwordHash: await hashPassword("pw"),
+			role: "reviewer",
+		});
+		await db.insert(reviewerTracks).values({ userId: "u_rev", trackId: "t_r" });
+
+		const refused = await post({ intent: "track.delete", id: "t_r" });
+		expect(refused.formError).toMatch(/1 reviewer assignment/i);
+		expect(await db.select().from(tracks)).toHaveLength(1);
+		expect(await db.select().from(reviewerTracks)).toHaveLength(1);
 	});
 
 	it("refuses to touch another org's rows — update and delete write nothing cross-tenant", async () => {

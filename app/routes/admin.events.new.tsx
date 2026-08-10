@@ -25,12 +25,6 @@ type ActionResult = {
 	values?: EventDetailsValues;
 };
 
-// Keeps every plain return widened to the one ActionResult shape, so the
-// component can read optional keys off any branch of the union.
-function res(r: ActionResult): ActionResult {
-	return r;
-}
-
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
@@ -75,7 +69,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	return { organizationName: organization.name };
 }
 
-export async function action({ context, request }: Route.ActionArgs) {
+export async function action({
+	context,
+	request,
+}: Route.ActionArgs): Promise<ActionResult | Response> {
 	const env = context.cloudflare.env;
 	// Actions MUST self-authenticate — a POST does not run any layout loader.
 	const user = await requireAdmin(env, request);
@@ -84,10 +81,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 	const form = await request.formData();
 	const parsed = parseEventDetails(form);
 	if (!parsed.ok) {
-		return res({
+		return {
 			fieldErrors: parsed.fieldErrors,
 			values: parsed.values,
-		});
+		};
 	}
 
 	const db = getDb(env);
@@ -112,20 +109,20 @@ export async function action({ context, request }: Route.ActionArgs) {
 		);
 	} catch (error) {
 		if (isSlugTakenError(error)) {
-			return res({
+			return {
 				fieldErrors: { slug: [SLUG_TAKEN_MESSAGE] },
 				values: parsed.values,
-			});
+			};
 		}
 		track("event.create_failed", {
 			organizationId: organization.id,
 			userId: user.id,
 			error: errorMessage(error),
 		});
-		return res({
+		return {
 			formError: "Could not create the event — please try again.",
 			values: parsed.values,
-		});
+		};
 	}
 
 	track("event.created", {
