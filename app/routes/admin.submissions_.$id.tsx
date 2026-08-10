@@ -59,6 +59,8 @@ import type { Route } from "./+types/admin.submissions_.$id";
 const CONTENT_STATUS_OPTIONS =
 	CONTENT_STATUS satisfies readonly Submission["contentStatus"][];
 
+const REVISION_LIST_LIMIT = 50;
+
 const ACCEPTANCE_TONE = {
 	pending: "warning",
 	accepted: "success",
@@ -116,12 +118,15 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		if (!row) return null;
 
 		// Revisions order by INSERTION (rowid), not createdAt: two snapshots can
-		// land in the same second and history must never shuffle.
+		// land in the same second and history must never shuffle. The list NEVER
+		// selects `description` and is capped: every save appends a row, so the
+		// full-payload history grows without bound with edit count and once blew
+		// the Worker CPU budget in production (restore re-reads its snapshot from
+		// the DB, so the list needs no payload).
 		const revisionRows = await db
 			.select({
 				id: submissionRevisions.id,
 				title: submissionRevisions.title,
-				description: submissionRevisions.description,
 				createdAt: submissionRevisions.createdAt,
 				editorName: users.name,
 				editorEmail: users.email,
@@ -129,7 +134,10 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			.from(submissionRevisions)
 			.leftJoin(users, eq(users.id, submissionRevisions.editedById))
 			.where(eq(submissionRevisions.submissionId, row.id))
-			.orderBy(desc(sql`${submissionRevisions}.rowid`));
+			.orderBy(desc(sql`${submissionRevisions}.rowid`))
+			.limit(REVISION_LIST_LIMIT + 1);
+		const revisionsTruncated = revisionRows.length > REVISION_LIST_LIMIT;
+		if (revisionsTruncated) revisionRows.length = REVISION_LIST_LIMIT;
 
 		const [fileRows, withdrawnBy, library] = await Promise.all([
 			db
@@ -206,10 +214,10 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			revisions: revisionRows.map((r) => ({
 				id: r.id,
 				title: r.title,
-				description: r.description,
 				editor: r.editorName ?? r.editorEmail ?? "Unknown",
 				at: formatInTimezone(r.createdAt, tz),
 			})),
+			revisionsTruncated,
 			files: fileRows.map((f) => ({
 				id: f.id,
 				fileName: f.fileName,
@@ -684,6 +692,7 @@ export default function SubmissionDetail({
 		participants,
 		answers,
 		revisions,
+		revisionsTruncated,
 		files: fileRows,
 		reviews,
 		library,
@@ -720,7 +729,14 @@ export default function SubmissionDetail({
 			<div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[3fr_2fr]">
 				<div className="flex flex-col gap-5">
 					<Panel>
-						<Form method="post" className="flex flex-col gap-3">
+						{/* Keyed on the newest revision: every save/restore appends one, and
+						    the uncontrolled inputs must remount to show the revalidated
+						    content — without this a Restore looks like a silent no-op. */}
+						<Form
+							method="post"
+							className="flex flex-col gap-3"
+							key={revisions[0]?.id ?? "unrevised"}
+						>
 							<Input
 								type="hidden"
 								name="intent"
@@ -790,6 +806,12 @@ export default function SubmissionDetail({
 								<EmptyRow colSpan={4}>
 									No revisions yet — saving the content above records the first
 									one.
+								</EmptyRow>
+							)}
+							{revisionsTruncated && (
+								<EmptyRow colSpan={4}>
+									Showing the latest {revisions.length} revisions — older
+									snapshots are retained.
 								</EmptyRow>
 							)}
 						</TBody>
