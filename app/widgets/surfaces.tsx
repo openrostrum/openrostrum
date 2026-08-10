@@ -24,6 +24,7 @@ import {
 import { FilterBar } from "./filter-bar";
 import { useMySchedule } from "./my-schedule";
 import { SessionCard, SpeakerRow } from "./session-card";
+import { cn } from "~/ui/cn";
 import type {
 	AgendaSurfaceData,
 	HideableField,
@@ -60,6 +61,17 @@ export function SessionsSurface({
 			/>
 		);
 	}
+	const listState = { ...data.filters, page: data.page };
+	if (data.detail) {
+		return (
+			<SessionDetail
+				session={data.detail}
+				backHref={makeHref(base, listState)}
+				backLabel="All sessions"
+				hidden={hidden}
+			/>
+		);
+	}
 	const first = (data.page - 1) * data.pageSize + 1;
 	const last = first + data.sessions.length - 1;
 	return (
@@ -85,7 +97,12 @@ export function SessionsSurface({
 			) : (
 				<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 					{data.sessions.map((session) => (
-						<SessionCard key={session.id} session={session} hidden={hidden} />
+						<SessionCard
+							key={session.id}
+							session={session}
+							hidden={hidden}
+							detailHref={makeHref(base, { ...listState, session: session.id })}
+						/>
 					))}
 				</div>
 			)}
@@ -254,23 +271,32 @@ function SessionDetail({
 	session,
 	backHref,
 	backLabel,
+	hidden,
 }: {
 	session: PublicSession;
 	backHref: string;
 	backLabel: string;
+	/** An embed's hidden card fields stay hidden here too — the detail must
+	 * not undo the organizer's embed configuration one click deep. */
+	hidden?: ReadonlySet<HideableField>;
 }) {
+	const show = (field: HideableField) => !hidden?.has(field);
 	return (
 		<DetailPanel backHref={backHref} backLabel={backLabel}>
 			<div className="flex flex-col gap-4">
 				<div className="flex flex-col gap-1.5">
-					{(session.tracks.length > 0 || session.format) && (
+					{((show("track") && session.tracks.length > 0) ||
+						(show("format") && session.format)) && (
 						<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-							{session.tracks.map((track) => (
-								<Chip key={track.id} color={track.color}>
-									{track.name}
-								</Chip>
-							))}
-							{session.format && <TagPill>{session.format}</TagPill>}
+							{show("track") &&
+								session.tracks.map((track) => (
+									<Chip key={track.id} color={track.color}>
+										{track.name}
+									</Chip>
+								))}
+							{show("format") && session.format && (
+								<TagPill>{session.format}</TagPill>
+							)}
 						</div>
 					)}
 					<h2 className="font-display text-[20px] font-semibold leading-snug text-fg">
@@ -278,23 +304,31 @@ function SessionDetail({
 					</h2>
 				</div>
 				<div className="flex flex-col gap-1.5">
-					<MetaRow label="Date">
-						{session.dateLabel ?? "To be announced"}
-					</MetaRow>
-					<MetaRow label="Time">
-						{session.timeRange ?? "To be announced"}
-					</MetaRow>
-					<MetaRow label="Room">{session.room ?? "To be announced"}</MetaRow>
-					{session.format && <MetaRow label="Format">{session.format}</MetaRow>}
+					{show("time") && (
+						<MetaRow label="Date">
+							{session.dateLabel ?? "To be announced"}
+						</MetaRow>
+					)}
+					{show("time") && (
+						<MetaRow label="Time">
+							{session.timeRange ?? "To be announced"}
+						</MetaRow>
+					)}
+					{show("room") && (
+						<MetaRow label="Room">{session.room ?? "To be announced"}</MetaRow>
+					)}
+					{show("format") && session.format && (
+						<MetaRow label="Format">{session.format}</MetaRow>
+					)}
 					{session.level && <MetaRow label="Level">{session.level}</MetaRow>}
 					{session.language && (
 						<MetaRow label="Language">{session.language}</MetaRow>
 					)}
 				</div>
-				{session.description && (
+				{show("description") && session.description && (
 					<ShowMoreText text={session.description} limit={700} />
 				)}
-				{session.speakers.length > 0 && (
+				{show("speakers") && session.speakers.length > 0 && (
 					<div className="flex flex-col gap-2.5 border-t border-hair pt-4">
 						<h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
 							Speakers ({session.speakers.length})
@@ -312,9 +346,11 @@ function SessionDetail({
 export function AgendaSurface({
 	data,
 	base,
+	hidden,
 }: {
 	data: AgendaSurfaceData;
 	base: string;
+	hidden?: ReadonlySet<HideableField>;
 }) {
 	if (data.detail) {
 		return (
@@ -322,6 +358,7 @@ export function AgendaSurface({
 				session={data.detail}
 				backHref={makeHref(base, { day: data.activeDay })}
 				backLabel="Back to agenda"
+				hidden={hidden}
 			/>
 		);
 	}
@@ -334,6 +371,7 @@ export function AgendaSurface({
 			/>
 		);
 	}
+	const show = (field: HideableField) => !hidden?.has(field);
 	const dayIndex = data.days.findIndex((d) => d.key === data.activeDay);
 	const prevDay = data.days[dayIndex - 1];
 	const nextDay = data.days[dayIndex + 1];
@@ -414,36 +452,55 @@ export function AgendaSurface({
 										}}
 									/>
 								))}
-								{room.blocks.map((block) => (
-									<Link
-										key={block.sessionId}
-										to={makeHref(base, {
-											day: data.activeDay,
-											session: block.sessionId,
-										})}
-										className="absolute flex flex-col gap-0.5 overflow-hidden rounded-[6px] bg-canvas p-1.5 shadow-control hover:bg-chip focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol"
-										style={{
-											top:
-												(block.startMin - data.windowStartMin) * PX_PER_MIN + 1,
-											height: (block.endMin - block.startMin) * PX_PER_MIN - 2,
-											left: `${(block.lane / block.laneCount) * 100}%`,
-											width: `calc(${100 / block.laneCount}% - 4px)`,
-											marginLeft: 2,
-										}}
-									>
-										<span className="font-mono text-[10px] tabular-nums text-fg-muted">
-											{block.timeRange}
-										</span>
-										<span className="text-[12px] font-medium leading-tight text-fg">
-											{block.title}
-										</span>
-										{block.track ? (
-											<Chip color={block.track.color}>{block.track.name}</Chip>
-										) : (
-											block.format && <TagPill>{block.format}</TagPill>
-										)}
-									</Link>
-								))}
+								{room.blocks.map((block) => {
+									// Content adapts to the box: every block fits its anatomy
+									// instead of clipping text mid-line (short talks share a
+									// slot with long ones — see layoutLanes).
+									const minutes = block.displayEndMin - block.startMin;
+									return (
+										<Link
+											key={block.sessionId}
+											to={makeHref(base, {
+												day: data.activeDay,
+												session: block.sessionId,
+											})}
+											title={block.title}
+											className="absolute flex flex-col gap-0.5 overflow-hidden rounded-[6px] bg-canvas p-1.5 shadow-control hover:bg-chip focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol"
+											style={{
+												top:
+													(block.startMin - data.windowStartMin) * PX_PER_MIN +
+													1,
+												height: minutes * PX_PER_MIN - 2,
+												left: `${(block.lane / block.laneCount) * 100}%`,
+												width: `calc(${100 / block.laneCount}% - 4px)`,
+												marginLeft: 2,
+											}}
+										>
+											{show("time") && (
+												<span className="truncate font-mono text-[10px] tabular-nums text-fg-muted">
+													{block.timeRange}
+												</span>
+											)}
+											<span
+												className={cn(
+													"text-[12px] font-medium leading-tight text-fg",
+													minutes >= 60 ? "line-clamp-2" : "truncate",
+												)}
+											>
+												{block.title}
+											</span>
+											{minutes >= 45 &&
+												(show("track") && block.track ? (
+													<Chip color={block.track.color}>
+														{block.track.name}
+													</Chip>
+												) : (
+													show("format") &&
+													block.format && <TagPill>{block.format}</TagPill>
+												))}
+										</Link>
+									);
+								})}
 							</div>
 						</div>
 					))}

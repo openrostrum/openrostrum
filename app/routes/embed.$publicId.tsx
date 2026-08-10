@@ -140,7 +140,7 @@ export default function EmbedPage({
 				)}
 				{surface.type === "agenda" &&
 					(surface.data ? (
-						<AgendaSurface data={surface.data} base={base} />
+						<AgendaSurface data={surface.data} base={base} hidden={hidden} />
 					) : (
 						<AgendaUnpublished event={event} />
 					))}

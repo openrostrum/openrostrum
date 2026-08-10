@@ -448,6 +448,10 @@ export function buildSessionsData(
 	const filters = parseFilters(url);
 	const filtered = filterSessions(all, filters);
 	const { page, pages, slice } = paginate(filtered, url, SESSIONS_PAGE_SIZE);
+	// Detail resolves against the FULL program (like the agenda's), so a shared
+	// link keeps working even when the viewer's filters would exclude it.
+	const detailId = url.searchParams.get("session");
+	const detail = detailId ? (all.find((s) => s.id === detailId) ?? null) : null;
 	return {
 		sessions: slice,
 		total: filtered.length,
@@ -457,6 +461,7 @@ export function buildSessionsData(
 		facets: facetsFrom(all),
 		filters,
 		hasAnySessions: all.length > 0,
+		detail,
 	};
 }
 
@@ -502,6 +507,8 @@ export function buildAgendaData(
 	const daySessions = scheduled.filter((s) => s.dayKey === activeDay);
 
 	// Window: the event's configured agenda day, widened if a session overflows.
+	// The end widens to each block's DISPLAY extent so a floored short session
+	// at the day's edge still renders inside the grid.
 	let windowStartMin = event.agendaDayStartMin;
 	let windowEndMin = event.agendaDayEndMin;
 	for (const s of daySessions) {
@@ -510,8 +517,11 @@ export function buildAgendaData(
 				windowStartMin,
 				Math.floor(s.startMin / 60) * 60,
 			);
-		if (s.endMin !== null)
-			windowEndMin = Math.max(windowEndMin, Math.ceil(s.endMin / 60) * 60);
+		if (s.startMin !== null && s.endMin !== null)
+			windowEndMin = Math.max(
+				windowEndMin,
+				Math.ceil(Math.max(s.endMin, s.startMin + MIN_BLOCK_MINUTES) / 60) * 60,
+			);
 	}
 
 	const roomIds = new Map<string, { name: string; order: number }>();
@@ -557,20 +567,44 @@ export function buildAgendaData(
 	};
 }
 
-/** Overlapping same-room blocks split into side-by-side lanes instead of stacking. */
+/** A block renders at least this many minutes tall. At the grid's 1.5 px/min
+ * scale this is exactly the time line + one title line; below it the text
+ * clips mid-line. If the view's scale changes, retune this with it. */
+const MIN_BLOCK_MINUTES = 30;
+
+/** Lanes use DISPLAY extents (endMin floored to MIN_BLOCK_MINUTES) so a
+ * short session's legible-height box never sits on top of its lane
+ * neighbor. laneCount is per overlap CLUSTER, not per day — one lightning
+ * block must not shrink every other block in the room. */
 function layoutLanes(sessions: PublicSession[]): AgendaBlock[] {
 	const blocks: AgendaBlock[] = [];
 	const laneEnds: number[] = [];
+	let clusterStart = 0;
+	let clusterEndMin = 0;
+	const sealCluster = (upTo: number) => {
+		for (let i = clusterStart; i < upTo; i++) {
+			const block = blocks[i];
+			if (block) block.laneCount = laneEnds.length || 1;
+		}
+	};
 	for (const s of sessions) {
 		const startMin = s.startMin;
 		const endMin = s.endMin;
 		if (startMin === null || endMin === null) continue;
+		if (blocks.length > clusterStart && startMin >= clusterEndMin) {
+			sealCluster(blocks.length);
+			clusterStart = blocks.length;
+			clusterEndMin = 0;
+			laneEnds.length = 0;
+		}
+		const displayEndMin = Math.max(endMin, startMin + MIN_BLOCK_MINUTES);
 		let lane = laneEnds.findIndex((end) => end <= startMin);
 		if (lane === -1) {
 			lane = laneEnds.length;
 			laneEnds.push(0);
 		}
-		laneEnds[lane] = endMin;
+		laneEnds[lane] = displayEndMin;
+		clusterEndMin = Math.max(clusterEndMin, displayEndMin);
 		blocks.push({
 			sessionId: s.id,
 			title: s.title,
@@ -579,12 +613,12 @@ function layoutLanes(sessions: PublicSession[]): AgendaBlock[] {
 			format: s.format,
 			startMin,
 			endMin,
+			displayEndMin,
 			lane,
 			laneCount: 1,
 		});
 	}
-	const laneCount = laneEnds.length || 1;
-	for (const b of blocks) b.laneCount = laneCount;
+	sealCluster(blocks.length);
 	return blocks;
 }
 
