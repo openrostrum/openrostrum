@@ -14,7 +14,7 @@ Date: 2026-08-08. Source: Sessionboard's own help center, now a rebuilt **Astro/
 
 ## A. Guidde playbooks found (26 total, all from `/videos/*`)
 
-Round 1 saved no IDs/JSON. By step-count, 17 of round-1's 18 modules map 1:1 to a `/videos` playbook; round-1 `05-evaluations` maps to `video-evaluation-plans`. All 26 JSONs saved in `json/`. Fully extracted (images+captions) = the 8 NEW + eval-plans (marked ✅).
+Round 1 saved no IDs/JSON. By step-count, 17 of round-1's 18 modules map 1:1 to a `/videos` playbook; round-1 `05-evaluations` maps to `video-evaluation-plans`. Raw JSONs were purged 2026-08-10 (captions fully extracted). Fully extracted (images+captions) = the 8 NEW + eval-plans (marked ✅).
 
 | Playbook ID | KB page (/videos/) | Title | Gen | Steps | Extracted here | Maps to round-1 |
 |---|---|---|---|---|---|---|
@@ -74,7 +74,7 @@ Non-Guidde video embeds: `video-ai-evaluations` → YouTube `BXSO-KO35qs`; `port
 ## D. Files in this folder
 - `kb-screenshots/<section>/<page>/NN.png` + `CAPTIONS.md` (alt-text captions + source URLs) — 906 imgs / 122 pages.
 - `guidde-playbooks/<name>/NN.png` + `CAPTIONS.md` (with narration) + `playbook.json` — 9 playbooks / 128 imgs.
-- `json/<ID>.json` — raw Guidde JSON for all 26 playbooks.
+- raw `json/` captures: purged 2026-08-10 after extraction.
 - `kb_image_index.json` — page→(image URL, alt) index for the whole KB.
 - `urls.txt`, `sitemap-0.xml` — full KB URL list (226 pages). `guidde-map.txt` — page→playbook-ID map.
 

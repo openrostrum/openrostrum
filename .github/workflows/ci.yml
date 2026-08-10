@@ -25,7 +25,7 @@ jobs:
         run: |
           changed="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
           if printf '%s\n' "$changed" | grep -Eq \
-            '^(app/db/schema\.ts|drizzle/seed\.sql|package\.json|pnpm-lock\.yaml|wrangler\.json)$|^drizzle/migrations/'; then
+            '^(app/db/schema\.ts|drizzle/seed\.sql|package\.json|pnpm-lock\.yaml|wrangler\.json|app/app\.css)$|^drizzle/migrations/|^app/ui/'; then
             echo "::error::This branch edits an integration-owned shared file (schema/migrations/seed/package.json/lockfile/wrangler.json)."
             echo "::error::Request the change from the integration owner, or ship it on an integration/* branch."
             exit 1

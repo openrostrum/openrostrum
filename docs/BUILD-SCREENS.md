@@ -6,6 +6,8 @@ Answers "do we have a screenshot for every single page/flow to create?" — mapp
 
 Legend: 🟢 have a clear latest-version shot · 🟡 have a shot but older-gen or partial (field detail still valid) · ⚪ nothing to copy (we design/build beyond).
 
+> ⚠️ **Worktree agents: the screenshot IMAGE files are gitignored and exist only on the owner's main checkout** — from inside a build worktree you get the `CAPTIONS.md` text, not pixels. Build from captions + the design system; ask the integration owner only if a caption is genuinely ambiguous.
+
 ## Admin — app shell & dashboard
 | Screen (we build) | Tier | Shot? | Best path |
 |---|---|---|---|
@@ -100,7 +102,7 @@ Legend: 🟢 have a clear latest-version shot · 🟡 have a shot but older-gen 
 | Event Settings — Event Details | 🟢 | `f_029`; KB `settings/`; SCOPE App. B |
 | Library — Tags / Tracks / Formats / Levels | 🟢 | guidde `08-session-settings/`, `08-event-settings/`; KB `settings/` |
 
-## P2 — embeds (bonus)
+## P1 #16 — embeds (promoted from P2, 2026-08-09; ~19% of rubric)
 | Screen | Shot? | Best path |
 |---|---|---|
 | Embeds list | 🟢 | guidde `06-embeds/`; KB `sessions/embeds` |

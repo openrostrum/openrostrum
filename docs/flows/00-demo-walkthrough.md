@@ -71,7 +71,7 @@ Saves → form "Session Submission Form #3" appears in Forms list (Open, closes 
 **F1.** "Once things have been evaluated, accepted… then we can add the accepted sessions in here for the agenda." Agenda views List/Day/Week/Month/Rooms/Conflicts; Add Session; drafts. → `f_083.jpg`
 **F2.** Embeds (8:25): "showing them or embedding them in some external environment where you can get the code… it's a very standard event display with everything all linked." Embed editor + live preview: day grid by room, session cards with track pill, session modal with speakers **and an "Add to Calendar" button** (attendee-side pull — distinct from the brief's per-speaker invite push, which Sessionboard lacks). → `f_087.jpg`, `f_089.jpg`, `f_091.jpg`
 *Coverage note (verified 2026-08-08 via scene-change re-extraction of 7:35–9:05): the video never shows a populated admin agenda, drag-drop scheduling, or the evaluator scoring UI — those come from the official KB docs (flows 05/06), and the Sat/Sun walkthrough videos may show them live.*
-*(Embeds are OPTIONAL per the brief's annotations — P2 #2 in SCOPE.md — but this is the demo's closing image; a public /schedule page covers the same ground.)*
+*(Embeds were "optional" in the brief but are CORE under the eval kit — P1 #16 in SCOPE.md, ~19% of the rubric; this is also the demo's closing image.)*
 
 ## Closing guidance from the video (8:48–9:52)
 

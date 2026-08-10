@@ -8,7 +8,7 @@ pre-commit:
       run: bash scripts/check-map.sh
     - name: format
       glob: "*.{js,jsx,ts,tsx,mjs,mts,cjs,cts,json,jsonc,md}"
-      run: pnpm exec biome format --write {staged_files}
+      run: pnpm exec biome format --write --no-errors-on-unmatched {staged_files}
       stage_fixed: true
     - name: lint
       run: pnpm lint

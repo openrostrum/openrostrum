@@ -37,12 +37,12 @@ decision still needed. Corroboration = how many walkers hit it independently.
 | Track delete cascade silently strips submissions' tracks | FIXED: `restrict` + Library shows "in use by N" |
 | Withdraw leaves scheduled ghost on grid | SPEC'D: withdraw unschedules (nulls startsAt/endsAt/roomId) |
 | `forms.status` lifecycle undefined | SPEC'D: publish sets `open`; public route reachable iff `open`; `closeAt` gates submission only |
-| Wizard step-state carrier | SPEC'D: draft row minted on first VALID submission-step save; nothing persisted on failed validation |
+| Wizard step-state carrier | ~~SPEC'D: draft row minted on first VALID submission-step save~~ **SUPERSEDED by K1 below**: draft save requires only a non-empty Title |
 | Draft-with-no-participants invisible in portal | SPEC'D: My Submissions = participant-linked ∪ own drafts (UNION) |
 | Homeless committed routes (CSV export, email history, task responses, forgot-password, unsubscribe, my-reviews, set-password, files up/download, reviewer mgmt, contacts) | FIXED: ROUTE-MAP rows added |
 | Seed ≠ scenario fixtures (named identities, limit=3, scale) | FIXED: seed enriched with scenario fixtures + scale layer |
 | One-click accept marked "optional" vs committed scenario | DECIDED: committed (strike "optional") |
-| Impersonation commitment ambiguity in SCOPE | DECIDED: stamped COMMITTED in SCOPE (matches partial-gaps) |
+| Impersonation commitment ambiguity in SCOPE | DECIDED: stamped COMMITTED in SCOPE |
 
 ## Minor items
 Tracked inline in the walk files; addressed opportunistically by build agents —

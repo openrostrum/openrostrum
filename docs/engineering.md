@@ -1,6 +1,6 @@
 # Engineering conventions — how code is written here
 
-House conventions only. The **mandatory platform rules** (D1 batch, react-router-only imports, WebCrypto hashing, R2, email, Tailwind, routing) live in [`tech-stack.md`](tech-stack.md) — read that first; nothing there is restated here.
+House conventions only. The **mandatory platform rules** (D1 batch, react-router-only imports, WebCrypto hashing, R2, email, Tailwind, routing) live in [`tech-stack.md`](tech-stack.md) — read that first; nothing there is restated here. For RR7 framework-mode idioms (loaders/actions/typegen), consult the vendored [`react-router` skill](../.agents/skills/react-router/SKILL.md) before guessing from memory.
 
 ## The pattern to copy [lint-assisted]
 
