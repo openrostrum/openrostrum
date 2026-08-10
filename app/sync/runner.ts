@@ -105,6 +105,10 @@ type DecisionTarget = (typeof DECISION_STATUS)[number];
 const STATE_TABLE = "$sync";
 const STATE_RECORD = "state";
 const LOCK_RECORD = "lock";
+// The webhook high-water mark gets its own row so the unlocked webhook route
+// and the locked runner never read-modify-write the same blob (a ping landing
+// mid-run must not be lost to the run's final state write).
+const WEBHOOK_RECORD = "webhook";
 // A tick is seconds of wall time; a lock this old belongs to a crashed run.
 const LOCK_TTL_MS = 5 * 60_000;
 
@@ -123,7 +127,6 @@ export interface SyncState {
 	lastRunStatus?: "ok" | "failed" | "breaker_tripped";
 	lastRunTables?: Record<string, TableRunStats>;
 	lastError?: string;
-	lastWebhookAt?: string;
 	/** The in-app audit trail for "Airtable won this conflict" (capped). */
 	recentConflicts?: ConflictEntry[];
 }
@@ -161,6 +164,50 @@ export async function writeSyncState(db: Db, state: SyncState): Promise<void> {
 				syncedAt: new Date(),
 			},
 		});
+}
+
+export async function readLastWebhookPing(db: Db): Promise<string | null> {
+	const [row] = await db
+		.select({ snapshot: airtableLinks.baseSnapshot })
+		.from(airtableLinks)
+		.where(
+			and(
+				eq(airtableLinks.tableName, STATE_TABLE),
+				eq(airtableLinks.recordId, WEBHOOK_RECORD),
+			),
+		)
+		.limit(1);
+	const at = (row?.snapshot as { lastWebhookAt?: string } | null)
+		?.lastWebhookAt;
+	return typeof at === "string" ? at : null;
+}
+
+/**
+ * Record a ping's timestamp; a timestamp not newer than the stored
+ * high-water mark is an at-least-once replay (reported, never regressed).
+ */
+export async function recordWebhookPing(
+	db: Db,
+	timestamp: string | undefined,
+): Promise<{ replayed: boolean }> {
+	if (!timestamp) return { replayed: false };
+	const last = await readLastWebhookPing(db);
+	if (last && timestamp <= last) return { replayed: true };
+	const snapshot = { lastWebhookAt: timestamp };
+	await db
+		.insert(airtableLinks)
+		.values({
+			tableName: STATE_TABLE,
+			recordId: WEBHOOK_RECORD,
+			airtableId: `${STATE_TABLE}:${WEBHOOK_RECORD}`,
+			baseSnapshot: snapshot,
+			syncedAt: new Date(),
+		})
+		.onConflictDoUpdate({
+			target: [airtableLinks.tableName, airtableLinks.recordId],
+			set: { baseSnapshot: snapshot, syncedAt: new Date() },
+		});
+	return { replayed: false };
 }
 
 /**
@@ -513,20 +560,37 @@ async function reconcileAll(
 		});
 	}
 
-	// Circuit breaker — over the org-filtered linked set only.
-	const linked = work.reduce((n, w) => n + w.plan.linkedPresent, 0);
-	const absent = work.reduce((n, w) => n + w.newArchives.length, 0);
-	if (
-		!acknowledgeDeletions &&
-		linked > 0 &&
-		absent / linked > BREAKER_THRESHOLD
-	) {
-		track("sync.breaker_tripped", { absent, linked, trigger });
+	// Circuit breaker — PER TABLE, over the org-filtered linked set only: the
+	// select-all accident it guards against happens in one table's view, and a
+	// large contacts table must not dilute a wiped-out sessions table below
+	// the threshold.
+	const tripped = work.filter(
+		(w) =>
+			w.plan.linkedPresent > 0 &&
+			w.newArchives.length / w.plan.linkedPresent > BREAKER_THRESHOLD,
+	);
+	if (!acknowledgeDeletions && tripped.length > 0) {
+		const absent = tripped.reduce((n, w) => n + w.newArchives.length, 0);
+		const linked = tripped.reduce((n, w) => n + w.plan.linkedPresent, 0);
+		const detail = tripped
+			.map(
+				(w) =>
+					`${w.newArchives.length} of ${w.plan.linkedPresent} ${w.map.airtableTable}`,
+			)
+			.join(", ");
+		for (const w of tripped) {
+			track("sync.breaker_tripped", {
+				table: w.table,
+				absent: w.newArchives.length,
+				linked: w.plan.linkedPresent,
+				trigger,
+			});
+		}
 		const fresh = await readSyncState(db);
 		await writeSyncState(db, {
 			...fresh,
 			pausedAt: now.toISOString(),
-			pausedReason: `${absent} of ${linked} synced rows were deleted in Airtable in one pass. Sync is paused so an accidental mass-delete can't archive them all — review the base, then resume to apply the deletions.`,
+			pausedReason: `${detail} synced rows were deleted in Airtable in one pass. Sync is paused so an accidental mass-delete can't archive them all — review the base, then resume to apply the deletions.`,
 			lastRunAt: now.toISOString(),
 			lastRunTrigger: trigger,
 			lastRunStatus: "breaker_tripped",

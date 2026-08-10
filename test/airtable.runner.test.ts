@@ -510,6 +510,37 @@ describe("airtable sync runner — deletes and the circuit breaker", () => {
 		expect((await readSyncState(db())).pausedAt).toBeUndefined();
 	});
 
+	it("trips the breaker per table — a large contacts table cannot dilute a wiped-out sessions table", async () => {
+		await seedOrgs();
+		for (const id of ["s1", "s2", "s3", "s4"]) {
+			await seedSubmission(id);
+		}
+		for (let i = 0; i < 20; i += 1) {
+			await seedContact(`c${i}`);
+		}
+		const fake = createFakeAirtableBase();
+		await run(fake);
+
+		// A select-all accident in the Sessions view: all 4 sessions vanish —
+		// only ~17% of the 24 linked rows overall, but 100% of the table.
+		for (const id of ["s1", "s2", "s3", "s4"]) {
+			fake.remove(
+				"Sessions",
+				recordFor(fake, "Sessions", id)?.airtableId ?? "",
+			);
+		}
+		const result = await run(fake);
+		expect(result).toMatchObject({
+			status: "breaker_tripped",
+			absent: 4,
+			linked: 4,
+		});
+		const statuses = await db()
+			.select({ status: submissions.status })
+			.from(submissions);
+		expect(statuses.every((s) => s.status === "pending")).toBe(true);
+	});
+
 	it("ignores a resume acknowledgement when sync is not paused — the breaker still trips", async () => {
 		await seedOrgs();
 		for (const id of ["s1", "s2", "s3", "s4", "s5"]) {

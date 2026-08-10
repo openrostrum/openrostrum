@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import { action, loader } from "../app/routes/hooks.airtable";
-import { readSyncState } from "../app/sync/runner";
+import { readLastWebhookPing } from "../app/sync/runner";
 
 // The webhook receiver's contract: HMAC-verified (X-Airtable-Content-MAC over
 // the raw body), 200 fast with the reconcile tick handed to waitUntil — and a
@@ -96,7 +96,7 @@ describe("POST /hooks/airtable", () => {
 		} as unknown as ActionArgs)) as Response;
 		expect(response.status).toBe(401);
 		expect(scheduled).toHaveLength(0);
-		expect((await readSyncState(getDb(env))).lastWebhookAt).toBeUndefined();
+		expect(await readLastWebhookPing(getDb(env))).toBeNull();
 	});
 
 	it("rejects an unsigned ping", async () => {
@@ -154,7 +154,7 @@ describe("POST /hooks/airtable", () => {
 		await expect(scheduled[0]).resolves.toMatchObject({
 			status: "not_configured",
 		});
-		expect((await readSyncState(getDb(env))).lastWebhookAt).toBe(
+		expect(await readLastWebhookPing(getDb(env))).toBe(
 			"2026-08-10T12:34:56.000Z",
 		);
 	});
@@ -176,7 +176,7 @@ describe("POST /hooks/airtable", () => {
 		expect(response.status).toBe(200);
 		expect(scheduled).toHaveLength(2);
 		// The high-water mark is kept, not regressed by the replay.
-		expect((await readSyncState(getDb(env))).lastWebhookAt).toBe(
+		expect(await readLastWebhookPing(getDb(env))).toBe(
 			"2026-08-10T12:34:56.000Z",
 		);
 	});

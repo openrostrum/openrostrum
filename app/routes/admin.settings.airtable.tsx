@@ -7,6 +7,7 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { createTimings } from "~/lib/track";
 import {
 	DEMO_ORG_ID,
+	readLastWebhookPing,
 	readSyncState,
 	runAirtableSync,
 	type TableRunStats,
@@ -57,14 +58,18 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 
 	const db = getDb(env);
 	const timings = createTimings();
-	const { linkCounts, syncState } = await timings.time("db", async () => ({
-		linkCounts: await db
-			.select({ tableName: airtableLinks.tableName, linked: count() })
-			.from(airtableLinks)
-			.where(inArray(airtableLinks.tableName, [...SYNCED_TABLES]))
-			.groupBy(airtableLinks.tableName),
-		syncState: await readSyncState(db),
-	}));
+	const { linkCounts, syncState, lastPingAt } = await timings.time(
+		"db",
+		async () => ({
+			linkCounts: await db
+				.select({ tableName: airtableLinks.tableName, linked: count() })
+				.from(airtableLinks)
+				.where(inArray(airtableLinks.tableName, [...SYNCED_TABLES]))
+				.groupBy(airtableLinks.tableName),
+			syncState: await readSyncState(db),
+			lastPingAt: await readLastWebhookPing(db),
+		}),
+	);
 	const countByTable = new Map(linkCounts.map((c) => [c.tableName, c.linked]));
 	return data(
 		{
@@ -74,7 +79,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				secretSet: Boolean(env.AIRTABLE_WEBHOOK_SECRET),
 				refreshConfigured: Boolean(env.AIRTABLE_WEBHOOK_ID),
 				// Liveness evidence — a received ping, never inferred from config.
-				lastPingAt: syncState.lastWebhookAt ?? null,
+				lastPingAt,
 			},
 			recentConflicts: syncState.recentConflicts ?? [],
 			paused: syncState.pausedAt

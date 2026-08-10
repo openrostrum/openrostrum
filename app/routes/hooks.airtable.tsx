@@ -1,9 +1,9 @@
 // @public — Airtable webhook pings authenticate by HMAC signature
 // (X-Airtable-Content-MAC over the raw body, keyed by the webhook's MAC
 // secret), not by session: Airtable's servers are the caller.
-import { track } from "~/lib/track";
 import { getDb } from "~/db";
-import { readSyncState, runAirtableSync, writeSyncState } from "~/sync/runner";
+import { track } from "~/lib/track";
+import { recordWebhookPing, runAirtableSync } from "~/sync/runner";
 import type { Route } from "./+types/hooks.airtable";
 
 const MAC_HEADER = "X-Airtable-Content-MAC";
@@ -90,20 +90,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 
 	// At-least-once delivery: a replay (timestamp not newer than the last seen
 	// ping) is tracked as such, and re-running the tick is a no-op by design.
-	const db = getDb(env);
-	const state = await readSyncState(db);
-	const replayed = Boolean(
-		ping.timestamp &&
-			state.lastWebhookAt &&
-			ping.timestamp <= state.lastWebhookAt,
-	);
+	const { replayed } = await recordWebhookPing(getDb(env), ping.timestamp);
 	track("sync.webhook_ping", {
 		webhookId: ping.webhook?.id ?? null,
 		replayed,
 	});
-	if (!replayed && ping.timestamp) {
-		await writeSyncState(db, { ...state, lastWebhookAt: ping.timestamp });
-	}
 
 	// Respond immediately (Airtable disables webhooks after repeated slow/failed
 	// deliveries); the reconcile tick runs out-of-band on this invocation.

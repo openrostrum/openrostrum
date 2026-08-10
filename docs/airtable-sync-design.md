@@ -130,15 +130,17 @@ exactly the behavior swyx praised.
 5. **`airtable_links` schema — LANDED in `app/db/schema.ts`** (2026-08-09):
    `(tableName, recordId) ⇄ airtableId` + `baseSnapshot` JSON (synced fields
    only — team-private columns never enter it) + `syncedAt`.
-   **Reserved shapes (build decision 2026-08-10):** the sync engine owns two
-   `tableName='$sync'` rows — `state` (breaker pause, last-run outcome, last
-   webhook ping, recent-conflict audit) and `lock` (the at-most-one-tick run
-   lock) — and one reserved snapshot key, `$remoteDeleted`, marking a link
+   **Reserved shapes (build decision 2026-08-10):** the sync engine owns
+   three `tableName='$sync'` rows — `state` (breaker pause, last-run outcome,
+   recent-conflict audit), `lock` (the at-most-one-tick run lock), and
+   `webhook` (the ping high-water mark, in its own row so the unlocked
+   webhook route and the locked runner never read-modify-write the same
+   blob) — and one reserved snapshot key, `$remoteDeleted`, marking a link
    whose base row the team deleted (honored: never recreated; cleared on
    restore-from-trash). All reconciliation selects filter `tableName` to the
-   real synced tables, so these never enter a plan. A dedicated `sync_state`
-   table is a welcome integration-owner cleanup; the reserved rows keep the
-   feature deliverable without a schema wave.
+   real synced tables, so these never enter a plan. Registered for the
+   integration owner as GAP-REGISTER T4 (dedicated `sync_state` table, or
+   stamp the reserved rows as accepted).
 
 ## Build decisions (2026-08-10, within the mechanism above)
 
@@ -155,6 +157,13 @@ exactly the behavior swyx praised.
   provisioning-lane work (`AIRTABLE_WEBHOOK_SECRET` + `AIRTABLE_WEBHOOK_ID`).
   The admin page reports webhook liveness from received-ping evidence, never
   from configuration presence.
+- **Poll cadence:** the deployed cron is currently DAILY (`wrangler.json` is
+  integration-owned); the hourly commitment above stands as GAP-REGISTER T3
+  — the job is idempotent and lock-guarded, so the owner adds the hourly
+  trigger without code changes.
+- **Circuit breaker scope:** the >20% ratio is evaluated PER TABLE — the
+  select-all accident it exists for happens in one table's view, and a large
+  contacts table must not dilute a wiped-out sessions table below threshold.
 
 ## Process at build (P1 #15)
 
