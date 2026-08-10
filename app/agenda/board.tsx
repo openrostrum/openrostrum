@@ -274,7 +274,7 @@ function GridBlock({
 					: `${session.title}\n${timeLabel}`
 			}
 			className={cn(
-				"group absolute overflow-hidden rounded-[6px] bg-surface p-[6px] text-left shadow-card",
+				"group absolute overflow-hidden rounded-control bg-surface p-[6px] text-left shadow-card",
 				"outline-1 -outline-offset-1 outline-hair",
 				draggable && "cursor-grab touch-none",
 				isDragging && "opacity-40",
@@ -478,7 +478,7 @@ function TrayCard({
 			{...listeners}
 			{...attributes}
 			className={cn(
-				"rounded-[7px] bg-surface p-[9px] shadow-control",
+				"rounded-control bg-surface p-[9px] shadow-control",
 				session.schedulable ? "cursor-grab touch-none" : "opacity-70",
 				isDragging && "opacity-40",
 				dimmed && "opacity-40",
@@ -885,7 +885,7 @@ export function AgendaBoard({
 	};
 
 	const gridBody = (() => {
-		if (rooms.length === 0 && view === "day") {
+		if (rooms.length === 0 && (view === "day" || view === "week")) {
 			return (
 				<EmptyState
 					icon="calendar"
@@ -1010,7 +1010,7 @@ export function AgendaBoard({
 			</div>
 			<DragOverlay dropAnimation={null}>
 				{active && (
-					<div className="w-[220px] cursor-grabbing rounded-[7px] bg-surface p-[9px] shadow-card outline-2 -outline-offset-2 outline-petrol">
+					<div className="w-[220px] cursor-grabbing rounded-control bg-surface p-[9px] shadow-card outline-2 -outline-offset-2 outline-petrol">
 						<div className="text-[12.5px] font-medium leading-[16px] text-fg">
 							{active.title}
 						</div>

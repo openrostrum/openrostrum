@@ -19,7 +19,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Form builder (list) | `admin.forms.tsx` | `/admin/forms` | 1 | todo |
 | Form builder (editor) | `admin.forms.$formId.tsx` | `/admin/forms/:formId` | 1 | todo |
 | Evaluation | `admin.evaluation.tsx` | `/admin/evaluation` | 3 | todo |
-| Agenda | `admin.agenda.tsx` | `/admin/agenda` | 3 | todo |
+| Agenda | `admin.agenda.tsx` | `/admin/agenda` | 3 | done |
 | Tasks dashboard | `admin.tasks.tsx` | `/admin/tasks` | 3 | todo |
 | Email templates | `admin.emails.tsx` · `admin.emails.$key.tsx` | `/admin/emails` | 1 | todo |
 | Event settings | `admin.settings.tsx` | `/admin/settings` | 1 | todo |

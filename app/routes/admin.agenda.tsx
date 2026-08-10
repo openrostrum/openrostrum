@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	data,
 	Form,
@@ -8,7 +8,6 @@ import {
 	useFetchers,
 	useNavigation,
 	useSearchParams,
-	useSubmit,
 } from "react-router";
 import { z } from "zod";
 import {
@@ -632,6 +631,30 @@ export async function action({ context, request }: Route.ActionArgs) {
 
 /* ------------------------------------------------------------- component --- */
 
+/**
+ * One keyed fetcher for all drag/unschedule posts, with a queue: a quick
+ * second drag must never abort an in-flight write (resubmitting a busy
+ * fetcher cancels its request), and a keyed fetcher's `data` persists so a
+ * rejected drop surfaces as an inline error instead of a silent snap-back.
+ * The next successful mutation clears it.
+ */
+function useMutationQueue() {
+	const fetcher = useFetcher<ActionResult>({ key: "agenda-dnd" });
+	const queueRef = useRef<FormData[]>([]);
+	const idle = fetcher.state === "idle";
+	useEffect(() => {
+		if (idle) {
+			const next = queueRef.current.shift();
+			if (next) fetcher.submit(next, { method: "post" });
+		}
+	}, [idle, fetcher]);
+	const submitMutation = (fd: FormData) => {
+		if (fetcher.state === "idle") void fetcher.submit(fd, { method: "post" });
+		else queueRef.current.push(fd);
+	};
+	return { submitMutation, mutationError: fetcher.data?.formError ?? null };
+}
+
 function useOptimisticSessions(
 	base: AgendaSession[],
 	timezone: string,
@@ -698,11 +721,13 @@ export default function Agenda({
 	actionData,
 }: Route.ComponentProps) {
 	const [searchParams, setSearchParams] = useSearchParams();
-	const submit = useSubmit();
 	const navigation = useNavigation();
 	const placeFetcher = useFetcher<ActionResult>();
 	const publishFetcher = useFetcher<ActionResult>();
+	// Search stays local state (not a URL param): a param write per keystroke
+	// would spam history with navigations for a filter nobody deep-links.
 	const [q, setQ] = useState("");
+	const { submitMutation, mutationError } = useMutationQueue();
 
 	const event = loaderData.event;
 	const timezone = event?.timezone ?? "UTC";
@@ -768,15 +793,13 @@ export default function Agenda({
 		fd.set("day", day);
 		fd.set("startMinutes", String(minutes));
 		fd.set("roomId", roomId);
-		// navigate:false mints a fresh fetcher per drop, so a quick second drag
-		// can never abort the first write.
-		void submit(fd, { method: "post", navigate: false });
+		submitMutation(fd);
 	};
 	const onUnschedule = (sessionId: string) => {
 		const fd = new FormData();
 		fd.set("intent", "unschedule");
 		fd.set("submissionId", sessionId);
-		void submit(fd, { method: "post", navigate: false });
+		submitMutation(fd);
 	};
 
 	const visibleRooms = loaderData.rooms.filter((r) => r.visible);
@@ -858,8 +881,14 @@ export default function Agenda({
 						.
 					</InfoBar>
 				)}
-			{placeFetcher.data?.formError && (
-				<ErrorText>{placeFetcher.data.formError}</ErrorText>
+			{(mutationError ??
+				placeFetcher.data?.formError ??
+				publishFetcher.data?.formError) && (
+				<ErrorText>
+					{mutationError ??
+						placeFetcher.data?.formError ??
+						publishFetcher.data?.formError}
+				</ErrorText>
 			)}
 
 			<Tabs>
