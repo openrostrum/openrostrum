@@ -1,14 +1,13 @@
 export const GITHUB_URL = "https://github.com/openrostrum/openrostrum";
-export const DEMO_EMAIL = "admin@example.com";
-export const DEMO_PASSWORD = "password";
+export const DEPLOY_GUIDE_URL = `${GITHUB_URL}#deploy-your-own`;
+export const ISSUES_URL = `${GITHUB_URL}/issues`;
 
-// The six firm requirements from the brief, in the organizer's language. They
-// are a real numbered list (requirement 1–6), which is why the section numbers
-// them — the claim is "all six, shipped", not decoration. Copy stays concrete:
-// what an organizer can do, never adjectives.
-export type Requirement = { title: string; body: string };
+// The six jobs that make up the program side of a conference, in the order an
+// event team lives them. Copy stays concrete — what an organizer can do, never
+// adjectives — and no claim ships without a verified feature behind it.
+export type Job = { title: string; body: string };
 
-export const REQUIREMENTS: Requirement[] = [
+export const JOBS: Job[] = [
 	{
 		title: "Call for speakers",
 		body: "A multi-step form builder with conditional logic, participant roles, and close dates. Copy the public link and submissions start arriving.",
@@ -32,6 +31,35 @@ export const REQUIREMENTS: Requirement[] = [
 	{
 		title: "Outstanding tasks",
 		body: "Which speakers still owe a bio, a headshot, or a hotel form — the whole roster on one screen, no spreadsheet on the side.",
+	},
+];
+
+// The live public surfaces of this deployment's current event. These are the
+// product's most inspectable output — a prospect can judge the attendee-facing
+// result without an account — and linking them from the homepage is also a hard
+// requirement (every public surface reachable from the base URL).
+export type PublicPage = { label: string; description: string; to: string };
+
+export const PUBLIC_PAGES: PublicPage[] = [
+	{
+		label: "Schedule",
+		description: "The day × room grid attendees plan around.",
+		to: "/schedule",
+	},
+	{
+		label: "Speakers",
+		description: "Directory with photos, bios, and each speaker's sessions.",
+		to: "/speakers",
+	},
+	{
+		label: "Sessions",
+		description: "Searchable catalog with track and format filters.",
+		to: "/sessions",
+	},
+	{
+		label: "Agenda",
+		description: "Chronological day-by-day view with a personal itinerary.",
+		to: "/agenda",
 	},
 ];
 
@@ -63,30 +91,9 @@ export const COMPARE: CompareRow[] = [
 		theirs: { yes: true },
 	},
 	{
-		label: "Airtable",
-		ours: { text: "Native sync" },
+		label: "Airtable sync",
+		ours: { text: "Native" },
 		theirs: { text: "Zapier only" },
 	},
 	{ label: "Pricing", ours: { text: "Free · MIT" }, theirs: { text: "Paid" } },
-];
-
-export const DEPLOY_STEPS: { comment: string; command: string }[] = [
-	{
-		comment: "create your D1 database",
-		command: "wrangler d1 create openrostrum",
-	},
-	{
-		comment: "point deploy at it",
-		command: "cp .deploy.env.example .deploy.env",
-	},
-	{ comment: "migrate the schema", command: "pnpm db:migrate:remote" },
-	{ comment: "ship it to your account", command: "pnpm run deploy" },
-];
-
-export const STACK = [
-	"React Router 7",
-	"Cloudflare Workers",
-	"D1",
-	"R2",
-	"Drizzle",
 ];

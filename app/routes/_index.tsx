@@ -12,7 +12,7 @@ export function meta(_: Route.MetaArgs) {
 		{
 			name: "description",
 			content:
-				"Run your whole conference speaker program — call for speakers, review, speaker portals, agenda, and comms — in one open-source app you host on Cloudflare. A free, self-hostable Sessionboard alternative.",
+				"Conference speaker and program management, free and open source: call for speakers, submission review, speaker portals, agenda building, and speaker comms in one place. Sign up on openrostrum.com or self-host your own instance.",
 		},
 	];
 }

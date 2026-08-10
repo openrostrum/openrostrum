@@ -11,20 +11,23 @@ import {
 	isSecureRequest,
 	normalizeEmail,
 	safeRedirect,
-	verifyPassword,
+	verifyPasswordTimingEqual,
 } from "~/lib/auth";
-import { Button, ErrorText, Field, Input, Panel, Wordmark } from "~/ui";
+import {
+	Button,
+	ErrorText,
+	Field,
+	Input,
+	Panel,
+	TextLink,
+	Wordmark,
+} from "~/ui";
 import type { Route } from "./+types/login";
 
 const Credentials = z.object({
 	email: z.string().email(),
 	password: z.string().min(1),
 });
-
-// A valid PBKDF2 hash used only to equalize login timing when the email doesn't
-// exist, so the response time can't reveal whether an account exists.
-const DUMMY_HASH =
-	"pbkdf2$600000$nRz+NCgbip51gWKmrtbi5w==$aFZ0QBI/rzxCV3+hHj/erqG1ONnn4A2G4nQVWa5QGlM=";
 
 export async function loader({ context, request }: Route.LoaderArgs) {
 	if (await getUser(context.cloudflare.env, request)) throw redirect("/admin");
@@ -48,9 +51,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 		.limit(1);
 	// Always run the (expensive) verify — against a dummy hash when the email
 	// doesn't exist — so timing can't reveal whether the account exists.
-	const ok = await verifyPassword(
+	const ok = await verifyPasswordTimingEqual(
 		parsed.data.password,
-		user?.passwordHash ?? DUMMY_HASH,
+		user?.passwordHash,
 	);
 	if (!user || !ok) {
 		return { error: "Incorrect email or password." };
@@ -74,15 +77,22 @@ export default function Login({ actionData }: Route.ComponentProps) {
 						<Input
 							name="email"
 							type="email"
+							autoComplete="username"
 							required
 							placeholder="you@conference.org"
 						/>
 					</Field>
 					<Field label="Password">
-						<Input name="password" type="password" required />
+						<Input
+							name="password"
+							type="password"
+							autoComplete="current-password"
+							required
+						/>
 					</Field>
 					<Button type="submit">Sign in</Button>
 					{actionData?.error && <ErrorText>{actionData.error}</ErrorText>}
+					<TextLink to="/forgot-password">Forgot your password?</TextLink>
 				</Form>
 			</Panel>
 		</main>

@@ -39,9 +39,25 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
   widgets only when its content status is Approved (independent of the
   accept decision). The agenda/itinerary additionally require the agenda to be
   Published (button in the agenda builder).
+- **Org team invites carry a copyable link (no inbox needed).** At
+  `/admin/settings/team`, "Invite teammate" (name + email) creates a pending
+  invite whose full link is shown in the UI with a Copy button — the same link
+  is also emailed. Opening the link at `/set-password/<token>` sets a password
+  and lands the new member in `/admin` as an equal admin of the organization.
+  Any member may remove any member (in-app confirm, no native dialogs), except
+  the last one — that removal is refused with an inline message. Removing
+  yourself logs you out.
 - **Bot protection is disabled on this deployment** so browser agents can
   exercise the public form (the Turnstile port resolves to a no-op without
   keys).
+- **The compat API is read-only with Hide-PII always on.** `/api/v1` mirrors
+  Sessionboard's read surface — `GET /api/v1/events`, session search
+  (`POST /api/v1/event/<eventId>/sessions`) / list / get, speakers, contacts,
+  and the lookup catalogs (tracks/tags/formats/levels/rooms/languages/statuses)
+  — with their pagination envelope (default 25, max 100). Emails and phones
+  come back masked (`j***@a***.com`, `***-***-4567`); statuses are the raw
+  pipeline values including queue states; drafts never appear; write
+  operations answer an explicit 405.
 - **Draft saves need only a title;** required-field validation applies when
   advancing steps or submitting. Speakers can edit submitted proposals until
   the form's close date; after that, submissions are read-only.
@@ -49,6 +65,14 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
 - **Airtable sync:** `⏳ base invite link / note` — pushes submissions,
   contacts, and task statuses; team edits in Airtable flow back on a ~5-min
   tick (Airtable wins on team-editable fields).
+
+## Deploy secrets
+
+Beyond `RESEND_API_KEY`, the deployed instance requires
+`UNSUBSCRIBE_SECRET` (`wrangler secret put UNSUBSCRIBE_SECRET` — any long
+random string). It signs the unsubscribe-footer tokens; without it, any
+deployed instance fails loud at announcement-send time rather than signing
+tokens with a public dev constant anyone could forge.
 
 ## Reset / seed
 

@@ -4,7 +4,7 @@ import { getDb } from "../app/db";
 import { apiTokens, events, organizations } from "../app/db/schema";
 import {
 	authenticateApiToken,
-	listApiTokenEventIds,
+	resolveApiTokenEvent,
 	sha256Hex,
 } from "../app/lib/api-token";
 
@@ -78,25 +78,31 @@ describe("authenticateApiToken", () => {
 	});
 });
 
-describe("listApiTokenEventIds", () => {
-	it("unrestricted token reads all of ITS org's events, none of another org's", async () => {
+describe("resolveApiTokenEvent", () => {
+	it("unrestricted token resolves its org's events, never another org's", async () => {
 		await seedTokens();
 		const principal = await authenticateApiToken(env, "raw-token-all");
-		expect((await listApiTokenEventIds(env, principal!)).sort()).toEqual([
+		expect((await resolveApiTokenEvent(env, principal!, "e_a1"))?.id).toBe(
 			"e_a1",
+		);
+		expect((await resolveApiTokenEvent(env, principal!, "e_a2"))?.id).toBe(
 			"e_a2",
-		]);
+		);
+		expect(await resolveApiTokenEvent(env, principal!, "e_b1")).toBeNull();
 	});
 
-	it("event-restricted token reads only that event", async () => {
+	it("event-restricted token resolves only that event", async () => {
 		await seedTokens();
 		const principal = await authenticateApiToken(env, "raw-token-one");
-		expect(await listApiTokenEventIds(env, principal!)).toEqual(["e_a2"]);
+		expect((await resolveApiTokenEvent(env, principal!, "e_a2"))?.id).toBe(
+			"e_a2",
+		);
+		expect(await resolveApiTokenEvent(env, principal!, "e_a1")).toBeNull();
 	});
 
 	it("fails closed when the restriction names another org's event", async () => {
 		// api_tokens.event_id has no same-org constraint in SQL — a misconfigured
-		// row must yield an empty readable set, never a cross-org grant.
+		// row must resolve nothing, never a cross-org grant.
 		await seedTokens();
 		const db = getDb(env);
 		await db.insert(apiTokens).values({
@@ -107,6 +113,6 @@ describe("listApiTokenEventIds", () => {
 			tokenHash: await sha256Hex("raw-token-bad"),
 		});
 		const principal = await authenticateApiToken(env, "raw-token-bad");
-		expect(await listApiTokenEventIds(env, principal!)).toEqual([]);
+		expect(await resolveApiTokenEvent(env, principal!, "e_b1")).toBeNull();
 	});
 });
