@@ -346,6 +346,13 @@ function Comparison() {
 	);
 }
 
+// The section's job is risk-reversal right before the closing ask: it is the
+// one place the page substantiates the H1's "open source" beyond checkmarks.
+// Copy rules (adversarial-review, 2026-08-09): claims stay literal enough to
+// survive the click-through ("your own Cloudflare account", "public on
+// GitHub"), self-hosting is the escape hatch that de-risks the hosted app —
+// never a second product to evaluate — and the ink-primary CTA style is
+// reserved page-wide for /signup, so off-site links stay ghost.
 function OpenSource() {
 	return (
 		<section id="open-source" className="scroll-mt-16 border-t border-hair">
@@ -355,13 +362,13 @@ function OpenSource() {
 						<Eyebrow>Open source</Eyebrow>
 						<h2 className={H2}>Own the software your event runs on.</h2>
 						<p className={LEAD}>
-							OpenRostrum is MIT-licensed and built in the open. Use the hosted
-							app here, or deploy your own instance and hold the database, the
-							files, and every speaker record yourself — the step-by-step guide
-							is in the README.
+							OpenRostrum is MIT-licensed, and the full source and history are
+							public on GitHub. If you ever want out of the hosted app, take
+							everything with you: deploy to your own Cloudflare account and
+							hold the database, the files, and every speaker record yourself.
 						</p>
 						<div className="flex flex-wrap gap-3 pt-2">
-							<Cta href={GITHUB_URL} external>
+							<Cta href={GITHUB_URL} variant="ghost" external>
 								View on GitHub
 							</Cta>
 							<Cta href={DEPLOY_GUIDE_URL} variant="ghost" external>
@@ -371,16 +378,16 @@ function OpenSource() {
 					</div>
 					<ul className="flex flex-col gap-4 rounded-card border border-hair bg-surface p-6 shadow-card sm:p-8">
 						<Bullet>
-							One codebase, no gated edition — self-hosted runs everything the
-							hosted app runs.
+							One codebase, no gated edition — every feature ships to hosted and
+							self-hosted alike, with no paid tier to unlock.
 						</Bullet>
 						<Bullet>
-							Your data stays portable: CSV exports, file bundles, and JSON,
-							XML, and iCal feeds.
+							Your data leaves whenever you want it to: CSV exports, a .zip of
+							every uploaded file, and JSON, XML, and iCal feeds.
 						</Bullet>
 						<Bullet>
-							MIT license — inspect it, extend it, and never lose access to the
-							tool your event depends on.
+							MIT license — you never lose access to the tool your event depends
+							on, even if we disappear tomorrow.
 						</Bullet>
 					</ul>
 				</div>
