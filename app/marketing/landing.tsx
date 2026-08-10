@@ -346,13 +346,10 @@ function Comparison() {
 	);
 }
 
-// The section's job is risk-reversal right before the closing ask: it is the
-// one place the page substantiates the H1's "open source" beyond checkmarks.
-// Copy rules (adversarial-review, 2026-08-09): claims stay literal enough to
+// Risk-reversal before the closing ask. Claims stay literal enough to
 // survive the click-through ("your own Cloudflare account", "public on
-// GitHub"), self-hosting is the escape hatch that de-risks the hosted app —
-// never a second product to evaluate — and the ink-primary CTA style is
-// reserved page-wide for /signup, so off-site links stay ghost.
+// GitHub"); self-hosting is the escape hatch, never a second product; and
+// ink-primary is reserved page-wide for /signup, so off-site CTAs stay ghost.
 function OpenSource() {
 	return (
 		<section id="open-source" className="scroll-mt-16 border-t border-hair">
