@@ -45,19 +45,20 @@ jobs:
             exit 1
           fi
 
-  # DeepSeek code review (advisory). On every PR, diff the change and run it past
-  # the rule-doc agents in tooling/pr-review, then post ONE comment. Uses the
-  # `pull_request` trigger (NOT pull_request_target): same-repo PRs get the secret
-  # and a write token; fork PRs get neither, so the guard green-skips — no secret
-  # ever reaches untrusted code. Runs no PR-authored code (no install, no build);
-  # it only reads the diff as text and calls the API. Comment-only: never fails
-  # the PR. Skips until the DEEPSEEK_API_KEY secret exists — job stays green.
+  # DeepSeek code review (advisory, comment-only — the review event is always
+  # COMMENT). Posts findings as one review with inline comments; posting model
+  # and reconcile semantics: tooling/pr-review/README.md. Security boundary:
+  # `pull_request` trigger (NOT pull_request_target) — fork PRs never receive
+  # the secret or write token (guard green-skips); within it the job runs only
+  # this repo's review scripts, no dependency install, no build.
   ai-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # Required check that gates merge — cap the wall-clock so a stuck run can
     # never block PRs indefinitely (the per-request timeout is in core.mjs).
     timeout-minutes: 20
+    # pull-requests: write covers all posting (review, comments, replies,
+    # best-effort GraphQL thread resolution).
     permissions:
       contents: read
       pull-requests: write
@@ -110,6 +111,11 @@ jobs:
         run: pnpm typecheck
       - name: Test
         run: pnpm test
+      # Unit tests for tooling/pr-review/inline.mjs. Outside `pnpm test`
+      # (workerd has no node:test) and in THIS unconditional job, not the
+      # secret-gated ai-review — see tooling/pr-review/README.md.
+      - name: Test PR-review tooling
+        run: node --test tooling/pr-review/inline.test.node.mjs
       - name: Build
         run: pnpm build
 

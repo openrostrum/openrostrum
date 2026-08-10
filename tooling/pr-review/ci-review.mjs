@@ -1,14 +1,27 @@
-// Production PR reviewer. Runs in CI on pull_request: diffs the PR, feeds each
-// changed source file to every rule-doc agent (the SAME prompt+client the eval
-// harness validates, from core.mjs), and posts ONE advisory comment on the PR.
-//
-// Comment-only by design: it never fails the check. It informs; it does not
-// gate. Promote to blocking only once precision is proven in the wild.
-//
+// Production PR reviewer. Runs in CI on pull_request: diffs the PR, runs each
+// changed file past every rule-doc agent (the SAME prompt+client the eval
+// harness validates, from core.mjs), and posts the findings as ONE advisory
+// review (event always COMMENT — informs, never gates) with inline comments
+// per finding. Posting model, fallback chain, and reconcile semantics:
+// README "How findings are posted"; the pure logic lives in inline.mjs.
 // Env (set by .github/workflows/ci.yml): DEEPSEEK_API_KEY, GH_TOKEN, REPO
 // (owner/repo), PR_NUMBER, BASE_SHA, HEAD_SHA.
 import { execFileSync } from "node:child_process";
 import { loadSystems, makeClient, pool } from "./core.mjs";
+import {
+	anchorFinding,
+	buildReviewPayload,
+	fingerprint,
+	findingBullet,
+	findingCommentBody,
+	mergeFile,
+	parseDiff,
+	parseFindingMarkers,
+	reconcile,
+	resolvedReplyBody,
+	RESOLVED_MARKER,
+	SUMMARY_MARKER,
+} from "./inline.mjs";
 
 const KEY = process.env.DEEPSEEK_API_KEY;
 const BASE = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
@@ -27,10 +40,11 @@ const PR = process.env.PR_NUMBER;
 const BASE_SHA = process.env.BASE_SHA;
 const HEAD_SHA = process.env.HEAD_SHA;
 
-// DRY_RUN=1 prints the comment instead of posting it — for local verification
-// of review quality without GitHub write access.
-const DRY = process.env.DRY_RUN === "1";
-const MARKER = "<!-- deepseek-review -->";
+// DRY_RUN=1 (or --dry-run) prints the payloads instead of posting — for local
+// verification without GitHub write access. If GH_TOKEN/REPO/PR_NUMBER are
+// also set, the dry run previews the reconcile plan with READ-ONLY calls; it
+// never writes.
+const DRY = process.env.DRY_RUN === "1" || process.argv.includes("--dry-run");
 // Source files the rule docs actually govern. Docs, lockfiles, and generated
 // artifacts are out — reviewing them is pure noise.
 const REVIEWABLE = /\.(ts|tsx|js|jsx|mjs|cjs|css|sql)$/;
@@ -53,6 +67,7 @@ for (const [k, v] of Object.entries(required)) {
 		process.exit(1);
 	}
 }
+const CAN_READ_GH = Boolean(GH_TOKEN && REPO && PR);
 
 function git(...args) {
 	return execFileSync("git", args, {
@@ -61,23 +76,9 @@ function git(...args) {
 	});
 }
 
-// Reconstruct the new side of a file's diff as a plain snippet: keep added and
-// context lines, drop removals and diff metadata. This matches the format the
-// eval validated (a code block of the changed code) and scopes review to the
-// change — no flagging pre-existing lines the PR never touched.
-function newSnippet(diffText) {
-	const out = [];
-	for (const line of diffText.split("\n")) {
-		if (line.startsWith("+++") || line.startsWith("---")) continue;
-		if (line.startsWith("@@")) {
-			out.push("");
-			continue;
-		}
-		if (line.startsWith("+")) out.push(line.slice(1));
-		else if (line.startsWith(" ")) out.push(line.slice(1));
-	}
-	return out.join("\n").trim();
-}
+// ---------------------------------------------------------------------------
+// GitHub I/O
+// ---------------------------------------------------------------------------
 
 async function gh(method, path, body) {
 	const res = await fetch(`https://api.github.com${path}`, {
@@ -95,24 +96,152 @@ async function gh(method, path, body) {
 	return res.json();
 }
 
-async function upsertComment(body) {
-	// Find our previous comment (across pages) and edit it in place, so a re-push
-	// updates one comment instead of stacking a new one every run.
-	let page = 1;
-	let mine = null;
-	for (;;) {
-		const batch = await gh(
-			"GET",
-			`/repos/${REPO}/issues/${PR}/comments?per_page=100&page=${page}`,
-		);
-		mine = batch.find((c) => (c.body || "").includes(MARKER));
-		if (mine || batch.length < 100) break;
-		page++;
+async function ghPaged(path) {
+	const all = [];
+	for (let page = 1; ; page++) {
+		const sep = path.includes("?") ? "&" : "?";
+		const batch = await gh("GET", `${path}${sep}per_page=100&page=${page}`);
+		all.push(...batch);
+		if (batch.length < 100) return all;
 	}
+}
+
+async function ghGraphql(query, variables) {
+	const res = await fetch("https://api.github.com/graphql", {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${GH_TOKEN}`,
+			"content-type": "application/json",
+			"user-agent": "deepseek-review",
+		},
+		body: JSON.stringify({ query, variables }),
+	});
+	const json = await res.json();
+	if (!res.ok || json.errors?.length)
+		throw new Error(
+			`graphql → ${res.status} ${JSON.stringify(json.errors ?? json)}`,
+		);
+	return json.data;
+}
+
+// Resolution state and thread node ids live only in GraphQL. Best effort: if
+// this fails we still dedupe via REST (threads assumed unresolved — the safe
+// direction, it only means we skip reposting).
+async function fetchThreadState() {
+	const [owner, name] = REPO.split("/");
+	const byTopComment = new Map();
+	let cursor = null;
+	for (;;) {
+		const data = await ghGraphql(
+			`query($owner:String!,$name:String!,$number:Int!,$cursor:String){
+				repository(owner:$owner,name:$name){ pullRequest(number:$number){
+					reviewThreads(first:100, after:$cursor){
+						pageInfo{ hasNextPage endCursor }
+						nodes{ id isResolved comments(first:1){ nodes{ databaseId } } }
+					}
+				}}
+			}`,
+			{ owner, name, number: Number(PR), cursor },
+		);
+		const conn = data.repository.pullRequest.reviewThreads;
+		for (const t of conn.nodes) {
+			const top = t.comments.nodes[0]?.databaseId;
+			if (top != null)
+				byTopComment.set(top, { threadNodeId: t.id, isResolved: t.isResolved });
+		}
+		if (!conn.pageInfo.hasNextPage) return byTopComment;
+		cursor = conn.pageInfo.endCursor;
+	}
+}
+
+// Existing state from previous runs: our marker-bearing review-comment threads
+// (inline + file-level) and finding markers recovered from our review bodies
+// (the unanchored section — recognizable for dedupe, not resolvable).
+async function listOurState() {
+	const comments = await ghPaged(`/repos/${REPO}/pulls/${PR}/comments`);
+	let threadState = new Map();
+	try {
+		threadState = await fetchThreadState();
+	} catch (e) {
+		console.warn(`thread-state query failed (dedupe still on): ${e}`);
+	}
+	const threads = [];
+	for (const c of comments) {
+		if (c.in_reply_to_id) continue;
+		const marker = parseFindingMarkers(c.body)[0];
+		if (!marker) continue;
+		const state = threadState.get(c.id) ?? {};
+		threads.push({
+			id: c.id,
+			topCommentId: c.id,
+			threadNodeId: state.threadNodeId ?? null,
+			isResolved: state.isResolved ?? false,
+			hasResolvedReply: comments.some(
+				(r) =>
+					r.in_reply_to_id === c.id && (r.body ?? "").includes(RESOLVED_MARKER),
+			),
+			path: c.path,
+			fp: marker.fp,
+			words: marker.words,
+		});
+	}
+	// Body findings dedupe but can't be resolved: markers in review bodies (the
+	// unanchored section) and in issue comments (the summary fallback).
+	const reviews = await ghPaged(`/repos/${REPO}/pulls/${PR}/reviews`);
+	const issueComments = await ghPaged(`/repos/${REPO}/issues/${PR}/comments`);
+	const prevBodyFindings = [...reviews, ...issueComments].flatMap((x) =>
+		parseFindingMarkers(x.body),
+	);
+	return { threads, prevBodyFindings };
+}
+
+async function upsertSummaryComment(
+	body,
+	{ createIfMissing = true, unlessFindings = false } = {},
+) {
+	const comments = await ghPaged(`/repos/${REPO}/issues/${PR}/comments`);
+	const mine = comments.find((c) => (c.body ?? "").includes(SUMMARY_MARKER));
+	// A summary carrying finding markers is a previous run's fallback post —
+	// overwriting it would wipe those markers and repost the findings as dupes.
+	if (mine && unlessFindings && parseFindingMarkers(mine.body).length) return;
 	if (mine)
 		await gh("PATCH", `/repos/${REPO}/issues/comments/${mine.id}`, { body });
-	else await gh("POST", `/repos/${REPO}/issues/${PR}/comments`, { body });
+	else if (createIfMissing)
+		await gh("POST", `/repos/${REPO}/issues/${PR}/comments`, { body });
 }
+
+// Reply "resolved" on stale threads, then resolve them (GraphQL, best effort —
+// if the token can't run the mutation the reply already tells the reader).
+async function closeStaleThreads(toResolve) {
+	let resolved = 0;
+	for (const t of toResolve) {
+		try {
+			await gh(
+				"POST",
+				`/repos/${REPO}/pulls/${PR}/comments/${t.topCommentId}/replies`,
+				{ body: resolvedReplyBody(HEAD_SHA) },
+			);
+		} catch (e) {
+			console.warn(`stale-thread reply failed (${t.fp}): ${e}`);
+			continue;
+		}
+		if (!t.threadNodeId) continue;
+		try {
+			await ghGraphql(
+				`mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ isResolved } } }`,
+				{ id: t.threadNodeId },
+			);
+			resolved++;
+		} catch (e) {
+			console.warn(`resolveReviewThread failed (${t.fp}) — reply stands: ${e}`);
+		}
+	}
+	return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// Review the diff
+// ---------------------------------------------------------------------------
 
 const mergeBase = git("merge-base", BASE_SHA, HEAD_SHA).trim();
 const changed = git(
@@ -137,10 +266,16 @@ const client = makeClient({
 	temperature: TEMPERATURE,
 });
 
+// Per file: the model snippet (eval-validated format) plus the anchor data
+// (snippet-line map + the diff's new-side lines), from one diff parse.
+const diffByFile = new Map();
 const items = [];
 for (const file of files) {
-	const code = newSnippet(git("diff", mergeBase, HEAD_SHA, "--", file));
+	const { code, map, newLines } = parseDiff(
+		git("diff", mergeBase, HEAD_SHA, "--", file),
+	);
 	if (!code) continue;
+	diffByFile.set(file, { map, newLines });
 	for (const a of agents) items.push({ file, agent: a.id, code });
 }
 
@@ -164,75 +299,6 @@ const results = await pool(items, CONC, async (it) => {
 
 const errored = results.filter((r) => r.error).length;
 
-// A rule can be stated in more than one doc (e.g. routing appears in several),
-// so multiple agents legitimately flag the same concern on the same file. That
-// is redundancy, not extra signal — collapse near-identical findings within a
-// file into one bullet that credits every agent that raised it.
-const STOP = new Set([
-	"this",
-	"that",
-	"which",
-	"must",
-	"from",
-	"into",
-	"with",
-	"your",
-	"have",
-	"will",
-	"when",
-	"them",
-	"they",
-	"file",
-	"code",
-	"change",
-	"changes",
-	"rule",
-	"rules",
-	"line",
-	"diff",
-	"says",
-	"state",
-	"states",
-]);
-function concept(f) {
-	const words = `${f.rule ?? ""} ${f.why ?? ""}`
-		.toLowerCase()
-		.match(/[a-z0-9/.]+/g);
-	// Strip a trailing plural 's' only (routes→route, edits→edit) — deeper
-	// stemming mangled words and broke the overlap it was meant to help.
-	return new Set(
-		(words ?? [])
-			.map((w) => w.replace(/s$/, ""))
-			.filter((w) => w.length > 3 && !STOP.has(w)),
-	);
-}
-// Two findings are the same concern when half of the smaller one's words appear
-// in the group seed. Compared against a fixed seed (not a growing union) so the
-// bar doesn't drift as agents pile on.
-function similar(seed, c) {
-	if (!seed.size || !c.size) return false;
-	let inter = 0;
-	for (const w of c) if (seed.has(w)) inter++;
-	return inter / Math.min(seed.size, c.size) >= 0.4;
-}
-function mergeFile(findings) {
-	const groups = [];
-	for (const f of findings) {
-		const c = concept(f);
-		const g = groups.find((g) => similar(g.concept, c));
-		if (g) g.agents.add(f.agent);
-		else
-			groups.push({
-				concept: c,
-				agents: new Set([f.agent]),
-				rule: f.rule,
-				why: f.why,
-				location: f.location,
-			});
-	}
-	return groups;
-}
-
 const byFile = new Map();
 for (const r of results) {
 	for (const f of r.findings) {
@@ -240,49 +306,217 @@ for (const r of results) {
 		byFile.get(r.file).push({ agent: r.agent, ...f });
 	}
 }
-for (const [file, fs] of byFile) byFile.set(file, mergeFile(fs));
-const total = [...byFile.values()].reduce((n, a) => n + a.length, 0);
 
-const lines = [MARKER];
-if (total === 0) {
-	lines.push("### 🤖 DeepSeek review — no issues found");
-	lines.push(
-		`_Reviewed ${files.length} changed file(s) against \`docs/rules/\`. Advisory (comment-only)._`,
-	);
-} else {
-	lines.push(
-		`### 🤖 DeepSeek review — ${total} finding(s) across ${byFile.size} file(s)`,
-	);
-	lines.push(
-		"_Advisory (comment-only): this does not block merge. Each finding cites the rule doc it came from._\n",
-	);
-	for (const [file, groups] of byFile) {
-		lines.push(`**\`${file}\`**`);
-		for (const g of groups) {
-			const loc = g.location ? ` _(${g.location})_` : "";
-			const who = [...g.agents].sort().join(", ");
-			lines.push(`- **[${who}] ${g.rule ?? "rule"}** — ${g.why ?? ""}${loc}`);
-		}
-		lines.push("");
+// Merge near-identical findings within a file, then anchor + fingerprint each
+// group. `line` null = unanchorable → file-level fallback.
+const groups = [];
+for (const [file, fs] of byFile) {
+	const { map, newLines } = diffByFile.get(file);
+	for (const g of mergeFile(fs)) {
+		groups.push({
+			...g,
+			file,
+			fp: fingerprint(file, g.concept),
+			line: anchorFinding(g, newLines, map),
+		});
 	}
 }
+const total = groups.length;
+
+// ---------------------------------------------------------------------------
+// Reconcile against previous runs, then post
+// ---------------------------------------------------------------------------
+
+let threads = [];
+let prevBodyFindings = [];
+if (CAN_READ_GH) {
+	try {
+		({ threads, prevBodyFindings } = await listOurState());
+	} catch (e) {
+		// Listing failed: post everything rather than drop anything. Worst case
+		// is a duplicate comment, never a lost finding.
+		console.warn(`listing previous state failed — dedupe off: ${e}`);
+	}
+} else if (DRY) {
+	console.log(
+		"dry run without GH_TOKEN/REPO/PR_NUMBER — reconcile preview skipped (no previous state).",
+	);
+}
+
+const { toPost, skipped, toResolve } = reconcile(
+	groups,
+	threads,
+	prevBodyFindings,
+);
+const anchored = toPost.filter((g) => g.line != null);
+const fileLevel = toPost.filter((g) => g.line == null);
+
+// Close a thread only when its file was re-reviewed cleanly this run (or left
+// the diff): a finding that "vanished" behind an errored check or the file cap
+// is unknown, not resolved — defer it (README "Reconcile").
+const erroredFiles = new Set(results.filter((r) => r.error).map((r) => r.file));
+const droppedFiles = new Set(candidates.slice(MAX_FILES));
+const resolvable = toResolve.filter(
+	(t) => !erroredFiles.has(t.path) && !droppedFiles.has(t.path),
+);
+const deferred = toResolve.length - resolvable.length;
+
+const headerLines = [
+	`### 🤖 DeepSeek review — ${total} finding(s) across ${byFile.size} file(s)`,
+	"_Advisory (comment-only): this does not block merge. Each finding cites the rule doc it came from._",
+];
+if (skipped.length)
+	headerLines.push(
+		`_${skipped.length} of ${total} already posted on an earlier run — see the existing threads._`,
+	);
 const notes = [];
 if (dropped)
 	notes.push(
 		`${dropped} additional changed file(s) not reviewed (cap ${MAX_FILES})`,
 	);
 if (errored) notes.push(`${errored} check(s) errored and were skipped`);
-if (notes.length) lines.push(`\n> ⚠️ ${notes.join("; ")}.`);
-lines.push(
-	`\n<sub>model: ${MODEL} · agents: ${agents.map((a) => a.id).join(", ")}</sub>`,
-);
+const footer =
+	(notes.length ? `\n> ⚠️ ${notes.join("; ")}.\n` : "") +
+	`\n<sub>model: ${MODEL} · agents: ${agents.map((a) => a.id).join(", ")}</sub>`;
 
-const body = lines.join("\n");
+const fileLevelPayloads = fileLevel.map((g) => ({
+	path: `/repos/${REPO ?? "<repo>"}/pulls/${PR ?? "<pr>"}/comments`,
+	body: {
+		commit_id: HEAD_SHA,
+		path: g.file,
+		subject_type: "file",
+		body: findingCommentBody(g, { withLocation: true }),
+	},
+}));
+
+const makeReview = (anchoredGroups, bodyGroups) =>
+	buildReviewPayload({
+		commitId: HEAD_SHA,
+		header: headerLines.join("\n"),
+		footer,
+		anchored: anchoredGroups,
+		bodyFindings: bodyGroups,
+	});
+
 if (DRY) {
-	console.log(`\n--- comment (dry run) ---\n${body}`);
-} else {
-	await upsertComment(body);
-	console.log(
-		`posted: ${total} finding(s), ${errored} error(s), ${dropped} dropped`,
-	);
+	const show = (g) => ({
+		file: g.file,
+		line: g.line,
+		fp: g.fp,
+		agents: [...g.agents].sort(),
+		rule: g.rule,
+	});
+	const plan = {
+		findings: total,
+		anchored: anchored.map(show),
+		fileLevel: fileLevel.map(show),
+		skipped: skipped.map((s) => ({
+			...show(s.group),
+			matched: s.thread ? `thread ${s.thread.id}` : "earlier review body",
+		})),
+		toResolve: resolvable.map((t) => ({
+			path: t.path,
+			fp: t.fp,
+			topCommentId: t.topCommentId,
+			canResolveThread: Boolean(t.threadNodeId),
+		})),
+		deferredResolves: toResolve
+			.filter((t) => !resolvable.includes(t))
+			.map((t) => ({
+				path: t.path,
+				fp: t.fp,
+				reason: erroredFiles.has(t.path) ? "check errored" : "file dropped",
+			})),
+		reviewPayload: toPost.length ? makeReview(anchored, []) : null,
+		fileLevelComments: fileLevelPayloads,
+	};
+	console.log(`\n--- inline review plan (dry run) ---`);
+	console.log(JSON.stringify(plan, null, 2));
+	process.exit(0);
 }
+
+if (total === 0) {
+	// No findings → the single summary comment, as before. Never an empty
+	// review. Stale threads from earlier runs still get closed below.
+	await upsertSummaryComment(
+		[
+			SUMMARY_MARKER,
+			"### 🤖 DeepSeek review — no issues found",
+			`_Reviewed ${files.length} changed file(s) against \`docs/rules/\`. Advisory (comment-only)._`,
+			footer,
+		].join("\n"),
+	);
+} else if (toPost.length === 0) {
+	console.log(
+		`all ${total} finding(s) already posted on earlier runs — no new review.`,
+	);
+} else {
+	// Fallback chain, nothing dropped: file-level comments first (a failure
+	// demotes the finding into the review body), then the single review.
+	const demoted = [];
+	for (let i = 0; i < fileLevel.length; i++) {
+		try {
+			await gh("POST", fileLevelPayloads[i].path, fileLevelPayloads[i].body);
+		} catch (e) {
+			console.warn(`file-level comment failed (${fileLevel[i].fp}): ${e}`);
+			demoted.push(fileLevel[i]);
+		}
+	}
+	let reviewPosted = false;
+	try {
+		await gh(
+			"POST",
+			`/repos/${REPO}/pulls/${PR}/reviews`,
+			makeReview(anchored, demoted),
+		);
+		reviewPosted = true;
+	} catch (e) {
+		// Most likely a comment GitHub refused to anchor (422). Retry once with
+		// every inline comment demoted to the body — the findings still land.
+		console.warn(
+			`review POST failed, retrying with all findings in body: ${e}`,
+		);
+		try {
+			await gh(
+				"POST",
+				`/repos/${REPO}/pulls/${PR}/reviews`,
+				makeReview([], [...anchored, ...demoted]),
+			);
+			reviewPosted = true;
+		} catch (e2) {
+			// Last resort: the legacy summary comment, markers included so these
+			// findings still dedupe on the next run. Findings must land somewhere.
+			console.warn(`retry failed too — falling back to the summary: ${e2}`);
+			const bullets = [...anchored, ...demoted].map(findingBullet);
+			await upsertSummaryComment(
+				[SUMMARY_MARKER, headerLines.join("\n"), "", ...bullets, footer].join(
+					"\n",
+				),
+			);
+		}
+	}
+	// A stale "no issues found" summary must not stand next to a review full of
+	// findings — repoint it. Never created here, never overwrites a summary that
+	// carries fallback findings (any run's), and cosmetic: failure is a warning.
+	if (reviewPosted)
+		try {
+			await upsertSummaryComment(
+				[
+					SUMMARY_MARKER,
+					`### 🤖 DeepSeek review — ${total} finding(s) across ${byFile.size} file(s)`,
+					"_Findings are posted as review comments on the diff — resolve, dismiss, or answer each individually. Advisory (comment-only)._",
+					footer,
+				].join("\n"),
+				{ createIfMissing: false, unlessFindings: true },
+			);
+		} catch (e) {
+			console.warn(`summary repoint failed (cosmetic): ${e}`);
+		}
+}
+
+const resolvedCount = await closeStaleThreads(resolvable);
+console.log(
+	`posted: ${toPost.length} new finding(s) (${anchored.length} inline, ${fileLevel.length} file-level), ` +
+		`${skipped.length} already-posted skipped, ${resolvable.length} stale thread(s) replied (${resolvedCount} resolved, ${deferred} deferred), ` +
+		`${errored} error(s), ${dropped} dropped`,
+);

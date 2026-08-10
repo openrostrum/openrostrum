@@ -48,6 +48,45 @@ DEEPSEEK_API_KEY=... DEEPSEEK_MODEL=deepseek-v4-flash \
 DEEPSEEK_API_KEY=... node tooling/pr-review/review.mjs dev    # synthetic dev set
 ```
 
+## How findings are posted (inline reviews)
+
+Findings land as **one GitHub review (event `COMMENT` — always advisory, never
+`REQUEST_CHANGES`)** whose inline comments anchor each finding to its diff line,
+so every finding can be resolved, dismissed, or answered individually. The pure
+logic lives in `inline.mjs` (unit-tested, no network); `ci-review.mjs` only
+orchestrates.
+
+- **Anchoring** — a finding is pinned to a new-side diff line by (1) matching a
+  code quote from its `location`/`why` (backticked spans first, `...` elisions
+  handled) against the diff's added+context lines, added lines preferred; else
+  (2) reading `location`'s `:N` as a *snippet* line (the model only ever saw the
+  snippet) and mapping it back to the file line via `parseDiff().map`. The
+  snippet is byte-identical to the pre-inline format the eval validated, with
+  one disclosed, tested exception: added lines whose content starts with `++`
+  are now kept (the old parser dropped them by accident).
+- **Fallback chain, nothing dropped** — can't anchor → file-level review
+  comment (`subject_type: "file"`); that POST fails → an "Unanchored findings"
+  section in the review body. A rejected review (422) retries once with every
+  comment demoted to the body; if that also fails, the findings land in the
+  legacy summary comment.
+- **Re-run dedupe** — every posted finding embeds
+  `<!-- deepseek-finding fp=<sha256-16> file=<path> words=<concept words> -->`.
+  The fingerprint hashes file + sorted concept words (rule + why, normalized) —
+  line numbers and agent ids are excluded, so it survives pushes and messenger
+  wobble. A re-run skips findings whose fingerprint (or fuzzy word overlap, same
+  file, capped to the marker's 24 words on both sides) already has a thread —
+  including human-resolved ones: a human closed it, the bot doesn't nag. The
+  exception is a thread the BOT itself declared resolved: a finding reappearing
+  after that posts fresh — never deduped into silence by the bot's own claim.
+- **Reconcile** — threads whose finding no longer appears get ONE reply
+  ("resolved in `<sha>` — finding no longer present") and a best-effort GraphQL
+  `resolveReviewThread`; if the token can't run the mutation the reply stands.
+  A thread is only closed when its file was re-reviewed cleanly this run (or
+  left the diff entirely) — a finding that "vanished" because its file fell
+  past `MAX_FILES` or a check errored defers to a run with full signal.
+- **No findings** → the single `<!-- deepseek-review -->` summary comment, as
+  before. Never an empty review.
+
 ## Run the production reviewer locally
 
 ```bash
@@ -55,11 +94,23 @@ DEEPSEEK_API_KEY=... DRY_RUN=1 \
   BASE_SHA=<base> HEAD_SHA=<head> node tooling/pr-review/ci-review.mjs
 ```
 
-`DRY_RUN=1` prints the comment instead of posting it. In CI the `ai-review` job
-(`.github/workflows/ci.yml`) supplies `GH_TOKEN`/`REPO`/`PR_NUMBER` and it posts
-one advisory comment, edited in place on re-push. It is **comment-only** — it
-never fails the check. It reviews the PR diff only (the new side of each changed
-source file), never pre-existing code, and runs no PR-authored code.
+`DRY_RUN=1` (or `--dry-run`) prints the review payload and reconcile plan
+instead of posting; add `GH_TOKEN`/`REPO`/`PR_NUMBER` to preview reconciliation
+against a real PR's existing threads (read-only — a dry run never writes). In CI
+the `ai-review` job (`.github/workflows/ci.yml`) supplies those and posts for
+real. It is **comment-only** — it never fails the check. It reviews the PR diff
+only (the new side of each changed source file), never pre-existing code. The
+job's security boundary is the fork guard — fork PRs never receive the secret
+or a write token; within it the job runs only this repo's review scripts (no
+dependency install, no build).
+
+Unit tests for the pure posting logic (CI runs them unconditionally in the
+`quality` job — no secret needed; they stay out of the `ai-review` job, which
+runs only the review scripts):
+
+```bash
+node --test tooling/pr-review/inline.test.node.mjs
+```
 
 ## Scoring
 
