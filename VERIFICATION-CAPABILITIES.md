@@ -18,7 +18,7 @@ Scope note: this covers **functional** verification. Pure-aesthetic choices (the
 | 1 | **Running instance + test accounts** | Live: `https://openrostrum.com` (Worker `openrostrum`, custom domain). Seeded logins `admin@example.com` / `reviewer@example.com` / `speaker@example.com`, password `password` (form POST to `/login`). Local: `pnpm dev:worktree`. Re-prove: `bash scripts/gate-login-smoke.sh` | all 3 roles logged in over HTTP; admin reached `/admin`, non-admins correctly hit `/403` | 🟢 |
 | 2 | **Seed + reset** | Local: `pnpm db:reset` (wipe → migrate → seed). Remote (owner lane): `wrangler d1 migrations apply openrostrum --remote` + `wrangler d1 execute openrostrum --remote --file drizzle/seed.sql` | two consecutive resets produced identical row fingerprints (3/1/8/2 users/events/submissions/contacts) | 🟢 |
 | 3 | **Database / direct query** | `npx wrangler d1 execute openrostrum --local --command "<sql>" --json` (add `--remote` for prod, owner lane). In tests: real D1 via `vitest-pool-workers` | queried users local + remote; 12 tests run against real D1 every `pnpm verify` | 🟢 |
-| 4 | **Email delivery** | App sends land in the D1 `email_outbox` table (the in-app log the eval kit accepts as delivery evidence). Real provider: Resend key in `.dev.vars` / worker secret `RESEND_API_KEY` — **sending-only key: it can `POST /emails` but 401s on read endpoints; don't "validate" it against `GET /domains`** | outbox row inserted + read back locally; real Resend send returned 200 + message id | 🟢 |
+| 4 | **Email delivery** | App sends land in the D1 `email_outbox` table (the in-app log the eval kit accepts as delivery evidence). Real provider: Resend (send-only key). Real **readable inbox**: catch-all → `openrostrum-inbox` worker — see "Deep how-to" below | outbox row inserted + read back locally; real Resend sends returned 200 + message ids (2026-08-09 + -10) | 🟢 |
 | 5 | **Calendar invite (.ics)** | `email_outbox.ics_attachment` holds the payload; parse VEVENT fields with stdlib (see `scripts/gate-oracles-smoke.sh` for the 10-line parser) | fixture VEVENT parsed, SUMMARY/DTSTART/LOCATION asserted | 🟢 |
 | 6 | **File uploads (R2)** | Local/tests: `BLOBS` binding (miniflare). Remote bucket `openrostrum-files`: `wrangler r2 object put|get openrostrum-files/<key> --remote` | 1 KB random blob uploaded remote, downloaded, `cmp` byte-identical, deleted | 🟢 |
 | 7 | **Airtable sync** (P1) | `AIRTABLE_API_KEY` + `AIRTABLE_BASE_ID` in `.dev.vars`. REST: `api.airtable.com/v0/meta/bases/$BASE/tables` (schema), `/v0/$BASE/$TABLE` (records) | schema read 200; record created then deleted via API | 🟢 |
@@ -32,6 +32,18 @@ Scope note: this covers **functional** verification. Pure-aesthetic choices (the
 
 `bash scripts/gate-iso-smoke.sh` (run 2026-08-10): three worktree instances ran concurrently on auto-derived ports (5501/5358/5506), each served the home page and authenticated the seeded admin; a marker row written in instance A never appeared in B; `pnpm db:reset` in B left A's marker and C's rows untouched; all three stayed healthy afterward. Per-worktree isolation = cwd-relative `.wrangler/state` + `scripts/worktree-dev.sh` port derivation.
 
+## Deep how-to: email + Airtable (from the provisioning lane, 2026-08-09)
+
+**#4 Email** — proven end-to-end (Resend send id `8cf4999a…` → D1 row, 4972 raw bytes):
+- Send: Resend, from `OpenRostrum <noreply@openrostrum.com>` (domain verified, us-east-1). Local key in `.dev.vars`; prod via `wrangler secret put RESEND_API_KEY`. Key is **send-only scoped** — it can `POST /emails` but 401s on every read/management endpoint; don't "validate" it against `GET /domains`.
+- Read: catch-all on `openrostrum.com` (Cloudflare Email Routing → `openrostrum-inbox` worker, source `tooling/inbox-worker/`) stores every inbound message raw in its own D1:
+  `wrangler d1 execute openrostrum-inbox --remote --json --command "SELECT rcpt_to, subject, raw FROM inbox ORDER BY received_at DESC LIMIT 5"`
+- Gotchas: a bounced recipient lands on Resend's **suppression list** and later sends to it are silently dropped (accepted with an id, never delivered, absent from the log) — use a fresh `<anything>@openrostrum.com` per test, never reuse a bounced address. The local dev oracle stays the `email_outbox` D1 sink (no key set → local adapter).
+
+**#7 Airtable** — proven (schema read, table create, record write/read/delete):
+- Scratch base `appt5DjfBHBzdor5S` + PAT in `.dev.vars` (`AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`); prod via `wrangler secret put`. Scopes: `data.records:read/write`, `schema.bases:read/write` — agents create tables/fields via the metadata API (`/v0/meta/bases/$BASE/tables`), no hand-built schema.
+- Gotchas: 5 req/s per base (why sync is background-only); the API **cannot delete tables** (records yes) — name throwaway tables `_`-prefixed and ignore them.
+
 ## Swarm rules that keep it true
 
 - **Cloud singletons are serialized:** the real Airtable base, real Resend sends, and the production D1/R2 belong to the single integration lane. Parallel feature agents verify against local oracles only (local D1, `email_outbox`, miniflare R2) — they never touch `--remote` or the live keys.
@@ -40,7 +52,7 @@ Scope note: this covers **functional** verification. Pure-aesthetic choices (the
 
 ## Resolved decisions (were "open")
 
-- **D1 — test identities:** dedicated seeded accounts (`*@example.com`, password `password`) — the swarm never touches Val's real accounts. Real-provider sends go through the serialized integration lane only.
+- **D1 — test identities:** dedicated seeded accounts (`*@example.com`, password `password`) for app logins, dedicated `<anything>@openrostrum.com` addresses for real-mail tests — the swarm never touches Val's real accounts. Real-provider sends go through the serialized integration lane only.
 - **D5 — Airtable:** live base + PAT provisioned and exercised (see row 7).
 
 ## Definition of done for this gate — MET

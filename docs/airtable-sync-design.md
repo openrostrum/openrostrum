@@ -6,6 +6,15 @@ requirement, not bonus; do not relitigate).** Tier 1 (push) ships first, Tier 2
 capabilities phase (serial integration lane). Ground truth for what swyx asked:
 `docs/reference/discord/CLARIFICATIONS.md` → "Airtable Q&A".
 
+**The mirror shape is NOT guesswork.** There is no native Sessionboard↔Airtable
+integration (data reaches Airtable via Zapier/REST/webhook/CSV). The base is a
+mirror of Sessionboard's own objects, whose exact fields/enums are pinned in
+[`data-model.md`](data-model.md) (from Sessionboard's public OpenAPI spec). The
+synced tables map onto that model: `submissions` (Sessions), `contacts`
+(Contacts/Speakers), `task_assignments`. Use `friendly_id`-style stable keys.
+Do NOT model against the eval kit's `speakers.csv` — that is fictional test data,
+not Sessionboard's schema.
+
 ## The requirement (swyx, verbatim anchors)
 
 - Floor: "for now read only is fine" — one-way push; rows land in the base,
@@ -102,8 +111,11 @@ exactly the behavior swyx praised.
    then auto-disable, 7-day expiry extended by refresh/payload-listing,
    `listWebhookPayloads` cursor for actual changes → **webhook-first trigger is
    committed** (mechanism section above). ✅ Rate limit: 5 req/s per base,
-   shared with REST. Still to verify at build time: batch sizes,
-   `performUpsert` semantics, metadata API for programmatic base creation,
+   shared with REST. ✅ Metadata API (verified live 2026-08-09 on the scratch
+   base): schema read + table/field creation work with `schema.bases:*` scopes;
+   **table DELETION does not exist in the API** (UI-only) — setup must be
+   idempotent (read schema, create only what's missing), mistakes need a human.
+   Still to verify at build time: batch sizes, `performUpsert` semantics,
    attachment ingestion (headshots).
 3. **Base ownership — DECIDED: we create the demo base programmatically**
    (metadata API if verified, else a documented manual template) and hand over

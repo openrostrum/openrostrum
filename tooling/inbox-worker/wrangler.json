@@ -1,0 +1,13 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "openrostrum-inbox",
+	"main": "worker.js",
+	"compatibility_date": "2025-10-08",
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "openrostrum-inbox",
+			"database_id": "1b2696aa-f7d3-46ef-8bc7-43f746285030"
+		}
+	]
+}

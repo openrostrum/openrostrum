@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+	type AnySQLiteColumn,
 	index,
 	integer,
 	primaryKey,
@@ -128,6 +129,26 @@ export const tracks = sqliteTable(
 	(t) => [index("tracks_event_idx").on(t.eventId)],
 );
 
+// Sessionboard carries TWO status fields on a session: a fixed core enum
+// (SUBMISSION_STATUS — the 5-stage decision pipeline) AND an organizer-created
+// custom status ("Offered", "Pending Contract", …). This table holds the custom
+// ones per event; `submissions.customStatusId` points at the active one. Both
+// coexist exactly as the Sessionboard API does (`status` + `custom_status_id`).
+export const sessionStatuses = sqliteTable(
+	"session_statuses",
+	{
+		id: id(),
+		eventId: text("event_id")
+			.notNull()
+			.references(() => events.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		color: text("color").notNull().default("#71717a"),
+		position: integer("position").notNull().default(0),
+		createdAt: createdAt(),
+	},
+	(t) => [index("session_statuses_event_idx").on(t.eventId)],
+);
+
 export const tags = sqliteTable(
 	"tags",
 	{
@@ -220,6 +241,11 @@ export const portals = sqliteTable(
 			.unique()
 			.$defaultFn(() => crypto.randomUUID()),
 		name: text("name").notNull().default("Speaker Portal"),
+		// Appearance/theming (Sessionboard portals are branded per event).
+		welcomeMessage: text("welcome_message"),
+		accentColor: text("accent_color"),
+		logoKey: text("logo_key"), // R2 object key
+		backgroundKey: text("background_key"), // R2 object key
 		createdAt: createdAt(),
 	},
 	(t) => [index("portals_event_idx").on(t.eventId)],
@@ -453,6 +479,11 @@ export const contacts = sqliteTable(
 		status: text("status", { enum: CONTACT_STATUS })
 			.notNull()
 			.default("pending"),
+		// Per-speaker public/hidden toggle. Hidden speakers must never appear in
+		// public embeds or the program site (Sessionboard's public/private boundary).
+		publicVisible: integer("public_visible", { mode: "boolean" })
+			.notNull()
+			.default(true),
 		/** Travel/logistics free-text ("Arrival May 11, aisle seat; dietary: Vegetarian"). */
 		logisticsNotes: text("logistics_notes"),
 		createdAt: createdAt(),
@@ -493,6 +524,17 @@ export const submissions = sqliteTable(
 		status: text("status", { enum: SUBMISSION_STATUS })
 			.notNull()
 			.default("pending"),
+		// Organizer-created status layered on top of the core `status` pipeline
+		// (Sessionboard parity — a session has both). Null = core status only.
+		customStatusId: text("custom_status_id").references(
+			() => sessionStatuses.id,
+			{ onDelete: "set null" },
+		),
+		// Subsessions: a session nested under a parent (e.g. a workshop's slots).
+		parentId: text("parent_id").references(
+			(): AnySQLiteColumn => submissions.id,
+			{ onDelete: "cascade" },
+		),
 		contentStatus: text("content_status", { enum: CONTENT_STATUS })
 			.notNull()
 			.default("draft"),
@@ -535,6 +577,7 @@ export const submissions = sqliteTable(
 		index("submissions_form_idx").on(t.formId),
 		index("submissions_room_idx").on(t.roomId),
 		index("submissions_submitter_idx").on(t.submitterId),
+		index("submissions_parent_idx").on(t.parentId),
 	],
 );
 
@@ -1212,6 +1255,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 export const eventsRelations = relations(events, ({ many }) => ({
 	submissions: many(submissions),
 	tracks: many(tracks),
+	sessionStatuses: many(sessionStatuses),
 	tags: many(tags),
 	formats: many(formats),
 	levels: many(levels),
@@ -1223,6 +1267,17 @@ export const eventsRelations = relations(events, ({ many }) => ({
 	evaluationPlans: many(evaluationPlans),
 	embeds: many(embeds),
 }));
+
+export const sessionStatusesRelations = relations(
+	sessionStatuses,
+	({ one, many }) => ({
+		event: one(events, {
+			fields: [sessionStatuses.eventId],
+			references: [events.id],
+		}),
+		submissions: many(submissions),
+	}),
+);
 
 export const formsRelations = relations(forms, ({ one, many }) => ({
 	event: one(events, { fields: [forms.eventId], references: [events.id] }),
@@ -1265,6 +1320,16 @@ export const submissionsRelations = relations(submissions, ({ one, many }) => ({
 		references: [levels.id],
 	}),
 	room: one(rooms, { fields: [submissions.roomId], references: [rooms.id] }),
+	customStatus: one(sessionStatuses, {
+		fields: [submissions.customStatusId],
+		references: [sessionStatuses.id],
+	}),
+	parent: one(submissions, {
+		fields: [submissions.parentId],
+		references: [submissions.id],
+		relationName: "subsessions",
+	}),
+	subsessions: many(submissions, { relationName: "subsessions" }),
 	participants: many(participants),
 	submissionTracks: many(submissionTracks),
 	submissionTags: many(submissionTags),
