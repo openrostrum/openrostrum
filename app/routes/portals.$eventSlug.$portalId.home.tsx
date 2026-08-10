@@ -20,10 +20,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
 	const [submissionRows, taskRows] = await timings.time("db", () =>
-		Promise.all([
-			listPortalSubmissions(env, ctx, user.id),
-			listPortalTasks(env, ctx),
-		]),
+		Promise.all([listPortalSubmissions(env, ctx), listPortalTasks(env, ctx)]),
 	);
 	return data(
 		{

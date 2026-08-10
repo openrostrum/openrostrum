@@ -48,7 +48,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
 	const { submission, myParticipant } = await timings.time("db", () =>
-		requireOwnedSubmission(env, ctx, user.id, params.submissionId),
+		requireOwnedSubmission(env, ctx, params.submissionId),
 	);
 	const db = getDb(env);
 
@@ -157,12 +157,12 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				id: p.id,
 				name: `${p.firstName} ${p.lastName}`,
 				role: p.role,
-				isMe: p.contactUserId === user.id,
+				isMe: p.contactUserId === ctx.subjectUserId,
 				acceptance:
 					isAccepted && p.role !== "secondary"
 						? PARTICIPATION_PROJECTION[p.acceptance]
 						: null,
-				removable: p.contactUserId !== user.id,
+				removable: p.contactUserId !== ctx.subjectUserId,
 			})),
 			myParticipation: myParticipant
 				? {
@@ -180,7 +180,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					: null,
 			},
 			canWithdrawSubmission:
-				submission.submitterId === user.id &&
+				submission.submitterId === ctx.subjectUserId &&
 				!["withdrawn", "declined", "draft"].includes(submission.status),
 			saved: new URL(request.url).searchParams.get("saved"),
 			edit: editWindow.editable
@@ -241,7 +241,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const { submission, myParticipant } = await requireOwnedSubmission(
 		env,
 		ctx,
-		user.id,
 		params.submissionId,
 	);
 	const db = getDb(env);

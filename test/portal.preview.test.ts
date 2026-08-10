@@ -5,10 +5,17 @@ import { getDb } from "../app/db";
 import {
 	contacts,
 	organizationMembers,
+	participants,
 	portalForms,
+	submissions,
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
+import {
+	action as submissionDetailAction,
+	loader as submissionDetailLoader,
+} from "../app/routes/portals.$eventSlug.$portalId.submissions_.$submissionId";
+import { loader as submissionsLoader } from "../app/routes/portals.$eventSlug.$portalId.submissions";
 import { action as taskDetailAction } from "../app/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
 import { loader as tasksLoader } from "../app/routes/portals.$eventSlug.$portalId.tasks";
 import { loader as shellLoader } from "../app/routes/portals.$eventSlug.$portalId";
@@ -92,6 +99,34 @@ async function seedPreviewWorld() {
 		{ id: "ta_simple", taskId: "t_simple", contactId: "c_priya" },
 		{ id: "ta_mallory", taskId: "t_simple", contactId: "c_mallory" },
 	]);
+	await db.insert(submissions).values([
+		{
+			id: "s_priya_owned",
+			eventId: "e1",
+			title: "Priya's proposal",
+			status: "pending",
+			submitterId: "u_priya",
+		},
+		{
+			id: "s_panel",
+			eventId: "e1",
+			title: "Speaker panel",
+			status: "accepted",
+			submitterId: "u_mallory",
+		},
+	]);
+	await db.insert(participants).values([
+		{
+			id: "p_priya",
+			submissionId: "s_panel",
+			contactId: "c_priya",
+		},
+		{
+			id: "p_mallory",
+			submissionId: "s_panel",
+			contactId: "c_mallory",
+		},
+	]);
 	return db;
 }
 
@@ -141,6 +176,51 @@ describe("admin portal preview (View portal as)", () => {
 		]);
 	});
 
+	it("uses the selected speaker's linked account for every submission read affordance", async () => {
+		await seedPreviewWorld();
+		const list = unwrap<{
+			submissions: Array<{ id: string }>;
+		}>(
+			await submissionsLoader({
+				context: CONTEXT,
+				request: await requestWithPreview("u_admin", `${BASE}/submissions`),
+				params: PORTAL_PARAMS,
+			} as unknown as Parameters<typeof submissionsLoader>[0]),
+		);
+		expect(list.submissions.map((row) => row.id)).toContain("s_priya_owned");
+
+		const owned = unwrap<{
+			canWithdrawSubmission: boolean;
+		}>(
+			await submissionDetailLoader({
+				context: CONTEXT,
+				request: await requestWithPreview(
+					"u_admin",
+					`${BASE}/submissions/s_priya_owned`,
+				),
+				params: { ...PORTAL_PARAMS, submissionId: "s_priya_owned" },
+			} as unknown as Parameters<typeof submissionDetailLoader>[0]),
+		);
+		expect(owned.canWithdrawSubmission).toBe(true);
+
+		const panel = unwrap<{
+			participants: Array<{ id: string; isMe: boolean; removable: boolean }>;
+		}>(
+			await submissionDetailLoader({
+				context: CONTEXT,
+				request: await requestWithPreview(
+					"u_admin",
+					`${BASE}/submissions/s_panel`,
+				),
+				params: { ...PORTAL_PARAMS, submissionId: "s_panel" },
+			} as unknown as Parameters<typeof submissionDetailLoader>[0]),
+		);
+		expect(panel.participants.find((p) => p.id === "p_priya")).toMatchObject({
+			isMe: true,
+			removable: false,
+		});
+	});
+
 	it("blocks every mutation server-side while previewing — 403 AND the write never happened", async () => {
 		const db = await seedPreviewWorld();
 
@@ -178,6 +258,28 @@ describe("admin portal preview (View portal as)", () => {
 			} as unknown as Parameters<typeof taskDetailAction>[0]),
 		);
 		expect(thrownStatus(completeThrown)).toBe(403);
+
+		const withdrawRequest = await requestWithPreview(
+			"u_admin",
+			`${BASE}/submissions/s_priya_owned`,
+			{
+				method: "POST",
+				body: new URLSearchParams({ intent: "withdraw-submission" }),
+			},
+		);
+		const withdrawThrown = await catchThrown(() =>
+			submissionDetailAction({
+				context: CONTEXT,
+				request: withdrawRequest,
+				params: { ...PORTAL_PARAMS, submissionId: "s_priya_owned" },
+			} as unknown as Parameters<typeof submissionDetailAction>[0]),
+		);
+		expect(thrownStatus(withdrawThrown)).toBe(403);
+		const [owned] = await db
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, "s_priya_owned"));
+		expect(owned?.status).toBe("pending");
 
 		const rows = await db.select().from(taskAssignments);
 		for (const row of rows) {

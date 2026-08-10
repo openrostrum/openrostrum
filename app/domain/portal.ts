@@ -85,6 +85,8 @@ export type PortalContext = {
 	portal: Portal;
 	/** Null = authenticated user with no contact in this event yet (e.g. draft-only). */
 	contact: Contact | null;
+	/** Account whose ownership portal GETs project; null for an unlinked preview contact. */
+	subjectUserId: string | null;
 	/** Set while an org admin views the portal as `contact` — read-only mode. */
 	preview: { contactName: string } | null;
 };
@@ -136,6 +138,7 @@ export async function getPortalContext(
 				event,
 				portal,
 				contact: previewContact,
+				subjectUserId: previewContact.userId,
 				preview: { contactName: contactDisplayName(previewContact) },
 			};
 		}
@@ -166,7 +169,13 @@ export async function getPortalContext(
 			contact = { ...match, userId: user.id };
 		}
 	}
-	return { event, portal, contact: contact ?? null, preview: null };
+	return {
+		event,
+		portal,
+		contact: contact ?? null,
+		subjectUserId: user.id,
+		preview: null,
+	};
 }
 
 export function portalPath(ctx: PortalContext, suffix = ""): string {
@@ -197,37 +206,38 @@ export type PortalSubmissionRow = {
 export async function listPortalSubmissions(
 	env: Env,
 	ctx: PortalContext,
-	userId: string,
 ): Promise<PortalSubmissionRow[]> {
 	const db = getDb(env);
 	const byId = new Map<string, PortalSubmissionRow>();
 
-	const own = await db
-		.select({
-			id: submissions.id,
-			title: submissions.title,
-			status: submissions.status,
-			format: formats.name,
-			createdAt: submissions.createdAt,
-		})
-		.from(submissions)
-		.leftJoin(formats, eq(formats.id, submissions.formatId))
-		.where(
-			and(
-				eq(submissions.submitterId, userId),
-				eq(submissions.eventId, ctx.event.id),
-			),
-		)
-		.orderBy(desc(submissions.createdAt));
-	for (const row of own) {
-		byId.set(row.id, {
-			id: row.id,
-			title: row.title,
-			status: portalStatus(row.status),
-			format: row.format,
-			createdAt: row.createdAt.getTime(),
-			participation: null,
-		});
+	if (ctx.subjectUserId !== null) {
+		const own = await db
+			.select({
+				id: submissions.id,
+				title: submissions.title,
+				status: submissions.status,
+				format: formats.name,
+				createdAt: submissions.createdAt,
+			})
+			.from(submissions)
+			.leftJoin(formats, eq(formats.id, submissions.formatId))
+			.where(
+				and(
+					eq(submissions.submitterId, ctx.subjectUserId),
+					eq(submissions.eventId, ctx.event.id),
+				),
+			)
+			.orderBy(desc(submissions.createdAt));
+		for (const row of own) {
+			byId.set(row.id, {
+				id: row.id,
+				title: row.title,
+				status: portalStatus(row.status),
+				format: row.format,
+				createdAt: row.createdAt.getTime(),
+				participation: null,
+			});
+		}
 	}
 
 	if (ctx.contact) {
@@ -279,7 +289,6 @@ export async function listPortalSubmissions(
 export async function requireOwnedSubmission(
 	env: Env,
 	ctx: PortalContext,
-	userId: string,
 	submissionId: string,
 ) {
 	const db = getDb(env);
@@ -308,7 +317,7 @@ export async function requireOwnedSubmission(
 			.limit(1);
 		myParticipant = p ?? null;
 	}
-	if (!myParticipant && submission.submitterId !== userId)
+	if (!myParticipant && submission.submitterId !== ctx.subjectUserId)
 		throw data(null, { status: 404 });
 	return { submission, myParticipant };
 }
