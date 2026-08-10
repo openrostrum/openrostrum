@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Button } from "~/ui";
 
 /**
@@ -7,7 +7,22 @@ import { Button } from "~/ui";
  * location.assign — a client-side <Link> to a resource route won't stream the
  * attachment (same pattern as the itinerary's export).
  */
-export function AddToCalendar({ href }: { href: string }) {
+export function CalendarDownloadSurface({
+	href,
+	children,
+}: {
+	href: string | null;
+	children: ReactNode;
+}) {
+	return (
+		<div className="flex flex-col gap-4">
+			{href && <AddToCalendar key={href} href={href} />}
+			{children}
+		</div>
+	);
+}
+
+function AddToCalendar({ href }: { href: string }) {
 	const [downloaded, setDownloaded] = useState(false);
 	return (
 		<div className="flex flex-wrap items-center justify-end gap-3">

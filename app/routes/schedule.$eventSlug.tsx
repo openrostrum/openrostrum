@@ -7,7 +7,7 @@ import {
 	sessionCalendarHref,
 	toProgramEvent,
 } from "~/lib/program";
-import { AddToCalendar } from "~/components/add-to-calendar";
+import { CalendarDownloadSurface } from "~/components/add-to-calendar";
 import { createTimings } from "~/lib/track";
 import {
 	AgendaSurface,
@@ -60,12 +60,9 @@ export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
 	return (
 		<ProgramShell event={event} active="schedule">
 			{surface ? (
-				<div className="flex flex-col gap-4">
-					{calendarHref && (
-						<AddToCalendar key={calendarHref} href={calendarHref} />
-					)}
+				<CalendarDownloadSurface href={calendarHref}>
 					<AgendaSurface data={surface} base={`/schedule/${event.slug}`} />
-				</div>
+				</CalendarDownloadSurface>
 			) : (
 				<AgendaUnpublished event={event} />
 			)}

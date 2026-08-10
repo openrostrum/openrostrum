@@ -2,7 +2,8 @@
 // visitors who followed a stale link.
 import { Form, useNavigation } from "react-router";
 import { getUser, homePathForRole } from "~/lib/auth";
-import { Button, ButtonLink, EmptyState } from "~/ui";
+import { FullPageEmptyState } from "~/components/full-page-empty-state";
+import { Button, ButtonLink } from "~/ui";
 import type { Route } from "./+types/403";
 
 const HOME_LABELS: Record<string, string> = {
@@ -32,30 +33,28 @@ export default function Forbidden({ loaderData }: Route.ComponentProps) {
 	const { viewer } = loaderData;
 	const busy = useNavigation().state !== "idle";
 	return (
-		<main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6">
-			<EmptyState
-				icon="users"
-				title="You don't have access to this page"
-				body={
-					viewer
-						? `You're signed in as ${viewer.email}, and this page belongs to a different role. Head to your own workspace, or sign in with another account.`
-						: "This page needs a signed-in account with the right role. Sign in to continue."
-				}
-				action={
-					viewer ? (
-						<div className="flex flex-wrap items-center justify-center gap-2">
-							<ButtonLink to={viewer.homePath}>{viewer.homeLabel}</ButtonLink>
-							<Form method="post" action="/logout">
-								<Button type="submit" variant="ghost" disabled={busy}>
-									Sign out
-								</Button>
-							</Form>
-						</div>
-					) : (
-						<ButtonLink to="/login">Sign in</ButtonLink>
-					)
-				}
-			/>
-		</main>
+		<FullPageEmptyState
+			icon="users"
+			title="You don't have access to this page"
+			body={
+				viewer
+					? `You're signed in as ${viewer.email}, and this page belongs to a different role. Head to your own workspace, or sign in with another account.`
+					: "This page needs a signed-in account with the right role. Sign in to continue."
+			}
+			actions={
+				viewer ? (
+					<>
+						<ButtonLink to={viewer.homePath}>{viewer.homeLabel}</ButtonLink>
+						<Form method="post" action="/logout">
+							<Button type="submit" variant="ghost" disabled={busy}>
+								Sign out
+							</Button>
+						</Form>
+					</>
+				) : (
+					<ButtonLink to="/login">Sign in</ButtonLink>
+				)
+			}
+		/>
 	);
 }
