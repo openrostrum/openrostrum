@@ -40,6 +40,7 @@ decision still needed. Corroboration = how many walkers hit it independently.
 | Withdraw leaves scheduled ghost on grid | SPEC'D: withdraw unschedules (nulls startsAt/endsAt/roomId) |
 | `forms.status` lifecycle undefined | SPEC'D: publish sets `open`; public route reachable iff `open`; `closeAt` gates submission only |
 | Wizard step-state carrier | ~~SPEC'D: draft row minted on first VALID submission-step save~~ **SUPERSEDED by K1 below**: draft save requires only a non-empty Title |
+| `/api/v1` Hide-PII: Sessionboard models a per-token "Hide PII" flag (default on) + scopes; `api_tokens` has neither column | DECIDED (P1 #20 lane, ratifies walk-09 A2): v1 serializers mask unconditionally — every token is a masked consumer, fails closed. Per-token `hide_pii`/`scopes` columns + their settings UI are an integration-owner follow-up, built with the token-management screen |
 | Draft-with-no-participants invisible in portal | SPEC'D: My Submissions = participant-linked ∪ own drafts (UNION) |
 | Homeless committed routes (CSV export, email history, task responses, forgot-password, unsubscribe, my-reviews, set-password, files up/download, reviewer mgmt, contacts) | FIXED: ROUTE-MAP rows added |
 | Seed ≠ scenario fixtures (named identities, limit=3, scale) | FIXED: seed enriched with scenario fixtures + scale layer |

@@ -57,7 +57,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Public speaker gallery | `gallery.$eventSlug.tsx` | `/gallery/:eventSlug` (P1 #16e) | 2 | done |
 | Public feeds (JSON/XML/iCal/basic HTML + widget.js) | `feeds.$eventSlug.$kind.tsx` (the segment carries the extension — flat-routes can't put a param after an escaped dot) | `/feeds/:eventSlug/sessions.json` · `.xml` · `.html` · `speakers.*` · `agenda.ics` · `widget.js` (`// @public`) | 2 | done |
 | Configured embed render | `embed.$publicId.tsx` | `/embed/:publicId` (snippet target; `// @public`) | 2 | done |
-| Compat API (Hono splat) | `api.v1.$.tsx` | `/api/v1/*` (x-access-token; read-only; P1 #20) | 3 | todo |
+| Compat API (Hono splat) | `api.v1.$.tsx` | `/api/v1/*` (x-access-token; read-only; P1 #20) | 3 | done |
 | Harness aliases (redirects) | `dashboard.tsx` · `organizer.tsx` · `sessions._index.tsx` · `speakers._index.tsx` · `schedule._index.tsx` · `agenda.tsx` · `itinerary._index.tsx` · `gallery._index.tsx` | `/dashboard` `/organizer` → `/admin`; bare `/sessions` `/speakers` `/schedule` `/agenda` `/itinerary` `/gallery` → the default event's public page (default = oldest event by createdAt; `/agenda` and `/schedule` both land on the grid) (`// @public`) | 2 | done |
 | Airtable webhook receiver | `hooks.airtable.tsx` | `/hooks/airtable` (POST; HMAC-verified via `X-Airtable-Content-MAC`, no session auth — `// @public`; P1 #15) | 2 | todo |
 
