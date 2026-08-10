@@ -8,6 +8,7 @@ import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { type Clock, systemClock } from "~/ports/clock";
 import { getEmailSender } from "~/ports/email";
 import { track } from "~/lib/track";
+import { DAILY_CRON } from "./cadence";
 import type { ScheduledJob } from "./registry";
 
 /** How far ahead of the due date the reminder goes out. */
@@ -140,6 +141,7 @@ export async function runTaskDueReminders(
 
 const job: ScheduledJob = {
 	name: "task-due-reminders",
+	cron: DAILY_CRON,
 	async run(env) {
 		await runTaskDueReminders(env, systemClock);
 	},
