@@ -343,9 +343,9 @@ function Block({
 				conflict && "border-danger",
 			)}
 		>
-			<span className="flex items-center gap-1 text-[11px] font-medium leading-tight text-fg">
+			<span className="flex min-w-0 items-center gap-1 text-[11px] font-medium leading-tight text-fg">
 				{conflict && <Icon name="calendar" size={11} />}
-				<span className="truncate">{title}</span>
+				<span className="min-w-0 truncate">{title}</span>
 			</span>
 			<span className="font-mono text-[10px] text-fg-muted">{room}</span>
 			{conflict && (
@@ -363,7 +363,7 @@ export function AgendaMock() {
 			aria-hidden="true"
 			className="w-full select-none overflow-hidden rounded-card border border-hair bg-surface shadow-card"
 		>
-			<div className="grid grid-cols-[44px_1fr_1fr_1fr] border-b border-hair">
+			<div className="grid grid-cols-[44px_repeat(3,minmax(0,1fr))] border-b border-hair">
 				<span />
 				{ROOMS.map((room) => (
 					<span
@@ -374,7 +374,7 @@ export function AgendaMock() {
 					</span>
 				))}
 			</div>
-			<div className="grid grid-cols-[44px_1fr_1fr_1fr]">
+			<div className="grid grid-cols-[44px_repeat(3,minmax(0,1fr))]">
 				{HOURS.map((hour, hourIndex) => (
 					<div key={hour} className="contents">
 						<span className="border-t border-hair px-2 py-3 text-right font-mono text-[10px] tabular-nums text-fg-faint">

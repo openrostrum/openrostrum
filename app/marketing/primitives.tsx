@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Icon, type IconName } from "~/ui";
 import { cn } from "~/ui/cn";
@@ -18,11 +18,16 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 }
 
 const CTA_BASE = cn(
-	"inline-flex h-11 items-center justify-center gap-2 rounded-control px-5 text-[14px] font-medium",
+	"inline-flex items-center justify-center gap-2 rounded-control font-medium",
 	"transition-[background-color,transform,box-shadow] duration-150 ease-out",
 	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 	"active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
 );
+
+const CTA_SIZE = {
+	md: "h-11 px-5 text-[14px]",
+	sm: "h-9 px-4 text-[13.5px]",
+} as const;
 
 const CTA_VARIANT = {
 	primary: "bg-ink text-on-ink shadow-btn hover:bg-ink-hover",
@@ -32,21 +37,30 @@ const CTA_VARIANT = {
 type CtaProps = {
 	children: ReactNode;
 	variant?: keyof typeof CTA_VARIANT;
+	size?: keyof typeof CTA_SIZE;
 	to?: string;
 	href?: string;
 	icon?: IconName;
 	external?: boolean;
+	className?: string;
 };
 
 export function Cta({
 	children,
 	variant = "primary",
+	size = "md",
 	to,
 	href,
 	icon,
 	external,
+	className: extraClassName,
 }: CtaProps) {
-	const className = cn(CTA_BASE, CTA_VARIANT[variant]);
+	const className = cn(
+		CTA_BASE,
+		CTA_SIZE[size],
+		CTA_VARIANT[variant],
+		extraClassName,
+	);
 	const inner = (
 		<>
 			<span>{children}</span>
@@ -68,38 +82,5 @@ export function Cta({
 		>
 			{inner}
 		</a>
-	);
-}
-
-/** A credential value that copies itself on click — the sandbox sign-in is the
- * page's real CTA, so grabbing it must cost one click, not a drag-select. */
-export function CopyValue({ value }: { value: string }) {
-	const [copied, setCopied] = useState(false);
-	return (
-		<button
-			type="button"
-			onClick={() => {
-				navigator.clipboard.writeText(value).then(() => {
-					setCopied(true);
-					setTimeout(() => setCopied(false), 1500);
-				});
-			}}
-			className={cn(
-				"group inline-flex items-center gap-2 rounded-[6px] bg-chip px-2.5 py-1",
-				"transition-colors duration-150 ease-out hover:bg-petrol-wash",
-				"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
-			)}
-		>
-			<span className="font-mono text-[12px] text-fg">{value}</span>
-			<span
-				className={cn(
-					"font-mono text-[10px] uppercase tracking-[0.08em]",
-					copied ? "text-petrol" : "text-fg-faint group-hover:text-petrol",
-				)}
-				aria-live="polite"
-			>
-				{copied ? "copied" : "copy"}
-			</span>
-		</button>
 	);
 }
