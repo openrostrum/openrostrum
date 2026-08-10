@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import {
 	contacts,
@@ -450,5 +450,80 @@ describe("bulk + send-decisions intents", () => {
 			.from(submissions)
 			.where(eq(submissions.id, "s1"));
 		expect(row?.status).toBe("accept_queue");
+	});
+});
+
+describe("send-decisions against the real provider adapter", () => {
+	afterEach(() => vi.restoreAllMocks());
+
+	// The prod walkthrough bug: one recipient the provider rejects (e.g. an
+	// @example.com address) must NOT sink the whole batch — deliverable rows
+	// still send + finalize, the rejected row stays un-finalized with a
+	// queryable `failed` history row, and the admin sees a per-row note
+	// instead of "Sending failed partway" with nothing recorded.
+	it("a provider-rejected recipient is contained per-row: others finalize, the failure is a history row", async () => {
+		const db = await seedWorld();
+		await seedSubmissionWithSpeaker("s1", "accept_queue", "bad@example.com");
+		await seedSubmissionWithSpeaker("s2", "accept_queue", "good@real.dev");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url: string, init: RequestInit) => {
+				const body = JSON.parse(init.body as string) as { to: string[] };
+				return body.to[0] === "bad@example.com"
+					? new Response(
+							JSON.stringify({
+								statusCode: 422,
+								message: "Invalid `to` field.",
+							}),
+							{ status: 422 },
+						)
+					: new Response(JSON.stringify({ id: "resend-ok" }), {
+							status: 200,
+						});
+			}),
+		);
+		const prodEnv = {
+			...env,
+			RESEND_API_KEY: "re_test",
+			EMAIL_FROM: "OpenRostrum <noreply@test.example>",
+		} as unknown as Env;
+
+		const result = unwrap(
+			await action({
+				context: { cloudflare: { env: prodEnv, ctx: {} } },
+				request: await requestAs(
+					"u_admin",
+					new URLSearchParams([
+						["intent", "send-accept"],
+						["submissionIds", "s1"],
+						["submissionIds", "s2"],
+						["idempotencyKey", "form-key-6"],
+					]),
+				),
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
+
+		expect(result.data.notice).toContain("1 accept email sent");
+		expect(result.data.notice).toContain("1 submission finalized as accepted");
+		expect(result.data.skipped?.join(" ")).toContain(
+			"Sending to bad@example.com failed",
+		);
+
+		const outbox = await db.select().from(emailOutbox);
+		const byTo = new Map(outbox.map((o) => [o.to, o]));
+		expect(byTo.get("good@real.dev")).toMatchObject({
+			status: "sent",
+			providerId: "resend-ok",
+		});
+		expect(byTo.get("bad@example.com")?.status).toBe("failed");
+		expect(byTo.get("bad@example.com")?.error).toContain("422");
+
+		const rows = await db.select().from(submissions);
+		const byId = new Map(rows.map((r) => [r.id, r]));
+		expect(byId.get("s2")?.status).toBe("accepted");
+		expect(byId.get("s2")?.notifiedAt).toBeInstanceOf(Date);
+		expect(byId.get("s1")?.status).toBe("accept_queue");
+		expect(byId.get("s1")?.notifiedAt).toBeNull();
 	});
 });

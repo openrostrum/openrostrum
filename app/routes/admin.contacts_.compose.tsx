@@ -262,7 +262,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 		id: string;
 		name: string;
 		email: string;
-		outcome: "sent" | "suppressed" | "duplicate";
+		outcome: "sent" | "suppressed" | "duplicate" | "failed";
 	}> = [];
 	try {
 		await timings.time("send", async () => {
@@ -271,27 +271,45 @@ export async function action({ context, request }: Route.ActionArgs) {
 				const html =
 					renderEmailHtml(parsed.data.body, values) +
 					`<p>You're receiving this because you're a speaker contact for ${escapeHtml(event.name)}. Reply to this email if you'd rather not receive announcements about this event.</p>`;
-				const result = await sender.send({
-					to: normalizeEmail(contact.email),
-					// The footer says "reply to this email" — replies must actually
-					// reach the organizer who composed it, not the sender address.
-					replyTo: user.email,
-					subject: renderMergeFields(parsed.data.subject, values),
-					html,
-					kind: "bulk",
-					dedupeKey: `bulk:${sendKey}:${contact.id}`,
-					eventId: event.id,
-				});
-				outcomes.push({
-					id: contact.id,
-					name: `${contact.firstName} ${contact.lastName}`.trim(),
-					email: contact.email,
-					outcome: result.suppressed
-						? "suppressed"
-						: result.deduped
-							? "duplicate"
-							: "sent",
-				});
+				const name = `${contact.firstName} ${contact.lastName}`.trim();
+				try {
+					const result = await sender.send({
+						to: normalizeEmail(contact.email),
+						// The footer says "reply to this email" — replies must actually
+						// reach the organizer who composed it, not the sender address.
+						replyTo: user.email,
+						subject: renderMergeFields(parsed.data.subject, values),
+						html,
+						kind: "bulk",
+						dedupeKey: `bulk:${sendKey}:${contact.id}`,
+						eventId: event.id,
+					});
+					outcomes.push({
+						id: contact.id,
+						name,
+						email: contact.email,
+						outcome: result.suppressed
+							? "suppressed"
+							: result.deduped
+								? "duplicate"
+								: "sent",
+					});
+				} catch (error) {
+					// One undeliverable address must not block the recipients after
+					// it — record the failure (the reason is on the outbox row) and
+					// keep going.
+					track("contacts.bulk_email_send_failed", {
+						eventId: event.id,
+						contactId: contact.id,
+						error: errorMessage(error),
+					});
+					outcomes.push({
+						id: contact.id,
+						name,
+						email: contact.email,
+						outcome: "failed",
+					});
+				}
 			}
 		});
 	} catch (error) {
@@ -308,16 +326,19 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 	const sent = outcomes.filter((o) => o.outcome === "sent").length;
 	const suppressed = outcomes.filter((o) => o.outcome === "suppressed").length;
+	const failed = outcomes.filter((o) => o.outcome === "failed").length;
 	track("contacts.bulk_email_sent", {
 		eventId: event.id,
 		recipients: outcomes.length,
 		sent,
 		suppressed,
+		failed,
 	});
 	return {
 		step: "sent" as const,
 		sent,
 		suppressed,
+		failed,
 		duplicates: outcomes.filter((o) => o.outcome === "duplicate").length,
 		outcomes,
 		subject: parsed.data.subject,
@@ -328,6 +349,7 @@ const OUTCOME_COPY = {
 	sent: { tone: "success", label: "sent" },
 	suppressed: { tone: "neutral", label: "skipped — unsubscribed" },
 	duplicate: { tone: "info", label: "already sent (duplicate submit)" },
+	failed: { tone: "danger", label: "failed — see Email history" },
 } as const;
 
 export default function ComposeBulkEmail({
@@ -362,6 +384,11 @@ export default function ComposeBulkEmail({
 						{state.duplicates > 0 && (
 							<StatusBadge tone="info">
 								{state.duplicates} duplicate submits ignored
+							</StatusBadge>
+						)}
+						{state.failed > 0 && (
+							<StatusBadge tone="danger">
+								{state.failed} failed — see Email history
 							</StatusBadge>
 						)}
 					</div>
