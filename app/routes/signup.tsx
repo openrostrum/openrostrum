@@ -2,7 +2,7 @@
 import { eq } from "drizzle-orm";
 import { Form, redirect, useNavigation } from "react-router";
 import { z } from "zod";
-import { AuthNote, AuthPage } from "~/auth/page";
+import { AuthNote, AuthPage } from "~/marketing/auth";
 import { getDb } from "~/db";
 import { users } from "~/db/schema";
 import {

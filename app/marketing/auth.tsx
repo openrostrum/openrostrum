@@ -1,16 +1,14 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { GITHUB_URL } from "~/marketing/content";
 import { TextLink, Wordmark } from "~/ui";
 import { cn } from "~/ui/cn";
+import { GITHUB_URL } from "./content";
+import { FOCUS_RING, PLATFORM_BAR } from "./primitives";
 
 // The auth doorway — one composition shared by /login, /signup,
 // /forgot-password, and /set-password, so the four routes stay layout-only.
 // The card standing on a petrol platform is the brand mark drawn at page
 // scale (the O on the rostrum), the same move as the landing hero.
-
-const FOCUS_RING =
-	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol";
 
 const TITLE_TONES = {
 	default: "text-fg",
@@ -80,10 +78,7 @@ export function AuthPage({
 						<div className="rounded-card bg-surface p-6 shadow-card sm:p-7">
 							{children}
 						</div>
-						<div
-							aria-hidden="true"
-							className="mx-9 h-[5px] rounded-[2px] bg-petrol"
-						/>
+						<div aria-hidden="true" className={cn(PLATFORM_BAR, "mx-9")} />
 					</div>
 					{below && (
 						<div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[13px] text-fg-muted">

@@ -2,7 +2,7 @@
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { Form } from "react-router";
 import { z } from "zod";
-import { AuthNote, AuthPage } from "~/auth/page";
+import { AuthNote, AuthPage } from "~/marketing/auth";
 import { getDb } from "~/db";
 import { passwordResets, users } from "~/db/schema";
 import { hashPassword, normalizeEmail } from "~/lib/auth";

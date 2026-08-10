@@ -2,7 +2,7 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { Form, data, redirect, useNavigation } from "react-router";
 import { z } from "zod";
-import { AuthNote, AuthPage } from "~/auth/page";
+import { AuthNote, AuthPage } from "~/marketing/auth";
 import { getDb } from "~/db";
 import {
 	authSessions,
