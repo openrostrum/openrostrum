@@ -27,7 +27,11 @@ export function homePathForRole(role: AppRole): string {
 
 const COOKIE = "__session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
-const PBKDF2_ITERATIONS = 600_000; // OWASP 2023 floor for PBKDF2-HMAC-SHA256
+// Cloudflare Workers' WebCrypto HARD-CAPS PBKDF2 at 100k iterations (higher
+// throws NotSupportedError at runtime — not caught locally, only in prod). This
+// is below OWASP's 600k floor, so it's the platform ceiling, not our choice; a
+// stronger KDF (scrypt/argon2 via WASM) is the follow-up if we outgrow it.
+const PBKDF2_ITERATIONS = 100_000;
 
 type AppUser = typeof users.$inferSelect;
 

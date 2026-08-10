@@ -23,7 +23,7 @@ const Credentials = z.object({
 // A valid PBKDF2 hash used only to equalize login timing when the email doesn't
 // exist, so the response time can't reveal whether an account exists.
 const DUMMY_HASH =
-	"pbkdf2$600000$nRz+NCgbip51gWKmrtbi5w==$aFZ0QBI/rzxCV3+hHj/erqG1ONnn4A2G4nQVWa5QGlM=";
+	"pbkdf2$100000$bG4n7QezUNdsw4LKWP853g==$cleG375VvUuXOgjBtPPEGMV4iZWeYOwEgcrpWdEoBew=";
 
 /** Same-origin internal path, or null if the target is external/unsafe
  * (blocks //host, /\host, scheme tricks). Caller falls back to the role home. */

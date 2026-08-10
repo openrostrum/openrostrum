@@ -50,9 +50,9 @@ DELETE FROM events;
 DELETE FROM users;
 
 INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES
- ('u_admin',    'admin@example.com',    'pbkdf2$600000$nRz+NCgbip51gWKmrtbi5w==$aFZ0QBI/rzxCV3+hHj/erqG1ONnn4A2G4nQVWa5QGlM=', 'Demo Admin',    'admin',    unixepoch()),
- ('u_speaker',  'speaker@example.com',  'pbkdf2$600000$nRz+NCgbip51gWKmrtbi5w==$aFZ0QBI/rzxCV3+hHj/erqG1ONnn4A2G4nQVWa5QGlM=', 'Sam Speaker',   'speaker',  unixepoch()),
- ('u_reviewer', 'reviewer@example.com', 'pbkdf2$600000$nRz+NCgbip51gWKmrtbi5w==$aFZ0QBI/rzxCV3+hHj/erqG1ONnn4A2G4nQVWa5QGlM=', 'Riley Reviewer','reviewer', unixepoch());
+ ('u_admin',    'admin@example.com',    'pbkdf2$100000$tYODZFeVCKLS/9d5yr3MNA==$wA4J7qHKFSGJ5wmrueLaEmZr3PgeC2NSGokpxOmnE24=', 'Demo Admin',    'admin',    unixepoch()),
+ ('u_speaker',  'speaker@example.com',  'pbkdf2$100000$tYODZFeVCKLS/9d5yr3MNA==$wA4J7qHKFSGJ5wmrueLaEmZr3PgeC2NSGokpxOmnE24=', 'Sam Speaker',   'speaker',  unixepoch()),
+ ('u_reviewer', 'reviewer@example.com', 'pbkdf2$100000$tYODZFeVCKLS/9d5yr3MNA==$wA4J7qHKFSGJ5wmrueLaEmZr3PgeC2NSGokpxOmnE24=', 'Riley Reviewer','reviewer', unixepoch());
 
 INSERT INTO events (id, name, slug, type, timezone, starts_at, ends_at, created_at) VALUES
  ('e_demo', 'AI.Engineer Sandbox Event', 'ai-engineer-sandbox', 'Conference', 'America/Los_Angeles',
