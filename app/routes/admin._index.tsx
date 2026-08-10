@@ -10,19 +10,19 @@ import {
 	formats,
 	forms,
 	participants,
-	reviewerTracks,
 	submissions,
 	taskAssignments,
 	tasks,
 	tracks,
 } from "~/db/schema";
-import { formIsOpen, submitUrl } from "~/domain/forms";
+import { formIsOpen, submitPath } from "~/domain/forms";
 import { deriveGettingStarted } from "~/domain/getting-started";
 import { getActiveEvent, isSecureRequest, requireAdmin } from "~/lib/auth";
 import {
 	dismissGettingStartedCookie,
 	isGettingStartedDismissed,
 } from "~/lib/getting-started-dismissal";
+import { countEventReviewers } from "~/lib/reviewers";
 import {
 	calendarDaysUntil,
 	eventCountdown,
@@ -187,11 +187,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				.select({ n: count() })
 				.from(formats)
 				.where(eq(formats.eventId, event.id)),
-			db
-				.select({ n: countDistinct(reviewerTracks.userId) })
-				.from(reviewerTracks)
-				.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
-				.where(eq(tracks.eventId, event.id)),
+			countEventReviewers(db, event.id),
 		]),
 	);
 
@@ -270,11 +266,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		}),
 		dismissed: await isGettingStartedDismissed(request, user.id, event.id),
 		cfpUrl: firstOpenForm
-			? submitUrl(
-					new URL(request.url).origin,
-					event.slug,
-					firstOpenForm.publicId,
-				)
+			? new URL(request.url).origin +
+				submitPath(event.slug, firstOpenForm.publicId)
 			: null,
 	};
 

@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, countDistinct, eq, gt, inArray, isNull } from "drizzle-orm";
 import type { Db } from "~/db";
 import { passwordResets, reviewerTracks, tracks, users } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
@@ -70,6 +70,16 @@ export async function listEventReviewers(
 	return [...byUser.values()].sort((a, b) =>
 		(a.name ?? a.email).localeCompare(b.name ?? b.email),
 	);
+}
+
+/** Batchable distinct-reviewer count over the same track-assignment anchor
+ * as `listEventReviewers` — the tenancy boundary stays in this one file. */
+export function countEventReviewers(db: Db, eventId: string) {
+	return db
+		.select({ n: countDistinct(reviewerTracks.userId) })
+		.from(reviewerTracks)
+		.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
+		.where(eq(tracks.eventId, eventId));
 }
 
 /**

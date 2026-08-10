@@ -18,14 +18,11 @@ export function formIsOpen(
 }
 
 /**
- * The public CFP entry URL — one shape for every surface that links or
- * emails a form (`/submit/<event-slug>/<form-public-id>`), so the published
- * URL contract can only move in one place.
+ * The public CFP entry path — one shape for every surface that links,
+ * redirects, or emails a form (`/submit/<event-slug>/<form-public-id>`), so
+ * the published URL contract can only move in one place. Callers needing an
+ * absolute URL prefix their origin.
  */
-export function submitUrl(
-	origin: string,
-	eventSlug: string,
-	formPublicId: string,
-): string {
-	return `${origin}/submit/${eventSlug}/${formPublicId}`;
+export function submitPath(eventSlug: string, formPublicId: string): string {
+	return `/submit/${eventSlug}/${formPublicId}`;
 }
