@@ -1,0 +1,7 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "openrostrum-ai-benchmark-laneg2",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-10-08",
+	"ai": { "binding": "AI", "remote": true }
+}
