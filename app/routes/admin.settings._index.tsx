@@ -3,6 +3,7 @@ import { Form, data, useNavigation } from "react-router";
 import { getDb } from "~/db";
 import { events } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { bytesToBase64 } from "~/lib/base64";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import {
@@ -14,6 +15,7 @@ import {
 import {
 	EVENT_IMAGE,
 	EVENT_IMAGE_ACCEPT,
+	EVENT_IMAGE_TYPES,
 	EventDetailsFields,
 	type EventDetailsErrors,
 	type EventDetailsValues,
@@ -29,13 +31,6 @@ import {
 	StatusBadge,
 } from "~/ui";
 import type { Route } from "./+types/admin.settings._index";
-
-const IMAGE_TYPES: Record<string, true> = {
-	"image/png": true,
-	"image/jpeg": true,
-	"image/webp": true,
-	"image/gif": true,
-};
 
 type ImagePreview = { dataUri: string; fileName: string; sizeLabel: string };
 
@@ -53,16 +48,6 @@ type ActionResult = {
 // responses — Server-Timing would silently vanish on full page loads.
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
-}
-
-function toBase64(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	const chunk = 0x8000;
-	for (let i = 0; i < bytes.length; i += chunk) {
-		binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-	}
-	return btoa(binary);
 }
 
 function formatBytes(bytes: number): string {
@@ -83,7 +68,7 @@ async function imagePreview(
 	return {
 		// Inline data: URI — serving branding bytes by URL is the shared file
 		// route's contract, not this page's; the upload caps bound the payload.
-		dataUri: `data:${contentType};base64,${toBase64(bytes)}`,
+		dataUri: `data:${contentType};base64,${bytesToBase64(bytes)}`,
 		fileName: key.split("/").pop() ?? "image",
 		sizeLabel: formatBytes(bytes.byteLength),
 	};
@@ -218,7 +203,7 @@ export async function action({
 				imageError: "Choose an image first.",
 			};
 		}
-		if (!IMAGE_TYPES[file.type]) {
+		if (!EVENT_IMAGE_TYPES.includes(file.type)) {
 			return {
 				intent: "image",
 				kind,

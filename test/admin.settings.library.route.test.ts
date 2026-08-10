@@ -226,8 +226,8 @@ describe("library taxonomies", () => {
 		expect(submission?.levelId).toBeNull();
 	});
 
-	// Register decision: track deletion must never silently strip submissions'
-	// tracks — the Library refuses while references exist and reports the count.
+	// Track deletion must never silently strip submissions' tracks — the
+	// Library refuses while references exist and reports the count.
 	it("refuses to delete a track that submissions still use, and deletes it once unreferenced", async () => {
 		await seed();
 		const db = getDb(env);

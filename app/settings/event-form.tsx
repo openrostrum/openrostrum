@@ -56,7 +56,12 @@ export const FIELD_TYPES = [
 	"divider",
 ] as const satisfies readonly (typeof fields.$inferSelect)["type"][];
 
-export const FIELD_TYPE_LABELS: Record<(typeof FIELD_TYPES)[number], string> = {
+// Keyed off the SCHEMA union, not the local array — a new FIELD_TYPE value
+// fails compilation here until it gets a label and a dropdown entry.
+export const FIELD_TYPE_LABELS: Record<
+	(typeof fields.$inferSelect)["type"],
+	string
+> = {
 	text: "Text",
 	textarea: "Text area",
 	wysiwyg: "Rich text",
@@ -86,8 +91,14 @@ export const EVENT_IMAGE = {
 
 export type EventImageKind = keyof typeof EVENT_IMAGE;
 
-export const EVENT_IMAGE_ACCEPT =
-	"image/png,image/jpeg,image/webp,image/gif" as const;
+export const EVENT_IMAGE_TYPES: readonly string[] = [
+	"image/png",
+	"image/jpeg",
+	"image/webp",
+	"image/gif",
+];
+
+export const EVENT_IMAGE_ACCEPT = EVENT_IMAGE_TYPES.join(",");
 
 export function slugify(value: string): string {
 	return value

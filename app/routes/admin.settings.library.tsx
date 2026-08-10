@@ -1,4 +1,14 @@
-import { and, asc, count, eq, max, notExists, or, type SQL } from "drizzle-orm";
+import {
+	and,
+	asc,
+	count,
+	eq,
+	max,
+	notExists,
+	or,
+	sql,
+	type SQL,
+} from "drizzle-orm";
 import type {
 	SQLiteColumn,
 	SQLiteInsertValue,
@@ -439,12 +449,12 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					name: tracks.name,
 					color: tracks.color,
 					createdAt: tracks.createdAt,
-					inUse: count(submissionTracks.submissionId),
+					// Must match the delete guard's definition of "in use" — the
+					// refusal is never a surprise the list didn't show.
+					inUse: sql<number>`(select count(*) from ${submissionTracks} where ${submissionTracks.trackId} = ${tracks.id}) + (select count(*) from ${reviewerTracks} where ${reviewerTracks.trackId} = ${tracks.id})`,
 				})
 				.from(tracks)
-				.leftJoin(submissionTracks, eq(submissionTracks.trackId, tracks.id))
 				.where(eq(tracks.eventId, event.id))
-				.groupBy(tracks.id)
 				.orderBy(asc(tracks.createdAt), asc(tracks.name)),
 			db
 				.select()
