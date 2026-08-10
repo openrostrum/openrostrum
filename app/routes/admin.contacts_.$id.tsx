@@ -85,6 +85,12 @@ const UpdateContact = insertContactSchema
 		status: z.enum(CONTACT_STATUS),
 	});
 
+type ActionResult = {
+	fieldErrors?: Record<string, string[] | undefined>;
+	formError?: string;
+	invited: boolean;
+};
+
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
@@ -226,11 +232,8 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 
 	if (intent === "headshot") {
 		const timings = createTimings();
-		const headshotError = (message: string) => ({
-			fieldErrors: { headshot: [message] } as Record<
-				string,
-				string[] | undefined
-			>,
+		const headshotError = (message: string): ActionResult => ({
+			fieldErrors: { headshot: [message] },
 			formError: undefined,
 			invited: false,
 		});
@@ -380,13 +383,11 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	});
 	if (!parsed.success) {
 		return {
-			fieldErrors: z.flattenError(parsed.error).fieldErrors as Record<
-				string,
-				string[] | undefined
-			>,
+			fieldErrors: z.flattenError(parsed.error)
+				.fieldErrors as ActionResult["fieldErrors"],
 			formError: undefined,
 			invited: false,
-		};
+		} satisfies ActionResult;
 	}
 	// Bio is rich text shared with the portal profile — sanitize on every
 	// write path, and cap by TEXT length (an HTML-length cap would let markup
@@ -396,10 +397,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		return {
 			fieldErrors: {
 				bio: ["Keep the biography under 5,000 characters."],
-			} as Record<string, string[] | undefined>,
+			} as ActionResult["fieldErrors"],
 			formError: undefined,
 			invited: false,
-		};
+		} satisfies ActionResult;
 	}
 	const timings = createTimings();
 	try {
@@ -416,10 +417,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			return {
 				fieldErrors: {
 					email: ["Another contact already uses this email for this event."],
-				} as Record<string, string[] | undefined>,
+				} as ActionResult["fieldErrors"],
 				formError: undefined,
 				invited: false,
-			};
+			} satisfies ActionResult;
 		}
 		track("contact.update_failed", {
 			eventId: event.id,

@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
 import { contacts } from "~/db/schema";
-import { serveBlob } from "~/domain/portal";
+import { serveBlob } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import type { Route } from "./+types/admin.contacts_.$id.headshot";
 

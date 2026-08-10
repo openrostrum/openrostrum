@@ -1,4 +1,5 @@
 import { Form } from "react-router";
+import { HEADSHOT_ACCEPT, HEADSHOT_CONSTRAINTS } from "~/lib/headshot";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.profile";
 import {
 	Avatar,
@@ -82,8 +83,8 @@ export function ProfileView({
 						<input type="hidden" name="intent" value="headshot" />
 						<FilePicker
 							name="headshot"
-							accept="image/png,image/jpeg,image/webp"
-							constraints="PNG, JPEG, or WebP — square works best (300×300), up to 5 MB."
+							accept={HEADSHOT_ACCEPT}
+							constraints={HEADSHOT_CONSTRAINTS}
 							required
 						/>
 						<div className="flex items-center gap-3">

@@ -1,4 +1,5 @@
 import { and, desc, eq, isNull, ne, type SQL, sql } from "drizzle-orm";
+import { data } from "react-router";
 import type { Db } from "~/db";
 import {
 	contacts,
@@ -65,6 +66,19 @@ export async function uploadHeadshot(
 			.where(eq(contacts.id, contactId)),
 	]);
 	return { ok: true, r2Key };
+}
+
+/** Streams a private R2 object inline (headshots, portal logos). */
+export async function serveBlob(env: Env, key: string): Promise<Response> {
+	const object = await env.BLOBS.get(key);
+	if (!object) throw data(null, { status: 404 });
+	return new Response(object.body, {
+		headers: {
+			"Content-Type":
+				object.httpMetadata?.contentType ?? "application/octet-stream",
+			"Cache-Control": "private, max-age=3600",
+		},
+	});
 }
 
 export const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
