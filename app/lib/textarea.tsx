@@ -2,9 +2,7 @@ import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "~/ui/cn";
 
 // app/ui (integration-owned) ships no multiline control; this composes the
-// SAME control tokens as its Input, so a token-level re-skin covers it. A
-// structural change to the Input skin will not propagate here — this control
-// belongs in app/ui and only the integration owner can put it there.
+// SAME control tokens as its Input, so a token-level re-skin covers it.
 type TextareaProps = Omit<
 	ComponentPropsWithoutRef<"textarea">,
 	"className" | "style"

@@ -95,8 +95,8 @@ export interface DrawerContact {
 	email: string;
 }
 
-export interface SubmissionListData {
-	eventName: string | null;
+export interface SubmissionListLoaded {
+	eventName: string;
 	tab: ListTab;
 	q: string;
 	page: number;
@@ -109,6 +109,9 @@ export interface SubmissionListData {
 	contactsTruncated: boolean;
 	notPublicCount: number;
 }
+
+/** No-event admins get the designed empty state, not a payload of fake zeros. */
+export type SubmissionListData = { eventName: null } | SubmissionListLoaded;
 
 export interface ListActionData {
 	notice?: string;
@@ -149,18 +152,19 @@ export function AddSubmissionDrawer({
 	const [filter, setFilter] = useState("");
 	const fetcher = useFetcher<{
 		created?: boolean;
+		warning?: string;
 		fieldErrors?: Record<string, string[] | undefined>;
 		formError?: string;
 	}>();
-	// Close exactly once per successful create: a submit re-arms the flag, so a
-	// stale `created` payload can't slam the drawer shut when it's reopened.
-	const closedForThisCreate = useRef(false);
+	// A clean create closes the drawer (unmounting resets it — reopening mounts
+	// fresh state and a fresh fetcher). A degraded create ("created, but
+	// accepting it failed") stays open so the warning is actually read.
 	useEffect(() => {
-		if (fetcher.state !== "idle") {
-			closedForThisCreate.current = false;
-		} else if (fetcher.data?.created && !closedForThisCreate.current) {
-			closedForThisCreate.current = true;
-			setFilter("");
+		if (
+			fetcher.state === "idle" &&
+			fetcher.data?.created &&
+			!fetcher.data.warning
+		) {
 			onClose();
 		}
 	}, [fetcher.state, fetcher.data, onClose]);
@@ -251,6 +255,9 @@ export function AddSubmissionDrawer({
 					{fetcher.data?.formError && (
 						<ErrorText>{fetcher.data.formError}</ErrorText>
 					)}
+					{fetcher.data?.warning && (
+						<ErrorText>{fetcher.data.warning}</ErrorText>
+					)}
 					<div className="flex gap-2">
 						<Button type="submit" disabled={fetcher.state !== "idle"}>
 							Create
@@ -276,12 +283,12 @@ export function SubmissionListPage({
 	data: SubmissionListData;
 	actionData?: ListActionData;
 }) {
-	const { tab, q, page, pageCount, total, counts, rows } = data;
+	const loaded = data.eventName === null ? null : data;
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	// A new page/tab/search renders different rows — a stale selection would
 	// silently act on rows the admin can no longer see.
-	const view = `${tab}|${q}|${page}`;
+	const view = loaded ? `${loaded.tab}|${loaded.q}|${loaded.page}` : "";
 	const lastView = useRef(view);
 	useEffect(() => {
 		if (lastView.current !== view) {
@@ -298,7 +305,7 @@ export function SubmissionListPage({
 		});
 	};
 
-	if (data.eventName === null) {
+	if (!loaded) {
 		return (
 			<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
 				<PageHeader title={title} />
@@ -312,6 +319,7 @@ export function SubmissionListPage({
 		);
 	}
 
+	const { tab, q, page, pageCount, total, counts, rows } = loaded;
 	const colSpan = kind === "session" ? 8 : 7;
 	const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
 	const rangeEnd = (page - 1) * PAGE_SIZE + rows.length;
@@ -332,8 +340,8 @@ export function SubmissionListPage({
 			{drawerOpen && (
 				<AddSubmissionDrawer
 					kind={kind}
-					contacts={data.contacts}
-					contactsTruncated={data.contactsTruncated}
+					contacts={loaded.contacts}
+					contactsTruncated={loaded.contactsTruncated}
 					onClose={() => setDrawerOpen(false)}
 				/>
 			)}
@@ -345,15 +353,15 @@ export function SubmissionListPage({
 						className="flex flex-wrap items-center justify-between gap-3"
 					>
 						<p>
-							{data.notPublicCount === 0
-								? "Every accepted session is approved for the public program."
-								: `${data.notPublicCount} accepted session${data.notPublicCount === 1 ? " isn't" : "s aren't"} public yet — content stays off public pages until it's approved.`}
+							{loaded.notPublicCount === 0
+								? "Every accepted submission is approved for the public program."
+								: `${loaded.notPublicCount} accepted submission${loaded.notPublicCount === 1 ? " isn't" : "s aren't"} public yet — approval covers accepted abstracts too; content stays off public pages until it's approved.`}
 						</p>
 						<Button
 							type="submit"
 							name="intent"
 							value="approve-all-accepted"
-							disabled={data.notPublicCount === 0}
+							disabled={loaded.notPublicCount === 0}
 						>
 							Approve all accepted
 						</Button>

@@ -13,6 +13,7 @@ import {
 	type ListTab,
 	PAGE_SIZE,
 	type SubmissionListData,
+	type SubmissionListLoaded,
 } from "~/lib/submission-list";
 import { createTimings, track } from "~/lib/track";
 
@@ -39,20 +40,7 @@ export async function loadSubmissionList(
 	type: SubmissionType,
 ) {
 	if (!event) {
-		const payload: SubmissionListData = {
-			eventName: null,
-			tab: "all",
-			q: "",
-			page: 1,
-			pageCount: 1,
-			total: 0,
-			counts: emptyCounts(),
-			rows: [],
-			contacts: [],
-			contactsTruncated: false,
-			notPublicCount: 0,
-		};
-		return data(payload);
+		return data({ eventName: null } satisfies SubmissionListData);
 	}
 	const url = new URL(request.url);
 	const rawTab = url.searchParams.get("status") ?? "all";
@@ -68,7 +56,7 @@ export async function loadSubmissionList(
 	const timings = createTimings();
 	const payload = await timings.time(
 		"db",
-		async (): Promise<SubmissionListData> => {
+		async (): Promise<SubmissionListLoaded> => {
 			const base = and(
 				eq(submissions.eventId, event.id),
 				eq(submissions.type, type),
@@ -283,12 +271,12 @@ async function approveAllAccepted(
 		if (changed === 0) {
 			return {
 				notice:
-					"All accepted sessions are already approved for public display.",
+					"All accepted submissions are already approved for public display.",
 			};
 		}
 		track("submission.content_bulk_approved", { eventId, count: changed });
 		return {
-			notice: `${changed} accepted session${changed === 1 ? "" : "s"} approved for public display.`,
+			notice: `${changed} accepted submission${changed === 1 ? "" : "s"} approved for public display.`,
 		};
 	});
 	return timed(timings, result);

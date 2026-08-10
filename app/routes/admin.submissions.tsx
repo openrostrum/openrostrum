@@ -265,7 +265,7 @@ async function createSubmission(
 	// The accept transition runs AFTER the committed create so a spine failure
 	// is reported as exactly what it is — the row exists; a retry must not
 	// re-create it.
-	let notice = `"${parsed.data.title}" created.`;
+	let warning: string | undefined;
 	if (parsed.data.status === "accepted") {
 		try {
 			const [row] = await timings.time("db", () =>
@@ -275,7 +275,7 @@ async function createSubmission(
 				? await transitionSubmissions(db, [row], "accepted")
 				: [];
 			if (transition && !transition.ok) {
-				notice = `"${parsed.data.title}" created as pending — accepting it failed: ${transition.reason}`;
+				warning = `"${parsed.data.title}" was created as pending — accepting it failed: ${transition.reason}`;
 			}
 		} catch (error) {
 			track("submission.create_accept_failed", {
@@ -283,14 +283,19 @@ async function createSubmission(
 				submissionId: id,
 				error: errorMessage(error),
 			});
-			notice = `"${parsed.data.title}" was created, but accepting it failed — set the status from its detail page.`;
+			warning = `"${parsed.data.title}" was created, but accepting it failed — set the status from its detail page.`;
 		}
 	}
 	if (form.get("drawer")) {
 		return data(
-			{ created: true, notice },
+			{ created: true, warning },
 			{ headers: { "Server-Timing": timings.header() } },
 		);
+	}
+	if (warning) {
+		// A document POST can't carry the warning through a redirect — surface
+		// it in place; the created row is already visible in the list below.
+		return timed(timings, { formError: warning });
 	}
 	return redirect("/admin/submissions", {
 		headers: { "Server-Timing": timings.header() },

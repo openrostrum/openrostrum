@@ -324,7 +324,7 @@ describe("approve all accepted", () => {
 			} as unknown as ActionArgs),
 		);
 		// accepted abstracts are sessions-side too — the gate opener covers them
-		expect(result.notice).toContain("3 accepted sessions approved");
+		expect(result.notice).toContain("3 accepted submissions approved");
 		const rows = await db.select().from(submissions);
 		const byId = new Map(rows.map((r) => [r.id, r.contentStatus]));
 		expect(byId.get("s1")).toBe("approved");
@@ -432,6 +432,7 @@ describe("auth + empty event", () => {
 			} as unknown as LoaderArgs),
 		);
 		expect(data.eventName).toBeNull();
-		expect(data.rows).toEqual([]);
+		// the no-event payload carries NO rows at all — nothing to leak
+		expect("rows" in data).toBe(false);
 	});
 });
