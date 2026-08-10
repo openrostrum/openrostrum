@@ -23,14 +23,18 @@ type Fn = (args: unknown) => Promise<unknown>;
 const call = (fn: unknown, request: Request) =>
 	(fn as Fn)({ context: CONTEXT, request, params: {} });
 
-const post = async (body: URLSearchParams) =>
-	call(
+const post = async (body: URLSearchParams) => {
+	// The real forms always echo the loader-minted sendKey; tests that don't
+	// pin replay behavior get a fresh one, exactly like a fresh page render.
+	if (!body.has("sendKey")) body.set("sendKey", crypto.randomUUID());
+	return call(
 		reviewersAction,
 		await sessionRequest(env, "u_admin", "http://localhost/admin/reviewers", {
 			method: "POST",
 			body,
 		}),
 	);
+};
 
 describe("reviewer invites (sentinel-hash users + org-less tokens)", () => {
 	it("add mints a sentinel user + NULL-org token + invite email with the set-password link", async () => {
@@ -129,6 +133,104 @@ describe("reviewer invites (sentinel-hash users + org-less tokens)", () => {
 			.from(users)
 			.where(eq(users.id, "u_admin"));
 		expect(jordan?.role).toBe("admin");
+	});
+
+	it("a replayed add POST (same sendKey) writes ONE token and sends ONE email", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		const body = new URLSearchParams([
+			["intent", "add"],
+			["name", "Rosa Delgado"],
+			["email", "rosa@example.com"],
+			["trackIds", "t_ai"],
+			["sendKey", "11111111-2222-4333-8444-555555555555"],
+		]);
+		await post(body);
+		await post(body);
+
+		const [rosa] = await db
+			.select()
+			.from(users)
+			.where(eq(users.email, "rosa@example.com"));
+		const tokens = await db
+			.select()
+			.from(passwordResets)
+			.where(eq(passwordResets.userId, rosa?.id ?? ""));
+		expect(tokens).toHaveLength(1);
+		const outbox = await db.select().from(emailOutbox);
+		expect(outbox).toHaveLength(1);
+		// The one email carries the one stored token — the copyable link in the
+		// table and the emailed link can never diverge on a replay.
+		expect(outbox[0]?.html).toContain(`/set-password/${tokens[0]?.token}`);
+	});
+
+	it("a replayed re-invite dedupes; a FRESH re-invite (new sendKey) still sends a new link", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await post(
+			new URLSearchParams([
+				["intent", "add"],
+				["name", "Rosa"],
+				["email", "rosa@example.com"],
+				["trackIds", "t_ai"],
+				["sendKey", "aaaaaaaa-0000-4000-8000-000000000001"],
+			]),
+		);
+		const [rosa] = await db
+			.select()
+			.from(users)
+			.where(eq(users.email, "rosa@example.com"));
+		const reinvite = (key: string) =>
+			post(
+				new URLSearchParams([
+					["intent", "reinvite"],
+					["userId", rosa?.id ?? ""],
+					["sendKey", key],
+				]),
+			);
+
+		await reinvite("bbbbbbbb-0000-4000-8000-000000000001");
+		await reinvite("bbbbbbbb-0000-4000-8000-000000000001"); // the double-click replay
+		const afterReplay = await db
+			.select()
+			.from(passwordResets)
+			.where(eq(passwordResets.userId, rosa?.id ?? ""));
+		expect(afterReplay).toHaveLength(2); // add's token + ONE re-invite token
+		expect(await db.select().from(emailOutbox)).toHaveLength(2);
+
+		// A deliberate later re-send arrives under a fresh loader-minted key.
+		await reinvite("bbbbbbbb-0000-4000-8000-000000000002");
+		expect(
+			await db
+				.select()
+				.from(passwordResets)
+				.where(eq(passwordResets.userId, rosa?.id ?? "")),
+		).toHaveLength(3);
+		expect(await db.select().from(emailOutbox)).toHaveLength(3);
+	});
+
+	it("fails closed on a non-UUID sendKey — a weak key must never derive a guessable token", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		const body = new URLSearchParams([
+			["intent", "add"],
+			["name", "Weak Key"],
+			["email", "weak.key@example.com"],
+			["trackIds", "t_ai"],
+			["sendKey", "AAAAAAAAAAAAAAAA"],
+		]);
+		const result = (await call(
+			reviewersAction,
+			await sessionRequest(env, "u_admin", "http://localhost/admin/reviewers", {
+				method: "POST",
+				body,
+			}),
+		)) as { formError?: string };
+		expect(result.formError).toBeTruthy();
+		expect(
+			await db
+				.select()
+				.from(users)
+				.where(eq(users.email, "weak.key@example.com")),
+		).toHaveLength(0);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
 
 	it("rejects an add with no tracks — routing depends on them", async () => {
