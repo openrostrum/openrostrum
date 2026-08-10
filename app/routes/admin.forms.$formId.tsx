@@ -51,6 +51,7 @@ import {
 	defaultBuiltinPlacements,
 	FORM_STATUS_TONE,
 	type FormSectionId,
+	placementMissingOptions,
 	RULE_TRIGGER_FIELD_TYPES,
 	utcToZonedInputs,
 	zonedTimeToUtc,
@@ -1611,6 +1612,7 @@ function FieldRow({
 			? pendingRequired === "true"
 			: placement.required;
 	const summary = ruleSummary(placement.questionRule, siblings, ruleOptions);
+	const missingOptions = placementMissingOptions(placement, ruleOptions);
 	return (
 		<div ref={rowRef} className="flex flex-col gap-2 py-[7px]">
 			<div className="flex flex-wrap items-center gap-3">
@@ -1629,10 +1631,16 @@ function FieldRow({
 						{view.scope === "org" && (
 							<StatusBadge tone="info">Org-wide</StatusBadge>
 						)}
+						{missingOptions && (
+							<StatusBadge tone="warning">No options yet</StatusBadge>
+						)}
 					</div>
 					<p>
 						{view.caption}
 						{summary ? ` · Shown when ${summary}` : ""}
+						{missingOptions
+							? " · Hidden from the public form until options are added in Settings → Library"
+							: ""}
 					</p>
 				</div>
 				{view.kind !== "layout" && (

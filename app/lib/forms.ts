@@ -236,6 +236,28 @@ export const RULE_TRIGGER_FIELD_TYPES = [
 	"number",
 ] as const;
 
+/**
+ * A placed option-backed question with zero configured options. The public
+ * wizard omits it entirely, so the builder must warn — otherwise a published
+ * form silently loses the question. Twin of `isUnanswerableSelect`
+ * (~/cfp/definition), which decides the wizard-side omission.
+ */
+export function placementMissingOptions(
+	placement: {
+		builtinRef: string | null;
+		field: { type: string; options: string[] | null } | null;
+	},
+	eventOptions: Record<string, Array<{ value: string; label: string }>>,
+): boolean {
+	if (placement.builtinRef) {
+		return eventOptions[placement.builtinRef]?.length === 0;
+	}
+	if (placement.field?.type === "dropdown") {
+		return (placement.field.options ?? []).length === 0;
+	}
+	return false;
+}
+
 /** The placements every new form starts with, in Sessionboard's default order. */
 export function defaultBuiltinPlacements(
 	formId: string,

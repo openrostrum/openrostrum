@@ -5,6 +5,7 @@ import {
 	authSessions,
 	emailTemplates,
 	events,
+	languages,
 	organizationMembers,
 	organizations,
 	users,
@@ -107,6 +108,14 @@ describe("onboarding route", () => {
 		const templates = await db.select().from(emailTemplates);
 		expect(templates.map((t) => t.key).sort()).toEqual(DEFAULT_TEMPLATE_KEYS);
 		expect(templates.every((t) => t.eventId === event?.id)).toBe(true);
+
+		// A fresh event must be submittable out of the box: the built-in Language
+		// dropdown needs at least one option or the public CFP renders it
+		// unanswerable.
+		const langs = await db.select().from(languages);
+		expect(langs.map((l) => ({ eventId: l.eventId, name: l.name }))).toEqual([
+			{ eventId: event?.id, name: "English" },
+		]);
 
 		const [founder] = await db.select().from(users);
 		expect(founder?.activeEventId).toBe(event?.id);

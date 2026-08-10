@@ -10,7 +10,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { effectiveFormStatus } from "../app/lib/forms";
+import { effectiveFormStatus, placementMissingOptions } from "../app/lib/forms";
 import { loader } from "../app/routes/admin.forms";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
@@ -136,5 +136,48 @@ describe("effectiveFormStatus", () => {
 		expect(effectiveFormStatus("open", future, Date.now())).toBe("open");
 		expect(effectiveFormStatus("open", null, Date.now())).toBe("open");
 		expect(effectiveFormStatus("draft", past, Date.now())).toBe("draft");
+	});
+});
+
+// An organizer who publishes before configuring taxonomies must SEE that the
+// public wizard will omit the question — this warning is the only signal.
+describe("placementMissingOptions", () => {
+	const eventOptions = {
+		format: [],
+		tags: [],
+		track: [{ value: "tr1", label: "Topic A" }],
+		level: [],
+		language: [{ value: "English", label: "English" }],
+	};
+
+	it("flags taxonomy built-ins exactly when the event has zero options", () => {
+		const placed = (builtinRef: string) => ({ builtinRef, field: null });
+		expect(placementMissingOptions(placed("format"), eventOptions)).toBe(true);
+		expect(placementMissingOptions(placed("tags"), eventOptions)).toBe(true);
+		expect(placementMissingOptions(placed("track"), eventOptions)).toBe(false);
+		expect(placementMissingOptions(placed("language"), eventOptions)).toBe(
+			false,
+		);
+		// Non-option built-ins (Title …) never warn.
+		expect(placementMissingOptions(placed("title"), eventOptions)).toBe(false);
+	});
+
+	it("flags a library dropdown without options, never other field types", () => {
+		const libRow = (type: string, options: string[] | null) => ({
+			builtinRef: null,
+			field: { type, options },
+		});
+		expect(placementMissingOptions(libRow("dropdown", []), eventOptions)).toBe(
+			true,
+		);
+		expect(
+			placementMissingOptions(libRow("dropdown", null), eventOptions),
+		).toBe(true);
+		expect(
+			placementMissingOptions(libRow("dropdown", ["A"]), eventOptions),
+		).toBe(false);
+		expect(placementMissingOptions(libRow("text", null), eventOptions)).toBe(
+			false,
+		);
 	});
 });
