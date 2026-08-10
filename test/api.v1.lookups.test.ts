@@ -33,6 +33,33 @@ describe("lookup endpoints", () => {
 		expect(json.pagination.totalResults).toBe(1);
 	});
 
+	it("POST honors the search body: createdAt filter and body pageSize", async () => {
+		const filteredOut = await apiJson<{
+			results: unknown[];
+			pagination: { totalResults: number };
+		}>("/api/v1/event/e_a1/tracks", {
+			token: RAW_TOKENS.orgA,
+			body: { filters: { createdAt: { before: "2000-01-01T00:00:00Z" } } },
+		});
+		expect(filteredOut.json.results).toEqual([]);
+		expect(filteredOut.json.pagination.totalResults).toBe(0);
+
+		const bodyPaged = await apiJson<{ pagination: { pageSize: number } }>(
+			"/api/v1/event/e_a1/tracks",
+			{ token: RAW_TOKENS.orgA, body: { pageSize: 7 } },
+		);
+		expect(bodyPaged.json.pagination.pageSize).toBe(7);
+	});
+
+	it("POST refuses an updatedAt filter loudly — lookups track no update timestamp", async () => {
+		const { status, json } = await apiJson("/api/v1/event/e_a1/formats", {
+			token: RAW_TOKENS.orgA,
+			body: { filters: { updatedAt: { after: "2020-01-01T00:00:00Z" } } },
+		});
+		expect(status).toBe(400);
+		expect(json).toMatchObject({ error: "bad_request" });
+	});
+
 	it("serves every catalog with its spec fields", async () => {
 		const formats = await apiJson<Record<string, unknown>[]>(
 			"/api/v1/event/e_a1/formats",

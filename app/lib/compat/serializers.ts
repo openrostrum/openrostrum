@@ -218,11 +218,12 @@ function photoUrl(contact: ContactRow, origin: string): string | null {
 }
 
 /**
- * Full Contact record. Email/phones masked; internal fields (logistics
- * notes, user linkage) never serialized; speaker_score / speaker_fee do not
- * exist here and must never appear.
+ * Identity block shared by every contact-bearing payload — the single point
+ * where the email/phone masks apply, so no future field copy can bypass them.
+ * Internal fields (logistics notes, user linkage) are never serialized;
+ * speaker_score / speaker_fee do not exist here and must never appear.
  */
-export function serializeContact(contact: ContactRow, origin: string) {
+function contactCore(contact: ContactRow, origin: string) {
 	return {
 		id: contact.id,
 		full_name: `${contact.firstName} ${contact.lastName}`.trim(),
@@ -237,17 +238,24 @@ export function serializeContact(contact: ContactRow, origin: string) {
 		about: contact.bio,
 		phone_home: maskPhone(contact.homePhone),
 		phone_mobile: maskPhone(contact.mobilePhone),
-		address_postal_code: contact.zip,
 		website_url: contact.websiteUrl,
 		linkedin_url: contact.linkedinUrl,
 		twitter_url: contact.twitterUrl,
 		facebook_url: contact.facebookUrl,
+		is_public: contact.publicVisible,
+	};
+}
+
+/** Full Contact record (the speakers/contacts endpoints). */
+export function serializeContact(contact: ContactRow, origin: string) {
+	return {
+		...contactCore(contact, origin),
+		address_postal_code: contact.zip,
 		honorific: contact.honorific,
 		salutation: contact.salutation,
 		pronouns: contact.pronouns,
 		gender: contact.gender,
 		status: contact.status,
-		is_public: contact.publicVisible,
 		custom_fields: [],
 		translated_fields: [],
 		admin_url: `${origin}/admin/contacts/${contact.id}`,
@@ -297,27 +305,9 @@ export function serializeSessionSpeaker(
 	participant: ParticipantWithContact & { role: ProgramRole },
 	origin: string,
 ) {
-	const contact = participant.contact;
 	return {
-		id: contact.id,
 		participant_role: serializeParticipantRole(participant.role),
-		full_name: `${contact.firstName} ${contact.lastName}`.trim(),
-		first_name: contact.firstName,
-		last_name: contact.lastName,
-		email: maskEmail(contact.email),
-		created_at: iso(contact.createdAt),
-		updated_at: null,
-		photo_url: photoUrl(contact, origin),
-		company_name: contact.companyName,
-		title: contact.jobTitle,
-		about: contact.bio,
-		phone_home: maskPhone(contact.homePhone),
-		phone_mobile: maskPhone(contact.mobilePhone),
-		website_url: contact.websiteUrl,
-		linkedin_url: contact.linkedinUrl,
-		twitter_url: contact.twitterUrl,
-		facebook_url: contact.facebookUrl,
-		is_public: contact.publicVisible,
+		...contactCore(participant.contact, origin),
 	};
 }
 
@@ -510,7 +500,6 @@ export function serializeSession(
 	row: SessionWithRelations,
 	ctx: SerializeContext,
 ) {
-	const [firstTrack, ...restTracks] = row.submissionTracks;
 	return {
 		...sessionCore(row, ctx),
 		custom_fields: row.submissionAnswers.map((a) => ({
@@ -519,13 +508,10 @@ export function serializeSession(
 			value: a.value,
 			type: a.field.type,
 		})),
-		track: nestedTrack(firstTrack?.track, ctx),
+		track: nestedTrack(row.submissionTracks[0]?.track, ctx),
 		// Extension beyond the Sessionboard shape: tracks are many-to-many here
 		// (confirmed requirement); `track` above keeps single-track parity.
-		tracks:
-			firstTrack === undefined
-				? []
-				: [firstTrack, ...restTracks].map((st) => serializeTrack(st.track)),
+		tracks: row.submissionTracks.map((st) => serializeTrack(st.track)),
 		subsessions: row.subsessions.map((s) => serializeSubsession(s, ctx)),
 		admin_url: `${ctx.origin}/admin/submissions/${row.id}`,
 	};

@@ -1,5 +1,6 @@
-import { asc, count, eq, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, type SQL } from "drizzle-orm";
 import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
+import type { z } from "zod";
 import { getDb } from "~/db";
 import {
 	formats,
@@ -11,14 +12,6 @@ import {
 	tracks,
 } from "~/db/schema";
 import {
-	type ApiApp,
-	type ApiContext,
-	parseBody,
-	readJsonBody,
-	recordSearchSchema,
-} from "./context";
-import { offsetOf, parsePageParams, searchEnvelope } from "./pagination";
-import {
 	CORE_STATUS_CATALOG,
 	serializeCoreStatus,
 	serializeCustomStatus,
@@ -29,54 +22,90 @@ import {
 	serializeTag,
 	serializeTrack,
 } from "~/lib/compat/serializers";
+import {
+	type ApiApp,
+	type ApiContext,
+	dateRangeConds,
+	parseBody,
+	readJsonBody,
+	recordSearchSchema,
+	requireCreatedAtOnly,
+} from "./context";
+import {
+	offsetOf,
+	parsePageParams,
+	runPaged,
+	searchEnvelope,
+} from "./pagination";
 
 /**
- * Event Settings lookups, mirroring the spec's dual shape per catalog:
- * GET returns the bare array; POST (search) returns the paginated
- * `results` envelope. Both are event-scoped through the token guard.
+ * Event Settings lookups, mirroring the spec's dual shape per catalog: GET
+ * returns the bare array in the catalog's own order; POST (search) returns
+ * the paginated `results` envelope honoring the RecordSearchBody —
+ * createdAt filter, sort (updatedAt sorts fall back to creation order, these
+ * tables track no updates), and body page/pageSize. A status filter is
+ * accepted and ignored, as the spec scopes it to session searches.
  */
 type LookupSpec<Row> = {
 	path: string;
 	table: SQLiteTable;
 	eventIdColumn: SQLiteColumn;
+	createdAtColumn: SQLiteColumn;
 	orderBy: (SQLiteColumn | SQL)[];
 	serialize: (row: Row) => unknown;
 };
 
+type RecordSearchBody = z.infer<typeof recordSearchSchema>;
+
+function searchConds(
+	c: ApiContext,
+	spec: { eventIdColumn: SQLiteColumn; createdAtColumn: SQLiteColumn },
+	body: RecordSearchBody,
+	entity: string,
+): SQL | undefined {
+	requireCreatedAtOnly(body.filters, entity);
+	return and(
+		eq(spec.eventIdColumn, c.get("event").id),
+		...dateRangeConds(spec.createdAtColumn, body.filters?.createdAt),
+	);
+}
+
+function searchOrder(
+	spec: { createdAtColumn: SQLiteColumn; orderBy: (SQLiteColumn | SQL)[] },
+	body: RecordSearchBody,
+): (SQLiteColumn | SQL)[] {
+	if (!body.sort) return spec.orderBy;
+	const dir = body.sort.sort === "asc" ? asc : desc;
+	return [dir(spec.createdAtColumn), ...spec.orderBy];
+}
+
 function registerLookup<Row>(app: ApiApp, spec: LookupSpec<Row>): void {
-	const fetchAll = async (c: ApiContext): Promise<Row[]> =>
-		(await getDb(c.env)
+	app.get(`/event/:eventId/${spec.path}`, async (c) => {
+		const rows = (await getDb(c.env)
 			.select()
 			.from(spec.table)
 			.where(eq(spec.eventIdColumn, c.get("event").id))
 			.orderBy(...spec.orderBy)) as Row[];
-
-	app.get(`/event/:eventId/${spec.path}`, async (c) => {
-		const rows = await fetchAll(c);
 		return c.json(rows.map(spec.serialize));
 	});
 
 	app.post(`/event/:eventId/${spec.path}`, async (c) => {
-		parseBody(recordSearchSchema, await readJsonBody(c));
-		const pageParams = parsePageParams(new URL(c.req.url));
+		const body = parseBody(recordSearchSchema, await readJsonBody(c));
+		const pageParams = parsePageParams(new URL(c.req.url), body);
+		const where = searchConds(c, spec, body, "These records");
 		const db = getDb(c.env);
-		const where = eq(spec.eventIdColumn, c.get("event").id);
-		const [[total], rows] = await Promise.all([
+		const { total, rows } = await runPaged(
 			db.select({ n: count() }).from(spec.table).where(where),
 			db
 				.select()
 				.from(spec.table)
 				.where(where)
-				.orderBy(...spec.orderBy)
+				.orderBy(...searchOrder(spec, body))
 				.limit(pageParams.pageSize)
 				.offset(offsetOf(pageParams)),
-		]);
+		);
 		return c.json(
-			searchEnvelope(
-				(rows as Row[]).map(spec.serialize),
-				pageParams,
-				total?.n ?? 0,
-			),
+			searchEnvelope((rows as Row[]).map(spec.serialize), pageParams, total),
 		);
 	});
 }
@@ -86,6 +115,7 @@ export function registerLookupRoutes(app: ApiApp): void {
 		path: "tracks",
 		table: tracks,
 		eventIdColumn: tracks.eventId,
+		createdAtColumn: tracks.createdAt,
 		orderBy: [asc(tracks.name), asc(tracks.id)],
 		serialize: serializeTrack,
 	});
@@ -93,6 +123,7 @@ export function registerLookupRoutes(app: ApiApp): void {
 		path: "tags",
 		table: tags,
 		eventIdColumn: tags.eventId,
+		createdAtColumn: tags.createdAt,
 		orderBy: [asc(tags.name), asc(tags.id)],
 		serialize: serializeTag,
 	});
@@ -100,6 +131,7 @@ export function registerLookupRoutes(app: ApiApp): void {
 		path: "formats",
 		table: formats,
 		eventIdColumn: formats.eventId,
+		createdAtColumn: formats.createdAt,
 		orderBy: [asc(formats.position), asc(formats.name)],
 		serialize: serializeFormat,
 	});
@@ -107,6 +139,7 @@ export function registerLookupRoutes(app: ApiApp): void {
 		path: "levels",
 		table: levels,
 		eventIdColumn: levels.eventId,
+		createdAtColumn: levels.createdAt,
 		orderBy: [asc(levels.position), asc(levels.name)],
 		serialize: serializeLevel,
 	});
@@ -114,6 +147,7 @@ export function registerLookupRoutes(app: ApiApp): void {
 		path: "rooms",
 		table: rooms,
 		eventIdColumn: rooms.eventId,
+		createdAtColumn: rooms.createdAt,
 		orderBy: [asc(rooms.displayOrder), asc(rooms.name)],
 		serialize: serializeRoom,
 	});
@@ -121,6 +155,7 @@ export function registerLookupRoutes(app: ApiApp): void {
 		path: "languages",
 		table: languages,
 		eventIdColumn: languages.eventId,
+		createdAtColumn: languages.createdAt,
 		orderBy: [asc(languages.position), asc(languages.name)],
 		serialize: serializeLanguage,
 	});
@@ -143,26 +178,27 @@ export function registerLookupRoutes(app: ApiApp): void {
 	// POST /session-statuses searches the custom definitions only (spec text:
 	// "custom session status definitions").
 	app.post("/event/:eventId/session-statuses", async (c) => {
-		parseBody(recordSearchSchema, await readJsonBody(c));
-		const pageParams = parsePageParams(new URL(c.req.url));
+		const body = parseBody(recordSearchSchema, await readJsonBody(c));
+		const pageParams = parsePageParams(new URL(c.req.url), body);
+		const spec = {
+			eventIdColumn: sessionStatuses.eventId,
+			createdAtColumn: sessionStatuses.createdAt,
+			orderBy: [asc(sessionStatuses.position), asc(sessionStatuses.name)],
+		};
+		const where = searchConds(c, spec, body, "Session statuses");
 		const db = getDb(c.env);
-		const where = eq(sessionStatuses.eventId, c.get("event").id);
-		const [[total], rows] = await Promise.all([
+		const { total, rows } = await runPaged(
 			db.select({ n: count() }).from(sessionStatuses).where(where),
 			db
 				.select()
 				.from(sessionStatuses)
 				.where(where)
-				.orderBy(asc(sessionStatuses.position), asc(sessionStatuses.name))
+				.orderBy(...searchOrder(spec, body))
 				.limit(pageParams.pageSize)
 				.offset(offsetOf(pageParams)),
-		]);
+		);
 		return c.json(
-			searchEnvelope(
-				rows.map(serializeCustomStatus),
-				pageParams,
-				total?.n ?? 0,
-			),
+			searchEnvelope(rows.map(serializeCustomStatus), pageParams, total),
 		);
 	});
 }

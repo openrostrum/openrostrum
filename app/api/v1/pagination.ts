@@ -47,6 +47,15 @@ export function offsetOf({ page, pageSize }: PageParams): number {
 	return (page - 1) * pageSize;
 }
 
+/** Run the count + page queries together and unwrap the count. */
+export async function runPaged<T>(
+	countQuery: PromiseLike<{ n: number }[]>,
+	rowsQuery: PromiseLike<T[]>,
+): Promise<{ total: number; rows: T[] }> {
+	const [countRows, rows] = await Promise.all([countQuery, rowsQuery]);
+	return { total: countRows[0]?.n ?? 0, rows };
+}
+
 export function searchEnvelope<T>(
 	results: T[],
 	{ page, pageSize }: PageParams,

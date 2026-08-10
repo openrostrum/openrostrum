@@ -3,8 +3,8 @@ import { apiJson, PII, RAW_TOKENS, seedApiFixtures } from "./api-v1-fixtures";
 
 // Envelope + projection law for the session endpoints, pinned to
 // docs/reference/sessionboard-openapi.yaml (field names, the two envelope
-// dialects, {} vs null nesting) and flows/09 §2.1 (raw statuses, hidden
-// drafts, hidden withdrawal metadata).
+// dialects, {} vs null nesting) and docs/flows/09-data-exposure.md (raw
+// statuses, hidden drafts, hidden withdrawal metadata).
 
 beforeEach(seedApiFixtures);
 
@@ -227,7 +227,7 @@ describe("GET /sessions/:id", () => {
 		expect(text).not.toContain(PII.secondaryEmail);
 	});
 
-	it("keeps hidden speakers in the payload flagged is_public:false (rule j)", async () => {
+	it("keeps hidden speakers in the payload, flagged is_public:false", async () => {
 		const { json } = await apiJson<{
 			chairpersons: { id: string; is_public: boolean }[];
 		}>("/api/v1/event/e_a1/sessions/sub_accepted", { token: RAW_TOKENS.orgA });

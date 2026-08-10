@@ -6,31 +6,25 @@ import { serializeContact } from "~/lib/compat/serializers";
 import {
 	type ApiApp,
 	type ApiContext,
-	ApiError,
 	dateRangeConds,
 	notFound,
 	parseBody,
 	readJsonBody,
 	recordSearchSchema,
+	requireCreatedAtOnly,
 	type SortOptions,
 } from "./context";
-import { offsetOf, parsePageParams, searchEnvelope } from "./pagination";
+import {
+	offsetOf,
+	parsePageParams,
+	runPaged,
+	searchEnvelope,
+} from "./pagination";
 
 type RecordSearchBody = z.infer<typeof recordSearchSchema>;
 
-/**
- * Contacts carry no update timestamp. An updatedAt FILTER would silently
- * return wrong-column rows, so it is refused loudly; an updatedAt SORT only
- * reorders and falls back to creation order.
- */
 function contactFilterConds(body: RecordSearchBody): SQL[] {
-	if (body.filters?.updatedAt) {
-		throw new ApiError(
-			400,
-			"bad_request",
-			"Contacts do not track update timestamps; filter by createdAt instead.",
-		);
-	}
+	requireCreatedAtOnly(body.filters, "Contacts");
 	return dateRangeConds(contacts.createdAt, body.filters?.createdAt);
 }
 
@@ -77,7 +71,7 @@ async function contactSearchResponse(
 	];
 	const db = getDb(c.env);
 	const where = and(...conds);
-	const [[total], rows] = await Promise.all([
+	const { total, rows } = await runPaged(
 		db.select({ n: count() }).from(contacts).where(where),
 		db
 			.select()
@@ -86,13 +80,13 @@ async function contactSearchResponse(
 			.orderBy(...orderFor(body.sort))
 			.limit(pageParams.pageSize)
 			.offset(offsetOf(pageParams)),
-	]);
+	);
 	const origin = new URL(c.req.url).origin;
 	return c.json(
 		searchEnvelope(
 			rows.map((row) => serializeContact(row, origin)),
 			pageParams,
-			total?.n ?? 0,
+			total,
 		),
 	);
 }

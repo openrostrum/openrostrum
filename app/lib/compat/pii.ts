@@ -1,7 +1,7 @@
 /**
- * Hide-PII transforms for the compat API. v1 hardcodes Hide-PII ON for every
- * token (binding rule, docs/multi-tenancy-design.md) — these run on every
- * contact-bearing payload, there is no unmasked path.
+ * Hide-PII transforms for the compat API. Hide-PII is hardcoded ON for every
+ * token — these run on every contact-bearing payload, there is no unmasked
+ * path.
  */
 
 /** `jane.smith@university.edu` → `j***@u***.edu` (Sessionboard's format). */

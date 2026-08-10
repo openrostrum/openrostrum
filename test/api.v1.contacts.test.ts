@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { apiJson, PII, RAW_TOKENS, seedApiFixtures } from "./api-v1-fixtures";
 
-// Contact-bearing payloads under the hardcoded Hide-PII rule (flows/09 rule p,
-// multi-tenancy binding rule): emails j***@a***.com, phones ***-***-1234,
-// internal fields absent — on the contact endpoints AND nested in sessions.
+// Contact-bearing payloads under the hardcoded Hide-PII rule (masking formats
+// from docs/flows/09-data-exposure.md): emails j***@a***.com, phones
+// ***-***-1234, internal fields absent — on the contact endpoints AND nested
+// in sessions.
 
 beforeEach(seedApiFixtures);
 
@@ -16,7 +17,7 @@ describe("PII masking", () => {
 			"/api/v1/event/e_a1/contacts/c_speaker",
 			{ token: RAW_TOKENS.orgA },
 		);
-		// jane.smith@university.edu → j***@u***.edu (rule p's documented shape)
+		// jane.smith@university.edu → j***@u***.edu (Sessionboard's documented shape)
 		expect(json.email).toBe("j***@u***.edu");
 		expect(json.phone_mobile).toBe("***-***-4567");
 		expect(json.phone_home).toBe("***-***-6543");

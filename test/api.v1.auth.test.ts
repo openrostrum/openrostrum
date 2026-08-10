@@ -9,7 +9,7 @@ import {
 } from "../app/db/schema";
 import { api, apiJson, RAW_TOKENS, seedApiFixtures } from "./api-v1-fixtures";
 
-// Auth + tenancy law for /api/v1 (flows/09 rule p, multi-tenancy-design):
+// Auth + tenancy law for /api/v1 (docs/multi-tenancy-design.md): the
 // x-access-token resolves an org-scoped principal; anything outside the
 // token's readable set is an existence-hiding 404, never an empty 200.
 

@@ -71,6 +71,25 @@ export function dateRangeConds(
 	return conds;
 }
 
+/**
+ * Entities without an update timestamp refuse an updatedAt FILTER loudly —
+ * silently filtering another column would return wrong rows with a 200. (An
+ * updatedAt SORT merely falls back to creation order: a reorder, never wrong
+ * rows.)
+ */
+export function requireCreatedAtOnly(
+	filters: { updatedAt?: DateRange } | undefined,
+	entity: string,
+): void {
+	if (filters?.updatedAt) {
+		throw new ApiError(
+			400,
+			"bad_request",
+			`${entity} do not track update timestamps; filter by createdAt instead.`,
+		);
+	}
+}
+
 export const sortSchema = z.object({
 	order: z.enum(["createdAt", "updatedAt"]).optional(),
 	sort: z.enum(["asc", "desc"]).optional(),
@@ -79,8 +98,8 @@ export type SortOptions = z.infer<typeof sortSchema>;
 
 /**
  * The raw decision enum the API serves and filters on. `draft` is excluded on
- * purpose: drafts are hidden from this surface entirely (flows/09 §2.1), so a
- * draft filter is a validation error, not an empty page.
+ * purpose: drafts are hidden from this surface entirely, so a draft filter is
+ * a validation error, not an empty page.
  */
 export const apiStatusSchema = z.enum([
 	"accepted",

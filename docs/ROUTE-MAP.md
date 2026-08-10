@@ -56,7 +56,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Public speaker gallery | `gallery.$eventSlug.tsx` | `/gallery/:eventSlug` (P1 #16e) | 2 | todo |
 | Public feeds (JSON/XML/iCal) | `feeds.$eventSlug.$kind[.$format].tsx` | `/feeds/:eventSlug/sessions.json` · `.xml` · `/feeds/:eventSlug/agenda.ics` (`// @public`) | 2 | todo |
 | Configured embed render | `embed.$publicId.tsx` | `/embed/:publicId` (snippet target; `// @public`) | 2 | todo |
-| Compat API (Hono splat) | `api.v1.$.tsx` | `/api/v1/*` (x-access-token; read-only; P1 #20) | 3 | todo |
+| Compat API (Hono splat) | `api.v1.$.tsx` | `/api/v1/*` (x-access-token; read-only; P1 #20) | 3 | done |
 | Harness aliases (redirects) | `dashboard.tsx` · `organizer.tsx` · `sessions._index.tsx` · `speakers._index.tsx` · `schedule._index.tsx` · `agenda.tsx` | `/dashboard` `/organizer` → `/admin`; bare `/sessions` `/speakers` `/schedule` `/agenda` → default event's public page (`// @public`) | 2 | todo |
 | Airtable webhook receiver | `hooks.airtable.tsx` | `/hooks/airtable` (POST; HMAC-verified via `X-Airtable-Content-MAC`, no session auth — `// @public`; P1 #15) | 2 | todo |
 

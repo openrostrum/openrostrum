@@ -43,6 +43,7 @@ import {
 	crudEnvelope,
 	offsetOf,
 	parsePageParams,
+	runPaged,
 	searchEnvelope,
 } from "./pagination";
 
@@ -79,6 +80,7 @@ const sessionInclude = {
 			submissionTags: { with: { tag: true } },
 			participants: { with: { contact: true } },
 		},
+		orderBy: [asc(submissions.createdAt), asc(submissions.id)] as SQL[],
 	},
 } as const;
 
@@ -134,7 +136,7 @@ async function pageOfSessions(
 ): Promise<{ rows: SessionWithRelations[]; total: number }> {
 	const db = getDb(c.env);
 	const where = and(...conds);
-	const [[total], rows] = await Promise.all([
+	const { total, rows } = await runPaged(
 		db.select({ n: count() }).from(submissions).where(where),
 		db.query.submissions.findMany({
 			where,
@@ -143,8 +145,8 @@ async function pageOfSessions(
 			limit: pageParams.pageSize,
 			offset: offsetOf(pageParams),
 		}),
-	]);
-	return { rows, total: total?.n ?? 0 };
+	);
+	return { rows, total };
 }
 
 export function registerSessionRoutes(app: ApiApp): void {
@@ -278,7 +280,7 @@ export function registerSessionRoutes(app: ApiApp): void {
 				: (body.sort as SortOptions | undefined);
 		const db = getDb(c.env);
 		const where = and(...conds);
-		const [[total], rows] = await Promise.all([
+		const { total, rows } = await runPaged(
 			db.select({ n: count() }).from(submissions).where(where),
 			db.query.submissions.findMany({
 				where,
@@ -290,13 +292,9 @@ export function registerSessionRoutes(app: ApiApp): void {
 				limit: pageParams.pageSize,
 				offset: offsetOf(pageParams),
 			}),
-		]);
+		);
 		return c.json(
-			searchEnvelope(
-				rows.map(serializeSessionStatusRow),
-				pageParams,
-				total?.n ?? 0,
-			),
+			searchEnvelope(rows.map(serializeSessionStatusRow), pageParams, total),
 		);
 	});
 
