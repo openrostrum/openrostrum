@@ -48,3 +48,19 @@ export const CONTACT_STATUS = [
 	"confirmed",
 	"declined",
 ] as const;
+
+/**
+ * Speaker-CRM sourcing pipeline — Sessionboard's eight system stages: open
+ * (researching → interested), won (confirmed), nurture (future_fit), and
+ * lost (declined).
+ */
+export const PIPELINE_STAGE = [
+	"researching",
+	"identified",
+	"approved",
+	"contacted",
+	"interested",
+	"confirmed",
+	"future_fit",
+	"declined",
+] as const;

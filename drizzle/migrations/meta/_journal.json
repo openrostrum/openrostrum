@@ -50,6 +50,13 @@
       "when": 1786352668151,
       "tag": "0006_smiling_meltdown",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786392182246,
+      "tag": "0008_speaker_crm",
+      "breakpoints": true
     }
   ]
 }
