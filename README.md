@@ -1,113 +1,26 @@
-# OpenRostrum
+<div align="center">
+  <img src="public/favicon.svg" width="88" alt="OpenRostrum mark — an O standing on a platform">
+  <h1>OpenRostrum</h1>
+  <p><strong>The open-source Sessionboard alternative.</strong><br>
+  Conference speaker, session, and program management — CFP forms, submission review,
+  speaker portals, agenda building, speaker comms, public session pages. Free, self-hostable, Cloudflare-native.</p>
+  <p><a href="https://openrostrum.com">openrostrum.com</a></p>
+</div>
 
-**The open-source Sessionboard alternative** — conference speaker, session, and program management: CFP forms, speaker portals, submission review, agenda building, speaker comms. Free, self-hostable, Cloudflare-native. Built for swyx's Kill My SaaS 1 hackathon.
+> Full product README lands with the submission. Until then: what to build is `SCOPE.md`,
+> how it's built is `docs/`, and grader notes are `docs/JUDGING.md`.
+> Built for swyx's Kill My SaaS 1 hackathon.
 
-> Full product README coming with the submission; docs live in `SCOPE.md`, `docs/`, and `docs/JUDGING.md` (for graders).
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/react-router-starter-template)
-
-![React Router Starter Template Preview](https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/bfdc2f85-e5c9-4c92-128b-3a6711249800/public)
-
-<!-- dash-content-start -->
-
-A modern, production-ready template for building full-stack React applications using [React Router](https://reactrouter.com/) and the [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/).
-
-## Features
-
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
-- 🔎 Built-in Observability to monitor your Worker
-<!-- dash-content-end -->
-
-## Getting Started
-
-Outside of this repo, you can start a new project with this template using [C3](https://developers.cloudflare.com/pages/get-started/c3/) (the `create-cloudflare` CLI):
+## Quick start
 
 ```bash
-npm create cloudflare@latest -- --template=cloudflare/templates/react-router-starter-template
+pnpm install
+pnpm db:reset   # wipe → migrate → seed the local D1 database
+pnpm dev        # http://localhost:5173
 ```
 
-A live public deployment of this template is available at [https://react-router-starter-template.templates.workers.dev](https://react-router-starter-template.templates.workers.dev)
+`pnpm verify` runs the full gate (map check, typecheck, lint, stylelint, tests in workerd against real D1) — run it before every commit.
 
-### Installation
+## Stack
 
-Install the dependencies:
-
-```bash
-npm install
-```
-
-### Development
-
-Start the development server with HMR:
-
-```bash
-npm run dev
-```
-
-Your application will be available at `http://localhost:5173`.
-
-## Typegen
-
-Generate types for your Cloudflare bindings in `wrangler.json`:
-
-```sh
-npm run typegen
-```
-
-## Building for Production
-
-Create a production build:
-
-```bash
-npm run build
-```
-
-## Previewing the Production Build
-
-Preview the production build locally:
-
-```bash
-npm run preview
-```
-
-## Deployment
-
-If you don't have a Cloudflare account, [create one here](https://dash.cloudflare.com/sign-up)! Go to your [Workers dashboard](https://dash.cloudflare.com/?to=%2F%3Aaccount%2Fworkers-and-pages) to see your [free custom Cloudflare Workers subdomain](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/) on `*.workers.dev`.
-
-Once that's done, you can build your app:
-
-```sh
-npm run build
-```
-
-And deploy it:
-
-```sh
-npm run deploy
-```
-
-To deploy a preview URL:
-
-```sh
-npx wrangler versions upload
-```
-
-You can then promote a version to production after verification or roll it out progressively.
-
-```sh
-npx wrangler versions deploy
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.
+React Router 7 (framework mode) · Cloudflare Workers · D1 + Drizzle · R2 · Tailwind v4 · Vitest (workers pool). Agent-built in parallel git worktrees with functional self-verification; the conventions that make that work live in `CLAUDE.md` and `docs/`.
