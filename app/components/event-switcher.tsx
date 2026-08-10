@@ -52,7 +52,8 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 				onClick={() => setOpen((o) => !o)}
 				className={cn(
 					"flex w-full items-center gap-[10px] rounded-control bg-surface px-[10px] py-[6px] text-left shadow-control",
-					"transition-colors duration-150 hover:bg-chip",
+					"transition-[background-color,transform] duration-150 ease-out hover:bg-chip",
+					"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
 					"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 				)}
 			>
@@ -110,7 +111,7 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 							to="/admin/events/new"
 							onClick={() => setOpen(false)}
 							className={cn(
-								"flex h-[34px] items-center gap-[10px] rounded-control px-[10px] text-[13px] font-medium text-fg-muted",
+								"flex h-[34px] items-center gap-[10px] rounded-control px-[10px] text-[13.5px] font-medium text-fg-muted",
 								"transition-colors duration-150 hover:bg-row-hover hover:text-fg",
 								"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 							)}
