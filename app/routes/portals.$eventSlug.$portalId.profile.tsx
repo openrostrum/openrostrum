@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { data, redirect } from "react-router";
 import { z } from "zod";
 import {
@@ -6,22 +6,19 @@ import {
 	ProfileView,
 } from "~/components/portal/profile-view";
 import { getDb } from "~/db";
-import { contacts, files, insertContactSchema } from "~/db/schema";
+import { contacts, insertContactSchema } from "~/db/schema";
+import { type HeadshotUploadResult, uploadHeadshot } from "~/domain/files";
 import { getPortalContext, portalPath } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { textLength } from "~/lib/format";
+import { headshotUrl } from "~/lib/headshot";
 import { sanitizeHtml } from "~/lib/html";
 import { createTimings, track } from "~/lib/track";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.profile";
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
-}
-
-function headshotUrl(base: string, key: string | null): string | null {
-	// Cache-bust on the key's random suffix — a new upload mints a new key.
-	return key ? `${base}/headshot?v=${key.slice(-20)}` : null;
 }
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
@@ -36,7 +33,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	return data(
 		{
 			saved: new URL(request.url).searchParams.get("saved"),
-			headshotUrl: headshotUrl(base, c?.headshotKey ?? null),
+			headshotUrl: headshotUrl(`${base}/headshot`, c?.headshotKey ?? null),
 			// Explicit field whitelist: organizer-internal fields (workflow
 			// status, logistics notes, visibility flag) never reach the portal
 			// payload.
@@ -108,13 +105,6 @@ const ProfileSchema = insertContactSchema
 		websiteUrl: urlOrEmpty,
 	});
 
-const HEADSHOT_TYPES: Record<string, string> = {
-	"image/png": "png",
-	"image/jpeg": "jpg",
-	"image/webp": "webp",
-};
-const HEADSHOT_MAX_BYTES = 5 * 1024 * 1024;
-
 export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
@@ -133,52 +123,14 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 
 	if (intent === "headshot") {
 		const file = form.get("headshot");
-		if (!(file instanceof File) || file.size === 0) {
-			return fail({ fieldErrors: { headshot: ["Choose an image first."] } });
-		}
-		// Server-side enforcement — the accept= attribute is a hint, not a guard.
-		const ext = HEADSHOT_TYPES[file.type];
-		if (!ext) {
-			return fail({
-				fieldErrors: { headshot: ["Use a PNG, JPEG, or WebP image."] },
-			});
-		}
-		if (file.size > HEADSHOT_MAX_BYTES) {
-			return fail({
-				fieldErrors: { headshot: ["Keep the image under 5 MB."] },
-			});
-		}
-		const r2Key = `headshots/${ctx.event.id}/${contact.id}/${crypto.randomUUID()}.${ext}`;
+		let result: HeadshotUploadResult;
 		try {
-			const bytes = await file.arrayBuffer();
-			await timings.time("r2", () =>
-				env.BLOBS.put(r2Key, bytes, {
-					httpMetadata: { contentType: file.type },
+			result = await timings.time("upload", () =>
+				uploadHeadshot(env, db, {
+					eventId: ctx.event.id,
+					contactId: contact.id,
+					file,
 				}),
-			);
-			const [prior] = await db
-				.select({ version: files.version })
-				.from(files)
-				.where(and(eq(files.contactId, contact.id), eq(files.kind, "headshot")))
-				.orderBy(desc(files.version))
-				.limit(1);
-			await timings.time("db", () =>
-				db.batch([
-					db.insert(files).values({
-						eventId: ctx.event.id,
-						contactId: contact.id,
-						r2Key,
-						fileName: file.name,
-						kind: "headshot",
-						contentType: file.type,
-						sizeBytes: file.size,
-						version: (prior?.version ?? 0) + 1,
-					}),
-					db
-						.update(contacts)
-						.set({ headshotKey: r2Key })
-						.where(eq(contacts.id, contact.id)),
-				]),
 			);
 		} catch (error) {
 			track("portal.headshot_upload_failed", {
@@ -192,10 +144,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				},
 			});
 		}
+		if (!result.ok) {
+			return fail({ fieldErrors: { headshot: [result.error] } });
+		}
 		track("portal.headshot_uploaded", {
 			eventId: ctx.event.id,
 			contactId: contact.id,
-			sizeBytes: file.size,
+			sizeBytes: file instanceof File ? file.size : 0,
 		});
 		return redirect(`${here}?saved=headshot`, {
 			headers: { "Server-Timing": timings.header() },

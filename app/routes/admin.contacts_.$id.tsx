@@ -15,7 +15,10 @@ import {
 	tasks,
 	users,
 } from "~/db/schema";
+import { FilePicker } from "~/components/file-picker";
+import { HeadshotAvatar } from "~/components/headshot-avatar";
 import { RichTextEditor } from "~/components/rich-text";
+import { type HeadshotUploadResult, uploadHeadshot } from "~/domain/files";
 import {
 	getActiveEvent,
 	hasSetPassword,
@@ -25,13 +28,17 @@ import {
 } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { formatDateUTC, textLength } from "~/lib/format";
+import {
+	HEADSHOT_ACCEPT,
+	HEADSHOT_CONSTRAINTS,
+	headshotUrl,
+} from "~/lib/headshot";
 import { escapeHtml, sanitizeHtml } from "~/lib/html";
 import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { TASK_STATUS_LABEL, TASK_STATUS_TONE } from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
 import {
-	Avatar,
 	Button,
 	ButtonLink,
 	ConfirmButton,
@@ -193,7 +200,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			hasPassword,
 			inviteUrl,
 			inviteKey: crypto.randomUUID(),
-			saved: url.searchParams.has("saved"),
+			saved: url.searchParams.get("saved"),
+			headshotUrl: headshotUrl(
+				`/admin/contacts/${contact.id}/headshot`,
+				contact.headshotKey,
+			),
 			eventName: event.name,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
@@ -211,6 +222,45 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "update");
+
+	if (intent === "headshot") {
+		const timings = createTimings();
+		const headshotError = (message: string) => ({
+			fieldErrors: { headshot: [message] } as Record<
+				string,
+				string[] | undefined
+			>,
+			formError: undefined,
+			invited: false,
+		});
+		let result: HeadshotUploadResult;
+		try {
+			result = await timings.time("upload", () =>
+				uploadHeadshot(env, db, {
+					eventId: event.id,
+					contactId: contact.id,
+					file: form.get("headshot"),
+				}),
+			);
+		} catch (error) {
+			track("contact.headshot_upload_failed", {
+				eventId: event.id,
+				contactId: contact.id,
+				error: errorMessage(error),
+			});
+			return headshotError("The upload failed — please try again.");
+		}
+		if (!result.ok) {
+			return headshotError(result.error);
+		}
+		track("contact.headshot_uploaded", {
+			eventId: event.id,
+			contactId: contact.id,
+		});
+		return redirect(`/admin/contacts/${contact.id}?saved=headshot`, {
+			headers: { "Server-Timing": timings.header() },
+		});
+	}
 
 	if (intent === "delete") {
 		await db
@@ -326,7 +376,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	});
 	if (!parsed.success) {
 		return {
-			fieldErrors: z.flattenError(parsed.error).fieldErrors,
+			fieldErrors: z.flattenError(parsed.error).fieldErrors as Record<
+				string,
+				string[] | undefined
+			>,
 			formError: undefined,
 			invited: false,
 		};
@@ -337,7 +390,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const bio = parsed.data.bio ? await sanitizeHtml(parsed.data.bio) : null;
 	if (bio && textLength(bio) > 5000) {
 		return {
-			fieldErrors: { bio: ["Keep the biography under 5,000 characters."] },
+			fieldErrors: {
+				bio: ["Keep the biography under 5,000 characters."],
+			} as Record<string, string[] | undefined>,
 			formError: undefined,
 			invited: false,
 		};
@@ -357,7 +412,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			return {
 				fieldErrors: {
 					email: ["Another contact already uses this email for this event."],
-				},
+				} as Record<string, string[] | undefined>,
 				formError: undefined,
 				invited: false,
 			};
@@ -401,6 +456,7 @@ export default function ContactRecord({
 		inviteUrl,
 		inviteKey,
 		saved,
+		headshotUrl: headshotSrc,
 	} = loaderData;
 	const name = `${contact.firstName} ${contact.lastName}`.trim();
 	const [copied, setCopied] = useState(false);
@@ -453,7 +509,7 @@ export default function ContactRecord({
 			<Panel>
 				<div className="flex flex-col gap-2">
 					<div className="flex items-center gap-3">
-						<Avatar name={name} size={34} />
+						<HeadshotAvatar name={name} src={headshotSrc} size={34} />
 						<div className="flex flex-col">
 							<strong>Portal access</strong>
 							<span>
@@ -502,6 +558,39 @@ export default function ContactRecord({
 							</Button>
 						</div>
 					)}
+				</div>
+			</Panel>
+
+			<Panel>
+				<div className="flex flex-wrap items-start gap-5">
+					<HeadshotAvatar name={name} src={headshotSrc} size={96} />
+					<Form
+						method="post"
+						encType="multipart/form-data"
+						className="flex min-w-0 flex-1 flex-col gap-3"
+					>
+						<FilePicker
+							name="headshot"
+							accept={HEADSHOT_ACCEPT}
+							constraints={HEADSHOT_CONSTRAINTS}
+							required
+						/>
+						<div className="flex items-center gap-3">
+							<Button
+								type="submit"
+								name="intent"
+								value="headshot"
+								variant="ghost"
+								icon="export"
+							>
+								{headshotSrc ? "Replace headshot" : "Upload headshot"}
+							</Button>
+							{saved === "headshot" && <span>Headshot updated.</span>}
+							{fieldErrors?.headshot?.[0] && (
+								<ErrorText>{fieldErrors.headshot[0]}</ErrorText>
+							)}
+						</div>
+					</Form>
 				</div>
 			</Panel>
 
@@ -598,7 +687,7 @@ export default function ContactRecord({
 						<Button type="submit" name="intent" value="update">
 							Save changes
 						</Button>
-						{saved && <span>Saved.</span>}
+						{saved === "1" && <span>Saved.</span>}
 					</div>
 				</Form>
 			</Panel>
