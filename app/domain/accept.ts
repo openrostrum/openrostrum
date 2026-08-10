@@ -561,21 +561,21 @@ export async function sendDecisionEmails(
 		const room = row.roomId ? roomName.get(row.roomId) : undefined;
 		// The SAME renderer the template editor previews with — a sent email must
 		// never carry a literal {{merge_tag}} the preview showed resolved.
-		const [firstName = "", ...restName] = (
-			speaker
-				? `${speaker.firstName} ${speaker.lastName}`
-				: (submitter?.name ?? "")
-		)
+		// Speaker names stay structured (splitting would mangle "Mary Jane");
+		// only the submitter fallback needs a split — users.name is one field.
+		const [subFirst = "", ...subRest] = (submitter?.name ?? "")
 			.trim()
 			.split(/\s+/);
+		const firstName = speaker ? speaker.firstName : subFirst;
+		const lastName = speaker ? speaker.lastName : subRest.join(" ");
 		const form = row.formId ? formById.get(row.formId) : undefined;
 		// Full Record, not MergeContext (Partial): a tag added to MERGE_TAGS must
 		// fail compilation HERE, or it renders resolved in the editor preview and
 		// blank in the delivered email.
 		const ctx: Record<MergeTag, string | null> = {
 			first_name: firstName,
-			last_name: restName.join(" "),
-			full_name: [firstName, ...restName].join(" "),
+			last_name: lastName,
+			full_name: `${firstName} ${lastName}`.trim(),
 			email: to,
 			event_name: event.name,
 			session_title: row.title,

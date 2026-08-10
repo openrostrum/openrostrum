@@ -967,6 +967,7 @@ export default function SubmissionDetail({
 	// would replay it (duplicate revisions, double deletes) before the
 	// response lands.
 	const busy = useNavigation().state !== "idle";
+	const isDraft = s.status === "draft";
 	const feedback = (actionData ?? undefined) as ActionData | undefined;
 	const languageOptions = library.languages.includes(s.language)
 		? library.languages
@@ -1217,62 +1218,56 @@ export default function SubmissionDetail({
 
 				<div className="flex flex-col gap-5">
 					<Panel>
-						{s.status === "draft" ? (
-							// Drafts are pre-submission: the spine refuses every decision, so
-							// the control is disabled UP FRONT with the reason — never an
-							// apparently-working click that reverts on reload.
-							<div className="flex flex-col gap-3">
-								<Field label="Decision status">
-									<Select disabled aria-label="Decision status (unavailable)">
-										<option>draft</option>
-									</Select>
-								</Field>
-								<Button type="submit" variant="ghost" disabled>
-									Update status
-								</Button>
+						{/* Drafts are pre-submission: the spine refuses every decision, so
+						    the controls are disabled UP FRONT with the reason — never an
+						    apparently-working click that reverts on reload. */}
+						<Form method="post" className="flex flex-col gap-3">
+							<Input type="hidden" name="intent" value="set-status" readOnly />
+							<Field label="Decision status">
+								<Select
+									key={s.status}
+									name="status"
+									defaultValue={s.status}
+									disabled={isDraft}
+								>
+									{(s.status === "withdrawn" || isDraft) && (
+										<option value={s.status} disabled>
+											{s.status}
+										</option>
+									)}
+									{DECISION_STATUS.map((st) => (
+										<option key={st} value={st}>
+											{humanStatus(st)}
+										</option>
+									))}
+								</Select>
+							</Field>
+							<Button type="submit" variant="ghost" disabled={isDraft || busy}>
+								Update status
+							</Button>
+							{isDraft ? (
 								<p>
 									This is a draft — the speaker has not submitted it yet, so no
 									decision applies. The decision controls unlock when it is
 									submitted.
 								</p>
-							</div>
-						) : (
-							<Form method="post" className="flex flex-col gap-3">
-								<Input
-									type="hidden"
-									name="intent"
-									value="set-status"
-									readOnly
-								/>
-								<Field label="Decision status">
-									<Select key={s.status} name="status" defaultValue={s.status}>
-										{s.status === "withdrawn" && (
-											<option value="withdrawn" disabled>
-												withdrawn
-											</option>
-										)}
-										{DECISION_STATUS.map((st) => (
-											<option key={st} value={st}>
-												{humanStatus(st)}
-											</option>
-										))}
-									</Select>
-								</Field>
-								<Button type="submit" variant="ghost" disabled={busy}>
-									Update status
-								</Button>
+							) : (
 								<p>
 									Status changes never email speakers — decision emails are sent
 									explicitly from the submissions list.
 								</p>
-								{s.statusChangedAt && <p>Last change: {s.statusChangedAt}</p>}
+							)}
+							{!isDraft && s.statusChangedAt && (
+								<p>Last change: {s.statusChangedAt}</p>
+							)}
+							{!isDraft && (
 								<p>
 									{s.notifiedAt
 										? `Decision email sent ${s.notifiedAt}.`
 										: "No decision email has been sent yet."}
 								</p>
-							</Form>
-						)}
+							)}
+						</Form>
 					</Panel>
 
 					{s.withdrawal && (
