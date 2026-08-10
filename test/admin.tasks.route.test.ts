@@ -5,7 +5,9 @@ import {
 	emailSuppressions,
 	events,
 	organizations,
+	participants,
 	portalForms,
+	submissions,
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
@@ -344,6 +346,43 @@ describe("bulk assignment", () => {
 			expect(row.submissionId).toBeTruthy();
 		}
 		expect(rows.map((r) => r.submissionId).sort()).toEqual(["s1", "s2"]);
+	});
+
+	it("a multi-talk speaker gets one submission-task assignment per accepted talk — and replays add nothing", async () => {
+		const db = await seedTasksBaseline();
+		// Priya picks up a second accepted talk.
+		await db.insert(submissions).values({
+			id: "s4",
+			eventId: "e1",
+			title: "Talk C",
+			status: "accepted",
+		});
+		await db.insert(participants).values({
+			id: "p4",
+			submissionId: "s4",
+			contactId: "c_priya",
+			role: "speaker",
+			isPrimary: true,
+		});
+
+		const first = await assign("t_slides");
+		expect(first.notice).toContain("3 speakers");
+		const rows = await db
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.taskId, "t_slides"));
+		expect(rows.map((r) => r.submissionId).sort()).toEqual(["s1", "s2", "s4"]);
+		expect(rows.filter((r) => r.contactId === "c_priya")).toHaveLength(2);
+
+		const second = await assign("t_slides");
+		expect(second.notice).toContain("0 speakers");
+		expect(second.notice).toContain("3 already had it");
+		expect(
+			await db
+				.select()
+				.from(taskAssignments)
+				.where(eq(taskAssignments.taskId, "t_slides")),
+		).toHaveLength(3);
 	});
 
 	it("derives dueAt from the task's dueInDays when no date is given", async () => {
