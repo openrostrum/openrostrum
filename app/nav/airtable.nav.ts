@@ -5,5 +5,5 @@ export default {
 	to: "/admin/settings/airtable",
 	section: "Configure",
 	order: 30,
-	icon: "sliders",
+	icon: "sync",
 } satisfies NavItem;

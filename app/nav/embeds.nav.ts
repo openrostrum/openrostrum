@@ -5,5 +5,5 @@ export default {
 	to: "/admin/embeds",
 	section: "Publish",
 	order: 40,
-	icon: "export",
+	icon: "code",
 } satisfies NavItem;

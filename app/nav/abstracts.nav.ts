@@ -5,5 +5,5 @@ export default {
 	to: "/admin/abstracts",
 	section: "Program",
 	order: 2,
-	icon: "grid",
+	icon: "doc",
 } satisfies NavItem;
