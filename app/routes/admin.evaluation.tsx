@@ -11,7 +11,7 @@ import {
 	like,
 	sql,
 } from "drizzle-orm";
-import { Form, Outlet, data, redirect } from "react-router";
+import { Form, Outlet, data, redirect, useNavigation } from "react-router";
 import { z } from "zod";
 import { type Db, getDb } from "~/db";
 import {
@@ -419,6 +419,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 								rationale: aiRow.rationale,
 								model: aiRow.model,
 								ranAt: formatDay(aiRow.updatedAt),
+								runStamp: aiRow.updatedAt.getTime(),
 								override:
 									aiRow.overrideScore == null
 										? null
@@ -458,6 +459,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 								overrideScore: r.aiOverride,
 							}),
 				aiUpdatedAt: r.aiUpdatedAt ? formatDay(r.aiUpdatedAt) : null,
+				aiRunStamp: r.aiUpdatedAt?.getTime() ?? 0,
 				approve: tallyFor(r.id, "approve"),
 				maybe: tallyFor(r.id, "maybe"),
 				deny: tallyFor(r.id, "deny"),
@@ -565,6 +567,23 @@ export async function action({ context, request }: Route.ActionArgs) {
 			const contexts = await loadAiReviewContexts(db, event, [submissionId]);
 			const ctx = contexts.get(submissionId);
 			if (!ctx) return { intent, formError: "Submission not found." };
+			// Compare-and-set on the run the form was rendered against: a stale
+			// resubmit (double-post, old tab) must not buy a second model call or
+			// silently replace a result nobody has looked at.
+			const knownRunStamp = String(form.get("knownRunStamp") ?? "");
+			const [current] = await db
+				.select({ updatedAt: aiReviews.updatedAt })
+				.from(aiReviews)
+				.where(eq(aiReviews.submissionId, submissionId))
+				.limit(1);
+			const currentStamp = String(current?.updatedAt.getTime() ?? 0);
+			if (knownRunStamp !== currentStamp) {
+				return {
+					intent,
+					formError:
+						"This submission was scored again since you loaded the page — review the fresh result before re-running.",
+				};
+			}
 			const result = await generateAiReview(runner, ctx);
 			if (!result.ok) {
 				track("ai_review.failed", {
@@ -1027,6 +1046,9 @@ type AiTabData = Extract<
 >["ai"];
 
 function AiTab({ ai }: { ai: AiTabData }) {
+	// Model runs are paid: while any submission is in flight, every AI action
+	// is disabled so a double-click can't buy a second inference.
+	const busy = useNavigation().state !== "idle";
 	if (!ai) return null;
 	const { available, q, page, sort, total, missing, rows, detail } = ai;
 	const pageLink = (over: Record<string, string | number>) => {
@@ -1053,9 +1075,10 @@ function AiTab({ ai }: { ai: AiTabData }) {
 				{available && missing > 0 && (
 					<Form method="post">
 						<Input type="hidden" name="intent" value="ai-run-bulk" />
-						<Button type="submit" icon="star">
-							Run AI review on unscored — {Math.min(missing, AI_BULK_BATCH)} of{" "}
-							{missing} per click
+						<Button type="submit" icon="star" disabled={busy}>
+							{busy
+								? "Running AI review…"
+								: `Run AI review on unscored — ${Math.min(missing, AI_BULK_BATCH)} of ${missing} per click`}
 						</Button>
 					</Form>
 				)}
@@ -1141,7 +1164,9 @@ function AiTab({ ai }: { ai: AiTabData }) {
 												size={6}
 											/>
 										</Field>
-										<Button type="submit">Override AI score</Button>
+										<Button type="submit" disabled={busy}>
+											Override AI score
+										</Button>
 									</Form>
 									{detail.ai.override && (
 										<Form method="post">
@@ -1155,7 +1180,7 @@ function AiTab({ ai }: { ai: AiTabData }) {
 												name="submissionId"
 												value={detail.id}
 											/>
-											<Button type="submit" variant="ghost">
+											<Button type="submit" variant="ghost" disabled={busy}>
 												Remove override
 											</Button>
 										</Form>
@@ -1168,7 +1193,17 @@ function AiTab({ ai }: { ai: AiTabData }) {
 												name="submissionId"
 												value={detail.id}
 											/>
-											<Button type="submit" variant="ghost" icon="sync">
+											<Input
+												type="hidden"
+												name="knownRunStamp"
+												value={String(detail.ai.runStamp)}
+											/>
+											<Button
+												type="submit"
+												variant="ghost"
+												icon="sync"
+												disabled={busy}
+											>
 												Re-run — replaces the score and clears any override
 											</Button>
 										</Form>
@@ -1186,7 +1221,10 @@ function AiTab({ ai }: { ai: AiTabData }) {
 											name="submissionId"
 											value={detail.id}
 										/>
-										<Button type="submit">Run AI review</Button>
+										<Input type="hidden" name="knownRunStamp" value="0" />
+										<Button type="submit" disabled={busy}>
+											{busy ? "Running…" : "Run AI review"}
+										</Button>
 									</Form>
 								)}
 							</div>
@@ -1277,7 +1315,12 @@ function AiTab({ ai }: { ai: AiTabData }) {
 										<Form method="post">
 											<Input type="hidden" name="intent" value="ai-run" />
 											<Input type="hidden" name="submissionId" value={row.id} />
-											<Button type="submit" variant="ghost">
+											<Input
+												type="hidden"
+												name="knownRunStamp"
+												value={String(row.aiRunStamp)}
+											/>
+											<Button type="submit" variant="ghost" disabled={busy}>
 												{row.aiScore == null ? "Run AI review" : "Re-run"}
 											</Button>
 										</Form>

@@ -53,8 +53,18 @@ const callOn = (testEnv: Env, fn: unknown, request: Request, planId?: string) =>
 		params: planId ? { planId } : {},
 	});
 
-const runAi = async (testEnv: Env, submissionId: string, userId = "u_admin") =>
-	callOn(
+/** Posts ai-run the way a fresh page would: carrying the current run stamp. */
+const runAi = async (
+	testEnv: Env,
+	submissionId: string,
+	userId = "u_admin",
+) => {
+	const [row] = await getDb(env)
+		.select({ updatedAt: aiReviews.updatedAt })
+		.from(aiReviews)
+		.where(eq(aiReviews.submissionId, submissionId))
+		.limit(1);
+	return callOn(
 		testEnv,
 		listAction,
 		await sessionRequest(env, userId, "http://localhost/admin/evaluation", {
@@ -62,9 +72,11 @@ const runAi = async (testEnv: Env, submissionId: string, userId = "u_admin") =>
 			body: new URLSearchParams([
 				["intent", "ai-run"],
 				["submissionId", submissionId],
+				["knownRunStamp", String(row?.updatedAt.getTime() ?? 0)],
 			]),
 		}),
 	) as Promise<{ ok?: string; formError?: string }>;
+};
 
 const postIntent = async (
 	testEnv: Env,
@@ -167,6 +179,25 @@ describe("AI review — run and persist", () => {
 			.where(eq(aiReviews.submissionId, "s1"));
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ score: 5.5, overrideScore: null });
+	});
+
+	it("a stale form resubmit is refused without buying a second model call", async () => {
+		await seedEvalBase(env);
+		await runAi(envWith(fakeAi(() => verdict(7.5))), "s1");
+		const second = fakeAi(() => verdict(1));
+		const result = await postIntent(envWith(second), [
+			["intent", "ai-run"],
+			["submissionId", "s1"],
+			["knownRunStamp", "0"], // the pre-run form, posted again
+		]);
+		expect(result.formError).toBeTruthy();
+		expect(second.calls).toHaveLength(0); // no second inference spend
+		const db = getDb(env);
+		const [row] = await db
+			.select()
+			.from(aiReviews)
+			.where(eq(aiReviews.submissionId, "s1"));
+		expect(row?.score).toBe(7.5); // the fresh result was not replaced
 	});
 
 	it("draft/withdrawn submissions cannot be AI-reviewed", async () => {
