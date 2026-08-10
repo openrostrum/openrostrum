@@ -16,6 +16,7 @@ House conventions only. The **mandatory platform rules** (D1 batch, react-router
 - `app/app.css` itself is lint-guarded [`global-css-only`]: only the Tailwind import, `@theme` tokens, `@keyframes`, and `html`/`body`/`:root` rules — it can never become a second component-styling system.
 - **A new primitive is an integration-owner request** — exactly like a schema column (same pre-commit guard on `app/ui/` + `app.css`; owner overrides with `ALLOW_SCHEMA_CHANGE=1`). Never build a one-off in a route; never fork a primitive.
 - **Reviewer obligation:** *"could the whole look change by editing `app/ui` + tokens only, with zero route diffs?"* Any "no" names the violation.
+- **The marketing surface is the one place outside the tool.** `app/marketing/` (composed by the `_index.tsx` landing route) builds the public homepage — *not* the 8-hour admin tool the petrol-law and `ui-primitives-only` govern, so it gets the scale and layout a landing page needs. It stays honest by construction: it lives outside `app/routes/` (so `ui-primitives-only` never fires) yet is still bound by `no-raw-tailwind-colors`, so every color is a `@theme` token and light/dark come free — petrol stays the only accent. Nothing else may follow it out; a second styling surface is an integration-owner decision.
 
 ## Auth [lint-enforced: `require-auth-in-actions`]
 

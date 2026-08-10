@@ -30,6 +30,13 @@ export const links: Route.LinksFunction = () => [
 		type: "font/woff2",
 		crossOrigin: "anonymous",
 	},
+	{
+		rel: "preload",
+		href: "/fonts/bricolage-600.woff2",
+		as: "font",
+		type: "font/woff2",
+		crossOrigin: "anonymous",
+	},
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
