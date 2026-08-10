@@ -10,6 +10,7 @@ import {
 	taskAssignments,
 	tasks,
 } from "~/db/schema";
+import { formatFileSize, setFileReview } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC, parseDueDate } from "~/lib/format";
@@ -210,7 +211,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		if (intent === "approve-file" || intent === "deny-file") {
 			const fileId = String(form.get("fileId") ?? "");
 			const [file] = await db
-				.select({ id: files.id })
+				.select({ id: files.id, taskAssignmentId: files.taskAssignmentId })
 				.from(files)
 				.where(
 					and(
@@ -224,18 +225,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				return withTimings({ formError: "That upload no longer exists." });
 			}
 			if (intent === "approve-file") {
-				await timings.time("db", () =>
-					db.batch([
-						db
-							.update(files)
-							.set({ reviewStatus: "approved", reviewNote: null })
-							.where(eq(files.id, file.id)),
-						db
-							.update(taskAssignments)
-							.set({ status: "complete", completedAt: now })
-							.where(eq(taskAssignments.id, row.assignment.id)),
-					]),
-				);
+				await timings.time("db", () => setFileReview(db, file, "approved"));
 				track("task.file_approved", {
 					eventId: event.id,
 					assignmentId: row.assignment.id,
@@ -246,18 +236,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				} satisfies ActionResult);
 			}
 			const note = String(form.get("reviewNote") ?? "").trim();
-			await timings.time("db", () =>
-				db.batch([
-					db
-						.update(files)
-						.set({ reviewStatus: "denied", reviewNote: note || null })
-						.where(eq(files.id, file.id)),
-					db
-						.update(taskAssignments)
-						.set({ status: "incomplete", completedAt: null })
-						.where(eq(taskAssignments.id, row.assignment.id)),
-				]),
-			);
+			await timings.time("db", () => setFileReview(db, file, "denied", note));
 			track("task.file_denied", {
 				eventId: event.id,
 				assignmentId: row.assignment.id,
@@ -280,13 +259,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	}
 
 	return withTimings({ formError: "Unknown action." });
-}
-
-function formatBytes(size: number | null): string {
-	if (size == null) return "—";
-	if (size < 1024) return `${size} B`;
-	if (size < 1024 * 1024) return `${(size / 1024).toFixed(0)} KB`;
-	return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function answerText(value: unknown): string {
@@ -494,7 +466,7 @@ export default function TaskAssignmentDetail({
 										<Td kind="strong">
 											<TextLink to={`/files/${f.id}`}>{f.fileName}</TextLink>
 										</Td>
-										<Td kind="mono">{formatBytes(f.sizeBytes)}</Td>
+										<Td kind="mono">{formatFileSize(f.sizeBytes)}</Td>
 										<Td kind="mono">{formatDateUTC(f.createdAt)}</Td>
 										<Td>
 											<div className="flex flex-wrap items-center gap-2">

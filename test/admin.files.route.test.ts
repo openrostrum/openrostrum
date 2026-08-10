@@ -1,0 +1,286 @@
+import { env } from "cloudflare:test";
+import { eq } from "drizzle-orm";
+import { describe, expect, it } from "vitest";
+import { fileComments, files, taskAssignments } from "../app/db/schema";
+import { loader as libraryLoader } from "../app/routes/admin.files";
+import {
+	action as detailAction,
+	loader as detailLoader,
+} from "../app/routes/admin.files_.$id";
+import { authedRequest, postForm } from "./tasks-fixtures";
+import {
+	catchThrown,
+	CONTEXT,
+	seedFilesWorld,
+	thrownStatus,
+	unwrap,
+} from "./files.helpers";
+
+type LibraryArgs = Parameters<typeof libraryLoader>[0];
+type DetailLoaderArgs = Parameters<typeof detailLoader>[0];
+type DetailActionArgs = Parameters<typeof detailAction>[0];
+
+/** Priya's slides chain, exactly as the portal upload loop writes it. */
+async function seedSlidesChain() {
+	const db = await seedFilesWorld();
+	await env.BLOBS.put("t/v1", "slides v1");
+	await env.BLOBS.put("t/v2", "slides v2");
+	await db.insert(files).values([
+		{
+			id: "f_slides_v1",
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			sizeBytes: 9,
+			version: 1,
+			reviewStatus: "pending",
+			createdAt: new Date("2026-08-01T10:00:00Z"),
+		},
+		{
+			id: "f_slides_v2",
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/v2",
+			fileName: "slides.pdf",
+			kind: "slides",
+			sizeBytes: 9,
+			version: 2,
+			reviewStatus: "pending",
+			createdAt: new Date("2026-08-02T10:00:00Z"),
+		},
+	]);
+	await db
+		.update(taskAssignments)
+		.set({ status: "pending_feedback" })
+		.where(eq(taskAssignments.id, "ta_priya_slides"));
+	return db;
+}
+
+async function loadLibrary(query = "") {
+	const request = await authedRequest(`http://localhost/admin/files${query}`);
+	return unwrap<{
+		rows: Array<{
+			id: string;
+			fileName: string;
+			version: number;
+			versionCount: number;
+			submissionTitle: string | null;
+			speakerName: string | null;
+			reviewStatus: string;
+		}>;
+		total: number;
+	}>(
+		await libraryLoader({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as LibraryArgs),
+	);
+}
+
+async function loadDetail(fileId: string) {
+	const request = await authedRequest(`http://localhost/admin/files/${fileId}`);
+	return unwrap<{
+		latest: { id: string; version: number; reviewStatus: string };
+		versions: Array<{ id: string; version: number }>;
+		comments: Array<{ author: string; body: string; version: number | null }>;
+	}>(
+		await detailLoader({
+			context: CONTEXT,
+			request,
+			params: { id: fileId },
+		} as unknown as DetailLoaderArgs),
+	);
+}
+
+async function postDetail(fileId: string, fields: Record<string, string>) {
+	const url = `http://localhost/admin/files/${fileId}`;
+	const request = await authedRequest(url, {}, postForm(url, fields));
+	return detailAction({
+		context: CONTEXT,
+		request,
+		params: { id: fileId },
+	} as unknown as DetailActionArgs);
+}
+
+describe("central files library", () => {
+	it("lists ONE row per version chain with the latest version and a version count of the whole chain", async () => {
+		const db = await seedSlidesChain();
+		// an unrelated single-version admin upload must stay its own row
+		await db.insert(files).values({
+			id: "f_kit",
+			eventId: "e1",
+			r2Key: "t/kit",
+			fileName: "speaker-kit.pdf",
+			kind: "doc",
+			version: 1,
+		});
+		const { rows, total } = await loadLibrary();
+		expect(total).toBe(2);
+		const slides = rows.find((r) => r.fileName === "slides.pdf");
+		expect(slides).toMatchObject({
+			version: 2,
+			versionCount: 2,
+			submissionTitle: "Talk A",
+			speakerName: "Priya Sharma",
+		});
+		expect(rows.find((r) => r.fileName === "speaker-kit.pdf")).toMatchObject({
+			versionCount: 1,
+		});
+	});
+
+	it("search matches file name, session title, and speaker name; review filter narrows", async () => {
+		const db = await seedSlidesChain();
+		await db.insert(files).values({
+			id: "f_other",
+			eventId: "e1",
+			r2Key: "t/other",
+			fileName: "logo.png",
+			kind: "other",
+			version: 1,
+		});
+		expect((await loadLibrary("?q=slides")).total).toBe(1);
+		expect((await loadLibrary("?q=Talk+A")).total).toBe(1);
+		expect((await loadLibrary("?q=Priya")).total).toBe(1);
+		expect((await loadLibrary("?q=zzz-nothing")).total).toBe(0);
+		expect((await loadLibrary("?status=pending")).total).toBe(1);
+		expect((await loadLibrary("?status=none")).total).toBe(1);
+	});
+
+	it("never mixes another event's files into the library", async () => {
+		const db = await seedSlidesChain();
+		await db.insert(files).values({
+			id: "f_foreign",
+			eventId: "e2",
+			r2Key: "t/foreign",
+			fileName: "foreign.pdf",
+			kind: "doc",
+			version: 1,
+		});
+		const { rows } = await loadLibrary();
+		expect(rows.map((r) => r.fileName)).not.toContain("foreign.pdf");
+	});
+
+	it("paginates without dropping or repeating chains", async () => {
+		const db = await seedFilesWorld();
+		const rows = Array.from({ length: 55 }, (_, i) => ({
+			id: `f_bulk_${i}`,
+			eventId: "e1",
+			r2Key: `t/bulk_${i}`,
+			fileName: `doc-${i}.pdf`,
+			kind: "doc" as const,
+			version: 1,
+		}));
+		// D1 caps bound variables per statement — insert in slices
+		for (let i = 0; i < rows.length; i += 10) {
+			await db.insert(files).values(rows.slice(i, i + 10));
+		}
+		const page1 = await loadLibrary();
+		const page2 = await loadLibrary("?page=2");
+		expect(page1.total).toBe(55);
+		const ids = [...page1.rows, ...page2.rows].map((r) => r.id);
+		expect(new Set(ids).size).toBe(55);
+	});
+});
+
+describe("file detail — versions, review, comments", () => {
+	it("returns the full chain latest-first from ANY version's id", async () => {
+		await seedSlidesChain();
+		const fromOld = await loadDetail("f_slides_v1");
+		expect(fromOld.versions.map((v) => v.version)).toEqual([2, 1]);
+		expect(fromOld.latest.id).toBe("f_slides_v2");
+	});
+
+	it("404s a file belonging to another event", async () => {
+		const db = await seedSlidesChain();
+		await db.insert(files).values({
+			id: "f_foreign",
+			eventId: "e2",
+			r2Key: "t/foreign",
+			fileName: "foreign.pdf",
+			kind: "doc",
+			version: 1,
+		});
+		const thrown = await catchThrown(() => loadDetail("f_foreign"));
+		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("approve marks the latest version approved AND completes the speaker's task", async () => {
+		const db = await seedSlidesChain();
+		await postDetail("f_slides_v2", { intent: "approve" });
+		const [file] = await db
+			.select()
+			.from(files)
+			.where(eq(files.id, "f_slides_v2"));
+		expect(file?.reviewStatus).toBe("approved");
+		const [assignment] = await db
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.id, "ta_priya_slides"));
+		expect(assignment?.status).toBe("complete");
+		expect(assignment?.completedAt).not.toBeNull();
+	});
+
+	it("deny stores the note and REOPENS the task so the speaker can re-upload", async () => {
+		const db = await seedSlidesChain();
+		await postDetail("f_slides_v2", {
+			intent: "deny",
+			reviewNote: "Wrong aspect ratio — please export 16:9.",
+		});
+		const [file] = await db
+			.select()
+			.from(files)
+			.where(eq(files.id, "f_slides_v2"));
+		expect(file?.reviewStatus).toBe("denied");
+		expect(file?.reviewNote).toBe("Wrong aspect ratio — please export 16:9.");
+		const [assignment] = await db
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.id, "ta_priya_slides"));
+		// incomplete = the portal's upload gate reopens (it blocks only "complete")
+		expect(assignment?.status).toBe("incomplete");
+		expect(assignment?.completedAt).toBeNull();
+	});
+
+	it("shows the speaker's comment and appends the organizer reply to the same thread", async () => {
+		const db = await seedSlidesChain();
+		await db.insert(fileComments).values({
+			id: "fc_speaker",
+			fileId: "f_slides_v1",
+			authorName: "Priya Sharma",
+			body: "Draft deck - final version coming Friday.",
+			createdAt: new Date("2026-08-01T11:00:00Z"),
+		});
+		const response = await postDetail("f_slides_v2", {
+			intent: "comment",
+			body: "Thanks - please confirm the final version by Tuesday.",
+		});
+		expect((response as Response).status).toBe(302);
+
+		const detail = await loadDetail("f_slides_v1");
+		expect(detail.comments.map((c) => [c.author, c.body])).toEqual([
+			["Priya Sharma", "Draft deck - final version coming Friday."],
+			[
+				expect.stringContaining("@") as unknown as string,
+				"Thanks - please confirm the final version by Tuesday.",
+			],
+		]);
+		// speaker's comment stays attributed to the version it was made on
+		expect(detail.comments[0]?.version).toBe(1);
+	});
+
+	it("rejects an empty comment without writing a row", async () => {
+		const db = await seedSlidesChain();
+		const result = unwrap<{ fieldErrors?: Record<string, string[]> }>(
+			await postDetail("f_slides_v2", { intent: "comment", body: "   " }),
+		);
+		expect(result.fieldErrors?.body?.[0]).toBeTruthy();
+		expect(await db.select().from(fileComments)).toHaveLength(0);
+	});
+});
