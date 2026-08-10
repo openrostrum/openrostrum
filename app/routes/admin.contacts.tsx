@@ -1,6 +1,6 @@
 import { and, count, eq, ne, sql } from "drizzle-orm";
 import { useState } from "react";
-import { data, Form, Link, redirect, useNavigation } from "react-router";
+import { data, Form, Link, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
@@ -12,6 +12,7 @@ import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { headshotUrl } from "~/lib/headshot";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -183,7 +184,7 @@ export async function action({
 	if (form.get("confirmDuplicate") !== "1") {
 		const [dup] = await timings.time("dupCheck", () =>
 			db
-				.select({ firstName: contacts.firstName, email: contacts.email })
+				.select({ email: contacts.email })
 				.from(contacts)
 				.where(
 					and(
@@ -226,7 +227,6 @@ export async function action({
 				fieldErrors: {
 					email: ["A contact with this email already exists for this event."],
 				},
-				formError: undefined,
 			};
 		}
 		track("contact.create_failed", {
@@ -234,7 +234,6 @@ export async function action({
 			error: errorMessage(error),
 		});
 		return {
-			fieldErrors: undefined,
 			formError: "Could not save the contact — please try again.",
 		};
 	}
@@ -259,7 +258,7 @@ export default function ContactsRoster({
 	if (status) composeParams.set("status", status);
 	const from = total === 0 ? 0 : (page - 1) * perPage + 1;
 	const to = Math.min(page * perPage, total);
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	// The search box is controlled and re-synced from the URL (render-time
 	// adjustment, not an effect): what the box shows is exactly what a Search
 	// click serializes, and a Clear/tab navigation can never leave stale text —

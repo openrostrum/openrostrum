@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { data, Form, useNavigation } from "react-router";
+import { data, Form } from "react-router";
 import { z } from "zod";
 import { type Db, getDb } from "~/db";
 import { contacts } from "~/db/schema";
@@ -9,6 +9,7 @@ import { parseCsv } from "~/lib/csv";
 import { errorMessage } from "~/lib/errors";
 import { normalizeXUrl } from "~/lib/social";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -54,23 +55,20 @@ const IMPORT_FIELDS = [
 
 type ImportFieldKey = (typeof IMPORT_FIELDS)[number]["key"];
 
-/** The mapped columns that copy straight onto contact profile fields —
- * everything except email (the dedupe key), status (enum-checked), and the
- * name columns (derived per row so a full-name column splits, never lands
- * whole in first_name). */
-const PROFILE_KEYS = IMPORT_FIELDS.map((f) => f.key).filter(
-	(
-		k,
-	): k is Exclude<
-		ImportFieldKey,
-		"email" | "status" | "fullName" | "firstName" | "lastName"
-	> =>
-		k !== "email" &&
-		k !== "status" &&
-		k !== "fullName" &&
-		k !== "firstName" &&
-		k !== "lastName",
-);
+/** The mapped columns that copy straight onto contact profile fields.
+ * Email (the dedupe key), status (enum-checked), and the name columns
+ * (split-derived per row so a full-name column never lands whole in
+ * first_name) are handled explicitly instead. */
+const PROFILE_KEYS = [
+	"jobTitle",
+	"companyName",
+	"mobilePhone",
+	"bio",
+	"logisticsNotes",
+	"linkedinUrl",
+	"twitterUrl",
+	"websiteUrl",
+] as const satisfies readonly ImportFieldKey[];
 
 const HEADER_GUESSES: Record<ImportFieldKey, string[]> = {
 	email: ["email", "emailaddress", "mail"],
@@ -339,14 +337,19 @@ export async function action({
 
 		const match = byEmail.get(email);
 		if (match) {
-			const changes: Partial<typeof contacts.$inferInsert> = { ...values };
-			// Names merge like every profile field: non-empty values only, and
-			// always the SPLIT halves — a full-name cell must never land whole
-			// in first_name on top of an existing contact.
+			// Only genuine differences count as changes, so "the file had nothing
+			// new" stays true for a re-import of the same file. Names always merge
+			// as the SPLIT halves — a full-name cell must never land whole in
+			// first_name on top of an existing contact.
+			const changes: Partial<typeof contacts.$inferInsert> = {};
+			for (const key of PROFILE_KEYS) {
+				const v = values[key];
+				if (v !== undefined && v !== match[key]) changes[key] = v;
+			}
 			if (firstName && firstName !== match.firstName)
 				changes.firstName = firstName;
 			if (lastName && lastName !== match.lastName) changes.lastName = lastName;
-			if (status) changes.status = status;
+			if (status && status !== match.status) changes.status = status;
 			const hasChanges = Object.keys(changes).length > 0;
 			if (hasChanges) {
 				writes.push({
@@ -438,7 +441,7 @@ export default function ImportContacts({ actionData }: Route.ComponentProps) {
 	const state = actionData;
 	// One import can write hundreds of rows — a double-click must never run it
 	// twice, so both step buttons disable while the submission is in flight.
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
