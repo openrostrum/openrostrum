@@ -1,5 +1,4 @@
 export {
-	CheckboxOption,
 	CopyFieldButton,
 	DetailPanel,
 	makeHref,

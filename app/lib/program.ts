@@ -135,20 +135,21 @@ export function toProgramEvent(event: EventRow): ProgramEvent {
 /* --------------------------------------------------------- rich text strip --- */
 
 /**
- * Descriptions arrive as submitter-authored rich text. Public surfaces render
- * PLAIN TEXT only — stripping (rather than sanitizing) HTML server-side is the
- * XSS boundary for anonymous pages, third-party embeds, and feeds.
+ * Submitter rich text → plain text: tags removed, entities decoded (&amp;
+ * LAST, or "&amp;lt;" would double-decode). The output is arbitrary TEXT and
+ * may legitimately contain angle brackets — markup safety lives at the sinks
+ * (React escaping, the feeds' esc()/escapeText, JSON.stringify), never here.
  */
 export function stripHtml(html: string): string {
 	return html
 		.replace(/<(br|\/p|\/div|\/li|\/h[1-6])[^>]*>/gi, "\n")
 		.replace(/<[^>]+>/g, "")
-		.replace(/&amp;/g, "&")
 		.replace(/&lt;/g, "<")
 		.replace(/&gt;/g, ">")
 		.replace(/&quot;/g, '"')
 		.replace(/&#39;|&apos;/g, "'")
 		.replace(/&nbsp;/g, " ")
+		.replace(/&amp;/g, "&")
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();
 }

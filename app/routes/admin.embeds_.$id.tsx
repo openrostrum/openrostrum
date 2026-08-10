@@ -14,10 +14,11 @@ import {
 	Input,
 	PageHeader,
 	Panel,
+	Select,
 	StatusBadge,
 	TextLink,
 } from "~/ui";
-import { CheckboxOption, CopyFieldButton } from "~/widgets";
+import { CopyFieldButton } from "~/widgets";
 import {
 	EMBED_HIDEABLE_FIELDS,
 	EMBED_TYPE_LABELS,
@@ -28,7 +29,7 @@ import type { Route } from "./+types/admin.embeds_.$id";
 
 const UpdateEmbed = z.object({
 	name: z.string().min(1, "Name is required"),
-	enabled: z.literal("on").nullable(),
+	enabled: z.enum(["on", "off"]),
 	accentColor: z
 		.string()
 		.regex(/^#[0-9a-fA-F]{6}$/, "Use a hex color like #0E6C66")
@@ -193,7 +194,6 @@ export default function AdminEmbedEditor({
 	const feedUrl = (suffix: string) =>
 		`${origin}/feeds/${eventSlug}/${suffix}?embed=${embed.publicId}`;
 	const scriptSnippet = `<script src="${origin}/feeds/${eventSlug}/widget.js?embed=${embed.publicId}" async></script>`;
-	const hiddenSet = new Set(config.hiddenFields ?? []);
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
 			<PageHeader
@@ -229,12 +229,15 @@ export default function AdminEmbedEditor({
 								invalid={Boolean(actionData?.fieldErrors?.name?.[0])}
 							/>
 						</Field>
-						<CheckboxOption
-							name="enabled"
-							value="on"
-							label="Enabled — the share URL, snippet, and feeds serve live data"
-							defaultChecked={embed.enabled}
-						/>
+						<Field label="Status">
+							<Select
+								name="enabled"
+								defaultValue={embed.enabled ? "on" : "off"}
+							>
+								<option value="on">Enabled — serves live data</option>
+								<option value="off">Disabled — share URL and feeds 404</option>
+							</Select>
+						</Field>
 						<Field
 							label="Brand color (optional)"
 							error={actionData?.fieldErrors?.accentColor?.[0]}
@@ -247,47 +250,51 @@ export default function AdminEmbedEditor({
 							/>
 						</Field>
 
-						<fieldset className="flex flex-col gap-2">
-							<legend className="pb-1">Filter by track</legend>
-							{tracks.length === 0 && (
-								<p>No tracks defined yet — the embed shows every session.</p>
-							)}
-							{tracks.map((t) => (
-								<CheckboxOption
-									key={t.id}
-									name="trackIds"
-									value={t.id}
-									label={t.name}
-									defaultChecked={Boolean(config.trackIds?.includes(t.id))}
-								/>
-							))}
-						</fieldset>
+						<Field label="Filter by track (none selected = all)">
+							<Select
+								name="trackIds"
+								multiple
+								size={Math.min(Math.max(tracks.length, 2), 5)}
+								defaultValue={config.trackIds ?? []}
+							>
+								{tracks.map((t) => (
+									<option key={t.id} value={t.id}>
+										{t.name}
+									</option>
+								))}
+							</Select>
+						</Field>
 
-						<fieldset className="flex flex-col gap-2">
-							<legend className="pb-1">Filter by format</legend>
-							{formats.map((f) => (
-								<CheckboxOption
-									key={f.id}
-									name="formatIds"
-									value={f.id}
-									label={f.name}
-									defaultChecked={Boolean(config.formatIds?.includes(f.id))}
-								/>
-							))}
-						</fieldset>
+						<Field label="Filter by format (none selected = all)">
+							<Select
+								name="formatIds"
+								multiple
+								size={Math.min(Math.max(formats.length, 2), 5)}
+								defaultValue={config.formatIds ?? []}
+							>
+								{formats.map((f) => (
+									<option key={f.id} value={f.id}>
+										{f.name}
+									</option>
+								))}
+							</Select>
+						</Field>
 
-						<fieldset className="flex flex-col gap-2">
-							<legend className="pb-1">Card fields (title always shows)</legend>
-							{EMBED_HIDEABLE_FIELDS.map((field) => (
-								<CheckboxOption
-									key={field}
-									name="hiddenFields"
-									value={field}
-									label={`Hide ${field}`}
-									defaultChecked={hiddenSet.has(field)}
-								/>
-							))}
-						</fieldset>
+						<Field label="Hide card fields (title always shows)">
+							<Select
+								name="hiddenFields"
+								multiple
+								size={EMBED_HIDEABLE_FIELDS.length}
+								defaultValue={config.hiddenFields ?? []}
+							>
+								{EMBED_HIDEABLE_FIELDS.map((field) => (
+									<option key={field} value={field}>
+										{field}
+									</option>
+								))}
+							</Select>
+						</Field>
+						<p>Cmd/Ctrl-click to select multiple values or clear one.</p>
 
 						<div className="flex items-center gap-3">
 							<Button type="submit">Save embed</Button>

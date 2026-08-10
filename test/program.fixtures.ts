@@ -126,6 +126,8 @@ export async function seedProgram(options?: { agendaPublished?: boolean }) {
 			id: "s5",
 			eventId: "e1",
 			title: "Approved And Waiting For A Slot",
+			// User-typed "&lt;b&gt;" must survive as literal text, not become markup.
+			description: "<p>Escaped &amp;lt;b&amp;gt; stays text &amp; sound</p>",
 			status: "accepted",
 			contentStatus: "approved",
 		},

@@ -234,32 +234,6 @@ export function StarButton({
 	);
 }
 
-/** Labeled checkbox for multi-pick config groups (tracks, formats, fields). */
-export function CheckboxOption({
-	name,
-	value,
-	label,
-	defaultChecked,
-}: {
-	name: string;
-	value: string;
-	label: string;
-	defaultChecked: boolean;
-}) {
-	return (
-		<label className="flex items-center gap-2 text-[13px] text-fg">
-			<input
-				type="checkbox"
-				name={name}
-				value={value}
-				defaultChecked={defaultChecked}
-				className="h-4 w-4 accent-petrol"
-			/>
-			{label}
-		</label>
-	);
-}
-
 /** Copies a value and confirms inline — snippets must cost one click, not a drag-select. */
 export function CopyFieldButton({ value }: { value: string }) {
 	const [copied, setCopied] = useState(false);

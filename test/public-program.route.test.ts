@@ -54,6 +54,9 @@ describe("public sessions surface", () => {
 		expect(s1?.room).toBe("Main Hall");
 		expect(s1?.timeRange).toBe("9:30 AM – 10:00 AM"); // event TZ, not UTC
 		expect(s1?.description).toBe("Cut the queue."); // rich text stripped
+		const s5 = data.surface.sessions.find((s) => s.id === "s5");
+		// Entities decode once, &amp; last — double-escaped input stays text.
+		expect(s5?.description).toBe("Escaped &lt;b&gt; stays text & sound");
 
 		const serialized = JSON.stringify(data);
 		expect(serialized).not.toMatch(/@px\.test/);
