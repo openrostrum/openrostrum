@@ -83,12 +83,18 @@ export default function Login({ actionData }: Route.ComponentProps) {
 						<Input
 							name="email"
 							type="email"
+							autoComplete="username"
 							required
 							placeholder="you@conference.org"
 						/>
 					</Field>
 					<Field label="Password">
-						<Input name="password" type="password" required />
+						<Input
+							name="password"
+							type="password"
+							autoComplete="current-password"
+							required
+						/>
 					</Field>
 					<Button type="submit">Sign in</Button>
 					{actionData?.error && <ErrorText>{actionData.error}</ErrorText>}
