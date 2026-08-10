@@ -102,7 +102,7 @@ describe("team invites", () => {
 	it("mints a sentinel admin user with an org-intent token, shows the link, and emails it", async () => {
 		const db = await seedOrgA();
 		const request = await authedRequest(
-			post({ intent: "invite", name: "Newbie Nine", email: "Newbie@Test.co" }),
+			post({ name: "Newbie Nine", email: "Newbie@Test.co" }),
 		);
 
 		const response = (await runAction(request)) as Response;
@@ -147,7 +147,7 @@ describe("team invites", () => {
 	it("rejects a blank name and an invalid email without creating anything", async () => {
 		const db = await seedOrgA();
 		const request = await authedRequest(
-			post({ intent: "invite", name: "", email: "not-an-email" }),
+			post({ name: "", email: "not-an-email" }),
 		);
 
 		const result = (await runAction(request)) as ActionResult;
@@ -161,7 +161,7 @@ describe("team invites", () => {
 	it("refuses inviting an email that is already a member", async () => {
 		const db = await seedOrgA();
 		const request = await authedRequest(
-			post({ intent: "invite", name: "Ada", email: "admin@test.co" }),
+			post({ name: "Ada", email: "admin@test.co" }),
 		);
 
 		const result = (await runAction(request)) as ActionResult;
@@ -179,7 +179,7 @@ describe("team invites", () => {
 			role: "speaker",
 		});
 		const request = await authedRequest(
-			post({ intent: "invite", name: "Sam", email: "sam@test.co" }),
+			post({ name: "Sam", email: "sam@test.co" }),
 		);
 
 		const result = (await runAction(request)) as ActionResult;
@@ -187,6 +187,51 @@ describe("team invites", () => {
 		expect(result.fieldErrors?.email?.[0]).toBeTruthy();
 		expect(await db.select().from(passwordResets)).toHaveLength(0);
 		expect(await db.select().from(organizationMembers)).toHaveLength(1);
+	});
+
+	// The invite link renders on-screen to the INVITER and redeeming it resets
+	// the account password — minting one for a credentialed account would let
+	// any org member take that account over.
+	it("refuses inviting an email with an existing credentialed account (takeover guard)", async () => {
+		const db = await seedOrgA();
+		await seedOrgB();
+
+		const result = (await runAction(
+			await authedRequest(post({ name: "Bea", email: "other@test.co" })),
+		)) as ActionResult;
+
+		expect(result.fieldErrors?.email?.[0]).toMatch(/already has/i);
+		expect(await db.select().from(passwordResets)).toHaveLength(0);
+	});
+
+	it("re-inviting an email with a pending invite refreshes the token instead of refusing", async () => {
+		const db = await seedOrgA();
+		await db.insert(users).values({
+			id: "u_inv",
+			email: "invitee@test.co",
+			passwordHash: await hashPassword("sentinel"),
+			role: "admin",
+		});
+		await db.insert(passwordResets).values({
+			id: "pr_old",
+			userId: "u_inv",
+			organizationId: "orgA",
+			token: "tok-old",
+			expiresAt: new Date(Date.now() + 1000),
+		});
+
+		const response = (await runAction(
+			await authedRequest(post({ name: "Invitee", email: "invitee@test.co" })),
+		)) as Response;
+
+		expect(response.status).toBe(302);
+		const resets = await db
+			.select()
+			.from(passwordResets)
+			.where(eq(passwordResets.userId, "u_inv"));
+		expect(resets).toHaveLength(1);
+		expect(resets[0]?.token).not.toBe("tok-old");
+		expect(resets[0]?.organizationId).toBe("orgA");
 	});
 
 	it("resend replaces the old token and sends a fresh email", async () => {

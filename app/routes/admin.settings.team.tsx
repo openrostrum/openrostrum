@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { useState } from "react";
 import { Form, data, redirect, useNavigation } from "react-router";
 import { z } from "zod";
@@ -262,26 +262,35 @@ export async function action({ context, request }: Route.ActionArgs) {
 		};
 	}
 
+	const timings = createTimings();
 	try {
-		if (form.has("remove")) {
-			return await removeMember(env, db, org, user, request, {
-				membershipId: String(form.get("remove")),
-			});
+		// Buttons carry the row id as their value (`remove`/`revoke`/`resend`);
+		// the plain invite form is the default. Dispatch is key-presence.
+		const result = await timings.time("db", async () => {
+			if (form.has("remove")) {
+				return removeMember(env, db, org, user, request, {
+					membershipId: String(form.get("remove")),
+				});
+			}
+			if (form.has("revoke")) {
+				return revokeInvite(db, org, String(form.get("revoke")));
+			}
+			if (form.has("resend")) {
+				return resendInvite(
+					env,
+					db,
+					org,
+					user,
+					origin,
+					String(form.get("resend")),
+				);
+			}
+			return inviteMember(env, db, org, user, origin, form);
+		});
+		if (result instanceof Response) {
+			result.headers.append("Server-Timing", timings.header());
 		}
-		if (form.has("revoke")) {
-			return await revokeInvite(db, org, String(form.get("revoke")));
-		}
-		if (form.has("resend")) {
-			return await resendInvite(
-				env,
-				db,
-				org,
-				user,
-				origin,
-				String(form.get("resend")),
-			);
-		}
-		return await inviteMember(env, db, org, user, origin, form);
+		return result;
 	} catch (error) {
 		// Log the detail server-side; never leak SQL / row values into the UI.
 		track("team.action_failed", { orgId: org.id, error: errorMessage(error) });
@@ -337,13 +346,30 @@ async function inviteMember(
 				formError: undefined,
 			};
 		}
-		if (existing.role !== "admin") {
-			// Same decided stance as sign-up: the account model can't yet express
-			// a speaker/reviewer who is also an organizer — refuse with words.
+		// The invite link is shown on-screen to the INVITER, and redeeming it
+		// resets the account's password — safe only for accounts this flow
+		// itself minted (sentinel hash, no usable credential). An email that
+		// already has an account must never get an on-screen-resettable token,
+		// or inviting becomes account takeover. The one exception is a still-
+		// pending invite from this org: that account has never had a usable
+		// credential (redeeming ANY token voids all others), so re-inviting it
+		// is a resend.
+		const [pending] = await db
+			.select({ id: passwordResets.id })
+			.from(passwordResets)
+			.where(
+				and(
+					eq(passwordResets.userId, existing.id),
+					eq(passwordResets.organizationId, org.id),
+					isNull(passwordResets.usedAt),
+				),
+			)
+			.limit(1);
+		if (!pending) {
 			return {
 				fieldErrors: {
 					email: [
-						"This email already has a speaker or reviewer account. Organization access for existing non-organizer accounts isn't available yet.",
+						"This email already has an OpenRostrum account, so it can't be invited from here yet — organization access for existing accounts arrives with account linking.",
 					],
 				},
 				formError: undefined,
@@ -443,59 +469,64 @@ async function removeMember(
 	request: Request,
 	{ membershipId }: { membershipId: string },
 ) {
-	// Scoping the lookup to THIS org is the cross-org denial: another org's
-	// membership id can never match.
-	const [target] = await db
-		.select()
-		.from(organizationMembers)
+	// The last-member invariant rides the DELETE itself (single atomic
+	// statement — D1 has no interactive transactions, and a separate
+	// count-then-delete would let two concurrent removals empty the org).
+	// The org scoping in the WHERE is also the cross-org denial: another
+	// org's membership id can never match.
+	const deleted = await db
+		.delete(organizationMembers)
 		.where(
 			and(
 				eq(organizationMembers.id, membershipId),
 				eq(organizationMembers.organizationId, org.id),
+				sql`(SELECT COUNT(*) FROM organization_members om2 WHERE om2.organization_id = ${org.id}) > 1`,
 			),
 		)
-		.limit(1);
-	if (!target) {
-		return {
-			fieldErrors: undefined,
-			formError: "That member wasn't found in this organization.",
-		};
-	}
-	const [tally] = await db
-		.select({ n: count() })
-		.from(organizationMembers)
-		.where(eq(organizationMembers.organizationId, org.id));
-	if ((tally?.n ?? 0) <= 1) {
-		return {
-			fieldErrors: undefined,
-			formError: `${org.name} must keep at least one member — invite someone else before removing the last one.`,
-		};
-	}
-	await db.batch([
-		db.delete(organizationMembers).where(eq(organizationMembers.id, target.id)),
-		// A removed member must not keep operating on this org's events.
-		db
-			.update(users)
-			.set({ activeEventId: null })
+		.returning({ userId: organizationMembers.userId });
+	const removed = deleted[0];
+	if (!removed) {
+		// Distinguish the two refusals only to word the message — enforcement
+		// already happened atomically above.
+		const [target] = await db
+			.select({ id: organizationMembers.id })
+			.from(organizationMembers)
 			.where(
 				and(
-					eq(users.id, target.userId),
-					inArray(
-						users.activeEventId,
-						db
-							.select({ id: events.id })
-							.from(events)
-							.where(eq(events.organizationId, org.id)),
-					),
+					eq(organizationMembers.id, membershipId),
+					eq(organizationMembers.organizationId, org.id),
+				),
+			)
+			.limit(1);
+		return {
+			fieldErrors: undefined,
+			formError: target
+				? `${org.name} must keep at least one member — invite someone else before removing the last one.`
+				: "That member wasn't found in this organization.",
+		};
+	}
+	// A removed member must not keep operating on this org's events.
+	await db
+		.update(users)
+		.set({ activeEventId: null })
+		.where(
+			and(
+				eq(users.id, removed.userId),
+				inArray(
+					users.activeEventId,
+					db
+						.select({ id: events.id })
+						.from(events)
+						.where(eq(events.organizationId, org.id)),
 				),
 			),
-	]);
+		);
 	track("team.member_removed", {
 		orgId: org.id,
-		removedUserId: target.userId,
-		self: target.userId === actor.id,
+		removedUserId: removed.userId,
+		self: removed.userId === actor.id,
 	});
-	if (target.userId === actor.id) {
+	if (removed.userId === actor.id) {
 		const cookie = await destroySession(env, request);
 		return redirect("/login", { headers: { "Set-Cookie": cookie } });
 	}
@@ -598,13 +629,7 @@ export default function Team({ loaderData, actionData }: Route.ComponentProps) {
 							invalid={Boolean(actionData?.fieldErrors?.email?.[0])}
 						/>
 					</Field>
-					<Button
-						type="submit"
-						name="intent"
-						value="invite"
-						icon="plus"
-						disabled={busy}
-					>
+					<Button type="submit" icon="plus" disabled={busy}>
 						Invite teammate
 					</Button>
 				</Form>

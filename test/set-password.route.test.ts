@@ -73,11 +73,14 @@ async function runAction(token: string, fields: Record<string, string>) {
 }
 
 async function runLoader(token: string) {
-	return loader({
+	const result = (await loader({
 		context: CONTEXT,
 		request: new Request(`http://localhost/set-password/${token}`),
 		params: { token },
-	} as unknown as Parameters<typeof loader>[0]);
+	} as unknown as Parameters<typeof loader>[0])) as unknown as {
+		data: { state: string; orgName?: string | null };
+	};
+	return result.data;
 }
 
 const GOOD = { password: "SuperSecret1", confirm: "SuperSecret1" };
@@ -227,6 +230,38 @@ describe("set-password accept flow", () => {
 		})) as { fieldErrors?: Record<string, string[]> };
 
 		expect(result.fieldErrors?.confirm?.[0]).toBeTruthy();
+	});
+
+	// An outstanding link surviving a credential change would let its holder
+	// re-take the account later — every other unused token dies on redemption.
+	it("redeeming a token voids the user's other outstanding tokens", async () => {
+		const db = await seedOrg();
+		await seedUserWithToken({
+			userId: "u_spk",
+			role: "speaker",
+			token: "tok-null",
+			organizationId: null,
+		});
+		await db.insert(passwordResets).values({
+			id: "pr_other",
+			userId: "u_spk",
+			organizationId: "orgA",
+			token: "tok-org-stale",
+			expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+		});
+
+		const response = (await runAction("tok-null", GOOD)) as Response;
+
+		expect(response.status).toBe(302);
+		const remaining = await db
+			.select()
+			.from(passwordResets)
+			.where(eq(passwordResets.userId, "u_spk"));
+		expect(remaining).toHaveLength(1);
+		expect(remaining[0]?.token).toBe("tok-null");
+		expect(remaining[0]?.usedAt).not.toBeNull();
+		// And the NULL-intent redemption still granted nothing.
+		expect(await db.select().from(organizationMembers)).toHaveLength(0);
 	});
 
 	it("accepting an invite while already a member stays idempotent", async () => {
