@@ -7,6 +7,7 @@ import {
 	events,
 	organizationMembers,
 	organizations,
+	portals,
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
@@ -129,6 +130,13 @@ describe("admin.events.new", () => {
 		});
 		expect(templates.map((t) => t.key).sort()).toEqual(DEFAULT_TEMPLATE_KEYS);
 
+		// A new event is never a dead shell: its default speaker portal exists,
+		// so the CFP success redirect and emailed portal links can resolve.
+		const portal = await db.query.portals.findFirst({
+			where: (p, { eq }) => eq(p.eventId, created?.id ?? ""),
+		});
+		expect(portal?.publicId).toBeTruthy();
+
 		const creator = await db.query.users.findFirst({
 			where: (u, { eq }) => eq(u.id, "u1"),
 		});
@@ -157,9 +165,10 @@ describe("admin.events.new", () => {
 		expect(result.fieldErrors?.slug?.[0]).toMatch(/taken/i);
 
 		const db = getDb(env);
-		// Atomicity: no event row AND no orphaned templates from the batch.
+		// Atomicity: no event row AND no orphaned templates or portal.
 		expect(await db.select().from(events)).toHaveLength(2);
 		expect(await db.select().from(emailTemplates)).toHaveLength(0);
+		expect(await db.select().from(portals)).toHaveLength(0);
 		const creator = await db.query.users.findFirst({
 			where: (u, { eq }) => eq(u.id, "u1"),
 		});

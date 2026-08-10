@@ -4,11 +4,11 @@ import { Field, Input, Select } from "~/ui";
 
 /**
  * The one event-details form, shared by /admin/settings (edit) and
- * /admin/events/new (create) so the two can never drift apart. This module is
- * CLIENT-SAFE (no drizzle/schema value imports) and, although it lives outside
- * the linted app/routes/ tree, it follows the same ui-primitives-only
- * discipline: ~/ui primitives + layout classes, zero visual decisions.
- * Validation lives in app/settings/event-details.server.ts.
+ * /admin/events/new (create) so the two can never drift apart. It lives here
+ * because flatRoutes treats every file in app/routes/ as a route; the
+ * ui-primitives-only lint covers this directory the same as routes. This
+ * module is CLIENT-SAFE — no drizzle/schema value imports (they would drag
+ * the ORM into the client bundle); validation lives in event-details.server.ts.
  */
 
 export const EVENT_TYPES = [

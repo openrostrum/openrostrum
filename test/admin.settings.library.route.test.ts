@@ -198,27 +198,20 @@ describe("library taxonomies", () => {
 		});
 	});
 
-	it("deleting a level clears it from submissions without deleting them; deleting a track drops the m2m rows (AE-S3.8)", async () => {
+	it("deleting a level clears it from submissions without deleting them (AE-S3.8)", async () => {
 		await seed();
 		const db = getDb(env);
 		await db
 			.insert(levels)
 			.values({ id: "lvl_x", eventId: "e_a", name: "Expert" });
-		await db
-			.insert(tracks)
-			.values({ id: "t_x", eventId: "e_a", name: "Sec", color: "#0EA5E9" });
 		await db.insert(submissions).values({
 			id: "s1",
 			eventId: "e_a",
 			title: "Talk",
 			levelId: "lvl_x",
 		});
-		await db
-			.insert(submissionTracks)
-			.values({ submissionId: "s1", trackId: "t_x" });
 
 		expect((await post({ intent: "level.delete", id: "lvl_x" })).ok).toBe(true);
-		expect((await post({ intent: "track.delete", id: "t_x" })).ok).toBe(true);
 
 		// The dropdown feed (the levels table itself) no longer offers it…
 		expect(await db.select().from(levels)).toHaveLength(0);
@@ -226,7 +219,40 @@ describe("library taxonomies", () => {
 		const [submission] = await db.select().from(submissions);
 		expect(submission?.id).toBe("s1");
 		expect(submission?.levelId).toBeNull();
-		expect(await db.select().from(submissionTracks)).toHaveLength(0);
+	});
+
+	// Register decision: track deletion must never silently strip submissions'
+	// tracks — the Library refuses while references exist and reports the count.
+	it("refuses to delete a track that submissions still use, and deletes it once unreferenced", async () => {
+		await seed();
+		const db = getDb(env);
+		await db
+			.insert(tracks)
+			.values({ id: "t_x", eventId: "e_a", name: "Sec", color: "#0EA5E9" });
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e_a",
+			title: "Talk",
+		});
+		await db
+			.insert(submissionTracks)
+			.values({ submissionId: "s1", trackId: "t_x" });
+
+		const refused = await post({ intent: "track.delete", id: "t_x" });
+		expect(refused.ok).toBeUndefined();
+		expect(refused.formError).toMatch(/in use by 1 submission/i);
+		expect(await db.select().from(tracks)).toHaveLength(1);
+		expect(await db.select().from(submissionTracks)).toHaveLength(1);
+
+		// The loader surfaces the same count so the refusal is never a surprise.
+		const listed = (await load("u_a")) as unknown as {
+			tracks: Array<{ id: string; inUse: number }>;
+		};
+		expect(listed.tracks.find((t) => t.id === "t_x")?.inUse).toBe(1);
+
+		await db.delete(submissionTracks);
+		expect((await post({ intent: "track.delete", id: "t_x" })).ok).toBe(true);
+		expect(await db.select().from(tracks)).toHaveLength(0);
 	});
 
 	it("refuses to touch another org's rows — update and delete write nothing cross-tenant", async () => {

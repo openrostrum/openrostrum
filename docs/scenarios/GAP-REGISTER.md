@@ -48,6 +48,19 @@ decision still needed. Corroboration = how many walkers hit it independently.
 Tracked inline in the walk files; addressed opportunistically by build agents —
 each is a one-line spec clarification already present in walks/scenarios.
 
+## Lane deferrals (2026-08-10) — event-settings lane
+
+Recorded here per the No-shortcuts rule (deferrals live in the register, never
+in code). Each needs an owner decision or a cross-lane change.
+
+| # | Deferral | Owner follow-up |
+|---|----------|-----------------|
+| L1 | Event branding previews render as inline `data:` URIs on `/admin/settings` (uploads capped at 2 MB each) — the byte-serving route (`files.$id`) is the files lane's assigned file | When `files.$id` lands: serve `events.logoKey`/`backgroundKey` by URL (settings AND the public form/portal surfaces that show branding), then delete the inline-preview path — one way to serve stored images |
+| L2 | Theme + field-description inputs are single-line `Input`s — no Textarea primitive exists and `app/ui` is integration-owned | Add a `Textarea` primitive (control skin), swap the call sites |
+| L3 | Third hand-rolled bytes→base64 helper landed (settings previews; existing copies in `app/lib/auth.ts`, `app/ports/email.ts`) | Consolidate into one `app/lib` helper |
+| L4 | `/onboarding` keeps its own event form + timezone machinery; the shared `app/settings/event-form` covers settings/create-event only | Converge onboarding onto the shared form (cross-lane) |
+| L5 | Library validation hand-rolls Zod objects — `schema.ts` exports no drizzle-zod insert schemas for tracks/tags/formats/levels/rooms/languages/fields | Export + refine insert schemas from integration-owned `schema.ts` per the golden-path rule |
+
 ## Eval-kit walk findings (2026-08-09) — swyx's v1 judging harness
 
 Source: `docs/reference/killmysaas-evals/` (vendored). Full rubric→owner map:

@@ -9,7 +9,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { action, loader } from "../app/routes/admin.settings";
+import { action, loader } from "../app/routes/admin.settings._index";
 import {
 	dateToZonedInput,
 	zonedInputToDate,

@@ -131,7 +131,7 @@ export async function action({
 	const timings = createTimings();
 	try {
 		// One atomic batch: an org must never exist without its founding member,
-		// nor an event without its default email templates.
+		// nor an event without its default email templates and portal.
 		await timings.time("db", () =>
 			db.batch([
 				db
@@ -150,7 +150,7 @@ export async function action({
 					startsAt: new Date(`${parsed.data.startsAt}T00:00:00Z`),
 					endsAt: new Date(`${parsed.data.endsAt}T00:00:00Z`),
 				}),
-				provisionEventDefaults(db, eventId),
+				...provisionEventDefaults(db, eventId),
 				db
 					.update(users)
 					.set({ activeEventId: eventId })

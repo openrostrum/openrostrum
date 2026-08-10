@@ -22,12 +22,12 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Agenda | `admin.agenda.tsx` | `/admin/agenda` | 3 | todo |
 | Tasks dashboard | `admin.tasks.tsx` | `/admin/tasks` | 3 | todo |
 | Email templates | `admin.emails.tsx` · `admin.emails.$key.tsx` | `/admin/emails` | 1 | todo |
-| Event settings | `admin.settings.tsx` | `/admin/settings` | 1 | todo |
-| Library (taxonomies) | `admin.settings.library.tsx` | `/admin/settings/library` | 0/1 | todo |
+| Event settings | `admin.settings.tsx` (shell: header+tabs) · `admin.settings._index.tsx` (details + images) | `/admin/settings` | 1 | done |
+| Library (taxonomies + fields) | `admin.settings.library.tsx` | `/admin/settings/library` | 0/1 | done |
 | Portals admin | `admin.portals.tsx` · `admin.portal-forms.tsx` · `admin.file-requests.tsx` | `/admin/portals` … | 3 | todo |
 | Public CFP | `submit.$eventSlug.$formId.tsx` (+ `.step.*`) | `/submit/:eventSlug/:formId` | 2 | todo |
 | Speaker portal | `portals.$eventSlug.$portalId.tsx` (+ `home/submissions/profile/tasks`) | `/portals/:eventSlug/:portalId/*` | 2 | todo |
-| Create event | `admin.events.new.tsx` | `/admin/events/new` | 1 | todo |
+| Create event | `admin.events.new.tsx` | `/admin/events/new` | 1 | done |
 | Event switcher (action) | `admin.events.switch.tsx` | `/admin/events/switch` (POST → sets `users.activeEventId`; membership-guarded) | 0/1 | done |
 | Reviewer management | `admin.reviewers.tsx` | `/admin/reviewers` (add reviewer + track assignment + invite) | 1 | todo |
 | Reviewer "My Reviews" (reviewer role) | `reviews.tsx` · `reviews.$id.tsx` | `/reviews` · `/reviews/:id` (NOT under `admin.*`) | 1 | todo |

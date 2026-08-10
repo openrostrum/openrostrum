@@ -25,6 +25,12 @@ type ActionResult = {
 	values?: EventDetailsValues;
 };
 
+// Keeps every plain return widened to the one ActionResult shape, so the
+// component can read optional keys off any branch of the union.
+function res(r: ActionResult): ActionResult {
+	return r;
+}
+
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
@@ -78,10 +84,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 	const form = await request.formData();
 	const parsed = parseEventDetails(form);
 	if (!parsed.ok) {
-		return {
+		return res({
 			fieldErrors: parsed.fieldErrors,
 			values: parsed.values,
-		} satisfies ActionResult;
+		});
 	}
 
 	const db = getDb(env);
@@ -89,7 +95,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	const timings = createTimings();
 	try {
 		// One atomic batch: an event must never exist without its default email
-		// templates, and the creator lands inside the new event immediately.
+		// templates and portal, and the creator lands inside it immediately.
 		await timings.time("db", () =>
 			db.batch([
 				db.insert(events).values({
@@ -97,7 +103,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 					organizationId: organization.id,
 					...parsed.data,
 				}),
-				provisionEventDefaults(db, eventId),
+				...provisionEventDefaults(db, eventId),
 				db
 					.update(users)
 					.set({ activeEventId: eventId })
@@ -106,20 +112,20 @@ export async function action({ context, request }: Route.ActionArgs) {
 		);
 	} catch (error) {
 		if (isSlugTakenError(error)) {
-			return {
+			return res({
 				fieldErrors: { slug: [SLUG_TAKEN_MESSAGE] },
 				values: parsed.values,
-			} satisfies ActionResult;
+			});
 		}
 		track("event.create_failed", {
 			organizationId: organization.id,
 			userId: user.id,
 			error: errorMessage(error),
 		});
-		return {
+		return res({
 			formError: "Could not create the event — please try again.",
 			values: parsed.values,
-		} satisfies ActionResult;
+		});
 	}
 
 	track("event.created", {
