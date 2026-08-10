@@ -1,6 +1,7 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, lt } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { type Db, getDb } from "~/db";
+import { DECISION_STATUS } from "~/db/constants";
 import {
 	airtableLinks,
 	contacts,
@@ -10,6 +11,7 @@ import {
 	taskAssignments,
 	tasks,
 } from "~/db/schema";
+import { transitionSubmissions, withdrawSubmission } from "~/domain/accept";
 import {
 	applyDescriptivePull,
 	parseSubmissionStatus,
@@ -30,13 +32,11 @@ import {
 	getAirtableBase,
 	MERGE_FIELD,
 } from "~/ports/airtable";
-import { applyDecision, type DecisionTarget } from "./decision";
 import {
 	diffFields,
 	type LinkState,
 	type LocalProjection,
 	planTableSync,
-	type PullChange,
 	type TablePlan,
 } from "./engine";
 
@@ -57,7 +57,9 @@ export interface SyncRunOptions {
 	trigger: SyncTrigger;
 	/**
 	 * Set by the admin "Resume" action after a circuit-breaker pause: applies
-	 * the pending remote deletions this one run and clears the pause.
+	 * the pending remote deletions this one run and clears the pause. Honored
+	 * ONLY while the state is actually paused — a stale or replayed resume
+	 * POST must never disable the breaker for a normal run.
 	 */
 	acknowledgeDeletions?: boolean;
 }
@@ -84,19 +86,34 @@ export interface TableRunStats {
 export type SyncRunResult =
 	| { status: "not_configured" }
 	| { status: "paused" }
+	| { status: "already_running" }
 	| { status: "breaker_tripped"; absent: number; linked: number }
 	| { status: "failed"; error: string }
 	| { status: "ok"; tables: Record<SyncedTableName, TableRunStats> };
 
+type DecisionTarget = (typeof DECISION_STATUS)[number];
+
 /* ------------------------------------------------------------- sync state --- */
 
-// Run state (breaker pause, last outcome) lives in a reserved airtable_links
-// row: the pause MUST survive across ticks and isolates, airtable_links is
-// the sync engine's own table, and "$sync" can never collide with a real
-// table name. All record selection below filters tableName to SYNCED_TABLES,
-// so this row never enters reconciliation.
+// Run state (breaker pause, run lock, last outcome) lives in reserved
+// airtable_links rows: it MUST survive across ticks and isolates,
+// airtable_links is the sync engine's own table, and "$sync" can never
+// collide with a real table name. All record selection below filters
+// tableName to SYNCED_TABLES, so these rows never enter reconciliation.
+// (The reserved shapes are documented in docs/airtable-sync-design.md,
+// Decision 5.)
 const STATE_TABLE = "$sync";
 const STATE_RECORD = "state";
+const LOCK_RECORD = "lock";
+// A tick is seconds of wall time; a lock this old belongs to a crashed run.
+const LOCK_TTL_MS = 5 * 60_000;
+
+export interface ConflictEntry {
+	at: string;
+	table: string;
+	recordId: string;
+	field: string;
+}
 
 export interface SyncState {
 	pausedAt?: string;
@@ -107,7 +124,11 @@ export interface SyncState {
 	lastRunTables?: Record<string, TableRunStats>;
 	lastError?: string;
 	lastWebhookAt?: string;
+	/** The in-app audit trail for "Airtable won this conflict" (capped). */
+	recentConflicts?: ConflictEntry[];
 }
+
+const MAX_RECENT_CONFLICTS = 50;
 
 export async function readSyncState(db: Db): Promise<SyncState> {
 	const [row] = await db
@@ -140,6 +161,49 @@ export async function writeSyncState(db: Db, state: SyncState): Promise<void> {
 				syncedAt: new Date(),
 			},
 		});
+}
+
+/**
+ * At-most-one tick at a time: overlapping triggers (webhook ping during a
+ * cron pass, a double-clicked Sync now) would double-apply plans computed
+ * from the same stale reads. The lock row insert is atomic on the
+ * (tableName, recordId) unique index; a crashed run's lock is stolen after
+ * its TTL.
+ */
+async function acquireRunLock(db: Db, now: Date): Promise<boolean> {
+	await db
+		.delete(airtableLinks)
+		.where(
+			and(
+				eq(airtableLinks.tableName, STATE_TABLE),
+				eq(airtableLinks.recordId, LOCK_RECORD),
+				lt(airtableLinks.syncedAt, new Date(now.getTime() - LOCK_TTL_MS)),
+			),
+		);
+	const inserted = await db
+		.insert(airtableLinks)
+		.values({
+			tableName: STATE_TABLE,
+			recordId: LOCK_RECORD,
+			airtableId: `${STATE_TABLE}:${LOCK_RECORD}`,
+			syncedAt: now,
+		})
+		.onConflictDoNothing({
+			target: [airtableLinks.tableName, airtableLinks.recordId],
+		})
+		.returning({ id: airtableLinks.id });
+	return inserted.length > 0;
+}
+
+async function releaseRunLock(db: Db): Promise<void> {
+	await db
+		.delete(airtableLinks)
+		.where(
+			and(
+				eq(airtableLinks.tableName, STATE_TABLE),
+				eq(airtableLinks.recordId, LOCK_RECORD),
+			),
+		);
 }
 
 // Snapshot marker for a link whose base row the team deleted: the local row
@@ -316,25 +380,36 @@ export async function runAirtableSync(
 		return { status: "not_configured" };
 	}
 	const now = deps.now?.() ?? new Date();
-	const state = await readSyncState(db);
-	if (state.pausedAt && !opts.acknowledgeDeletions) {
-		track("sync.skipped", { reason: "paused", trigger });
-		return { status: "paused" };
+	if (!(await acquireRunLock(db, now))) {
+		track("sync.skipped", { reason: "already_running", trigger });
+		return { status: "already_running" };
 	}
 	try {
-		const result = await reconcileAll(db, base, opts, state, now);
-		return result;
-	} catch (error) {
-		const message = errorMessage(error);
-		track("sync.run_failed", { trigger, error: message });
-		await writeSyncState(db, {
-			...state,
-			lastRunAt: now.toISOString(),
-			lastRunTrigger: trigger,
-			lastRunStatus: "failed",
-			lastError: message,
-		});
-		return { status: "failed", error: message };
+		const state = await readSyncState(db);
+		// The server-side resume gate: acknowledgement only means something
+		// while a pause is actually in force.
+		const acknowledge = Boolean(opts.acknowledgeDeletions && state.pausedAt);
+		if (state.pausedAt && !acknowledge) {
+			track("sync.skipped", { reason: "paused", trigger });
+			return { status: "paused" };
+		}
+		try {
+			return await reconcileAll(db, base, env, opts.trigger, acknowledge, now);
+		} catch (error) {
+			const message = errorMessage(error);
+			track("sync.run_failed", { trigger, error: message });
+			const fresh = await readSyncState(db);
+			await writeSyncState(db, {
+				...fresh,
+				lastRunAt: now.toISOString(),
+				lastRunTrigger: trigger,
+				lastRunStatus: "failed",
+				lastError: message,
+			});
+			return { status: "failed", error: message };
+		}
+	} finally {
+		await releaseRunLock(db);
 	}
 }
 
@@ -345,7 +420,6 @@ interface TableWork {
 	map: TableMap;
 	plan: TablePlan;
 	loaded: LoadedTable;
-	links: Map<string, LinkState>;
 	remoteFieldsById: Map<string, AirtableFields>;
 	/** Archive candidates not yet processed on a previous tick. */
 	newArchives: Array<{ recordId: string; airtableId: string }>;
@@ -361,11 +435,11 @@ interface TableWork {
 async function reconcileAll(
 	db: Db,
 	base: AirtableBase,
-	opts: SyncRunOptions,
-	state: SyncState,
+	env: Env,
+	trigger: SyncTrigger,
+	acknowledgeDeletions: boolean,
 	now: Date,
 ): Promise<SyncRunResult> {
-	const { trigger } = opts;
 	const demoEvents = await db
 		.select({ id: events.id })
 		.from(events)
@@ -428,7 +502,6 @@ async function reconcileAll(
 			map,
 			plan,
 			loaded,
-			links,
 			remoteFieldsById: new Map(
 				remotes
 					.filter((r) => typeof r.fields[MERGE_FIELD] === "string")
@@ -444,13 +517,14 @@ async function reconcileAll(
 	const linked = work.reduce((n, w) => n + w.plan.linkedPresent, 0);
 	const absent = work.reduce((n, w) => n + w.newArchives.length, 0);
 	if (
-		!opts.acknowledgeDeletions &&
+		!acknowledgeDeletions &&
 		linked > 0 &&
 		absent / linked > BREAKER_THRESHOLD
 	) {
 		track("sync.breaker_tripped", { absent, linked, trigger });
+		const fresh = await readSyncState(db);
 		await writeSyncState(db, {
-			...state,
+			...fresh,
 			pausedAt: now.toISOString(),
 			pausedReason: `${absent} of ${linked} synced rows were deleted in Airtable in one pass. Sync is paused so an accidental mass-delete can't archive them all — review the base, then resume to apply the deletions.`,
 			lastRunAt: now.toISOString(),
@@ -461,39 +535,57 @@ async function reconcileAll(
 	}
 
 	const tables = {} as Record<SyncedTableName, TableRunStats>;
+	const conflicts: ConflictEntry[] = [];
 	for (const w of work) {
-		tables[w.table] = await applyTable(db, base, w, eventIds, now, trigger);
+		tables[w.table] = await applyTable(
+			db,
+			base,
+			w,
+			eventIds,
+			now,
+			trigger,
+			conflicts,
+		);
 	}
 
-	const cleared = Boolean(state.pausedAt && opts.acknowledgeDeletions);
-	if (cleared) track("sync.resumed", { trigger });
+	// The poll keeps the webhook alive: Airtable expires webhooks after 7 days
+	// unless refreshed. Re-REGISTRATION (which mints a new MAC secret, a
+	// deploy-time secret this Worker cannot set) stays a provisioning task.
+	if (trigger === "cron" && env.AIRTABLE_WEBHOOK_ID) {
+		try {
+			await base.refreshWebhook(env.AIRTABLE_WEBHOOK_ID);
+			track("sync.webhook_refreshed", { webhookId: env.AIRTABLE_WEBHOOK_ID });
+		} catch (error) {
+			track("sync.webhook_refresh_failed", {
+				webhookId: env.AIRTABLE_WEBHOOK_ID,
+				error: errorMessage(error),
+			});
+		}
+	}
+
+	if (acknowledgeDeletions) track("sync.resumed", { trigger });
+	// Merge onto a FRESH read — a webhook ping that landed mid-run must not
+	// lose its lastWebhookAt to this write.
+	const fresh = await readSyncState(db);
 	await writeSyncState(db, {
-		...state,
-		...(cleared ? { pausedAt: undefined, pausedReason: undefined } : {}),
+		...fresh,
+		...(acknowledgeDeletions
+			? { pausedAt: undefined, pausedReason: undefined }
+			: {}),
 		lastRunAt: now.toISOString(),
 		lastRunTrigger: trigger,
 		lastRunStatus: "ok",
 		lastRunTables: tables,
 		lastError: undefined,
+		recentConflicts: [...conflicts, ...(fresh.recentConflicts ?? [])].slice(
+			0,
+			MAX_RECENT_CONFLICTS,
+		),
 	});
 	return { status: "ok", tables };
 }
 
 /* ------------------------------------------------------------ apply phase --- */
-
-function withdrawSet(reason: string, now: Date) {
-	return {
-		status: "withdrawn" as const,
-		statusChangedAt: now,
-		withdrawnAt: now,
-		withdrawnById: null,
-		withdrawnReason: reason,
-		// Unschedule: a withdrawn session must not hold an agenda slot.
-		startsAt: null,
-		endsAt: null,
-		roomId: null,
-	};
-}
 
 async function applyTable(
 	db: Db,
@@ -502,6 +594,7 @@ async function applyTable(
 	eventIds: string[],
 	now: Date,
 	trigger: SyncTrigger,
+	conflicts: ConflictEntry[],
 ): Promise<TableRunStats> {
 	const { table, map, plan, loaded } = w;
 	const stats: TableRunStats = {
@@ -517,20 +610,17 @@ async function applyTable(
 		orphans: plan.orphanCount,
 	};
 
-	// --- local (D1) writes: descriptive pulls, task-status workflow, archives.
+	// --- local (D1) writes: descriptive pulls and task-status workflow go in
+	// one batch; submission workflow edits run through the domain functions.
 	const statements: BatchItem<"sqlite">[] = [];
 	const decisionRequests: Array<{ row: Submission; to: DecisionTarget }> = [];
+	const withdrawRequests: Array<{ row: Submission; reason: string }> = [];
 	const afterCommit: Array<() => void> = [];
 
-	const reject = (recordId: string, change: PullChange, reason: string) => {
+	const reject = (recordId: string, field: string, reason: string) => {
 		stats.rejected += 1;
 		afterCommit.push(() =>
-			track("sync.pull_rejected", {
-				table,
-				recordId,
-				field: change.field,
-				reason,
-			}),
+			track("sync.pull_rejected", { table, recordId, field, reason }),
 		);
 	};
 
@@ -539,6 +629,12 @@ async function applyTable(
 		for (const change of pull.changes) {
 			if (change.conflict) {
 				stats.conflicts += 1;
+				conflicts.push({
+					at: now.toISOString(),
+					table,
+					recordId: pull.recordId,
+					field: change.field,
+				});
 				afterCommit.push(() =>
 					track("sync.conflict_resolved", {
 						table,
@@ -550,34 +646,25 @@ async function applyTable(
 			if (change.fieldClass === "descriptive") {
 				const outcome = applyDescriptivePull(table, change.field, change.value);
 				if (outcome.ok) Object.assign(sets, outcome.set);
-				else reject(pull.recordId, change, outcome.reason);
+				else reject(pull.recordId, change.field, outcome.reason);
 				continue;
 			}
 			// Workflow field (Status).
 			if (table === "submissions") {
 				const row = loaded.submissionRows.get(pull.recordId);
-				const to = parseSubmissionStatus(change.value);
+				const to = row ? parseSubmissionStatus(change.value) : null;
 				if (!row || !to || to === "draft") {
-					reject(pull.recordId, change, "not an applicable status");
+					reject(pull.recordId, change.field, "not an applicable status");
 				} else if (to === "withdrawn") {
-					Object.assign(sets, withdrawSet("Withdrawn in Airtable", now));
-					afterCommit.push(() =>
-						track("submission.status_changed", {
-							submissionId: row.id,
-							eventId: row.eventId,
-							from: row.status,
-							to,
-							via: "airtable_sync",
-						}),
-					);
+					withdrawRequests.push({ row, reason: "Withdrawn in Airtable" });
 				} else {
 					decisionRequests.push({ row, to });
 				}
 			} else if (table === "task_assignments") {
 				const row = loaded.assignmentRows.get(pull.recordId);
-				const to = parseTaskStatus(change.value);
+				const to = row ? parseTaskStatus(change.value) : null;
 				if (!row || !to) {
-					reject(pull.recordId, change, "not a task status");
+					reject(pull.recordId, change.field, "not a task status");
 				} else {
 					Object.assign(sets, {
 						status: to,
@@ -585,7 +672,7 @@ async function applyTable(
 					});
 				}
 			} else {
-				reject(pull.recordId, change, "field has no workflow applier");
+				reject(pull.recordId, change.field, "field has no workflow applier");
 			}
 		}
 		if (Object.keys(sets).length > 0) {
@@ -597,36 +684,6 @@ async function applyTable(
 		}
 	}
 
-	for (const archive of w.newArchives) {
-		stats.archived += 1;
-		if (table === "submissions") {
-			const row = loaded.submissionRows.get(archive.recordId);
-			statements.push(
-				db
-					.update(submissions)
-					.set(withdrawSet("Deleted from the Airtable base", now))
-					.where(eq(submissions.id, archive.recordId)),
-			);
-			afterCommit.push(() =>
-				track("sync.remote_delete_archived", {
-					table,
-					recordId: archive.recordId,
-					eventId: row?.eventId,
-				}),
-			);
-		} else {
-			// Contacts and task assignments have no archived state to move to —
-			// the row stays in the app, stops mirroring, and is never recreated
-			// in the base (the marker written below is what stops the re-push).
-			afterCommit.push(() =>
-				track("sync.remote_delete_marked", {
-					table,
-					recordId: archive.recordId,
-				}),
-			);
-		}
-	}
-
 	if (statements.length > 0) {
 		await db.batch(
 			statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
@@ -634,14 +691,62 @@ async function applyTable(
 	}
 	for (const emit of afterCommit) emit();
 
-	// Decision transitions go through the shared spine (its own reads/batch).
+	// Inbound "Withdrawn" edits and honored remote deletions both go through
+	// the shared withdraw domain function — the sync engine carries no
+	// withdraw rules of its own.
+	for (const request of withdrawRequests) {
+		const result = await withdrawSubmission(db, {
+			submission: request.row,
+			byUserId: null,
+			reason: request.reason,
+		});
+		if (result.ok) {
+			stats.pulled += 1;
+		} else {
+			stats.rejected += 1;
+			track("sync.pull_rejected", {
+				table,
+				recordId: request.row.id,
+				field: "Status",
+				reason: result.reason ?? "withdrawal refused",
+			});
+		}
+	}
+
+	for (const archive of w.newArchives) {
+		stats.archived += 1;
+		const row = loaded.submissionRows.get(archive.recordId);
+		if (table === "submissions" && row) {
+			const result = await withdrawSubmission(db, {
+				submission: row,
+				byUserId: null,
+				reason: "Deleted from the Airtable base",
+			});
+			if (result.ok) {
+				track("sync.remote_delete_archived", {
+					table,
+					recordId: archive.recordId,
+					eventId: row.eventId,
+				});
+				continue;
+			}
+		}
+		// No archive state applies (contacts, task assignments, drafts): the
+		// row stays in the app, stops mirroring, and is never recreated in the
+		// base — the marker written below is what stops the re-push.
+		track("sync.remote_delete_marked", { table, recordId: archive.recordId });
+	}
+
+	// Inbound decision edits go through the shared accept spine — the same
+	// transition + auto-provisioning path the admin UI uses (rows arrive here
+	// already Demo-org-filtered, matching the spine's caller contract).
 	if (decisionRequests.length > 0) {
 		const byTarget = new Map<DecisionTarget, Submission[]>();
 		for (const req of decisionRequests) {
 			byTarget.set(req.to, [...(byTarget.get(req.to) ?? []), req.row]);
 		}
 		for (const [to, rows] of byTarget) {
-			const outcomes = await applyDecision(db, rows, to);
+			const outcomes = await transitionSubmissions(db, rows, to);
 			for (const outcome of outcomes) {
 				if (outcome.ok) {
 					stats.pulled += 1;

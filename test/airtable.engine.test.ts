@@ -54,11 +54,9 @@ describe("airtable sync engine — three-way reconciliation", () => {
 		expect(plan.snapshotRefreshes).toEqual([]);
 	});
 
-	it("pushes only fields the app changed (change detection via the snapshot)", () => {
+	it("flags a record for push only when the app changed it since the snapshot", () => {
 		const plan = linked({ Desc: "edited locally" }, {});
-		expect(plan.pushes).toEqual([
-			{ recordId: "r1", airtableId: "at1", fields: { Desc: "edited locally" } },
-		]);
+		expect(plan.pushes).toEqual([{ recordId: "r1", airtableId: "at1" }]);
 		expect(plan.pulls).toEqual([]);
 	});
 
@@ -96,10 +94,12 @@ describe("airtable sync engine — three-way reconciliation", () => {
 
 	it("corrects an inbound edit of an app-owned field back to the app's value", () => {
 		const plan = linked({}, { Owned: "team tampered" });
-		expect(plan.pushes).toEqual([
-			{ recordId: "r1", airtableId: "at1", fields: { Owned: "o1" } },
-		]);
+		expect(plan.pushes).toEqual([{ recordId: "r1", airtableId: "at1" }]);
 		expect(plan.pulls).toEqual([]);
+		// The pushed content is computed exactly once, by diffFields.
+		expect(diffFields(MAP, BASE, { ...BASE, Owned: "team tampered" })).toEqual({
+			Owned: "o1",
+		});
 	});
 
 	it("routes a remote workflow change as a pull tagged workflow", () => {
@@ -211,8 +211,8 @@ describe("airtable sync engine — three-way reconciliation", () => {
 			value: "remote",
 			conflict: true,
 		});
-		// App-owned drift still corrects back to the app's values.
-		expect(plan.pushes[0]?.fields).toMatchObject({ Owned: "o1" });
+		// App-owned drift still flags the record so the correction pushes back.
+		expect(plan.pushes).toContainEqual({ recordId: "r1", airtableId: "atX" });
 	});
 
 	it("flags a stale-but-agreeing snapshot for refresh so a later local edit is not misread as a conflict", () => {

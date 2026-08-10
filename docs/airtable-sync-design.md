@@ -130,6 +130,31 @@ exactly the behavior swyx praised.
 5. **`airtable_links` schema — LANDED in `app/db/schema.ts`** (2026-08-09):
    `(tableName, recordId) ⇄ airtableId` + `baseSnapshot` JSON (synced fields
    only — team-private columns never enter it) + `syncedAt`.
+   **Reserved shapes (build decision 2026-08-10):** the sync engine owns two
+   `tableName='$sync'` rows — `state` (breaker pause, last-run outcome, last
+   webhook ping, recent-conflict audit) and `lock` (the at-most-one-tick run
+   lock) — and one reserved snapshot key, `$remoteDeleted`, marking a link
+   whose base row the team deleted (honored: never recreated; cleared on
+   restore-from-trash). All reconciliation selects filter `tableName` to the
+   real synced tables, so these never enter a plan. A dedicated `sync_state`
+   table is a welcome integration-owner cleanup; the reserved rows keep the
+   feature deliverable without a schema wave.
+
+## Build decisions (2026-08-10, within the mechanism above)
+
+- **Ping handling:** a verified webhook ping triggers the full org-scoped
+  reconcile tick via `waitUntil` (no queue binding exists; the tick is
+  idempotent and tens of requests at conference scale, so team edits still
+  land in seconds). `listWebhookPayloads` cursor scoping is an optimization
+  the integration lane may add with the real base; it is not needed for
+  correctness. A `$sync` run lock collapses overlapping triggers.
+- **Webhook lifetime:** the cron poll REFRESHES the webhook's 7-day expiry
+  when `AIRTABLE_WEBHOOK_ID` is set (tracked, including failures). Full
+  RE-registration mints a new MAC secret, which must land in a deploy-time
+  secret a Worker cannot set — creating/re-creating the webhook is therefore
+  provisioning-lane work (`AIRTABLE_WEBHOOK_SECRET` + `AIRTABLE_WEBHOOK_ID`).
+  The admin page reports webhook liveness from received-ping evidence, never
+  from configuration presence.
 
 ## Process at build (P1 #15)
 

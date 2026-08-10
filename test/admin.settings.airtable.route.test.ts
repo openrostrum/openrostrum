@@ -114,12 +114,21 @@ describe("/admin/settings/airtable", () => {
 		} as unknown as LoaderArgs)) as unknown as {
 			data: {
 				state: string;
-				webhookConfigured: boolean;
+				webhook: {
+					secretSet: boolean;
+					refreshConfigured: boolean;
+					lastPingAt: string | null;
+				};
 				tables: Array<{ table: string; linked: number }>;
 			};
 		};
 		expect(result.data.state).toBe("ready");
-		expect(result.data.webhookConfigured).toBe(false);
+		// Liveness is evidence-based: no ping received yet, whatever the config.
+		expect(result.data.webhook).toEqual({
+			secretSet: false,
+			refreshConfigured: false,
+			lastPingAt: null,
+		});
 		expect(result.data.tables).toEqual([
 			expect.objectContaining({ table: "submissions", linked: 2 }),
 			expect.objectContaining({ table: "contacts", linked: 1 }),

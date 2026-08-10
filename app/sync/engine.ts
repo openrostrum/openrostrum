@@ -40,12 +40,13 @@ export interface TablePlan {
 	creates: LocalProjection[];
 	/** Local rows with no link but a remote row carrying their merge key → re-link. */
 	adoptions: Array<{ recordId: string; airtableId: string }>;
-	/** Changed fields to write to the base, per record (adoptions included). */
-	pushes: Array<{
-		recordId: string;
-		airtableId: string;
-		fields: AirtableFields;
-	}>;
+	/**
+	 * Records with at least one app-side value the base must take (a local
+	 * edit, or an app-owned field the team drifted). The pushed field CONTENT
+	 * is computed once, post-apply, by `diffFields` — never here — so there is
+	 * exactly one projection-vs-base comparison in the system.
+	 */
+	pushes: Array<{ recordId: string; airtableId: string }>;
 	/** Inbound field changes to apply locally, routed by class. */
 	pulls: Array<{ recordId: string; airtableId: string; changes: PullChange[] }>;
 	/** Linked, present locally, gone from the base → archive candidates. */
@@ -106,7 +107,7 @@ export function planTableSync(
 		snapshot: AirtableFields | null,
 		remoteFields: AirtableFields,
 	): void {
-		const push: AirtableFields = {};
+		let needsPush = false;
 		const changes: PullChange[] = [];
 		let agreedButStale = false;
 		for (const [field, spec] of Object.entries(map.fields)) {
@@ -121,11 +122,11 @@ export function planTableSync(
 			if (spec.class === "app-owned") {
 				// The app is authoritative: a remote edit is corrected back, a local
 				// change is pushed — one op either way.
-				push[field] = loc;
+				needsPush = true;
 				continue;
 			}
 			if (rem === base) {
-				push[field] = loc;
+				needsPush = true;
 				continue;
 			}
 			changes.push({
@@ -135,17 +136,13 @@ export function planTableSync(
 				conflict: loc !== base,
 			});
 		}
-		if (Object.keys(push).length > 0) {
-			plan.pushes.push({ recordId: local.recordId, airtableId, fields: push });
+		if (needsPush) {
+			plan.pushes.push({ recordId: local.recordId, airtableId });
 		}
 		if (changes.length > 0) {
 			plan.pulls.push({ recordId: local.recordId, airtableId, changes });
 		}
-		if (
-			agreedButStale &&
-			Object.keys(push).length === 0 &&
-			changes.length === 0
-		) {
+		if (agreedButStale && !needsPush && changes.length === 0) {
 			plan.snapshotRefreshes.push(local.recordId);
 		}
 	}

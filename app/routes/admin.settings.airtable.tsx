@@ -70,7 +70,13 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		{
 			state: "ready" as const,
 			flash,
-			webhookConfigured: Boolean(env.AIRTABLE_WEBHOOK_SECRET),
+			webhook: {
+				secretSet: Boolean(env.AIRTABLE_WEBHOOK_SECRET),
+				refreshConfigured: Boolean(env.AIRTABLE_WEBHOOK_ID),
+				// Liveness evidence — a received ping, never inferred from config.
+				lastPingAt: syncState.lastWebhookAt ?? null,
+			},
+			recentConflicts: syncState.recentConflicts ?? [],
 			paused: syncState.pausedAt
 				? { at: syncState.pausedAt, reason: syncState.pausedReason ?? "" }
 				: null,
@@ -207,7 +213,8 @@ export default function AirtableSync({
 		);
 	}
 
-	const { flash, webhookConfigured, paused, lastRun, tables } = loaderData;
+	const { flash, webhook, recentConflicts, paused, lastRun, tables } =
+		loaderData;
 	const linkedTotal = tables.reduce((n, t) => n + t.linked, 0);
 
 	return (
@@ -281,14 +288,53 @@ export default function AirtableSync({
 							{formatTime(lastRun.at)} · trigger: {lastRun.trigger}
 						</span>
 					)}
-					<StatusBadge tone={webhookConfigured ? "success" : "neutral"}>
-						{webhookConfigured
-							? "Webhook connected"
-							: "Webhook not configured (hourly poll only)"}
+					<StatusBadge tone={webhook.lastPingAt ? "success" : "neutral"}>
+						{webhook.lastPingAt
+							? `Webhook ping received ${formatTime(webhook.lastPingAt)}`
+							: webhook.secretSet
+								? "Webhook secret set — no ping received yet"
+								: "No webhook — background poll only"}
 					</StatusBadge>
+					{webhook.secretSet && !webhook.refreshConfigured && (
+						<span>
+							AIRTABLE_WEBHOOK_ID is unset, so the poll cannot refresh the
+							webhook&apos;s 7-day expiry.
+						</span>
+					)}
 				</div>
 				{lastRun?.error && <ErrorText>{lastRun.error}</ErrorText>}
 			</Panel>
+
+			{recentConflicts.length > 0 && (
+				<Panel>
+					<div className="flex flex-col gap-3">
+						<div className="flex items-center gap-2">
+							<StatusBadge tone="info">Recent conflicts</StatusBadge>
+							<span>
+								Both sides had edited these fields — Airtable&apos;s value won.
+							</span>
+						</div>
+						<Table>
+							<THead>
+								<Th>When</Th>
+								<Th>Table</Th>
+								<Th>Record</Th>
+								<Th>Field</Th>
+							</THead>
+							<TBody>
+								{recentConflicts.map((c) => (
+									<Tr key={`${c.at}:${c.table}:${c.recordId}:${c.field}`}>
+										<Td kind="mono">{formatTime(c.at)}</Td>
+										<Td>{c.table}</Td>
+										<Td kind="mono">{c.recordId}</Td>
+										<Td>{c.field}</Td>
+									</Tr>
+								))}
+							</TBody>
+						</Table>
+					</div>
+				</Panel>
+			)}
 
 			<Table>
 				<THead>

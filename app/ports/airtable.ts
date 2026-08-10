@@ -38,12 +38,14 @@ export interface AirtableBase {
 	): Promise<AirtableRecord[]>;
 	/** Delete records by Airtable record id. Missing ids are treated as already deleted (retries stay idempotent). */
 	batchDelete(table: string, airtableIds: readonly string[]): Promise<void>;
+	/** Extend the webhook's 7-day expiry (Airtable disables unrefreshed webhooks). */
+	refreshWebhook(webhookId: string): Promise<void>;
 }
 
 /* ------------------------------------------------------------------- fake --- */
 
 export interface FakeAirtableCall {
-	op: "list" | "upsert" | "delete";
+	op: "list" | "upsert" | "delete" | "refresh";
 	table: string;
 	payload: unknown;
 }
@@ -150,6 +152,9 @@ export function createFakeAirtableBase(): FakeAirtableBase {
 			const store = tableStore(table);
 			for (const id of airtableIds) store.delete(id);
 		},
+		async refreshWebhook(webhookId) {
+			calls.push({ op: "refresh", table: "", payload: webhookId });
+		},
 	};
 }
 
@@ -190,6 +195,8 @@ export function createAirtableBase(
 
 	let lastRequestAt = 0;
 
+	// `path` is relative to the API root: record I/O lives under
+	// `{baseId}/{table}`, the webhook API under `bases/{baseId}/webhooks`.
 	async function request(
 		method: string,
 		path: string,
@@ -200,7 +207,7 @@ export function createAirtableBase(
 			if (wait > 0) await transport.sleep(wait);
 			lastRequestAt = Date.now();
 
-			const res = await transport.fetch(`${AIRTABLE_API}/${baseId}/${path}`, {
+			const res = await transport.fetch(`${AIRTABLE_API}/${path}`, {
 				method,
 				headers: {
 					Authorization: `Bearer ${apiKey}`,
@@ -241,7 +248,7 @@ export function createAirtableBase(
 				if (offset) params.set("offset", offset);
 				const page = (await request(
 					"GET",
-					`${encodeURIComponent(table)}?${params}`,
+					`${baseId}/${encodeURIComponent(table)}?${params}`,
 				)) as {
 					records: Array<{ id: string; fields: AirtableFields }>;
 					offset?: string;
@@ -257,13 +264,17 @@ export function createAirtableBase(
 			const results: AirtableRecord[] = [];
 			for (let i = 0; i < records.length; i += BATCH_SIZE) {
 				const chunk = records.slice(i, i + BATCH_SIZE);
-				const res = (await request("PATCH", encodeURIComponent(table), {
-					performUpsert: { fieldsToMergeOn: [MERGE_FIELD] },
-					// Let Airtable coerce pushed strings into select options etc., so
-					// the team's own field types keep working.
-					typecast: true,
-					records: chunk.map((r) => ({ fields: r.fields })),
-				})) as { records: Array<{ id: string; fields: AirtableFields }> };
+				const res = (await request(
+					"PATCH",
+					`${baseId}/${encodeURIComponent(table)}`,
+					{
+						performUpsert: { fieldsToMergeOn: [MERGE_FIELD] },
+						// Let Airtable coerce pushed strings into select options etc., so
+						// the team's own field types keep working.
+						typecast: true,
+						records: chunk.map((r) => ({ fields: r.fields })),
+					},
+				)) as { records: Array<{ id: string; fields: AirtableFields }> };
 				for (const r of res.records) {
 					results.push({ airtableId: r.id, fields: r.fields ?? {} });
 				}
@@ -275,8 +286,17 @@ export function createAirtableBase(
 				const chunk = airtableIds.slice(i, i + BATCH_SIZE);
 				const params = new URLSearchParams();
 				for (const id of chunk) params.append("records[]", id);
-				await request("DELETE", `${encodeURIComponent(table)}?${params}`);
+				await request(
+					"DELETE",
+					`${baseId}/${encodeURIComponent(table)}?${params}`,
+				);
 			}
+		},
+		async refreshWebhook(webhookId) {
+			await request(
+				"POST",
+				`bases/${baseId}/webhooks/${encodeURIComponent(webhookId)}/refresh`,
+			);
 		},
 	};
 }

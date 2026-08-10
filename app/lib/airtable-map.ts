@@ -6,7 +6,7 @@ import type {
 	taskAssignments,
 	tasks,
 } from "~/db/schema";
-import { CONTACT_STATUS, TASK_STATUS } from "~/db/schema";
+import { TASK_STATUS } from "~/db/schema";
 import type { AirtableFields, AirtableFieldValue } from "~/ports/airtable";
 
 /**
@@ -37,6 +37,16 @@ export interface SyncFieldSpec {
 	 * would read as a remote edit on every tick.
 	 */
 	normalizeRemote?: (value: AirtableFieldValue) => AirtableFieldValue;
+	/**
+	 * Descriptive fields declare their D1 landing spot here, so a
+	 * team-editable field without an inbound mapping is unrepresentable.
+	 * `nullAs` substitutes a cleared cell's value for NOT NULL columns.
+	 */
+	inbound?: {
+		column: string;
+		kind: "required-text" | "optional-text" | "date";
+		nullAs?: string;
+	};
 }
 
 export interface TableMap {
@@ -60,23 +70,13 @@ function normalizeRemoteDate(value: AirtableFieldValue): AirtableFieldValue {
 
 type SubmissionStatus = (typeof SUBMISSION_STATUS)[number];
 type TaskStatus = (typeof TASK_STATUS)[number];
-type ContactStatus = (typeof CONTACT_STATUS)[number];
 
-function titleCase(value: string): string {
-	return value
+/** Enum value → the human label pushed to the base ("accept_queue" → "Accept Queue"). */
+export function statusLabel(status: string): string {
+	return status
 		.split("_")
 		.map((w) => (w[0] ?? "").toUpperCase() + w.slice(1))
 		.join(" ");
-}
-
-export function submissionStatusLabel(status: SubmissionStatus): string {
-	return titleCase(status);
-}
-export function taskStatusLabel(status: TaskStatus): string {
-	return titleCase(status);
-}
-export function contactStatusLabel(status: ContactStatus): string {
-	return titleCase(status);
 }
 
 function parseLabel<T extends string>(
@@ -121,7 +121,7 @@ export function projectSubmission(row: SubmissionSyncRow): AirtableFields {
 	return {
 		Title: s.title,
 		Description: s.description,
-		Status: submissionStatusLabel(s.status),
+		Status: statusLabel(s.status),
 		Language: s.language,
 		Format: row.formatName,
 		Tracks: row.trackNames.join(", ") || null,
@@ -141,7 +141,7 @@ export function projectContact(contact: Contact): AirtableFields {
 		"Job Title": contact.jobTitle,
 		Company: contact.companyName,
 		Bio: contact.bio,
-		Status: contactStatusLabel(contact.status),
+		Status: statusLabel(contact.status),
 	};
 }
 
@@ -159,7 +159,7 @@ export function projectTaskAssignment(
 		Task: row.task.name,
 		Contact: row.contact ? personLabel(row.contact) : null,
 		Submission: row.submission?.title ?? null,
-		Status: taskStatusLabel(row.assignment.status),
+		Status: statusLabel(row.assignment.status),
 		"Due At": isoOrNull(row.assignment.dueAt),
 		"Completed At": isoOrNull(row.assignment.completedAt),
 	};
@@ -171,10 +171,19 @@ export const SUBMISSIONS_MAP: TableMap = {
 	table: "submissions",
 	airtableTable: "Sessions",
 	fields: {
-		Title: { class: "descriptive" },
-		Description: { class: "descriptive" },
+		Title: {
+			class: "descriptive",
+			inbound: { column: "title", kind: "required-text" },
+		},
+		Description: {
+			class: "descriptive",
+			inbound: { column: "description", kind: "optional-text", nullAs: "" },
+		},
 		Status: { class: "workflow" },
-		Language: { class: "descriptive" },
+		Language: {
+			class: "descriptive",
+			inbound: { column: "language", kind: "required-text" },
+		},
 		Format: { class: "app-owned" },
 		Tracks: { class: "app-owned" },
 		Speakers: { class: "app-owned" },
@@ -192,11 +201,26 @@ export const CONTACTS_MAP: TableMap = {
 		// Email is the app's identity key (unique per event) — locked, like
 		// Sessionboard's locked contact core.
 		Email: { class: "app-owned" },
-		"First Name": { class: "descriptive" },
-		"Last Name": { class: "descriptive" },
-		"Job Title": { class: "descriptive" },
-		Company: { class: "descriptive" },
-		Bio: { class: "descriptive" },
+		"First Name": {
+			class: "descriptive",
+			inbound: { column: "firstName", kind: "required-text" },
+		},
+		"Last Name": {
+			class: "descriptive",
+			inbound: { column: "lastName", kind: "required-text" },
+		},
+		"Job Title": {
+			class: "descriptive",
+			inbound: { column: "jobTitle", kind: "optional-text" },
+		},
+		Company: {
+			class: "descriptive",
+			inbound: { column: "companyName", kind: "optional-text" },
+		},
+		Bio: {
+			class: "descriptive",
+			inbound: { column: "bio", kind: "optional-text" },
+		},
 		Status: { class: "app-owned" },
 	},
 };
@@ -209,7 +233,11 @@ export const TASK_ASSIGNMENTS_MAP: TableMap = {
 		Contact: { class: "app-owned" },
 		Submission: { class: "app-owned" },
 		Status: { class: "workflow" },
-		"Due At": { class: "descriptive", normalizeRemote: normalizeRemoteDate },
+		"Due At": {
+			class: "descriptive",
+			normalizeRemote: normalizeRemoteDate,
+			inbound: { column: "dueAt", kind: "date" },
+		},
 		"Completed At": {
 			class: "app-owned",
 			normalizeRemote: normalizeRemoteDate,
@@ -229,81 +257,42 @@ export type PullOutcome =
 	| { ok: true; set: Record<string, unknown> }
 	| { ok: false; reason: string };
 
-function requireText(value: AirtableFieldValue): string | null {
-	return typeof value === "string" && value.trim() !== "" ? value : null;
-}
-
-function optionalText(value: AirtableFieldValue): {
-	ok: boolean;
-	text: string | null;
-} {
-	if (value === null) return { ok: true, text: null };
-	return typeof value === "string"
-		? { ok: true, text: value }
-		: { ok: false, text: null };
-}
-
 /**
- * Validate an inbound edit of a DESCRIPTIVE field and translate it to a D1
- * column patch. A value the column can't hold is rejected (and the app's
- * value is written back by the engine), never coerced into a broken row.
+ * Validate an inbound edit of a DESCRIPTIVE field against its declared
+ * inbound shape and translate it to a D1 column patch. A value the column
+ * can't hold is rejected (and the app's value is written back by the
+ * engine), never coerced into a broken row.
  */
 export function applyDescriptivePull(
 	table: SyncedTableName,
 	field: string,
 	value: AirtableFieldValue,
 ): PullOutcome {
-	if (table === "submissions") {
-		if (field === "Title") {
-			const text = requireText(value);
-			return text
-				? { ok: true, set: { title: text } }
-				: { ok: false, reason: "Title cannot be empty" };
+	const spec = TABLE_MAPS[table].fields[field];
+	const inbound = spec?.class === "descriptive" ? spec.inbound : undefined;
+	if (!inbound) {
+		return { ok: false, reason: `No inbound mapping for ${table}.${field}` };
+	}
+	if (inbound.kind === "required-text") {
+		return typeof value === "string" && value.trim() !== ""
+			? { ok: true, set: { [inbound.column]: value } }
+			: { ok: false, reason: `${field} must be non-empty text` };
+	}
+	if (inbound.kind === "optional-text") {
+		if (value === null) {
+			return { ok: true, set: { [inbound.column]: inbound.nullAs ?? null } };
 		}
-		if (field === "Description") {
-			const { ok, text } = optionalText(value);
-			return ok
-				? { ok: true, set: { description: text ?? "" } }
-				: { ok: false, reason: "Description must be text" };
-		}
-		if (field === "Language") {
-			const text = requireText(value);
-			return text
-				? { ok: true, set: { language: text } }
-				: { ok: false, reason: "Language cannot be empty" };
+		return typeof value === "string"
+			? { ok: true, set: { [inbound.column]: value } }
+			: { ok: false, reason: `${field} must be text` };
+	}
+	// date
+	if (value === null) return { ok: true, set: { [inbound.column]: null } };
+	if (typeof value === "string") {
+		const parsed = new Date(value);
+		if (!Number.isNaN(parsed.getTime())) {
+			return { ok: true, set: { [inbound.column]: parsed } };
 		}
 	}
-	if (table === "contacts") {
-		if (field === "First Name" || field === "Last Name") {
-			const text = requireText(value);
-			return text
-				? {
-						ok: true,
-						set:
-							field === "First Name" ? { firstName: text } : { lastName: text },
-					}
-				: { ok: false, reason: `${field} cannot be empty` };
-		}
-		const column = {
-			"Job Title": "jobTitle",
-			Company: "companyName",
-			Bio: "bio",
-		}[field];
-		if (column) {
-			const { ok, text } = optionalText(value);
-			return ok
-				? { ok: true, set: { [column]: text } }
-				: { ok: false, reason: `${field} must be text` };
-		}
-	}
-	if (table === "task_assignments" && field === "Due At") {
-		if (value === null) return { ok: true, set: { dueAt: null } };
-		if (typeof value === "string") {
-			const parsed = new Date(value);
-			if (!Number.isNaN(parsed.getTime()))
-				return { ok: true, set: { dueAt: parsed } };
-		}
-		return { ok: false, reason: "Due At must be a date" };
-	}
-	return { ok: false, reason: `No inbound mapping for ${table}.${field}` };
+	return { ok: false, reason: `${field} must be a date` };
 }

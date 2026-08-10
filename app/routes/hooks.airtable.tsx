@@ -44,17 +44,14 @@ async function verifyMac(
 		secret as unknown as BufferSource,
 		{ name: "HMAC", hash: "SHA-256" },
 		false,
-		["sign"],
+		["verify"],
 	);
-	const expected = new Uint8Array(
-		await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)),
+	return crypto.subtle.verify(
+		"HMAC",
+		key,
+		presented as unknown as BufferSource,
+		new TextEncoder().encode(body),
 	);
-	if (presented.length !== expected.length) return false;
-	let diff = 0;
-	for (let i = 0; i < expected.length; i += 1) {
-		diff |= (presented[i] ?? 0) ^ (expected[i] ?? 0);
-	}
-	return diff === 0;
 }
 
 export async function loader() {

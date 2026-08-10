@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -222,6 +222,15 @@ describe("airtable sync runner — Tier 2 pull", () => {
 		expect(row?.title).toBe("Airtable rename");
 		expect(recordFor(fake, "Sessions", "s1")?.fields.Title).toBe(
 			"Airtable rename",
+		);
+		// The lost local edit leaves a persistent in-app audit trail.
+		const state = await readSyncState(db());
+		expect(state.recentConflicts).toContainEqual(
+			expect.objectContaining({
+				table: "submissions",
+				recordId: "s1",
+				field: "Title",
+			}),
 		);
 	});
 
@@ -501,6 +510,30 @@ describe("airtable sync runner — deletes and the circuit breaker", () => {
 		expect((await readSyncState(db())).pausedAt).toBeUndefined();
 	});
 
+	it("ignores a resume acknowledgement when sync is not paused — the breaker still trips", async () => {
+		await seedOrgs();
+		for (const id of ["s1", "s2", "s3", "s4", "s5"]) {
+			await seedSubmission(id);
+		}
+		const fake = createFakeAirtableBase();
+		await run(fake);
+		for (const recordId of ["s1", "s2"]) {
+			fake.remove(
+				"Sessions",
+				recordFor(fake, "Sessions", recordId)?.airtableId ?? "",
+			);
+		}
+
+		// A stale/replayed resume POST arrives while nothing is paused: it must
+		// not disable the mass-delete protection.
+		const result = await run(fake, true);
+		expect(result.status).toBe("breaker_tripped");
+		const statuses = await db()
+			.select({ status: submissions.status })
+			.from(submissions);
+		expect(statuses.every((s) => s.status === "pending")).toBe(true);
+	});
+
 	it("refuses a link bound to another organization's row — nothing is read, written, or deleted through it", async () => {
 		await seedOrgs();
 		await seedSubmission("s1");
@@ -542,12 +575,56 @@ describe("airtable sync runner — deletes and the circuit breaker", () => {
 	});
 });
 
-describe("airtable sync runner — configuration", () => {
+describe("airtable sync runner — configuration and run lock", () => {
 	it("reports not-configured (and does nothing) when no base is bound", async () => {
 		await seedOrgs();
 		await seedSubmission("s1");
 		const result = await runAirtableSync(env, { trigger: "cron" });
 		expect(result.status).toBe("not_configured");
 		expect(await db().select().from(airtableLinks)).toHaveLength(0);
+	});
+
+	it("skips a tick while another run holds the lock, and steals a crashed run's stale lock", async () => {
+		await seedOrgs();
+		await seedSubmission("s1");
+		const fake = createFakeAirtableBase();
+
+		await db().insert(airtableLinks).values({
+			tableName: "$sync",
+			recordId: "lock",
+			airtableId: "$sync:lock",
+			syncedAt: new Date(),
+		});
+		expect((await run(fake)).status).toBe("already_running");
+		expect(fake.all("Sessions")).toHaveLength(0);
+
+		// A crashed run's lock is older than the TTL — it must not wedge sync
+		// forever.
+		await db()
+			.update(airtableLinks)
+			.set({ syncedAt: new Date(Date.now() - 10 * 60_000) })
+			.where(
+				and(
+					eq(airtableLinks.tableName, "$sync"),
+					eq(airtableLinks.recordId, "lock"),
+				),
+			);
+		expect((await run(fake)).status).toBe("ok");
+		expect(fake.all("Sessions")).toHaveLength(1);
+	});
+
+	it("refreshes the webhook expiry on cron ticks only, when the webhook id is configured", async () => {
+		await seedOrgs();
+		const fake = createFakeAirtableBase();
+		const envWithId = { ...env, AIRTABLE_WEBHOOK_ID: "ach_test" } as Env;
+
+		await runAirtableSync(envWithId, { trigger: "cron" }, { base: fake });
+		expect(fake.calls.filter((c) => c.op === "refresh")).toEqual([
+			{ op: "refresh", table: "", payload: "ach_test" },
+		]);
+
+		fake.calls.length = 0;
+		await runAirtableSync(envWithId, { trigger: "manual" }, { base: fake });
+		expect(fake.calls.filter((c) => c.op === "refresh")).toHaveLength(0);
 	});
 });
