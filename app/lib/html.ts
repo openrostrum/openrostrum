@@ -9,6 +9,37 @@ export function escapeHtml(value: string): string {
 }
 
 /**
+ * Escape for a TEXT-NODE position only (never attributes). Quotes stay as-is
+ * so quoted feedback lands verbatim in the email body.
+ */
+export function escapeHtmlText(text: string): string {
+	return text
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;");
+}
+
+/**
+ * Rich-text HTML → plain text (tags removed, common entities decoded). For
+ * surfaces that must never render user-authored markup (reviewer projections,
+ * system emails) — strips to plain text so stored rich text can never execute
+ * in a reviewer's browser.
+ */
+export function stripHtml(html: string): string {
+	return html
+		.replace(/<(br|\/p|\/div|\/li|\/h[1-6])[^>]*>/gi, "\n")
+		.replace(/<[^>]*>/g, "")
+		.replaceAll("&nbsp;", " ")
+		.replaceAll("&amp;", "&")
+		.replaceAll("&lt;", "<")
+		.replaceAll("&gt;", ">")
+		.replaceAll("&quot;", '"')
+		.replaceAll("&#39;", "'")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
+/**
  * Server-side rich-text sanitizer. Speaker-authored HTML (bio, descriptions)
  * renders in ADMIN browsers too — an unsanitized <script> in a bio is a
  * stored-XSS path to an organizer session, so every speaker-written HTML field

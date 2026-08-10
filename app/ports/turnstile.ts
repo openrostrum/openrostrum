@@ -17,13 +17,25 @@ export function createLocalTurnstile(): Turnstile {
 	};
 }
 
-/** Prod: Cloudflare Turnstile siteverify — wired in the capabilities phase. */
-export function createCloudflareTurnstile(_env: Env): Turnstile {
+const SITEVERIFY_URL =
+	"https://challenges.cloudflare.com/turnstile/v0/siteverify";
+
+/** Prod: Cloudflare Turnstile siteverify with the configured secret. */
+export function createCloudflareTurnstile(env: Env): Turnstile {
+	const secret = env.TURNSTILE_SECRET;
+	if (!secret) {
+		throw new Error("TURNSTILE_SECRET is not configured.");
+	}
 	return {
-		async verify() {
-			throw new Error(
-				"Turnstile adapter not configured yet (capabilities phase).",
-			);
+		async verify(token, remoteIp) {
+			const body = new URLSearchParams({ secret, response: token });
+			if (remoteIp) body.set("remoteip", remoteIp);
+			const res = await fetch(SITEVERIFY_URL, { method: "POST", body });
+			// A siteverify outage must fail CLOSED for verification but not crash
+			// the request path with an unhandled error.
+			if (!res.ok) return false;
+			const data = (await res.json()) as { success?: boolean };
+			return data.success === true;
 		},
 	};
 }

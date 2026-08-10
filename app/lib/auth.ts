@@ -12,6 +12,24 @@ import {
 
 type AppRole = (typeof users.$inferSelect)["role"];
 
+/**
+ * Sentinel password hash for invited accounts (team members, speakers): the
+ * user row exists for linking/invite purposes, but nothing can verify against
+ * a non-PBKDF2 hash until the invitee sets a real password via
+ * /set-password/:token. One prefix, shared by every invite flow — two
+ * spellings of this convention would silently break invite-state detection.
+ */
+export const SENTINEL_HASH_PREFIX = "invite-pending$";
+
+export function mintSentinelHash(): string {
+	return `${SENTINEL_HASH_PREFIX}${crypto.randomUUID()}`;
+}
+
+/** True when the account holds a real password (not an invite sentinel). */
+export function hasSetPassword(passwordHash: string): boolean {
+	return passwordHash.startsWith("pbkdf2$");
+}
+
 /** Canonical email form — ALWAYS store/look up lowercased+trimmed so a cased
  * re-signup can't mint a duplicate identity (users.email is BINARY-unique). */
 export function normalizeEmail(email: string): string {
@@ -121,6 +139,26 @@ export async function verifyPassword(
 	for (let i = 0; i < actual.length; i += 1)
 		diff |= (actual[i] ?? 0) ^ (expected[i] ?? 0);
 	return diff === 0;
+}
+
+// A valid hash at the CURRENT iteration count, used only to equalize timing
+// when the email doesn't exist. It must stay at PBKDF2_ITERATIONS: a dummy
+// minted at a higher count than the Workers runtime cap would make the
+// unknown-email path THROW in production instead of returning false.
+const TIMING_DUMMY_HASH =
+	"pbkdf2$100000$aSqRq0XCE+U62GUmG1OUqg==$7007E8kKOtwNCfhBs3QTdUh/aS1iJwcjCfU//25YYjU=";
+
+/**
+ * Login-path verify that costs the same whether or not the account exists, so
+ * response timing can't reveal account existence. Pass the stored hash when
+ * the user row was found, undefined when it wasn't.
+ */
+export async function verifyPasswordTimingEqual(
+	password: string,
+	stored: string | null | undefined,
+): Promise<boolean> {
+	const ok = await verifyPassword(password, stored ?? TIMING_DUMMY_HASH);
+	return stored != null && ok;
 }
 
 /* --------------------------------------------------------------- sessions --- */
