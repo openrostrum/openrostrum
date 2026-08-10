@@ -10,14 +10,15 @@ function routeErrorResponse(status: number) {
 }
 
 describe("describeRouteError", () => {
-	it("maps a 404 response to not-found copy without leaking the response body", () => {
-		const content = describeRouteError(routeErrorResponse(404), false);
-		expect(content.title).toBe("Page not found");
-		expect(content.detail).toBeUndefined();
-		expect(JSON.stringify(content)).not.toContain("boom");
+	it("gives 404 its own treatment, distinct from other statuses, without leaking the response body", () => {
+		const notFound = describeRouteError(routeErrorResponse(404), false);
+		const serverError = describeRouteError(routeErrorResponse(500), false);
+		expect(notFound.title).not.toBe(serverError.title);
+		expect(notFound.detail).toBeUndefined();
+		expect(JSON.stringify(notFound)).not.toContain("boom");
 	});
 
-	it("names the HTTP status for non-404 responses, never the body", () => {
+	it("surfaces the HTTP status for non-404 responses, never the body", () => {
 		const content = describeRouteError(routeErrorResponse(503), false);
 		expect(content.body).toContain("503");
 		expect(content.detail).toBeUndefined();

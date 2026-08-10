@@ -105,7 +105,16 @@ export async function loadSubmissionList(
 					format: { columns: { name: true } },
 					room: { columns: { name: true } },
 					participants: {
-						columns: { id: true, contactId: true, position: true },
+						columns: { contactId: true, position: true },
+						with: {
+							contact: {
+								columns: {
+									firstName: true,
+									lastName: true,
+									publicVisible: true,
+								},
+							},
+						},
 					},
 					submissionTracks: {
 						with: { track: { columns: { name: true, color: true } } },
@@ -115,43 +124,6 @@ export async function loadSubmissionList(
 				limit: PAGE_SIZE,
 				offset: (page - 1) * PAGE_SIZE,
 			});
-
-			// Sessions render per-speaker visibility toggles, so the page's
-			// speakers resolve to name + publicVisible — chunked lookups keyed on
-			// THIS page's contact ids stay inside D1's ~100-bind-parameter cap.
-			const speakerById = new Map<
-				string,
-				{ name: string; publicVisible: boolean }
-			>();
-			if (type === "session") {
-				const speakerIds = [
-					...new Set(
-						rows.flatMap((r) => r.participants.map((p) => p.contactId)),
-					),
-				];
-				for (let i = 0; i < speakerIds.length; i += 90) {
-					const chunk = await db
-						.select({
-							id: contacts.id,
-							firstName: contacts.firstName,
-							lastName: contacts.lastName,
-							publicVisible: contacts.publicVisible,
-						})
-						.from(contacts)
-						.where(
-							and(
-								eq(contacts.eventId, event.id),
-								inArray(contacts.id, speakerIds.slice(i, i + 90)),
-							),
-						);
-					for (const c of chunk) {
-						speakerById.set(c.id, {
-							name: `${c.firstName} ${c.lastName}`.trim(),
-							publicVisible: c.publicVisible,
-						});
-					}
-				}
-			}
 
 			// Fetch one past the cap so truncation is detectable, never silent.
 			const contactCap = 1000;
@@ -205,10 +177,11 @@ export async function loadSubmissionList(
 							? r.participants
 									.slice()
 									.sort((a, b) => a.position - b.position)
-									.flatMap((p) => {
-										const c = speakerById.get(p.contactId);
-										return c ? [{ contactId: p.contactId, ...c }] : [];
-									})
+									.map((p) => ({
+										contactId: p.contactId,
+										name: `${p.contact.firstName} ${p.contact.lastName}`.trim(),
+										publicVisible: p.contact.publicVisible,
+									}))
 							: [],
 					formatName: r.format?.name ?? null,
 					tracks: r.submissionTracks.map((st) => ({
@@ -301,12 +274,8 @@ async function setSpeakerVisibility(
 					eq(contacts.eventId, eventId),
 				),
 			)
-			.returning({
-				firstName: contacts.firstName,
-				lastName: contacts.lastName,
-			});
-		const row = updated[0];
-		if (!row) {
+			.returning({ id: contacts.id });
+		if (!updated[0]) {
 			return {
 				formError: "That speaker isn't part of this event.",
 			} satisfies ListActionData;
@@ -316,12 +285,8 @@ async function setSpeakerVisibility(
 			contactId: parsed.data.contactId,
 			publicVisible,
 		});
-		const name = `${row.firstName} ${row.lastName}`.trim();
-		return {
-			notice: publicVisible
-				? `${name} is visible on the public program again.`
-				: `${name} is now hidden from the public program (all sessions, embeds, and feeds).`,
-		} satisfies ListActionData;
+		// Success needs no message: revalidation flips the eye/badge in place.
+		return {} satisfies ListActionData;
 	});
 	return timed(timings, result);
 }

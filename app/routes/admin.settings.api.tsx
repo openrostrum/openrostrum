@@ -3,7 +3,7 @@ import { data, Form, redirect, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { apiTokens, events } from "~/db/schema";
-import { sha256Hex } from "~/lib/api-token";
+import { bytesToHex, sha256Hex } from "~/lib/api-token";
 import { requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { resolveOrg } from "~/lib/org.server";
@@ -40,10 +40,7 @@ const CreateToken = z.object({
 /** `or_` + 128 random bits, hex — recognizable in configs and greppable in
  * leaks. Only its SHA-256 is stored; the raw value renders exactly once. */
 function mintRawToken(): string {
-	const bytes = crypto.getRandomValues(new Uint8Array(16));
-	let hex = "";
-	for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
-	return `or_${hex}`;
+	return `or_${bytesToHex(crypto.getRandomValues(new Uint8Array(16)))}`;
 }
 
 const dateFormat = new Intl.DateTimeFormat("en-US", {

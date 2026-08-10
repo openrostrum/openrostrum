@@ -104,39 +104,44 @@ export interface SubmissionListRow {
  * the fetcher is in flight so a slow write doesn't read as a dead button.
  */
 function SpeakerVisibilityToggle({ speaker }: { speaker: RowSpeaker }) {
-	const fetcher = useFetcher();
+	const fetcher = useFetcher<ListActionData>();
 	const pending = fetcher.formData?.get("visible");
 	const visible = pending != null ? pending === "1" : speaker.publicVisible;
 	return (
-		<fetcher.Form method="post" className="flex items-center gap-2">
-			<Input
-				type="hidden"
-				name="contactId"
-				value={speaker.contactId}
-				readOnly
-			/>
-			<Input
-				type="hidden"
-				name="visible"
-				value={visible ? "0" : "1"}
-				readOnly
-			/>
-			<Button
-				type="submit"
-				name="intent"
-				value="set-speaker-visibility"
-				variant="ghost"
-				icon="eye"
-				aria-pressed={!visible}
-				title={
-					visible
-						? `Hide ${speaker.name} from the public program (all their sessions, embeds, and feeds)`
-						: `Show ${speaker.name} on the public program`
-				}
-			>
-				{speaker.name}
-			</Button>
-			{!visible && <StatusBadge tone="neutral">Hidden</StatusBadge>}
+		<fetcher.Form method="post" className="flex flex-col gap-1">
+			<div className="flex items-center gap-2">
+				<Input
+					type="hidden"
+					name="contactId"
+					value={speaker.contactId}
+					readOnly
+				/>
+				<Input
+					type="hidden"
+					name="visible"
+					value={visible ? "0" : "1"}
+					readOnly
+				/>
+				<Button
+					type="submit"
+					name="intent"
+					value="set-speaker-visibility"
+					variant="ghost"
+					icon="eye"
+					aria-pressed={!visible}
+					title={
+						visible
+							? `Hide ${speaker.name} from the public program (all their sessions, embeds, and feeds)`
+							: `Show ${speaker.name} on the public program`
+					}
+				>
+					{speaker.name}
+				</Button>
+				{!visible && <StatusBadge tone="neutral">Hidden</StatusBadge>}
+			</div>
+			{fetcher.data?.formError && (
+				<ErrorText>{fetcher.data.formError}</ErrorText>
+			)}
 		</fetcher.Form>
 	);
 }

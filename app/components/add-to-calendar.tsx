@@ -13,7 +13,7 @@ export function AddToCalendar({ href }: { href: string }) {
 		<div className="flex flex-wrap items-center justify-end gap-3">
 			{downloaded && (
 				<span className="text-[12.5px] text-fg-muted">
-					Downloaded — import the .ics into your calendar.
+					Download started — import the .ics into your calendar.
 				</span>
 			)}
 			<Button

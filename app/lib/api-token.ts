@@ -17,15 +17,18 @@ export type ApiTokenPrincipal = {
 	eventId: string | null;
 };
 
+export function bytesToHex(bytes: Uint8Array): string {
+	let hex = "";
+	for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
+	return hex;
+}
+
 export async function sha256Hex(value: string): Promise<string> {
 	const digest = await crypto.subtle.digest(
 		"SHA-256",
 		new TextEncoder().encode(value),
 	);
-	let hex = "";
-	for (const byte of new Uint8Array(digest))
-		hex += byte.toString(16).padStart(2, "0");
-	return hex;
+	return bytesToHex(new Uint8Array(digest));
 }
 
 /**
