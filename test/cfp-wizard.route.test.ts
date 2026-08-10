@@ -7,6 +7,7 @@ import {
 	emailOutbox,
 	forms,
 	participants,
+	submissionAnswers,
 	submissionRevisions,
 	submissions,
 	submissionTracks,
@@ -153,16 +154,26 @@ describe("CFP submit action", () => {
 		expect(await db.select().from(submissions)).toHaveLength(0);
 	});
 
-	it("accepts the same submission when the rule keeps the required field HIDDEN", async () => {
+	it("accepts the submission when the rule keeps the required field HIDDEN, and drops the stale hidden value", async () => {
 		await seedCfp();
 		const speaker = await createSpeaker();
+		const db = getDb(env);
 
-		const values = { ...validValues(), f_fld_exp: "First time" };
+		// The speaker typed notes while "Experienced" was selected, then switched
+		// back — the reviewed record shows no notes, so none may be stored.
+		const values = {
+			...validValues(),
+			f_fld_exp: "First time",
+			f_fld_notes: "stale text typed while the field was visible",
+		};
 		const response = (await callSubmit(
 			speaker.cookie,
 			submitBody({ values }),
 		)) as Response;
 		expect(response.status).toBe(302);
+
+		const answers = await db.select().from(submissionAnswers);
+		expect(answers.map((a) => a.fieldId)).toEqual([FIX.expFieldId]);
 	});
 
 	it("enforces role minimum and maximum server-side", async () => {

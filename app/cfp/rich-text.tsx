@@ -48,7 +48,7 @@ export default function RichTextEditor({
 	placeholder,
 	invalid,
 	compact,
-	labelId,
+	ariaLabel,
 }: RichTextProps) {
 	const editor = useEditor({
 		extensions: [StarterKit],
@@ -61,7 +61,7 @@ export default function RichTextEditor({
 					"[&_a]:text-petrol [&_a]:underline [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5",
 					"[&_p]:my-1 first:[&_p]:mt-0",
 				),
-				...(labelId ? { "aria-labelledby": labelId } : {}),
+				...(ariaLabel ? { "aria-label": ariaLabel } : {}),
 				role: "textbox",
 				"aria-multiline": "true",
 			},

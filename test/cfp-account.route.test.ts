@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
-import { authSessions, contacts, users } from "../app/db/schema";
+import { authSessions, contacts, events, users } from "../app/db/schema";
 import { action } from "../app/routes/submit.$eventSlug.$formId.step.account";
 import {
 	BASE_URL,
@@ -150,7 +150,7 @@ describe("account step — login", () => {
 		expect(await db.select().from(authSessions)).toHaveLength(priorSessions);
 	});
 
-	it("logs in with the correct password and links roster contacts to the user", async () => {
+	it("logs in with the correct password and links THIS event's roster contact — never another event's", async () => {
 		await seedCfp();
 		const marcus = await createSpeaker(
 			"u_marcus",
@@ -159,6 +159,21 @@ describe("account step — login", () => {
 		);
 		await seedContact("c_m", "marcus.chen@example.com", "Marcus", "Chen");
 		const db = getDb(env);
+		// Same email on ANOTHER event's roster: logging in on this event's form
+		// must not claim it (contact linking is per event).
+		await db.insert(events).values({
+			id: "e_other",
+			organizationId: "org1",
+			name: "Other Conf",
+			slug: "other-conf",
+		});
+		await db.insert(contacts).values({
+			id: "c_other",
+			eventId: "e_other",
+			email: "marcus.chen@example.com",
+			firstName: "Marcus",
+			lastName: "Chen",
+		});
 
 		const response = (await call({
 			intent: "login",
@@ -173,6 +188,11 @@ describe("account step — login", () => {
 			.from(contacts)
 			.where(eq(contacts.id, "c_m"));
 		expect(contact?.userId).toBe(marcus.id);
+		const [other] = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.id, "c_other"));
+		expect(other?.userId).toBeNull();
 	});
 });
 

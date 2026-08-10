@@ -12,7 +12,11 @@ import {
 } from "react-router";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { validateSection, type WizardState } from "~/cfp/definition";
+import {
+	roleMaxErrors,
+	validateSection,
+	type WizardState,
+} from "~/cfp/definition";
 import { SectionFields } from "~/cfp/fields";
 import { normalizeSelfRows, WizardPayload } from "~/cfp/payload";
 import {
@@ -25,7 +29,6 @@ import {
 	loadWizardInitial,
 	resolveFormDefinition,
 	writeSubmission,
-	type FormDefinition,
 } from "~/cfp/server";
 import {
 	AnswersSummary,
@@ -252,7 +255,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			p.self || (p.email.trim() && p.firstName.trim() && p.lastName.trim()),
 	);
 
-	const roleError = roleMaxError(participants, definition);
+	const [roleError] = roleMaxErrors(participants, definition.roles);
 	if (roleError) {
 		return data({ ok: false as const, formError: roleError }, { status: 422 });
 	}
@@ -331,19 +334,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			{ status: 500 },
 		);
 	}
-}
-
-function roleMaxError(
-	participants: Array<{ role: string }>,
-	definition: FormDefinition,
-): string | null {
-	for (const [role, limits] of Object.entries(definition.roles)) {
-		const count = participants.filter((p) => p.role === role).length;
-		if (limits.max !== null && count > limits.max) {
-			return `No more than ${limits.max} ${role}s are allowed.`;
-		}
-	}
-	return null;
 }
 
 /* -------------------------------------------------------------- component --- */

@@ -154,7 +154,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				{ status: 400 },
 			);
 		}
-		await linkUserToContacts(db, user.id, user.email);
+		await linkUserToContacts(db, bundle.event.id, user.id, user.email);
 		track("cfp.login", { formId: bundle.form.id });
 		const cookie = await createSession(env, user.id, isSecureRequest(request));
 		return redirect(stepPath(base, "session"), {
@@ -198,19 +198,11 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		try {
 			userId = await timings.time("db", async () => {
 				const passwordHash = await hashPassword(parsed.data.password);
-				const [user] = await db
-					.insert(users)
-					.values({
-						email,
-						passwordHash,
-						name: `${parsed.data.firstName} ${parsed.data.lastName}`,
-						role: "speaker",
-					})
-					.returning({ id: users.id });
-				if (!user) throw new Error("user insert returned no row");
+				const newUserId = crypto.randomUUID();
 				// Claim the roster contact carrying this email (the organizer may
-				// have added the speaker before they ever signed up), else mint one.
-				const [contact] = await db
+				// have added the speaker before they ever signed up), else mint one —
+				// atomically with the user row, so a failure strands neither half.
+				const [claimable] = await db
 					.select({ id: contacts.id })
 					.from(contacts)
 					.where(
@@ -221,22 +213,28 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 						),
 					)
 					.limit(1);
-				if (contact) {
-					await db
-						.update(contacts)
-						.set({ userId: user.id })
-						.where(eq(contacts.id, contact.id));
-				} else {
-					await db.insert(contacts).values({
-						eventId: bundle.event.id,
-						userId: user.id,
+				await db.batch([
+					db.insert(users).values({
+						id: newUserId,
 						email,
-						firstName: parsed.data.firstName,
-						lastName: parsed.data.lastName,
-					});
-				}
-				await linkUserToContacts(db, user.id, email);
-				return user.id;
+						passwordHash,
+						name: `${parsed.data.firstName} ${parsed.data.lastName}`,
+						role: "speaker",
+					}),
+					claimable
+						? db
+								.update(contacts)
+								.set({ userId: newUserId })
+								.where(eq(contacts.id, claimable.id))
+						: db.insert(contacts).values({
+								eventId: bundle.event.id,
+								userId: newUserId,
+								email,
+								firstName: parsed.data.firstName,
+								lastName: parsed.data.lastName,
+							}),
+				]);
+				return newUserId;
 			});
 		} catch (error) {
 			track("cfp.signup_failed", { error: errorMessage(error) });

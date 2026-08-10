@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, count, eq, isNull, ne } from "drizzle-orm";
 import { getDb } from "~/db";
 import {
 	contacts,
@@ -28,6 +28,7 @@ import {
 	DEFAULT_PARTICIPANT_BUILTINS,
 	DEFAULT_SESSION_BUILTINS,
 	fieldKey,
+	isFieldVisible,
 	type RoleConfig,
 	type WizardField,
 	type WizardParticipant,
@@ -106,8 +107,8 @@ export async function countSubmissionsUsed(
 	formId: string,
 	userId: string,
 ): Promise<number> {
-	const rows = await db
-		.select({ id: submissions.id })
+	const [row] = await db
+		.select({ used: count() })
 		.from(submissions)
 		.where(
 			and(
@@ -116,7 +117,7 @@ export async function countSubmissionsUsed(
 				ne(submissions.status, "withdrawn"),
 			),
 		);
-	return rows.length;
+	return row?.used ?? 0;
 }
 
 /* --------------------------------------------------------- form definition --- */
@@ -379,46 +380,31 @@ export async function sanitizeHtml(html: string): Promise<string> {
 	return await response.text();
 }
 
-/** Visible-text length of an HTML fragment (for max-length checks). */
-export async function htmlTextLength(html: string): Promise<number> {
-	if (!html) return 0;
-	let length = 0;
-	await new HTMLRewriter()
-		.on("*", {
-			text(chunk) {
-				length += chunk.text.length;
-			},
-		})
-		.transform(new Response(html))
-		.text();
-	return length;
-}
-
 /* ------------------------------------------------------- contacts linking --- */
 
 /**
- * Attach an authenticated user to roster contacts carrying their email — a
- * speaker whose address the organizer already imported must land in THAT
- * contact's portal, not a duplicate identity. Event-scoped, never steals a
+ * Attach an authenticated user to THIS event's roster contact carrying their
+ * email — a speaker whose address the organizer already imported must land in
+ * that contact's portal, not a duplicate identity. Scoped to one event and to
+ * unlinked contacts only: it never claims across events and never steals a
  * contact already linked to another user.
  */
 export async function linkUserToContacts(
 	db: Db,
+	eventId: string,
 	userId: string,
 	email: string,
 ): Promise<void> {
-	const normalized = normalizeEmail(email);
-	const matches = await db
-		.select({ id: contacts.id, userId: contacts.userId })
-		.from(contacts)
-		.where(eq(contacts.email, normalized));
-	const claimable = matches.filter((m) => m.userId === null);
-	if (claimable.length === 0) return;
-	await db.batch(
-		claimable.map((m) =>
-			db.update(contacts).set({ userId }).where(eq(contacts.id, m.id)),
-		) as unknown as Parameters<Db["batch"]>[0],
-	);
+	await db
+		.update(contacts)
+		.set({ userId })
+		.where(
+			and(
+				eq(contacts.eventId, eventId),
+				eq(contacts.email, normalizeEmail(email)),
+				isNull(contacts.userId),
+			),
+		);
 }
 
 export type SelfContact = {
@@ -470,15 +456,35 @@ type WriteInput = {
 	participants: WizardParticipant[];
 };
 
+/**
+ * The stored record must equal the record the speaker reviewed: values whose
+ * question a rule currently hides are dropped at write time, exactly as the
+ * validator and the review summary skip them.
+ */
+function visibleSessionKeys(
+	definition: FormDefinition,
+	values: WizardValues,
+): Set<string> {
+	return new Set(
+		definition.session
+			.filter((f) => isFieldVisible(f, values, definition.session))
+			.map((f) => f.key),
+	);
+}
+
 function taxonomyValue(
 	values: WizardValues,
 	ref: string,
 	definition: FormDefinition,
+	visibleKeys: Set<string>,
 ): string | null {
 	const key = builtinKey(ref);
+	const field = definition.session.find((f) => f.key === key);
+	// A built-in the form doesn't place at all has no descriptor and stays
+	// storable (defaults like language); a placed-but-rule-hidden one drops.
+	if (field && !visibleKeys.has(key)) return null;
 	const raw = (values[key] ?? "").trim();
 	if (!raw) return null;
-	const field = definition.session.find((f) => f.key === key);
 	if (field?.options && !field.options.some((o) => o.value === raw)) {
 		return null;
 	}
@@ -552,10 +558,12 @@ async function planParticipantContacts(
 async function sanitizedAnswers(
 	definition: FormDefinition,
 	values: WizardValues,
+	visibleKeys: Set<string>,
 ): Promise<Array<{ fieldId: string; value: string }>> {
 	const out: Array<{ fieldId: string; value: string }> = [];
 	for (const field of definition.session) {
 		if (!field.fieldId) continue;
+		if (!visibleKeys.has(field.key)) continue;
 		const raw = (values[field.key] ?? "").trim();
 		if (!raw) continue;
 		const value = field.type === "wysiwyg" ? await sanitizeHtml(raw) : raw;
@@ -620,18 +628,19 @@ export async function writeSubmission(
 		};
 	}
 
+	const visibleKeys = visibleSessionKeys(definition, values);
 	const title = (values[builtinKey("title")] ?? "").trim();
 	const description = await sanitizeHtml(
 		values[builtinKey("description")] ?? "",
 	);
-	const formatId = taxonomyValue(values, "format", definition);
-	const levelId = taxonomyValue(values, "level", definition);
-	const trackId = taxonomyValue(values, "track", definition);
-	const tagId = taxonomyValue(values, "tags", definition);
-	const language = taxonomyValue(values, "language", definition);
+	const formatId = taxonomyValue(values, "format", definition, visibleKeys);
+	const levelId = taxonomyValue(values, "level", definition, visibleKeys);
+	const trackId = taxonomyValue(values, "track", definition, visibleKeys);
+	const tagId = taxonomyValue(values, "tags", definition, visibleKeys);
+	const language = taxonomyValue(values, "language", definition, visibleKeys);
 
 	const submissionId = existing?.id ?? input.wizardId;
-	const answers = await sanitizedAnswers(definition, values);
+	const answers = await sanitizedAnswers(definition, values, visibleKeys);
 	const contactPlan = await planParticipantContacts(
 		db,
 		form.eventId,

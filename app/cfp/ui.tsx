@@ -11,11 +11,8 @@ import { Wordmark } from "~/ui";
 import { cn } from "~/ui/cn";
 
 /**
- * Public CFP wizard components. This is speaker-facing chrome for the public
- * form (like `app/marketing/`, it lives outside `app/routes/` and colors only
- * through @theme tokens). The pieces that overlap the admin design system
- * (Textarea, Checkbox, RichText, ConfirmDialog) are candidates to lift into
- * `app/ui` — tracked as an integration request, single-sourced here until then.
+ * Speaker-facing components for the public CFP wizard. Colors come only from
+ * the @theme tokens, so a token re-skin propagates here unchanged.
  */
 
 const CONTROL = cn(
@@ -88,7 +85,8 @@ export type RichTextProps = {
 	invalid?: boolean;
 	/** Compact = fewer toolbar buttons (participant bios). */
 	compact?: boolean;
-	labelId?: string;
+	/** Accessible name for the editor (screen readers can't reach the visual label). */
+	ariaLabel?: string;
 };
 
 /**
@@ -360,7 +358,7 @@ export function CenteredStack({ children }: { children: ReactNode }) {
 
 export function SuccessMark() {
 	return (
-		<div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+		<div className="flex h-14 w-14 items-center justify-center rounded-full bg-petrol-wash text-petrol">
 			<CheckGlyph size={26} />
 		</div>
 	);

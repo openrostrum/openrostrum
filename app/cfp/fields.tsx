@@ -1,8 +1,8 @@
-import { useId } from "react";
 import { Field, Input, Select } from "~/ui";
 import {
 	isFieldVisible,
 	isInputField,
+	plainTextLength,
 	type WizardField,
 	type WizardValues,
 } from "./definition";
@@ -21,10 +21,6 @@ import {
  * disappear instantly — no reload, both directions.
  */
 
-function textLength(html: string): number {
-	return html.replace(/<[^>]*>/g, "").length;
-}
-
 function FieldControl({
 	field,
 	value,
@@ -36,7 +32,6 @@ function FieldControl({
 	error?: string;
 	onChange: (key: string, value: string) => void;
 }) {
-	const labelId = useId();
 	const showCounter =
 		field.maxLength !== undefined &&
 		(field.type === "text" ||
@@ -69,7 +64,7 @@ function FieldControl({
 						onChange={(html) => onChange(field.key, html)}
 						placeholder={field.description}
 						invalid={Boolean(error)}
-						labelId={labelId}
+						ariaLabel={field.label}
 					/>
 				);
 			case "textarea":
@@ -133,7 +128,9 @@ function FieldControl({
 				)}
 				{showCounter && field.maxLength !== undefined && (
 					<CharCounter
-						count={field.type === "wysiwyg" ? textLength(value) : value.length}
+						count={
+							field.type === "wysiwyg" ? plainTextLength(value) : value.length
+						}
 						max={field.maxLength}
 					/>
 				)}

@@ -149,6 +149,11 @@ export function isValidEmail(value: string): boolean {
 	return EMAIL_RE.test(value.trim());
 }
 
+/** Visible-text length of a rich-text value (counters, caps, empty checks). */
+export function plainTextLength(html: string): number {
+	return html.replace(/<[^>]*>/g, "").trim().length;
+}
+
 function ruleTriggerKey(rule: NonNullable<WizardRule>): string {
 	return rule.trigger.kind === "field"
 		? fieldKey(rule.trigger.fieldId)
@@ -213,8 +218,7 @@ export function isInputField(field: WizardField): boolean {
 export function validateSection(
 	fields: WizardField[],
 	values: WizardValues,
-	textLength: (html: string) => number = (html) =>
-		html.replace(/<[^>]*>/g, "").length,
+	textLength: (html: string) => number = plainTextLength,
 ): Record<string, string> {
 	const errors: Record<string, string> = {};
 	for (const field of fields) {
@@ -319,7 +323,7 @@ export function validateParticipants(
 		if (p.role !== "secondary") {
 			if (requirements.mobilePhone && !p.mobilePhone.trim())
 				rowErrors.mobilePhone = "Mobile phone is required";
-			if (requirements.bio && p.bio.replace(/<[^>]*>/g, "").trim().length === 0)
+			if (requirements.bio && plainTextLength(p.bio) === 0)
 				rowErrors.bio = "Biography is required";
 		}
 		if (Object.keys(rowErrors).length > 0) rows[p.key] = rowErrors;
@@ -329,18 +333,32 @@ export function validateParticipants(
 		[ParticipantRole, RoleLimits]
 	>) {
 		const count = participants.filter((p) => p.role === role).length;
-		const label = `${ROLE_LABELS[role]}${limits.min === 1 && limits.max === 1 ? "" : "s"}`;
 		if (count < limits.min) {
 			form.push(
 				`At least ${limits.min} ${ROLE_LABELS[role].toLowerCase()}${limits.min === 1 ? " is" : "s are"} required.`,
 			);
 		}
+	}
+	form.push(...roleMaxErrors(participants, roles));
+
+	return { rows, form };
+}
+
+/** Role maximums alone — draft saves skip minimums but still respect caps. */
+export function roleMaxErrors(
+	participants: Array<{ role: ParticipantRole }>,
+	roles: RoleConfig,
+): string[] {
+	const errors: string[] = [];
+	for (const [role, limits] of Object.entries(roles) as Array<
+		[ParticipantRole, RoleLimits]
+	>) {
+		const count = participants.filter((p) => p.role === role).length;
 		if (limits.max !== null && count > limits.max) {
-			form.push(
-				`No more than ${limits.max} ${label.toLowerCase()} are allowed.`,
+			errors.push(
+				`No more than ${limits.max} ${ROLE_LABELS[role].toLowerCase()}s are allowed.`,
 			);
 		}
 	}
-
-	return { rows, form };
+	return errors;
 }
