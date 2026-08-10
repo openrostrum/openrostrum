@@ -1,9 +1,9 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import { aiReviews, reviews } from "../app/db/schema";
-import { AI_REVIEW_MODEL } from "../app/domain/ai-review";
+import { WORKERS_AI_DEFAULT_MODEL } from "../app/domain/ai-review";
 import {
 	action as listAction,
 	loader as listLoader,
@@ -43,7 +43,12 @@ function fakeAi(
 
 const verdict = (score: number) =>
 	JSON.stringify({ score, rationale: RATIONALE });
-const envWith = (ai: unknown): Env => ({ ...env, AI: ai }) as unknown as Env;
+// Explicitly blank the DeepSeek key so these tests always pin the BINDING
+// path, independent of what the local .dev.vars happens to contain.
+const envWith = (ai: unknown): Env =>
+	({ ...env, DEEPSEEK_API_KEY: "", AI: ai }) as unknown as Env;
+
+afterEach(() => vi.restoreAllMocks());
 
 type Fn = (args: unknown) => Promise<unknown>;
 const callOn = (testEnv: Env, fn: unknown, request: Request, planId?: string) =>
@@ -148,7 +153,7 @@ describe("AI review — run and persist", () => {
 			score: 7.5,
 			effective: 7.5,
 			rationale: RATIONALE,
-			model: AI_REVIEW_MODEL,
+			model: WORKERS_AI_DEFAULT_MODEL,
 			override: null,
 		});
 		// Human decision lives in its own labeled list, apart from the AI block.
@@ -179,6 +184,48 @@ describe("AI review — run and persist", () => {
 			.where(eq(aiReviews.submissionId, "s1"));
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ score: 5.5, overrideScore: null });
+	});
+
+	it("with a DeepSeek key the run uses DeepSeek, never the binding, and stores the reported model", async () => {
+		await seedEvalBase(env);
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						model: "deepseek-v4-flash",
+						content: [{ type: "text", text: verdict(8) }],
+					}),
+					{ status: 200 },
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const binding = fakeAi(() => verdict(1));
+		const deepseekEnv = {
+			...env,
+			DEEPSEEK_API_KEY: "sk-test",
+			AI: binding,
+		} as unknown as Env;
+		const result = await runAi(deepseekEnv, "s1");
+		expect(result.ok).toContain("8.00");
+		expect(binding.calls).toHaveLength(0); // the key outranks the binding
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("https://api.deepseek.com/anthropic/v1/messages");
+		expect((init.headers as Record<string, string>)["x-api-key"]).toBe(
+			"sk-test",
+		);
+		const body = JSON.parse(init.body as string);
+		expect(body.model).toBe("deepseek-v4-flash");
+		expect(body.messages.at(-1).content).toContain("Taming 40-Minute CI");
+		expect(body.output_config).toBeUndefined();
+		const db = getDb(env);
+		const [row] = await db
+			.select({ model: aiReviews.model, score: aiReviews.score })
+			.from(aiReviews)
+			.where(eq(aiReviews.submissionId, "s1"));
+		expect(row).toEqual({ model: "deepseek-v4-flash", score: 8 });
 	});
 
 	it("a stale form resubmit is refused without buying a second model call", async () => {

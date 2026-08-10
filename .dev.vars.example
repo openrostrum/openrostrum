@@ -26,6 +26,15 @@ APP_ENV=development
 # TURNSTILE_SECRET=...
 # TURNSTILE_SITE_KEY=...   # paired public widget key (both or neither)
 
+# AI-assisted submission review (Evaluation → AI review). Provider resolves by
+# capability: DEEPSEEK_API_KEY set → DeepSeek V4 Flash through its Anthropic-
+# compatible Messages endpoint; unset → the Workers AI binding (remote inference
+# needs wrangler auth locally); neither → the tab reports "not available".
+# AI_REVIEW_WORKERS_MODEL pins a different Workers AI catalog model without a
+# code change (default: @cf/moonshotai/kimi-k2.6).
+# DEEPSEEK_API_KEY=your-deepseek-api-key
+# AI_REVIEW_WORKERS_MODEL=@cf/openai/gpt-oss-120b
+
 # Signs unsubscribe-footer tokens. Unset locally → a fixed dev secret (mail
 # never leaves the machine). REQUIRED whenever RESEND_API_KEY is set — real
 # mail with forgeable unsubscribe tokens would let anyone suppress any address.

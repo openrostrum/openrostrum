@@ -16,14 +16,23 @@ import { REVIEWABLE_EXCLUDED } from "~/lib/evaluation";
 import { stripHtml } from "~/lib/html";
 
 /**
- * AI first-pass review of a CFP submission on Cloudflare Workers AI. The AI is
- * a triage signal only: its score lives in `ai_reviews`, is always labeled as
- * AI, and never enters human evaluation aggregates. When the binding is absent
- * (self-host without Workers AI) every surface degrades to an explicit
- * "not available" state — never a crash, never a fabricated score.
+ * AI first-pass review of a CFP submission. The AI is a triage signal only:
+ * its score lives in `ai_reviews`, is always labeled as AI, and never enters
+ * human evaluation aggregates. The model provider resolves by CAPABILITY,
+ * exactly like the email port: DEEPSEEK_API_KEY present → DeepSeek; else the
+ * Workers AI binding; else every surface degrades to an explicit "not
+ * available" state — never a crash, never a fabricated score.
  */
 
-export const AI_REVIEW_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+const DEEPSEEK_MODEL = "deepseek-v4-flash";
+const DEEPSEEK_ENDPOINT = "https://api.deepseek.com/anthropic/v1/messages";
+
+/**
+ * Keyless fallback on the Workers AI binding. Kimi K2.6 won the 2026-08-10
+ * fallback benchmark (see PR feat/ai-review-deepseek): pin a different catalog
+ * model per deployment with AI_REVIEW_WORKERS_MODEL — no code change needed.
+ */
+export const WORKERS_AI_DEFAULT_MODEL = "@cf/moonshotai/kimi-k2.6";
 
 /** How many missing submissions one bulk click processes (kept small so the request stays bounded). */
 export const AI_BULK_BATCH = 5;
@@ -39,15 +48,99 @@ export type AiRunner = {
 	): Promise<Record<string, unknown>>;
 };
 
-export function getAiRunner(env: Env): AiRunner | null {
-	// Structural access, not `env.AI`: a self-host without the `ai` binding
-	// regenerates an Env type that lacks the property, and this seam must keep
-	// compiling there for the degraded state to be reachable at all.
-	return (env as { AI?: AiRunner }).AI ?? null;
+/** One chat turn against whichever provider resolved — the seam tests stub. */
+export type AiChatProvider = {
+	/** Stored on each review row unless the API reports a truer id. */
+	model: string;
+	chat(
+		messages: Array<{ role: string; content: string }>,
+		opts: { maxTokens: number; temperature: number },
+	): Promise<{ text: string; model?: string }>;
+};
+
+/** DeepSeek over its Anthropic-compatible Messages endpoint. */
+export function createDeepseekProvider(apiKey: string): AiChatProvider {
+	return {
+		model: DEEPSEEK_MODEL,
+		async chat(messages, opts) {
+			const system = messages
+				.filter((message) => message.role === "system")
+				.map((message) => message.content)
+				.join("\n\n");
+			const turns = messages
+				.filter((message) => message.role !== "system")
+				.map((message) => ({
+					role: message.role,
+					content: message.content,
+				}));
+			const res = await fetch(DEEPSEEK_ENDPOINT, {
+				method: "POST",
+				headers: {
+					"x-api-key": apiKey,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: DEEPSEEK_MODEL,
+					system,
+					messages: turns,
+					max_tokens: opts.maxTokens,
+					temperature: opts.temperature,
+				}),
+			});
+			if (!res.ok) {
+				throw new Error(
+					`DeepSeek request failed (${res.status}): ${(await res.text()).slice(0, 200)}`,
+				);
+			}
+			const data = (await res.json()) as { model?: unknown };
+			return {
+				text: responseText(data),
+				model: typeof data.model === "string" ? data.model : undefined,
+			};
+		},
+	};
+}
+
+export function createWorkersAiProvider(
+	ai: AiRunner,
+	model: string,
+): AiChatProvider {
+	return {
+		model,
+		async chat(messages, opts) {
+			const result = await ai.run(model, {
+				messages,
+				max_tokens: opts.maxTokens,
+				temperature: opts.temperature,
+			});
+			return { text: responseText(result) };
+		},
+	};
+}
+
+/**
+ * Capability resolution, never APP_ENV: a DeepSeek key means DeepSeek, else
+ * the Workers AI binding, else unavailable. The binding is read structurally,
+ * not as `env.AI`: a self-host without the `ai` binding regenerates an Env
+ * type that lacks the property, and this seam must keep compiling there for
+ * the degraded state to be reachable at all.
+ */
+export function getAiProvider(env: Env): AiChatProvider | null {
+	if (env.DEEPSEEK_API_KEY) {
+		return createDeepseekProvider(env.DEEPSEEK_API_KEY);
+	}
+	const binding = (env as { AI?: AiRunner }).AI;
+	if (binding) {
+		return createWorkersAiProvider(
+			binding,
+			env.AI_REVIEW_WORKERS_MODEL || WORKERS_AI_DEFAULT_MODEL,
+		);
+	}
+	return null;
 }
 
 export const AI_UNAVAILABLE_MESSAGE =
-	"AI review is not available on this deployment — the Workers AI binding is not configured.";
+	"AI review is not available on this deployment — set DEEPSEEK_API_KEY or configure the Workers AI binding.";
 
 export const AI_FAILURE_MESSAGES: Record<AiReviewFailure["reason"], string> = {
 	timeout: "The AI model timed out — try again in a moment.",
@@ -67,7 +160,15 @@ export type AiReviewSubmission = {
 	tags: string[];
 };
 
-export type AiReviewSuccess = { ok: true; score: number; rationale: string };
+export type AiReviewSuccess = {
+	ok: true;
+	score: number;
+	rationale: string;
+	/** The id that actually answered — API-reported when available. */
+	model: string;
+	/** 1 = clean first parse, 2 = the retry was needed. */
+	attempts: number;
+};
 export type AiReviewFailure = {
 	ok: false;
 	reason: "timeout" | "malformed" | "error";
@@ -135,14 +236,24 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 	}
 }
 
-/**
- * Workers AI is mid-migration between reply envelopes: some models/routes
- * return `{ response }`, the current llama-4 chat route returns the OpenAI
- * chat-completions shape (verified live 2026-08-10). Accept both.
- */
+/** Accept DeepSeek Messages and both Workers AI reply envelopes. */
 function responseText(result: unknown): string {
 	if (typeof result === "string") return result;
 	if (result && typeof result === "object") {
+		const content = (result as { content?: unknown }).content;
+		if (Array.isArray(content)) {
+			const text = content
+				.filter(
+					(block): block is { type: "text"; text: string } =>
+						block != null &&
+						typeof block === "object" &&
+						(block as { type?: unknown }).type === "text" &&
+						typeof (block as { text?: unknown }).text === "string",
+				)
+				.map((block) => block.text)
+				.join("");
+			if (text) return text;
+		}
 		const r = (result as { response?: unknown }).response;
 		if (typeof r === "string") return r;
 		const choices = (result as { choices?: unknown }).choices;
@@ -174,16 +285,16 @@ function parseVerdict(raw: string): z.infer<typeof Verdict> | null {
  * failure comes back as a typed result — callers render it, never throw it.
  */
 export async function generateAiReview(
-	ai: AiRunner,
+	provider: AiChatProvider,
 	sub: AiReviewSubmission,
 	opts: { timeoutMs?: number } = {},
 ): Promise<AiReviewResult> {
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const messages = buildReviewMessages(sub);
 	let lastRaw = "";
-	for (let attempt = 0; attempt < 2; attempt++) {
+	for (let attempt = 1; attempt <= 2; attempt++) {
 		const thread =
-			attempt === 0
+			attempt === 1
 				? messages
 				: [
 						...messages,
@@ -195,14 +306,10 @@ export async function generateAiReview(
 								'Reply again with ONLY {"score": <number 0-10>, "rationale": "<3 to 6 specific sentences>"} — nothing else.',
 						},
 					];
-		let result: Record<string, unknown>;
+		let reply: { text: string; model?: string };
 		try {
-			result = await withTimeout(
-				ai.run(AI_REVIEW_MODEL, {
-					messages: thread,
-					max_tokens: 600,
-					temperature: 0.2,
-				}),
+			reply = await withTimeout(
+				provider.chat(thread, { maxTokens: 600, temperature: 0.2 }),
 				timeoutMs,
 			);
 		} catch (error) {
@@ -215,13 +322,15 @@ export async function generateAiReview(
 			}
 			return { ok: false, reason: "error", detail: errorMessage(error) };
 		}
-		lastRaw = responseText(result);
+		lastRaw = reply.text;
 		const verdict = parseVerdict(lastRaw);
 		if (verdict) {
 			return {
 				ok: true,
 				score: roundToTenth(verdict.score),
 				rationale: verdict.rationale,
+				model: reply.model ?? provider.model,
+				attempts: attempt,
 			};
 		}
 	}
@@ -318,13 +427,13 @@ export async function loadAiReviewContexts(
 export async function saveAiReview(
 	db: Db,
 	submissionId: string,
-	verdict: { score: number; rationale: string },
+	verdict: { score: number; rationale: string; model: string },
 	expected: Date | null,
 ): Promise<boolean> {
 	const values = {
 		score: verdict.score,
 		rationale: verdict.rationale,
-		model: AI_REVIEW_MODEL,
+		model: verdict.model,
 		overrideScore: null,
 		overrideById: null,
 		overrideAt: null,

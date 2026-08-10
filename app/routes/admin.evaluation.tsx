@@ -27,13 +27,12 @@ import {
 import {
 	AI_BULK_BATCH,
 	AI_FAILURE_MESSAGES,
-	AI_REVIEW_MODEL,
 	AI_UNAVAILABLE_MESSAGE,
 	aiReviewableFilter,
 	clearAiOverride,
 	effectiveAiScore,
 	generateAiReview,
-	getAiRunner,
+	getAiProvider,
 	loadAiReviewContexts,
 	overrideAiReview,
 	roundToTenth,
@@ -438,8 +437,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			}
 		}
 
+		const provider = getAiProvider(env);
 		ai = {
-			available: getAiRunner(env) != null,
+			available: provider != null,
+			activeModel: provider?.model ?? null,
 			q,
 			page,
 			sort,
@@ -561,7 +562,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			return { intent, ok: "Plan deleted." };
 		}
 		if (intent === "ai-run") {
-			const runner = getAiRunner(env);
+			const runner = getAiProvider(env);
 			if (!runner) return { intent, formError: AI_UNAVAILABLE_MESSAGE };
 			const submissionId = String(form.get("submissionId") ?? "");
 			const contexts = await loadAiReviewContexts(db, event, [submissionId]);
@@ -612,7 +613,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 				eventId: event.id,
 				submissionId,
 				score: result.score,
-				model: AI_REVIEW_MODEL,
+				model: result.model,
+				attempts: result.attempts,
 			});
 			return {
 				intent,
@@ -620,7 +622,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			};
 		}
 		if (intent === "ai-run-bulk") {
-			const runner = getAiRunner(env);
+			const runner = getAiProvider(env);
 			if (!runner) return { intent, formError: AI_UNAVAILABLE_MESSAGE };
 			const reviewable = aiReviewableFilter(event.id);
 			const candidates = await db
@@ -1071,7 +1073,17 @@ function AiTab({ ai }: { ai: AiTabData }) {
 	// is disabled so a double-click can't buy a second inference.
 	const busy = useNavigation().state !== "idle";
 	if (!ai) return null;
-	const { available, q, page, sort, total, missing, rows, detail } = ai;
+	const {
+		available,
+		activeModel,
+		q,
+		page,
+		sort,
+		total,
+		missing,
+		rows,
+		detail,
+	} = ai;
 	const pageLink = (over: Record<string, string | number>) => {
 		const sp = new URLSearchParams({ tab: "ai", sort, page: String(page) });
 		if (q) sp.set("q", q);
@@ -1088,7 +1100,7 @@ function AiTab({ ai }: { ai: AiTabData }) {
 					<EmptyState
 						icon="presentation"
 						title="AI review is not available on this deployment"
-						body="The Workers AI binding is not configured. Self-hosters: add the ai binding in wrangler.json and redeploy. Scores recorded while it was available stay visible below."
+						body="Configure DEEPSEEK_API_KEY for DeepSeek V4 Flash, or add the Workers AI binding and redeploy. Scores recorded while AI review was available stay visible below."
 					/>
 				</Panel>
 			)}
@@ -1107,6 +1119,9 @@ function AiTab({ ai }: { ai: AiTabData }) {
 					<StatusBadge tone="success">
 						Every reviewable submission has an AI first-pass score.
 					</StatusBadge>
+				)}
+				{available && activeModel && (
+					<StatusBadge tone="faint">Model: {activeModel}</StatusBadge>
 				)}
 				<Form method="get" className="flex flex-wrap items-end gap-3">
 					<Input type="hidden" name="tab" value="ai" />
