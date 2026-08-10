@@ -66,9 +66,7 @@ INSERT INTO organization_members (id, organization_id, user_id, created_at) VALU
 
 INSERT INTO events (id, organization_id, name, slug, type, timezone, starts_at, ends_at, created_at) VALUES
  ('e_demo', 'org_demo', 'AI.Engineer Sandbox Event', 'ai-engineer-sandbox', 'Conference', 'America/Los_Angeles',
-  -- Wall-clock datetimes IN the event's zone, stored as UTC instants:
-  -- Oct 12 8:00 AM PDT -> Oct 14 6:00 PM PDT (UTC-7).
-  unixepoch('2026-10-12 15:00'), unixepoch('2026-10-15 01:00'), unixepoch());
+  unixepoch('2026-10-12'), unixepoch('2026-10-14'), unixepoch());
 
 INSERT INTO tracks (id, event_id, name, color, created_at) VALUES
  ('t_innovation', 'e_demo', 'Innovation', '#6366f1', unixepoch()),

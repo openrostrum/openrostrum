@@ -17,6 +17,7 @@ export type IcsEvent = {
 	 * makes a schedule-update email move the invite instead of duplicating it.
 	 */
 	sequence?: number;
+	status?: "CONFIRMED" | "CANCELLED";
 };
 
 function escapeText(value: string): string {
@@ -83,6 +84,7 @@ export function buildIcs(options: {
 			`SUMMARY:${escapeText(event.title)}`,
 			`SEQUENCE:${event.sequence ?? 0}`,
 		);
+		if (event.status) lines.push(`STATUS:${event.status}`);
 		if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
 		if (event.description)
 			lines.push(`DESCRIPTION:${escapeText(event.description)}`);
