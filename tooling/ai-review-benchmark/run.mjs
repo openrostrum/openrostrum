@@ -212,6 +212,7 @@ for (let repeat = 0; repeat < REPEATS; repeat++) {
 							: Math.round(first.bindingLatencyMs),
 					error: first.error,
 					raw,
+					unparsedResult: raw ? null : first.result,
 					verdict: parsed,
 				},
 				retry:
@@ -221,6 +222,7 @@ for (let repeat = 0; repeat < REPEATS; repeat++) {
 								ok: retry.ok,
 								wallLatencyMs: Math.round(retry.wallLatencyMs),
 								error: retry.error,
+								unparsedResult: eventual ? null : retry.result,
 								verdict: eventual,
 							},
 				eventualValid: eventual != null,
