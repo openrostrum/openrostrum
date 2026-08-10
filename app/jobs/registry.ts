@@ -1,4 +1,4 @@
-import { errorMessage } from "~/lib/errors";
+import { errorMessage, toError } from "~/lib/errors";
 import { track } from "~/lib/track";
 
 /**
@@ -8,9 +8,8 @@ import { track } from "~/lib/track";
  * workers/app.ts never becomes a merge chokepoint. A job declares its cadence
  * (`cron`) and Cloudflare invokes `scheduled()` once per matching trigger with
  * `controller.cron` set to that expression — dispatch is a string match. Every
- * cadence used here MUST also appear in `wrangler.json` `triggers.crons`
- * (pinned by test/scheduled.dispatch.test.ts) or the job silently never runs.
- * See docs/rules/tech-stack.md.
+ * cadence used here MUST also appear in `wrangler.json` `triggers.crons` or
+ * the job silently never runs. See docs/rules/tech-stack.md.
  */
 export interface ScheduledJob {
 	name: string;
@@ -33,7 +32,10 @@ export const scheduledJobs: ScheduledJob[] = Object.values(modules).map(
  * cron (only possible from a manual `wrangler dev` test trigger without a
  * `?cron=` param) runs everything — in production `controller.cron` always
  * carries the matching expression. Jobs run serially but isolated: one job
- * throwing must never starve the jobs after it of their tick.
+ * throwing must never starve the jobs after it of their tick — yet the
+ * invocation still FAILS afterward, so a crashing job stays visible at error
+ * level in Workers metrics/logs instead of drowning at info level. Every job
+ * is idempotent (reminder stamps, sync lock), so re-running a tick is safe.
  */
 export async function runScheduledJobs(
 	cron: string | undefined,
@@ -43,11 +45,19 @@ export async function runScheduledJobs(
 	const due = cron
 		? scheduledJobs.filter((job) => job.cron === cron)
 		: scheduledJobs;
+	const failures: Error[] = [];
 	for (const job of due) {
 		try {
 			await job.run(env, ctx);
 		} catch (error) {
 			track("jobs.run_failed", { job: job.name, error: errorMessage(error) });
+			failures.push(toError(error));
 		}
+	}
+	if (failures.length > 0) {
+		throw new AggregateError(
+			failures,
+			`${failures.length} scheduled job(s) failed`,
+		);
 	}
 }
