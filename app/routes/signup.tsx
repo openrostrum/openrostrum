@@ -12,6 +12,7 @@ import {
 	isSecureRequest,
 	normalizeEmail,
 } from "~/lib/auth";
+import { TurnstileWidget } from "~/cfp/ui";
 import { errorChainIncludes, errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import { getTurnstile } from "~/ports/turnstile";
@@ -51,7 +52,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	// Signed-in visitors go to /onboarding, whose access gate owns the
 	// member/role routing — one home for that knowledge, not two.
 	if (await getUser(env, request)) throw redirect("/onboarding");
-	return {};
+	return { turnstileSiteKey: env.TURNSTILE_SITE_KEY ?? null };
 }
 
 export async function action({
@@ -133,7 +134,10 @@ export async function action({
 	});
 }
 
-export default function Signup({ actionData }: Route.ComponentProps) {
+export default function Signup({
+	loaderData,
+	actionData,
+}: Route.ComponentProps) {
 	const busy = useNavigation().state !== "idle";
 	return (
 		<AuthPage
@@ -177,6 +181,10 @@ export default function Signup({ actionData }: Route.ComponentProps) {
 						invalid={Boolean(actionData?.fieldErrors?.password?.[0])}
 					/>
 				</Field>
+				<TurnstileWidget
+					siteKey={loaderData.turnstileSiteKey}
+					resetSignal={actionData}
+				/>
 				<Button type="submit" disabled={busy}>
 					Create account
 				</Button>
