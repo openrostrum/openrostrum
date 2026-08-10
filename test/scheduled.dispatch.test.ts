@@ -78,4 +78,13 @@ describe("scheduled() cron dispatch", () => {
 			).toContain(job.cron);
 		}
 	});
+
+	it("pins each job to its decided cadence — reminders daily, Airtable hourly", () => {
+		// The positive half of the cadence contract: the negative outcome tests
+		// above would still pass if the Airtable poll silently regressed to the
+		// daily tick (it no-ops unconfigured); this fails on exactly that flip.
+		const byName = new Map(scheduledJobs.map((j) => [j.name, j.cron]));
+		expect(byName.get("task-due-reminders")).toBe(DAILY_CRON);
+		expect(byName.get("airtable-sync")).toBe(HOURLY_CRON);
+	});
 });

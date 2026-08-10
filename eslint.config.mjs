@@ -76,6 +76,14 @@ export default [
 							group: ["@remix-run/*"],
 							message: "Import from 'react-router', not @remix-run/*.",
 						},
+						{
+							// Seam: ONE shared rich-text editor (docs/rules/harness.md).
+							// Four parallel lanes each grew a Tiptap fork before the
+							// consolidation; this keeps the fifth from ever compiling.
+							group: ["@tiptap/*"],
+							message:
+								"Compose <RichText/> from '~/ui/rich-text' — never a second Tiptap editor (docs/rules/harness.md: one shared rich-text editor).",
+						},
 					],
 				},
 			],
@@ -127,6 +135,12 @@ export default [
 		files: ["app/lib/**/*.tsx"],
 		plugins: { openrostrum: openrostrumPlugin },
 		rules: { "openrostrum/ui-primitives-only": "error" },
+	},
+
+	// The one sanctioned Tiptap importer: the canonical editor itself.
+	{
+		files: ["app/ui/rich-text.tsx"],
+		rules: { "no-restricted-imports": "off" },
 	},
 
 	// Nav modules are client-bundled — pure data only (no runtime imports).

@@ -230,7 +230,7 @@ export function RichText({
 					</ToolbarButton>
 				</div>
 			)}
-			{state?.empty && placeholder && (
+			{state?.empty && placeholder && !linkOpen && (
 				<span className="pointer-events-none absolute left-[11px] top-[41px] text-[13px] text-fg-faint">
 					{placeholder}
 				</span>

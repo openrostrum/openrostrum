@@ -28,14 +28,10 @@ export const scheduledJobs: ScheduledJob[] = Object.values(modules).map(
 );
 
 /**
- * Runs the jobs whose `cron` matches this tick's trigger. An empty/absent
- * cron (only possible from a manual `wrangler dev` test trigger without a
- * `?cron=` param) runs everything — in production `controller.cron` always
- * carries the matching expression. Jobs run serially but isolated: one job
- * throwing must never starve the jobs after it of their tick — yet the
- * invocation still FAILS afterward, so a crashing job stays visible at error
- * level in Workers metrics/logs instead of drowning at info level. Every job
- * is idempotent (reminder stamps, sync lock), so re-running a tick is safe.
+ * Runs the jobs whose `cron` matches this tick's trigger (an empty cron — a
+ * manual dev trigger — runs everything). Jobs run serially but isolated: one
+ * throwing never starves the rest, yet the invocation still fails afterward
+ * so a crash stays error-visible. Every job is idempotent — retries are safe.
  */
 export async function runScheduledJobs(
 	cron: string | undefined,

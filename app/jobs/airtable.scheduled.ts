@@ -18,10 +18,13 @@ const job: ScheduledJob = {
 		try {
 			await runAirtableSync(env, { trigger: "cron" });
 		} catch (error) {
-			// Sync failures are expected operational events (rate limits, breaker),
-			// tracked under their own name so sync health is queryable — distinct
-			// from the registry's last-resort jobs.run_failed.
+			// Expected operational failures (rate limits, breaker) never throw —
+			// the runner returns them as typed statuses. Anything landing here is
+			// infrastructure-level (D1/lock writes failing): track it under the
+			// sync-health name, then rethrow so the registry fails the tick and
+			// the crash stays visible at error level.
 			track("sync.job_failed", { error: errorMessage(error) });
+			throw error;
 		}
 	},
 };
