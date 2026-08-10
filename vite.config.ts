@@ -8,7 +8,15 @@ export default defineConfig({
 	// Pre-bundle Tiptap with the initial optimizer pass: discovering it lazily
 	// mid-session makes Vite mint a second React chunk and the editor crashes
 	// with "Cannot read properties of null (reading 'useRef')" on first load.
-	optimizeDeps: { include: ["@tiptap/react", "@tiptap/starter-kit"] },
+	optimizeDeps: {
+		include: [
+			"@tiptap/react",
+			"@tiptap/starter-kit",
+			"@dnd-kit/core",
+			"@dnd-kit/sortable",
+			"@dnd-kit/utilities",
+		],
+	},
 	plugins: [
 		cloudflare({ viteEnvironment: { name: "ssr" } }),
 		tailwindcss(),
