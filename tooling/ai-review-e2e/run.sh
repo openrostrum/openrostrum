@@ -95,7 +95,9 @@ run_case() {
 	stage="${provider}:reload-override"
 	curl --fail-with-body -sS -b "$jar" \
 		"$url/admin/evaluation?tab=ai&sub=s_pending" >"$detail_after"
-	grep -Fq 'Overridden to 3.20' "$detail_after"
+	stage="${provider}:assert-override"
+	grep -Fq 'Overridden to' "$detail_after"
+	grep -Fq '3.20' "$detail_after"
 	grep -Fq "$expected_model" "$detail_after"
 
 	stage="${provider}:query-persistence"
