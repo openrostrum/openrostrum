@@ -23,7 +23,7 @@ See it running at [openrostrum.com](https://openrostrum.com) — the public [sch
 
 ## Quick start
 
-Local development needs [pnpm](https://pnpm.io) and Node 20+:
+Local development needs [pnpm](https://pnpm.io) and Node 20+ (CI runs Node 24):
 
 ```bash
 pnpm install

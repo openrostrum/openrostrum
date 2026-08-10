@@ -5,13 +5,13 @@ import { describe, expect, it } from "vitest";
 // URL's map row says its owning lane hasn't landed yet, only the assignment is
 // checked; once the row's status flips, the route file must exist — after the
 // build wave completes this degenerates to strict route existence.
-import routeMap from "../../docs/ROUTE-MAP.md?raw";
-import contentSource from "./content.ts?raw";
-import landingSource from "./landing.tsx?raw";
+import routeMap from "../docs/ROUTE-MAP.md?raw";
+import contentSource from "../app/marketing/content.ts?raw";
+import landingSource from "../app/marketing/landing.tsx?raw";
 
 const routeFiles = new Set(
-	Object.keys(import.meta.glob("../routes/*.tsx")).map((p) =>
-		p.replace("../routes/", ""),
+	Object.keys(import.meta.glob("../app/routes/*.tsx")).map((p) =>
+		p.replace("../app/routes/", ""),
 	),
 );
 
@@ -48,14 +48,20 @@ describe("marketing internal links", () => {
 		expect(links.length).toBeGreaterThanOrEqual(6);
 	});
 
-	it.each(links)("%s is a URL assigned in ROUTE-MAP.md", (link) => {
-		expect(routeMap).toContain(`\`${link}\``);
+	it("every internal link is a URL assigned in ROUTE-MAP.md", () => {
+		for (const link of links) {
+			expect(routeMap, `"${link}" is not an assigned URL`).toContain(
+				`\`${link}\``,
+			);
+		}
 	});
 
-	it.each(links)("%s resolves to a route file once its lane lands", (link) => {
-		expect(
-			routeFileExists(link) || mapRowIsTodo(link),
-			`"${link}" has no route file and its ROUTE-MAP row is no longer todo`,
-		).toBe(true);
+	it("every internal link resolves to a route file once its lane lands", () => {
+		for (const link of links) {
+			expect(
+				routeFileExists(link) || mapRowIsTodo(link),
+				`"${link}" has no route file and its ROUTE-MAP row is no longer todo`,
+			).toBe(true);
+		}
 	});
 });
