@@ -8,9 +8,15 @@ import { fetchChunked } from "~/lib/evaluation";
  * Invited-but-not-yet-onboarded users carry an UNVERIFIABLE password hash:
  * `verifyPassword` only accepts the `pbkdf2$…` scheme, so this sentinel can
  * never log in until the set-password link replaces it (the schema-blessed
- * invite pattern on `passwordResets`).
+ * invite pattern on `passwordResets`). The `invite-pending$` prefix is the
+ * shared cross-lane convention (see `admin.settings.team.tsx`), so team-invite
+ * flows recognize these accounts as credential-less too.
  */
-export const SENTINEL_PASSWORD_HASH = "invited";
+export const SENTINEL_HASH_PREFIX = "invite-pending$";
+
+export function mintSentinelPasswordHash(): string {
+	return `${SENTINEL_HASH_PREFIX}${crypto.randomUUID()}`;
+}
 
 export function hasUsablePassword(passwordHash: string): boolean {
 	return passwordHash.startsWith("pbkdf2$");
@@ -102,7 +108,7 @@ export async function ensureReviewerUser(
 			email,
 			name: input.name,
 			role: "reviewer",
-			passwordHash: SENTINEL_PASSWORD_HASH,
+			passwordHash: mintSentinelPasswordHash(),
 		})
 		.returning();
 	if (!created) throw new Error("Failed to create the reviewer account.");

@@ -11,9 +11,9 @@ set -euo pipefail
 
 staged="$(git diff --cached --name-only)"
 if printf '%s\n' "$staged" | grep -Eq \
-	'^(app/db/schema\.ts|drizzle/seed\.sql|package\.json|pnpm-lock\.yaml|wrangler\.json)$|^drizzle/migrations/|^app/ui/|^app/app\.css$'; then
+	'^(app/db/schema\.ts|drizzle/seed\.sql|package\.json|pnpm-lock\.yaml|wrangler\.json)$|^drizzle/migrations/|^app/ui/|^app/widgets/|^app/app\.css$'; then
 	echo "✋ You are editing an integration-owned shared file."
-	echo "   schema.ts · drizzle/migrations · seed.sql · package.json · pnpm-lock.yaml · wrangler.json · app/ui · app.css"
+	echo "   schema.ts · drizzle/migrations · seed.sql · package.json · pnpm-lock.yaml · wrangler.json · app/ui · app/widgets · app.css"
 	echo "   Feature worktrees must not touch these (avoids merge + migration + lockfile collisions,"
 	echo "   and keeps UI primitives/tokens single-sourced — no parallel-invented components)."
 	echo "   Need a column, dep, binding, or UI primitive? Request it from the integration owner."

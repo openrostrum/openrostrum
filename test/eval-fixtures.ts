@@ -5,6 +5,7 @@ import {
 	evaluationRounds,
 	evaluations,
 	events,
+	organizationMembers,
 	organizations,
 	participants,
 	reviewerTracks,
@@ -71,6 +72,11 @@ export async function seedEvalBase(
 			role: "speaker",
 		},
 	]);
+	// Membership-aware auth (Tenancy Wave B): admin event resolution goes
+	// event → org → member, so the admin needs an org membership row.
+	await db
+		.insert(organizationMembers)
+		.values([{ organizationId: "org1", userId: "u_admin" }]);
 	await db.insert(contacts).values([
 		{
 			id: "c_priya",
