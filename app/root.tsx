@@ -13,6 +13,9 @@ import "./app.css";
 // Fonts are self-hosted (open-source product — no CDN); @font-face lives in
 // app.css, preloads here cover the two faces on every first paint.
 export const links: Route.LinksFunction = () => [
+	{ rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+	{ rel: "icon", href: "/favicon.ico", sizes: "48x48" },
+	{ rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
 	{
 		rel: "preload",
 		href: "/fonts/plex-sans-400.woff2",

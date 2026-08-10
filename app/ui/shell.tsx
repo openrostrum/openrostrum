@@ -4,6 +4,25 @@ import { Avatar } from "./avatar";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icon";
 
+export function Mark({ size = 24 }: { size?: number }) {
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox="0 0 24 24"
+			aria-hidden="true"
+			className="shrink-0"
+		>
+			<path
+				fillRule="evenodd"
+				d="M19.6 10.2A7.6 7.6 0 1 1 4.4 10.2A7.6 7.6 0 1 1 19.6 10.2ZM16 10.2A4 4 0 1 0 8 10.2A4 4 0 1 0 16 10.2Z"
+				fill="currentColor"
+			/>
+			<path d="M5.5 17.8H18.5V20.8H5.5Z" className="fill-petrol" />
+		</svg>
+	);
+}
+
 export function Wordmark({
 	size = 17,
 	tagline,
@@ -12,14 +31,19 @@ export function Wordmark({
 	tagline?: string;
 }) {
 	return (
-		<span className="flex flex-col gap-1">
-			<span
-				className="font-display font-semibold tracking-[-0.005em] text-fg"
-				style={{ fontSize: size }}
-			>
-				<span className="text-petrol">Open</span>Rostrum
+		<span className="flex items-center gap-[9px] text-fg">
+			<Mark size={Math.round(size * 1.4)} />
+			<span className="flex flex-col gap-1">
+				<span
+					className="font-display font-semibold tracking-[-0.005em] text-fg"
+					style={{ fontSize: size }}
+				>
+					<span className="text-petrol">Open</span>Rostrum
+				</span>
+				{tagline && (
+					<span className="text-[15px] text-fg-muted">{tagline}</span>
+				)}
 			</span>
-			{tagline && <span className="text-[15px] text-fg-muted">{tagline}</span>}
 		</span>
 	);
 }

@@ -26,4 +26,4 @@ export {
 } from "./table";
 export { Tab, Tabs } from "./tabs";
 export { TextLink } from "./text-link";
-export { Sidebar, SidebarSection, SideNavLink, Wordmark } from "./shell";
+export { Mark, Sidebar, SidebarSection, SideNavLink, Wordmark } from "./shell";
