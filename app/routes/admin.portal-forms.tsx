@@ -20,6 +20,7 @@ import {
 	Button,
 	ButtonLink,
 	Checkbox,
+	ConfirmButton,
 	EmptyRow,
 	EmptyState,
 	ErrorText,
@@ -662,7 +663,6 @@ export default function PortalFormsAdmin({
 	actionData,
 }: Route.ComponentProps) {
 	const { eventName, forms, editId, createdName } = loaderData;
-	const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
 	const editing = forms.find((f) => f.id === editId) ?? null;
 
 	if (!eventName) {
@@ -733,38 +733,21 @@ export default function PortalFormsAdmin({
 							</Td>
 							<Td kind="mono">{formatDateUTC(f.createdAt)}</Td>
 							<Td>
-								{confirmingDelete === f.id ? (
-									<Form
-										method="post"
-										className="flex items-center gap-2"
-										onSubmit={() => setConfirmingDelete(null)}
-									>
-										<Input type="hidden" name="intent" value="delete-form" />
+								<div className="flex items-center gap-3">
+									<TextLink to={`/admin/portal-forms?edit=${f.id}`}>
+										Edit
+									</TextLink>
+									<Form method="post">
 										<Input type="hidden" name="formId" value={f.id} />
-										<span>Delete this form?</span>
-										<Button
-											type="button"
-											variant="ghost"
-											onClick={() => setConfirmingDelete(null)}
-										>
-											Cancel
-										</Button>
-										<Button type="submit">Delete</Button>
+										<ConfirmButton
+											label="Delete"
+											prompt={`Delete “${f.name}”?`}
+											confirmLabel="Delete form"
+											name="intent"
+											value="delete-form"
+										/>
 									</Form>
-								) : (
-									<div className="flex items-center gap-3">
-										<TextLink to={`/admin/portal-forms?edit=${f.id}`}>
-											Edit
-										</TextLink>
-										<Button
-											type="button"
-											variant="ghost"
-											onClick={() => setConfirmingDelete(f.id)}
-										>
-											Delete
-										</Button>
-									</div>
-								)}
+								</div>
 							</Td>
 						</Tr>
 					))}

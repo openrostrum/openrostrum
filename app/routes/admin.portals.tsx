@@ -9,7 +9,7 @@ import { formatDateUTC } from "~/lib/format";
 import {
 	clearPreviewCookie,
 	contactDisplayName,
-	previewContactForEvent,
+	previewContactForAdmin,
 	startPreviewCookie,
 } from "~/lib/portal-preview";
 import { portalUrl } from "~/lib/portal-url";
@@ -104,7 +104,12 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			.select({ n: count() })
 			.from(contacts)
 			.where(contactScope);
-		const previewContact = await previewContactForEvent(db, request, event.id);
+		const previewContact = await previewContactForAdmin(
+			env,
+			db,
+			request,
+			user.id,
+		);
 		const previewing = previewContact
 			? { contactName: contactDisplayName(previewContact) }
 			: null;

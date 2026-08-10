@@ -10,6 +10,7 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "~/db";
 import { contacts } from "~/db/schema";
+import { userCanAccessEvent } from "~/lib/auth";
 import { cookieHeader, readCookie } from "~/lib/cookies";
 
 const COOKIE = "__portal_preview";
@@ -59,4 +60,29 @@ export async function previewContactForEvent(
 function readPreviewContactId(request: Request): string | null {
 	const value = readCookie(request, COOKIE);
 	return value ? decodeURIComponent(value) : null;
+}
+
+/**
+ * The previewed contact for the ADMIN surface, resolved across any event the
+ * admin can access — event-unscoped on purpose: after an event switch the
+ * preview cookie is still live (portal-side), and the admin page must keep
+ * showing the state and the exit affordance rather than silently hiding them.
+ */
+export async function previewContactForAdmin(
+	env: Env,
+	db: Db,
+	request: Request,
+	userId: string,
+): Promise<typeof contacts.$inferSelect | null> {
+	const contactId = readPreviewContactId(request);
+	if (!contactId) return null;
+	const [contact] = await db
+		.select()
+		.from(contacts)
+		.where(eq(contacts.id, contactId))
+		.limit(1);
+	if (!contact) return null;
+	return (await userCanAccessEvent(env, userId, contact.eventId))
+		? contact
+		: null;
 }
