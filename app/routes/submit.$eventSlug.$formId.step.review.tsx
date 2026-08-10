@@ -3,7 +3,6 @@
 import {
 	data,
 	redirect,
-	useNavigation,
 	useOutletContext,
 	useRouteLoaderData,
 	useSubmit,
@@ -46,6 +45,7 @@ import { getDb } from "~/db";
 import { getUser, requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
 import { Button, ButtonLink, ErrorText, Panel, TextLink } from "~/ui";
 import type { Route } from "./+types/submit.$eventSlug.$formId.step.review";
@@ -276,7 +276,9 @@ export default function ReviewStep({
 	);
 	const ctx = useOutletContext<WizardCtx>();
 	const submit = useSubmit();
-	const navigation = useNavigation();
+	// Also true while a draft-save fetcher from an earlier step is still in
+	// flight — submitting then would race the save's sid echo and fork state.
+	const busy = useBusy();
 	const base = submitBasePath(params.eventSlug, params.formId);
 	const state = ctx.state;
 	const result = actionData as SubmitResult | undefined;
@@ -292,7 +294,6 @@ export default function ReviewStep({
 	}
 
 	const editingSubmitted = isEditingSubmitted(state);
-	const busy = navigation.state !== "idle";
 
 	const doSubmit = () => {
 		submit(wizardPayload("submit", state), {

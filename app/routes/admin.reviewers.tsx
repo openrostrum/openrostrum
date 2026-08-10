@@ -16,6 +16,7 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { ensureQuickRound, mintEvaluations } from "~/lib/assign";
 import { errorMessage } from "~/lib/errors";
+import { useBusy } from "~/lib/use-busy";
 import { fetchChunked, REVIEWABLE_EXCLUDED, utcDayKey } from "~/lib/evaluation";
 import { escapeHtmlText } from "~/lib/html";
 import {
@@ -24,6 +25,7 @@ import {
 	hasUsablePassword,
 	listEventReviewers,
 	mintInviteToken,
+	SEND_KEY_RE,
 } from "~/lib/reviewers";
 import { getEmailSender } from "~/ports/email";
 import { createTimings, track } from "~/lib/track";
@@ -54,6 +56,9 @@ const AddReviewer = z.object({
 	trackIds: z.array(z.string().min(1)).min(1, "Assign at least one track"),
 });
 
+const STALE_FORM_ERROR =
+	"This form looks stale — reload the page and try again.";
+
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
@@ -70,6 +75,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			reviewers: [],
 			rounds: [],
 			assignable: [],
+			sendKey: crypto.randomUUID(),
 		});
 	}
 	const db = getDb(env);
@@ -162,6 +168,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			reviewers,
 			rounds,
 			assignable,
+			// Echoed through the invite forms; revalidation mints a fresh one after
+			// every action, so only a REPLAYED submit shares a key.
+			sendKey: crypto.randomUUID(),
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -188,6 +197,11 @@ export async function action({
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "");
 	const origin = new URL(request.url).origin;
+	// Invite idempotency scope: the loader-minted UUID echoed through the form.
+	// Non-UUID values fail closed below — substituting a fresh key here would
+	// silently drop the replay protection the key exists for.
+	const sendKey = String(form.get("sendKey") ?? "");
+	const sendKeyValid = SEND_KEY_RE.test(sendKey);
 
 	const eventTracks = await db
 		.select({ id: tracks.id })
@@ -197,6 +211,7 @@ export async function action({
 
 	try {
 		if (intent === "add") {
+			if (!sendKeyValid) return { intent, formError: STALE_FORM_ERROR };
 			const parsed = AddReviewer.safeParse({
 				name: form.get("name"),
 				email: form.get("email"),
@@ -224,7 +239,7 @@ export async function action({
 			const invited = !hasUsablePassword(reviewer.passwordHash);
 			const sender = getEmailSender(env);
 			if (invited) {
-				const token = await mintInviteToken(db, reviewer.id);
+				const token = await mintInviteToken(db, reviewer.id, sendKey);
 				const link = `${origin}/set-password/${token}`;
 				await sender.send({
 					to: reviewer.email,
@@ -254,6 +269,7 @@ export async function action({
 		}
 
 		if (intent === "reinvite") {
+			if (!sendKeyValid) return { intent, formError: STALE_FORM_ERROR };
 			const userId = String(form.get("userId") ?? "");
 			const target = (await listEventReviewers(db, event.id)).find(
 				(r) => r.id === userId,
@@ -265,7 +281,7 @@ export async function action({
 					formError: "This reviewer already has a working login.",
 				};
 			}
-			const token = await mintInviteToken(db, userId);
+			const token = await mintInviteToken(db, userId, sendKey);
 			const link = `${origin}/set-password/${token}`;
 			await getEmailSender(env).send({
 				to: target.email,
@@ -458,7 +474,14 @@ export default function Reviewers({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { tracks: eventTracks, reviewers, rounds, assignable } = loaderData;
+	const {
+		tracks: eventTracks,
+		reviewers,
+		rounds,
+		assignable,
+		sendKey,
+	} = loaderData;
+	const busy = useBusy();
 	const [selected, setSelected] = useState<{
 		userId: string;
 		mode: "tracks" | "assign" | "remove";
@@ -488,6 +511,7 @@ export default function Reviewers({
 				) : (
 					<Form method="post" className="flex flex-wrap items-end gap-3">
 						<Input type="hidden" name="intent" value="add" />
+						<Input type="hidden" name="sendKey" value={sendKey} readOnly />
 						<Field
 							label="Name"
 							error={
@@ -528,7 +552,7 @@ export default function Reviewers({
 								))}
 							</Select>
 						</Field>
-						<Button type="submit" icon="plus">
+						<Button type="submit" icon="plus" disabled={busy}>
 							Add reviewer
 						</Button>
 					</Form>
@@ -618,7 +642,13 @@ export default function Reviewers({
 										<Form method="post">
 											<Input type="hidden" name="intent" value="reinvite" />
 											<Input type="hidden" name="userId" value={r.id} />
-											<Button type="submit" variant="ghost">
+											<Input
+												type="hidden"
+												name="sendKey"
+												value={sendKey}
+												readOnly
+											/>
+											<Button type="submit" variant="ghost" disabled={busy}>
 												Re-invite
 											</Button>
 										</Form>
@@ -667,7 +697,9 @@ export default function Reviewers({
 									))}
 								</Select>
 							</Field>
-							<Button type="submit">Save tracks</Button>
+							<Button type="submit" disabled={busy}>
+								Save tracks
+							</Button>
 							<Button
 								type="button"
 								variant="ghost"
@@ -706,7 +738,9 @@ export default function Reviewers({
 									))}
 								</Select>
 							</Field>
-							<Button type="submit">Assign</Button>
+							<Button type="submit" disabled={busy}>
+								Assign
+							</Button>
 							<Button
 								type="button"
 								variant="ghost"
@@ -725,7 +759,11 @@ export default function Reviewers({
 								reviewer on this event? Pending assignments are deleted;
 								completed reviews are kept for the record.
 							</ErrorText>
-							<Button type="submit" onClick={() => setSelected(null)}>
+							<Button
+								type="submit"
+								disabled={busy}
+								onClick={() => setSelected(null)}
+							>
 								Confirm removal
 							</Button>
 							<Button
