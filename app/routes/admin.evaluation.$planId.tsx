@@ -400,8 +400,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			});
 		}
 		const subRows = [...subMap].map(([id, v]) => ({ id, ...v }));
-		const [speakerRows, aiRows] = await timings.time("db-speakers", () =>
-			Promise.all([
+		const [speakerRows, aiRows] = await Promise.all([
+			timings.time("db-speakers", () =>
 				fetchChunked(
 					subRows.map((s) => s.id),
 					(chunk) =>
@@ -416,6 +416,9 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 							.innerJoin(contacts, eq(contacts.id, participants.contactId))
 							.where(inArray(participants.submissionId, chunk)),
 				),
+			),
+			// Scores only — the rationale text ships solely for the one ?sub= row.
+			timings.time("db-ai", () =>
 				fetchChunked(
 					subRows.map((s) => s.id),
 					(chunk) =>
@@ -424,15 +427,12 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 								submissionId: aiReviews.submissionId,
 								score: aiReviews.score,
 								overrideScore: aiReviews.overrideScore,
-								rationale: aiReviews.rationale,
-								model: aiReviews.model,
-								updatedAt: aiReviews.updatedAt,
 							})
 							.from(aiReviews)
 							.where(inArray(aiReviews.submissionId, chunk)),
 				),
-			]),
-		);
+			),
+		]);
 		const aiFor = (submissionId: string) => {
 			const row = aiRows.find((a) => a.submissionId === submissionId);
 			return row
@@ -499,7 +499,19 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			const sub = subRows.find((s) => s.id === subParam);
 			if (sub) {
 				const mine = scored.filter((e) => e.submissionId === sub.id);
-				const aiRow = aiRows.find((a) => a.submissionId === sub.id);
+				const [aiRow] = await timings.time("db-ai-detail", () =>
+					db
+						.select({
+							score: aiReviews.score,
+							overrideScore: aiReviews.overrideScore,
+							rationale: aiReviews.rationale,
+							model: aiReviews.model,
+							updatedAt: aiReviews.updatedAt,
+						})
+						.from(aiReviews)
+						.where(eq(aiReviews.submissionId, sub.id))
+						.limit(1),
+				);
 				detail = {
 					id: sub.id,
 					title: sub.title,

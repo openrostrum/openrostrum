@@ -9,21 +9,18 @@ import {
 	inArray,
 	isNull,
 	like,
-	notInArray,
 	sql,
 } from "drizzle-orm";
 import { Form, Outlet, data, redirect } from "react-router";
 import { z } from "zod";
-import { getDb } from "~/db";
+import { type Db, getDb } from "~/db";
 import {
 	aiReviews,
-	evaluationAnswers,
 	evaluationPlans,
 	evaluationRounds,
 	evaluations,
 	reviews,
 	roundEvaluators,
-	roundQuestions,
 	submissions,
 	users,
 } from "~/db/schema";
@@ -32,25 +29,25 @@ import {
 	AI_FAILURE_MESSAGES,
 	AI_REVIEW_MODEL,
 	AI_UNAVAILABLE_MESSAGE,
+	aiReviewableFilter,
 	clearAiOverride,
 	effectiveAiScore,
 	generateAiReview,
 	getAiRunner,
 	loadAiReviewContexts,
 	overrideAiReview,
+	roundToTenth,
 	saveAiReview,
 } from "~/domain/ai-review";
 import { deletePlanDeep } from "~/lib/assign";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
-	evaluationScore,
 	fetchChunked,
 	formatDay,
 	formatScore,
 	REVIEW_DECISION_TONE as DECISION_TONE,
 	REVIEW_PAGE_SIZE as PAGE_SIZE,
-	REVIEWABLE_EXCLUDED,
 } from "~/lib/evaluation";
 import { Pager } from "~/lib/pager";
 import { createTimings, track } from "~/lib/track";
@@ -86,6 +83,28 @@ const NewPlan = z.object({
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
+}
+
+/** One submission's approve/maybe/deny rows — the Decisions and AI details render the same list. */
+async function loadDecisionRows(db: Db, submissionId: string) {
+	const rows = await db
+		.select({
+			reviewer: users.name,
+			reviewerEmail: users.email,
+			decision: reviews.decision,
+			comment: reviews.comment,
+			updatedAt: reviews.updatedAt,
+		})
+		.from(reviews)
+		.innerJoin(users, eq(users.id, reviews.reviewerId))
+		.where(eq(reviews.submissionId, submissionId))
+		.orderBy(desc(reviews.updatedAt));
+	return rows.map((r) => ({
+		reviewer: r.reviewer ?? r.reviewerEmail,
+		decision: r.decision,
+		comment: r.comment,
+		updatedAt: formatDay(r.updatedAt),
+	}));
 }
 
 export async function loader({ context, request }: Route.LoaderArgs) {
@@ -272,27 +291,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				)
 				.limit(1);
 			if (sub) {
-				const reviewRows = await db
-					.select({
-						reviewer: users.name,
-						reviewerEmail: users.email,
-						decision: reviews.decision,
-						comment: reviews.comment,
-						updatedAt: reviews.updatedAt,
-					})
-					.from(reviews)
-					.innerJoin(users, eq(users.id, reviews.reviewerId))
-					.where(eq(reviews.submissionId, sub.id))
-					.orderBy(desc(reviews.updatedAt));
 				detail = {
 					id: sub.id,
 					title: sub.title,
-					reviews: reviewRows.map((r) => ({
-						reviewer: r.reviewer ?? r.reviewerEmail,
-						decision: r.decision,
-						comment: r.comment,
-						updatedAt: formatDay(r.updatedAt),
-					})),
+					reviews: await loadDecisionRows(db, sub.id),
 				};
 			}
 		}
@@ -307,10 +309,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		const sort =
 			sortParam === "ai_desc" || sortParam === "ai_asc" ? sortParam : "newest";
 		const subParam = url.searchParams.get("sub");
-		const reviewable = and(
-			eq(submissions.eventId, event.id),
-			notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
-		);
+		const reviewable = aiReviewableFilter(event.id);
 		const filter = and(
 			reviewable,
 			q ? like(submissions.title, `%${q}%`) : undefined,
@@ -386,7 +385,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				)
 				.limit(1);
 			if (sub) {
-				const [aiRowArr, decisionRows, evalRows] = await timings.time(
+				const [aiRowArr, decisionRows] = await timings.time(
 					"db-ai-detail",
 					() =>
 						Promise.all([
@@ -405,71 +404,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 								.leftJoin(users, eq(users.id, aiReviews.overrideById))
 								.where(eq(aiReviews.submissionId, sub.id))
 								.limit(1),
-							db
-								.select({
-									reviewer: users.name,
-									reviewerEmail: users.email,
-									decision: reviews.decision,
-									comment: reviews.comment,
-									updatedAt: reviews.updatedAt,
-								})
-								.from(reviews)
-								.innerJoin(users, eq(users.id, reviews.reviewerId))
-								.where(eq(reviews.submissionId, sub.id))
-								.orderBy(desc(reviews.updatedAt)),
-							db
-								.select({
-									id: evaluations.id,
-									roundId: evaluations.roundId,
-									submittedAt: evaluations.submittedAt,
-									evaluator: users.name,
-									evaluatorEmail: users.email,
-									roundName: evaluationRounds.name,
-									planName: evaluationPlans.name,
-								})
-								.from(evaluations)
-								.innerJoin(users, eq(users.id, evaluations.evaluatorId))
-								.innerJoin(
-									evaluationRounds,
-									eq(evaluationRounds.id, evaluations.roundId),
-								)
-								.innerJoin(
-									evaluationPlans,
-									eq(evaluationPlans.id, evaluationRounds.planId),
-								)
-								.where(
-									and(
-										eq(evaluations.submissionId, sub.id),
-										eq(evaluations.status, "completed"),
-									),
-								),
+							loadDecisionRows(db, sub.id),
 						]),
 				);
 				const aiRow = aiRowArr[0] ?? null;
-				const roundIds = [...new Set(evalRows.map((e) => e.roundId))];
-				const evalIds = evalRows.map((e) => e.id);
-				const [questionRows, answerRows] =
-					evalIds.length === 0
-						? [[], []]
-						: await Promise.all([
-								db
-									.select({
-										id: roundQuestions.id,
-										roundId: roundQuestions.roundId,
-										type: roundQuestions.type,
-										weight: roundQuestions.weight,
-									})
-									.from(roundQuestions)
-									.where(inArray(roundQuestions.roundId, roundIds)),
-								db
-									.select({
-										evaluationId: evaluationAnswers.evaluationId,
-										questionId: evaluationAnswers.questionId,
-										valueNumber: evaluationAnswers.valueNumber,
-									})
-									.from(evaluationAnswers)
-									.where(inArray(evaluationAnswers.evaluationId, evalIds)),
-							]);
 				detail = {
 					id: sub.id,
 					title: sub.title,
@@ -494,25 +432,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 											},
 							}
 						: null,
-					decisions: decisionRows.map((r) => ({
-						reviewer: r.reviewer ?? r.reviewerEmail,
-						decision: r.decision,
-						comment: r.comment,
-						updatedAt: formatDay(r.updatedAt),
-					})),
-					evaluations: evalRows.map((e) => ({
-						id: e.id,
-						evaluator: e.evaluator ?? e.evaluatorEmail,
-						plan: e.planName,
-						round: e.roundName,
-						score: formatScore(
-							evaluationScore(
-								questionRows.filter((qr) => qr.roundId === e.roundId),
-								answerRows.filter((a) => a.evaluationId === e.id),
-							),
-						),
-						submittedAt: e.submittedAt ? formatDay(e.submittedAt) : "—",
-					})),
+					decisions: decisionRows,
 				};
 			}
 		}
@@ -670,10 +590,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 		if (intent === "ai-run-bulk") {
 			const runner = getAiRunner(env);
 			if (!runner) return { intent, formError: AI_UNAVAILABLE_MESSAGE };
-			const reviewable = and(
-				eq(submissions.eventId, event.id),
-				notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
-			);
+			const reviewable = aiReviewableFilter(event.id);
 			const candidates = await db
 				.select({ id: submissions.id })
 				.from(submissions)
@@ -770,7 +687,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 					formError: "Override score must be a number between 0 and 10.",
 				};
 			}
-			const score = Math.round(parsed.data * 10) / 10;
+			const score = roundToTenth(parsed.data);
 			const overridden = await overrideAiReview(
 				db,
 				submissionId,
@@ -1301,33 +1218,6 @@ function AiTab({ ai }: { ai: AiTabData }) {
 										<EmptyRow colSpan={4}>
 											No reviewer decisions yet — they appear as reviewers work
 											through their track queues.
-										</EmptyRow>
-									)}
-								</TBody>
-							</Table>
-						</Field>
-						<Field label="Scorecard reviews (completed)">
-							<Table>
-								<THead>
-									<Th>Evaluator</Th>
-									<Th>Plan · Round</Th>
-									<Th>Weighted score</Th>
-									<Th>Submitted</Th>
-								</THead>
-								<TBody>
-									{detail.evaluations.map((e) => (
-										<Tr key={e.id}>
-											<Td kind="strong">{e.evaluator}</Td>
-											<Td>
-												{e.plan} · {e.round}
-											</Td>
-											<Td kind="mono">{e.score}</Td>
-											<Td kind="mono">{e.submittedAt}</Td>
-										</Tr>
-									))}
-									{detail.evaluations.length === 0 && (
-										<EmptyRow colSpan={4}>
-											No completed scorecard reviews yet.
 										</EmptyRow>
 									)}
 								</TBody>

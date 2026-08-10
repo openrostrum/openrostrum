@@ -216,7 +216,7 @@ export async function generateAiReview(
 		if (verdict) {
 			return {
 				ok: true,
-				score: Math.round(verdict.score * 10) / 10,
+				score: roundToTenth(verdict.score),
 				rationale: verdict.rationale,
 			};
 		}
@@ -253,9 +253,8 @@ export async function loadAiReviewContexts(
 		.leftJoin(levels, eq(levels.id, submissions.levelId))
 		.where(
 			and(
+				aiReviewableFilter(event.id),
 				inArray(submissions.id, [...submissionIds]),
-				eq(submissions.eventId, event.id),
-				notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
 			),
 		);
 	const ids = rows.map((r) => r.id);
@@ -363,4 +362,17 @@ export function effectiveAiScore(row: {
 	overrideScore: number | null;
 }): number {
 	return row.overrideScore ?? row.score;
+}
+
+/** THE definition of "AI-reviewable" — every AI surface filters through this. */
+export function aiReviewableFilter(eventId: string) {
+	return and(
+		eq(submissions.eventId, eventId),
+		notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
+	);
+}
+
+/** Scores display at one decimal everywhere; store them the same way. */
+export function roundToTenth(n: number): number {
+	return Math.round(n * 10) / 10;
 }
