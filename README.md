@@ -34,6 +34,16 @@ pnpm run deploy                         # injects your .deploy.env, then deploys
 
 Set secrets on the worker for real integrations (all optional — each falls back to a local/no-op adapter when unset): `wrangler secret put RESEND_API_KEY`, `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`. Email also needs `EMAIL_FROM` (a sender on your Resend-verified domain) — set it in `.deploy.env`. See `.dev.vars.example` for the full list.
 
+### Auto-deploy on merge to `main`
+
+CI deploys to Cloudflare on every push to `main`, once quality passes — no account-specific values live in the repo, so it only turns on when you add these **repository secrets** (Settings → Secrets and variables → Actions):
+
+- `CLOUDFLARE_API_TOKEN` — a token with Workers Scripts + D1 edit permissions
+- `CLOUDFLARE_ACCOUNT_ID` — your Cloudflare account id
+- `CF_D1_DATABASE_ID` — the id `wrangler d1 create openrostrum` printed
+
+Optionally set an `EMAIL_FROM` repository **variable** to override the committed default. The deploy job applies remote D1 migrations, then deploys. Until the secrets exist, the job is a green skip. Runtime secrets (`RESEND_API_KEY`, `AIRTABLE_*`, `TURNSTILE_SECRET`) live on the worker via `wrangler secret put` and are not read by CI.
+
 ## Stack
 
 React Router 7 (framework mode) · Cloudflare Workers · D1 + Drizzle · R2 · Tailwind v4 · Vitest (workers pool). Agent-built in parallel git worktrees with functional self-verification; the conventions that make that work live in `CLAUDE.md` and `docs/`.
