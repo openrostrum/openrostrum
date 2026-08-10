@@ -66,6 +66,14 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
   contacts, and task statuses; team edits in Airtable flow back on a ~5-min
   tick (Airtable wins on team-editable fields).
 
+## Deploy secrets
+
+Beyond `RESEND_API_KEY`, the deployed instance requires
+`UNSUBSCRIBE_SECRET` (`wrangler secret put UNSUBSCRIBE_SECRET` — any long
+random string). It signs the unsubscribe-footer tokens; without it, any
+deployed instance fails loud at announcement-send time rather than signing
+tokens with a public dev constant anyone could forge.
+
 ## Reset / seed
 
 Owner-run: `wrangler d1 execute openrostrum --remote --file drizzle/seed.sql`

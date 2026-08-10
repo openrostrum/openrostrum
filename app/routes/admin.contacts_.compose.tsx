@@ -9,7 +9,7 @@ import {
 import { Textarea } from "~/components/textarea";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import {
-	MERGE_TAGS,
+	CAMPAIGN_MERGE_TAGS,
 	type MergeValues,
 	renderEmailHtml,
 	renderMergeFields,
@@ -467,7 +467,7 @@ export default function ComposeBulkEmail({
 							</Field>
 							<p>
 								Merge fields resolve per recipient:{" "}
-								{MERGE_TAGS.map((t) => `{{${t}}}`).join("  ")}
+								{CAMPAIGN_MERGE_TAGS.map((t) => `{{${t}}}`).join("  ")}
 							</p>
 							{!echoBody && (
 								<p>

@@ -21,7 +21,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Evaluation | `admin.evaluation.tsx` | `/admin/evaluation` | 3 | todo |
 | Agenda | `admin.agenda.tsx` | `/admin/agenda` | 3 | done |
 | Tasks dashboard | `admin.tasks.tsx` | `/admin/tasks` | 3 | done |
-| Email templates | `admin.emails.tsx` · `admin.emails.$key.tsx` | `/admin/emails` | 1 | todo |
+| Email templates | `admin.emails.tsx` · `admin.emails_.$key.tsx` (underscore: the editor must not nest inside the list route) | `/admin/emails` · `/admin/emails/:key` | 1 | done |
 | Event settings | `admin.settings.tsx` | `/admin/settings` | 1 | todo |
 | Library (taxonomies) | `admin.settings.library.tsx` | `/admin/settings/library` | 0/1 | todo |
 | Portals admin | `admin.portals.tsx` · `admin.portal-forms.tsx` · `admin.file-requests.tsx` | `/admin/portals` … | 3 | todo |
@@ -33,9 +33,9 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Reviewer management | `admin.reviewers.tsx` | `/admin/reviewers` (add reviewer + track assignment + invite) | 1 | todo |
 | Reviewer "My Reviews" (reviewer role) | `reviews.tsx` · `reviews.$id.tsx` | `/reviews` · `/reviews/:id` (NOT under `admin.*`) | 1 | todo |
 | Set / reset password (invite + forgot landing) | `set-password.$token.tsx` | `/set-password/:token` | 1 | done |
-| Forgot password (request) | `forgot-password.tsx` | `/forgot-password` (`// @public`) | 1 | todo |
-| Unsubscribe | `unsubscribe.$token.tsx` | `/unsubscribe/:token` (signed token; `// @public`) | 1 | todo |
-| Email history log | `admin.emails.history.tsx` | `/admin/emails/history` | 1 | todo |
+| Forgot password (request) | `forgot-password.tsx` | `/forgot-password` (`// @public`) | 1 | done |
+| Unsubscribe | `unsubscribe.$token.tsx` | `/unsubscribe/:token` (signed token; `// @public`) | 1 | done |
+| Email history log | `admin.emails_.history.tsx` (underscore: sibling of the list route, not its child) | `/admin/emails/history` | 1 | done |
 | Task response view (admin) | `admin.tasks_.$assignmentId.tsx` | `/admin/tasks/:assignmentId` (trailing `_` opts out of nesting under the dashboard) | 1 | done |
 | File upload (presign/mediate) + download | `files.upload.tsx` · `files.$id.tsx` | `/files/upload` (POST) · `/files/:id` (GET bytes, authz-checked) | 1 | todo |
 | Contact record (admin) | `admin.contacts_.$id.tsx` | `/admin/contacts/:id` | 1 | done |

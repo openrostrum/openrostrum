@@ -20,6 +20,11 @@ APP_ENV=development
 # TURNSTILE_SECRET=...
 # TURNSTILE_SITE_KEY=...   # paired public widget key (both or neither)
 
+# Signs unsubscribe-footer tokens. Unset locally → a fixed dev secret (mail
+# never leaves the machine). REQUIRED whenever RESEND_API_KEY is set — real
+# mail with forgeable unsubscribe tokens would let anyone suppress any address.
+# UNSUBSCRIBE_SECRET=...
+
 # Public origin for links in CRON-sent emails (task-due reminders), where no
 # request URL exists to derive it from. Request-driven emails always use the
 # request origin. REQUIRED whenever RESEND_API_KEY is set (the reminder job
