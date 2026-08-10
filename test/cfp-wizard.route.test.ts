@@ -5,6 +5,8 @@ import { getDb } from "../app/db";
 import {
 	contacts,
 	emailOutbox,
+	fields,
+	formFields,
 	forms,
 	participants,
 	submissionAnswers,
@@ -15,6 +17,7 @@ import {
 	tags,
 	tracks,
 } from "../app/db/schema";
+import { resolveFormDefinition } from "../app/cfp/server";
 import { action as sessionAction } from "../app/routes/submit.$eventSlug.$formId.step.session";
 import { action as submitAction } from "../app/routes/submit.$eventSlug.$formId.step.review";
 import {
@@ -22,8 +25,12 @@ import {
 	CONTEXT,
 	createSpeaker,
 	FIX,
+	FRESH,
+	FRESH_BASE_URL,
+	FRESH_PARAMS,
 	jsonRequest,
 	seedCfp,
+	seedFreshCfp,
 	selfRow,
 	speakerRow,
 	validValues,
@@ -667,5 +674,140 @@ describe("edit until close", () => {
 		expect(row?.description).not.toContain("script");
 		expect(row?.description).not.toContain("onmouseover");
 		expect(row?.description).toContain("<p>fine</p>");
+	});
+});
+
+// With zero taxonomies configured, the default form's required selects offer
+// nothing to choose — draft save and submit must still work end to end.
+describe("fresh event with zero taxonomies", () => {
+	function callFreshSession(cookie: string, body: unknown) {
+		return sessionAction({
+			context: CONTEXT,
+			request: jsonRequest(`${FRESH_BASE_URL}/step/session`, cookie, body),
+			params: FRESH_PARAMS,
+		} as unknown as Parameters<typeof sessionAction>[0]);
+	}
+	function callFreshSubmit(cookie: string, body: unknown) {
+		return submitAction({
+			context: CONTEXT,
+			request: jsonRequest(`${FRESH_BASE_URL}/step/review`, cookie, body),
+			params: FRESH_PARAMS,
+		} as unknown as Parameters<typeof submitAction>[0]);
+	}
+
+	it("omits every option-backed built-in from the resolved definition", async () => {
+		await seedFreshCfp();
+		const db = getDb(env);
+		const [form] = await db
+			.select()
+			.from(forms)
+			.where(eq(forms.id, FRESH.formId));
+		if (!form) throw new Error("fixture form missing");
+		const definition = await resolveFormDefinition(db, form);
+		// Default session set is Title/Description + the five taxonomy
+		// dropdowns; with no options to offer, only the text questions remain.
+		expect(definition.session.map((f) => f.key)).toEqual([
+			"b_title",
+			"b_description",
+		]);
+	});
+
+	it("saves a draft with just a title", async () => {
+		await seedFreshCfp();
+		const speaker = await createSpeaker();
+		const db = getDb(env);
+
+		const result = (await callFreshSession(speaker.cookie, {
+			intent: "save-draft",
+			wizardId: WIZARD_ID,
+			values: { b_title: "First talk on a fresh event" },
+			participants: [],
+		})) as unknown as DataResult;
+
+		expect(result.data.ok).toBe(true);
+		const [row] = await db.select().from(submissions);
+		expect(row?.status).toBe("draft");
+		expect(row?.eventId).toBe(FRESH.eventId);
+	});
+
+	it("accepts a submission carrying no taxonomy answers and the stale default language", async () => {
+		await seedFreshCfp();
+		const speaker = await createSpeaker();
+		const db = getDb(env);
+
+		const response = (await callFreshSubmit(speaker.cookie, {
+			intent: "submit",
+			wizardId: WIZARD_ID,
+			values: {
+				b_title: "Shipping without a taxonomy",
+				b_description: "<p>The form must accept this.</p>",
+				// A resumed draft round-trips the row's default language even
+				// though the event has no language options configured.
+				b_language: "English",
+			},
+			participants: [selfRow()],
+		})) as Response;
+
+		expect(response.status).toBe(302);
+		expect(response.headers.get("Location")).toContain(
+			`/step/success?sid=${WIZARD_ID}`,
+		);
+		const [row] = await db.select().from(submissions);
+		expect(row?.status).toBe("pending");
+		expect(row?.language).toBe("English");
+		expect(row?.formatId).toBeNull();
+	});
+
+	it("a placed REQUIRED select with zero options never blocks the submit", async () => {
+		await seedFreshCfp();
+		const db = getDb(env);
+		await db.insert(fields).values({
+			id: "fld_empty_dd",
+			eventId: FRESH.eventId,
+			name: "Room preference",
+			type: "dropdown",
+			options: [],
+		});
+		await db.insert(formFields).values([
+			{
+				id: "ffr_title",
+				formId: FRESH.formId,
+				builtinRef: "title",
+				section: "session",
+				position: 0,
+				required: true,
+				locked: true,
+			},
+			{
+				id: "ffr_track",
+				formId: FRESH.formId,
+				builtinRef: "track",
+				section: "session",
+				position: 1,
+				required: true,
+			},
+			{
+				id: "ffr_empty_dd",
+				formId: FRESH.formId,
+				fieldId: "fld_empty_dd",
+				section: "session",
+				position: 2,
+				required: true,
+			},
+		]);
+		const speaker = await createSpeaker();
+
+		const response = (await callFreshSubmit(speaker.cookie, {
+			intent: "submit",
+			wizardId: WIZARD_ID,
+			values: { b_title: "Required selects with nothing to select" },
+			participants: [selfRow()],
+		})) as Response;
+
+		expect(response.status).toBe(302);
+		const [row] = await db.select().from(submissions);
+		expect(row?.status).toBe("pending");
+		const trackRows = await db.select().from(submissionTracks);
+		expect(trackRows).toHaveLength(0);
 	});
 });

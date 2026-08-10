@@ -260,6 +260,19 @@ export function isInputField(field: WizardField): boolean {
 }
 
 /**
+ * A select offering zero options (unconfigured taxonomy, option-less library
+ * dropdown): nothing is choosable, so it must never render and never block
+ * validation — required or not, whatever stale value a resumed draft carries.
+ * Twin of `placementMissingOptions` (~/lib/forms), the builder-side warning.
+ */
+export function isUnanswerableSelect(field: WizardField): boolean {
+	return (
+		(field.type === "dropdown" || field.type === "multi_dropdown") &&
+		(field.options?.length ?? 0) === 0
+	);
+}
+
+/**
  * Validate one wizard section. Required/format checks apply to VISIBLE input
  * fields only — a rule-hidden field never blocks.
  */
@@ -271,6 +284,7 @@ export function validateSection(
 	for (const field of fields) {
 		if (!isInputField(field)) continue;
 		if (!isFieldVisible(field, values, fields)) continue;
+		if (isUnanswerableSelect(field)) continue;
 		const raw = (values[field.key] ?? "").trim();
 		const isEmpty =
 			field.type === "wysiwyg" ? plainTextLength(raw) === 0 : raw.length === 0;

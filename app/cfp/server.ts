@@ -30,6 +30,7 @@ import {
 	DEFAULT_SESSION_BUILTINS,
 	fieldKey,
 	isFieldVisible,
+	isUnanswerableSelect,
 	joinMultiValue,
 	participantExtraFields,
 	type RoleConfig,
@@ -277,9 +278,13 @@ export async function resolveFormDefinition(
 			const defaultFields = defaults.map((d) =>
 				builtinField(d.ref, d.required, d.locked, null, taxonomies),
 			);
-			return [...defaultFields, ...resolved];
+			resolved.unshift(...defaultFields);
 		}
-		return resolved;
+		// A select with zero configured options (unconfigured taxonomy on a fresh
+		// event) is unanswerable — omitting it here keeps the renderer, both
+		// validators, the review summary, and the write path in agreement, so a
+		// required-but-empty dropdown can never dead-end the speaker.
+		return resolved.filter((f) => !isUnanswerableSelect(f));
 	};
 
 	const roles: RoleConfig = {

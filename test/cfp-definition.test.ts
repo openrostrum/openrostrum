@@ -131,6 +131,38 @@ describe("section validation", () => {
 			validateSection([title], { b_title: "x".repeat(255) }).b_title,
 		).toBeUndefined();
 	});
+
+	// An event with no taxonomies configured must never present required
+	// selects nobody can answer — that strands the speaker on the Submission
+	// step with no way to advance.
+	it("never blocks on a select that offers zero options, required or not", () => {
+		const emptyLanguage: WizardField = {
+			key: "b_language",
+			builtinRef: "language",
+			label: "Language",
+			type: "dropdown",
+			required: true,
+			locked: false,
+			options: [],
+			rule: null,
+		};
+		const emptyTags: WizardField = {
+			key: "b_tags",
+			builtinRef: "tags",
+			label: "Tags",
+			type: "multi_dropdown",
+			required: true,
+			locked: false,
+			options: [],
+			rule: null,
+		};
+		expect(validateSection([emptyLanguage, emptyTags], {})).toEqual({});
+		// Stale value carried by a resumed draft (submissions default the
+		// language to "English"): still no "Choose a valid Language" error.
+		expect(validateSection([emptyLanguage], { b_language: "English" })).toEqual(
+			{},
+		);
+	});
 });
 
 describe("participant validation", () => {

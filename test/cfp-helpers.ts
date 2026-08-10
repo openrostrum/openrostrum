@@ -142,6 +142,46 @@ export async function seedCfp(
 	});
 }
 
+export const FRESH = {
+	eventSlug: "fresh-event",
+	formPublicId: "form-uuid-fresh",
+	formId: "f_fresh",
+	eventId: "e_fresh",
+} as const;
+
+export const FRESH_BASE_URL = `http://localhost/submit/${FRESH.eventSlug}/${FRESH.formPublicId}`;
+export const FRESH_PARAMS = {
+	eventSlug: FRESH.eventSlug,
+	formId: FRESH.formPublicId,
+};
+
+/**
+ * A brand-new event with an open form and NOTHING configured: zero
+ * taxonomies, zero library fields, no built-in placements. This is the state
+ * an organizer reaches by creating an event and publishing the default form
+ * before touching Settings → Library — it must be submittable.
+ */
+export async function seedFreshCfp(): Promise<void> {
+	const db = getDb(env);
+	await db.insert(organizations).values({ id: "org_fresh", name: "Fresh Org" });
+	await db.insert(events).values({
+		id: FRESH.eventId,
+		organizationId: "org_fresh",
+		name: "Fresh Conf",
+		slug: FRESH.eventSlug,
+		timezone: "UTC",
+	});
+	await db.insert(forms).values({
+		id: FRESH.formId,
+		eventId: FRESH.eventId,
+		publicId: FRESH.formPublicId,
+		type: "session",
+		status: "open",
+		internalName: "Fresh CFP",
+		externalTitle: "Call for Sessions",
+	});
+}
+
 export async function createSpeaker(
 	id = "u_speaker1",
 	email = "priya@example.com",
