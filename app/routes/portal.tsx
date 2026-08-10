@@ -3,7 +3,7 @@ import { redirect } from "react-router";
 import { getDb } from "~/db";
 import { contacts, events, portals, submissions } from "~/db/schema";
 import { normalizeEmail, requireUser } from "~/lib/auth";
-import { EmptyState } from "~/ui";
+import { FullPageEmptyState } from "~/components/full-page-empty-state";
 import type { Route } from "./+types/portal";
 
 /**
@@ -57,12 +57,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 
 export default function PortalResolver() {
 	return (
-		<main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6">
-			<EmptyState
-				icon="mic"
-				title="No portal access yet"
-				body="Your speaker portal appears once you submit to an event's call for papers, or once an organizer adds you to a session. Use the portal link from your confirmation email if you have one."
-			/>
-		</main>
+		<FullPageEmptyState
+			icon="mic"
+			title="No portal access yet"
+			body="Your speaker portal appears once you submit to an event's call for papers, or once an organizer adds you to a session. Use the portal link from your confirmation email if you have one."
+		/>
 	);
 }
