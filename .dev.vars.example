@@ -18,3 +18,8 @@ APP_ENV=development
 # Bot protection on the public CFP form. Unset → pass-through (so headless
 # agents can submit). Set to enforce:
 # TURNSTILE_SECRET=...
+
+# Signs unsubscribe-footer tokens. Unset locally → a fixed dev secret (mail
+# never leaves the machine). REQUIRED whenever RESEND_API_KEY is set — real
+# mail with forgeable unsubscribe tokens would let anyone suppress any address.
+# UNSUBSCRIBE_SECRET=...

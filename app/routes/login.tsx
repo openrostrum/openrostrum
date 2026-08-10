@@ -12,7 +12,15 @@ import {
 	normalizeEmail,
 	verifyPassword,
 } from "~/lib/auth";
-import { Button, ErrorText, Field, Input, Panel, Wordmark } from "~/ui";
+import {
+	Button,
+	ErrorText,
+	Field,
+	Input,
+	Panel,
+	TextLink,
+	Wordmark,
+} from "~/ui";
 import type { Route } from "./+types/login";
 
 const Credentials = z.object({
@@ -92,6 +100,7 @@ export default function Login({ actionData }: Route.ComponentProps) {
 					</Field>
 					<Button type="submit">Sign in</Button>
 					{actionData?.error && <ErrorText>{actionData.error}</ErrorText>}
+					<TextLink to="/forgot-password">Forgot your password?</TextLink>
 				</Form>
 			</Panel>
 		</main>

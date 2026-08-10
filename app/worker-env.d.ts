@@ -7,5 +7,6 @@ declare namespace Cloudflare {
 		TURNSTILE_SECRET?: string;
 		AIRTABLE_API_KEY?: string;
 		AIRTABLE_BASE_ID?: string;
+		UNSUBSCRIBE_SECRET?: string;
 	}
 }
