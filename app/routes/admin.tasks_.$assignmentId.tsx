@@ -140,63 +140,71 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const event = await getActiveEvent(env, user);
 	if (!event) throw new Response("Not found", { status: 404 });
 	const db = getDb(env);
+	const timings = createTimings();
 	const row = await findAssignment(db, event.id, params.assignmentId);
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "");
 	const now = new Date();
+	const withTimings = (result: ActionResult) =>
+		data(result, { headers: { "Server-Timing": timings.header() } });
 
 	try {
 		if (intent === "set-due") {
 			const parsed = DueForm.safeParse({ dueDate: form.get("dueDate") ?? "" });
 			if (!parsed.success) {
-				return {
-					fieldErrors: z.flattenError(parsed.error).fieldErrors,
-				} satisfies ActionResult;
+				return withTimings({
+					fieldErrors: z.flattenError(parsed.error)
+						.fieldErrors as ActionResult["fieldErrors"],
+				});
 			}
 			const dueAt = parsed.data.dueDate
 				? parseDueDate(parsed.data.dueDate)
 				: null;
 			// Changing the due date re-arms the automated reminder: the cron only
 			// skips assignments whose reminderSentAt stamp is set.
-			await db
-				.update(taskAssignments)
-				.set({ dueAt, reminderSentAt: null })
-				.where(eq(taskAssignments.id, row.assignment.id));
+			await timings.time("db", () =>
+				db
+					.update(taskAssignments)
+					.set({ dueAt, reminderSentAt: null })
+					.where(eq(taskAssignments.id, row.assignment.id)),
+			);
 			track("task.due_changed", {
 				eventId: event.id,
 				assignmentId: row.assignment.id,
 				dueAt: dueAt ? dueAt.toISOString() : null,
 			});
-			return {
+			return withTimings({
 				notice: dueAt
 					? `Due date set to ${formatDateUTC(dueAt)} — the automated reminder is re-armed.`
 					: "Due date cleared.",
-			} satisfies ActionResult;
+			} satisfies ActionResult);
 		}
 
 		if (intent === "set-status") {
 			const status = String(form.get("status") ?? "");
 			if (status !== "complete" && status !== "incomplete") {
-				return { formError: "Unknown status." } satisfies ActionResult;
+				return withTimings({ formError: "Unknown status." });
 			}
-			await db
-				.update(taskAssignments)
-				.set({
-					status,
-					completedAt: status === "complete" ? now : null,
-				})
-				.where(eq(taskAssignments.id, row.assignment.id));
+			await timings.time("db", () =>
+				db
+					.update(taskAssignments)
+					.set({
+						status,
+						completedAt: status === "complete" ? now : null,
+					})
+					.where(eq(taskAssignments.id, row.assignment.id)),
+			);
 			track("task.status_overridden", {
 				eventId: event.id,
 				assignmentId: row.assignment.id,
 				status,
 			});
-			return {
+			return withTimings({
 				notice:
 					status === "complete"
 						? "Marked complete on the speaker's behalf."
 						: "Reopened — the speaker sees it as incomplete again.",
-			} satisfies ActionResult;
+			} satisfies ActionResult);
 		}
 
 		if (intent === "approve-file" || intent === "deny-file") {
@@ -213,49 +221,51 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				)
 				.limit(1);
 			if (!file) {
-				return {
-					formError: "That upload no longer exists.",
-				} satisfies ActionResult;
+				return withTimings({ formError: "That upload no longer exists." });
 			}
 			if (intent === "approve-file") {
-				await db.batch([
-					db
-						.update(files)
-						.set({ reviewStatus: "approved", reviewNote: null })
-						.where(eq(files.id, file.id)),
-					db
-						.update(taskAssignments)
-						.set({ status: "complete", completedAt: now })
-						.where(eq(taskAssignments.id, row.assignment.id)),
-				]);
+				await timings.time("db", () =>
+					db.batch([
+						db
+							.update(files)
+							.set({ reviewStatus: "approved", reviewNote: null })
+							.where(eq(files.id, file.id)),
+						db
+							.update(taskAssignments)
+							.set({ status: "complete", completedAt: now })
+							.where(eq(taskAssignments.id, row.assignment.id)),
+					]),
+				);
 				track("task.file_approved", {
 					eventId: event.id,
 					assignmentId: row.assignment.id,
 					fileId: file.id,
 				});
-				return {
+				return withTimings({
 					notice: "Upload approved — the task is complete.",
-				} satisfies ActionResult;
+				} satisfies ActionResult);
 			}
 			const note = String(form.get("reviewNote") ?? "").trim();
-			await db.batch([
-				db
-					.update(files)
-					.set({ reviewStatus: "denied", reviewNote: note || null })
-					.where(eq(files.id, file.id)),
-				db
-					.update(taskAssignments)
-					.set({ status: "incomplete", completedAt: null })
-					.where(eq(taskAssignments.id, row.assignment.id)),
-			]);
+			await timings.time("db", () =>
+				db.batch([
+					db
+						.update(files)
+						.set({ reviewStatus: "denied", reviewNote: note || null })
+						.where(eq(files.id, file.id)),
+					db
+						.update(taskAssignments)
+						.set({ status: "incomplete", completedAt: null })
+						.where(eq(taskAssignments.id, row.assignment.id)),
+				]),
+			);
 			track("task.file_denied", {
 				eventId: event.id,
 				assignmentId: row.assignment.id,
 				fileId: file.id,
 			});
-			return {
+			return withTimings({
 				notice: "Upload denied — the speaker can submit a new version.",
-			} satisfies ActionResult;
+			} satisfies ActionResult);
 		}
 	} catch (error) {
 		track("task.assignment_action_failed", {
@@ -264,12 +274,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			intent,
 			error: errorMessage(error),
 		});
-		return {
+		return withTimings({
 			formError: "Could not save that change — please try again.",
-		} satisfies ActionResult;
+		});
 	}
 
-	return { formError: "Unknown action." } satisfies ActionResult;
+	return withTimings({ formError: "Unknown action." });
 }
 
 function formatBytes(size: number | null): string {

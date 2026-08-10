@@ -21,6 +21,20 @@ import {
 // The dashboard's numbers must equal an independent aggregation of the fixture:
 // Priya owes 2 (one overdue), Bob owes 1 (pending feedback), Carol owes 0.
 
+type UnwrappedAction = {
+	notice?: string;
+	formError?: string;
+	fieldErrors?: Record<string, string[]>;
+};
+
+/** Actions may return `data(result, { headers })` — read through the wrapper. */
+function unwrapAction(result: unknown): UnwrappedAction {
+	const maybe = result as { data?: UnwrappedAction };
+	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
+		? maybe.data
+		: (result as UnwrappedAction);
+}
+
 async function seedAssignmentsMix() {
 	const db = await seedTasksBaseline();
 	const past = new Date(Date.now() - 5 * DAY_MS);
@@ -293,11 +307,13 @@ describe("bulk assignment", () => {
 				dueDate: "",
 			}),
 		);
-		return (await action({
-			context: CONTEXT,
-			request,
-			params: {},
-		} as unknown as Parameters<typeof action>[0])) as { notice?: string };
+		return unwrapAction(
+			await action({
+				context: CONTEXT,
+				request,
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
 	}
 
 	it("is idempotent — re-running the assign never duplicates", async () => {
@@ -357,11 +373,13 @@ describe("bulk reminder (manual)", () => {
 				taskId: "",
 			}),
 		);
-		return (await action({
-			context: CONTEXT,
-			request,
-			params: {},
-		} as unknown as Parameters<typeof action>[0])) as { notice?: string };
+		return unwrapAction(
+			await action({
+				context: CONTEXT,
+				request,
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
 	}
 
 	it("emails exactly the speakers with INCOMPLETE work — pending feedback and complete are skipped", async () => {

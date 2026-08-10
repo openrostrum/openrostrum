@@ -38,20 +38,33 @@ async function seedAssignment() {
 	return db;
 }
 
+type UnwrappedAction = {
+	notice?: string;
+	formError?: string;
+	fieldErrors?: Record<string, string[]>;
+};
+
+/** Actions may return `data(result, { headers })` — read through the wrapper. */
+function unwrapAction(result: unknown): UnwrappedAction {
+	const maybe = result as { data?: UnwrappedAction };
+	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
+		? maybe.data
+		: (result as UnwrappedAction);
+}
+
 async function callAction(
 	assignmentId: string,
 	fields: Record<string, string>,
 ) {
 	const url = `http://localhost/admin/tasks/${assignmentId}`;
 	const request = await authedRequest(url, {}, postForm(url, fields));
-	return (await action({
-		context: CONTEXT,
-		request,
-		params: { assignmentId },
-	} as unknown as Parameters<typeof action>[0])) as {
-		notice?: string;
-		formError?: string;
-	};
+	return unwrapAction(
+		await action({
+			context: CONTEXT,
+			request,
+			params: { assignmentId },
+		} as unknown as Parameters<typeof action>[0]),
+	);
 }
 
 describe("task response view", () => {

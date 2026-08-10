@@ -205,7 +205,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			lastName: string;
 			email: string;
 			outstanding: number;
-			overdue: number;
 			earliestDue: Date | null;
 			items: Array<{
 				assignmentId: string;
@@ -253,7 +252,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const db = getDb(env);
 	const timings = createTimings();
 	const now = new Date();
-	const nowEpoch = Math.floor(now.getTime() / 1000);
 
 	// %/_ in the search term are literals to the user, not wildcards.
 	const likePattern = `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
@@ -335,7 +333,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					lastName: contacts.lastName,
 					email: contacts.email,
 					outstanding: count(),
-					overdue: sql<number>`coalesce(sum(case when ${taskAssignments.dueAt} < ${nowEpoch} then 1 else 0 end), 0)`,
 					earliestDue: sql<number | null>`min(${taskAssignments.dueAt})`,
 				})
 				.from(taskAssignments)
@@ -383,7 +380,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				lastName: r.lastName,
 				email: r.email,
 				outstanding: r.outstanding,
-				overdue: r.overdue,
 				earliestDue:
 					r.earliestDue == null ? null : new Date(r.earliestDue * 1000),
 				items: items
@@ -512,6 +508,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 		return { formError: "No event is configured yet." } satisfies ActionResult;
 	}
 	const db = getDb(env);
+	const timings = createTimings();
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "");
 
@@ -568,10 +565,12 @@ export async function action({ context, request }: Route.ActionArgs) {
 		};
 		try {
 			if (intent === "create-task") {
-				const [row] = await db
-					.insert(tasks)
-					.values({ ...values, eventId: event.id })
-					.returning({ id: tasks.id });
+				const [row] = await timings.time("db", () =>
+					db
+						.insert(tasks)
+						.values({ ...values, eventId: event.id })
+						.returning({ id: tasks.id }),
+				);
 				track("task.created", {
 					eventId: event.id,
 					taskId: row?.id,
@@ -589,7 +588,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 						formError: "That task no longer exists.",
 					} satisfies ActionResult;
 				}
-				await db.update(tasks).set(values).where(eq(tasks.id, existing.id));
+				await timings.time("db", () =>
+					db.update(tasks).set(values).where(eq(tasks.id, existing.id)),
+				);
 				track("task.updated", { eventId: event.id, taskId: existing.id });
 			}
 		} catch (error) {
@@ -601,7 +602,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 				formError: "Could not save the task — please try again.",
 			} satisfies ActionResult;
 		}
-		return redirect("/admin/tasks?view=definitions");
+		return redirect("/admin/tasks?view=definitions", {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	if (intent === "delete-task") {
@@ -617,7 +620,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 			} satisfies ActionResult;
 		}
 		try {
-			await db.delete(tasks).where(eq(tasks.id, existing.id));
+			await timings.time("db", () =>
+				db.delete(tasks).where(eq(tasks.id, existing.id)),
+			);
 		} catch (error) {
 			track("task.delete_failed", {
 				eventId: event.id,
@@ -629,7 +634,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 			} satisfies ActionResult;
 		}
 		track("task.deleted", { eventId: event.id, taskId: existing.id });
-		return redirect("/admin/tasks?view=definitions");
+		return redirect("/admin/tasks?view=definitions", {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	if (intent === "assign-task") {
@@ -732,24 +739,26 @@ export async function action({ context, request }: Route.ActionArgs) {
 		}
 		let added = 0;
 		try {
-			for (let i = 0; i < unique.length; i += 50) {
-				const inserted = await db
-					.insert(taskAssignments)
-					.values(
-						unique.slice(i, i + 50).map((c) => ({
-							taskId: task.id,
-							contactId: c.contactId,
-							submissionId: c.submissionId,
-							status: "incomplete" as const,
-							dueAt,
-						})),
-					)
-					.onConflictDoNothing({
-						target: [taskAssignments.taskId, taskAssignments.contactId],
-					})
-					.returning({ id: taskAssignments.id });
-				added += inserted.length;
-			}
+			await timings.time("db", async () => {
+				for (let i = 0; i < unique.length; i += 50) {
+					const inserted = await db
+						.insert(taskAssignments)
+						.values(
+							unique.slice(i, i + 50).map((c) => ({
+								taskId: task.id,
+								contactId: c.contactId,
+								submissionId: c.submissionId,
+								status: "incomplete" as const,
+								dueAt,
+							})),
+						)
+						.onConflictDoNothing({
+							target: [taskAssignments.taskId, taskAssignments.contactId],
+						})
+						.returning({ id: taskAssignments.id });
+					added += inserted.length;
+				}
+			});
 		} catch (error) {
 			track("task.assign_failed", {
 				eventId: event.id,
@@ -767,11 +776,14 @@ export async function action({ context, request }: Route.ActionArgs) {
 			added,
 			skipped,
 		});
-		return {
+		const assignResult: ActionResult = {
 			notice: `Assigned "${task.name}" to ${added} speaker${added === 1 ? "" : "s"}${
 				skipped > 0 ? ` — ${skipped} already had it` : ""
 			}.`,
-		} satisfies ActionResult;
+		};
+		return data(assignResult, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	if (intent === "remind-outstanding") {
@@ -812,7 +824,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 			list.push(row);
 			byContact.set(row.contactId, list);
 		}
-		const portalPublicId = (await firstPortalsByEvent(db)).get(event.id);
+		const portalPublicId = (await firstPortalsByEvent(db, event.id)).get(
+			event.id,
+		);
 		const origin = new URL(request.url).origin;
 		const portalHref = portalPublicId
 			? portalUrl(origin, event.slug, portalPublicId)
@@ -868,12 +882,15 @@ export async function action({ context, request }: Route.ActionArgs) {
 			assignments: rows.length,
 			deduped: alreadySent,
 		});
-		return {
+		const remindResult: ActionResult = {
 			notice:
 				sent === 0
 					? "These reminders were already sent."
 					: `Sent ${sent} reminder${sent === 1 ? "" : "s"} covering ${rows.length} outstanding task${rows.length === 1 ? "" : "s"}.`,
-		} satisfies ActionResult;
+		};
+		return data(remindResult, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	return { formError: "Unknown action." } satisfies ActionResult;
@@ -912,7 +929,11 @@ export default function TasksDashboard({
 	} = loaderData;
 	const [confirmingRemind, setConfirmingRemind] = useState(false);
 	const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+	const [assignTaskId, setAssignTaskId] = useState<string | null>(null);
 	const editTask = definitions.find((d) => d.id === editId) ?? null;
+	const assignTaskType = taskOptions.find(
+		(t) => t.id === (assignTaskId ?? taskOptions[0]?.id),
+	)?.type;
 
 	const filterParams = {
 		view,
@@ -1327,7 +1348,10 @@ export default function TasksDashboard({
 								label="Assign"
 								error={actionData?.fieldErrors?.taskId?.[0]}
 							>
-								<Select name="taskId">
+								<Select
+									name="taskId"
+									onChange={(e) => setAssignTaskId(e.currentTarget.value)}
+								>
 									{taskOptions.map((t) => (
 										<option key={t.id} value={t.id}>
 											{t.name}
@@ -1336,13 +1360,19 @@ export default function TasksDashboard({
 								</Select>
 							</Field>
 							<Field label="To">
-								<Select name="target" defaultValue="accepted">
-									{assignTargets.map((t) => (
-										<option key={t.value} value={t.value}>
-											{t.label}
-										</option>
-									))}
-								</Select>
+								{assignTaskType === "submission" ? (
+									<Select name="target" disabled>
+										<option>Accepted submissions&apos; primary speakers</option>
+									</Select>
+								) : (
+									<Select name="target" defaultValue="accepted">
+										{assignTargets.map((t) => (
+											<option key={t.value} value={t.value}>
+												{t.label}
+											</option>
+										))}
+									</Select>
+								)}
 							</Field>
 							<Field
 								label="Due date (optional)"

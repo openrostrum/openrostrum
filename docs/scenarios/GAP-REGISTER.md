@@ -93,3 +93,10 @@ delete rev. 2 (zombie rows → honor-the-delete) and webhook-first sync live in
 | K15 | **Triple gate (accepted → content-approved → agenda-published) reads as a bug** without affordances | FIXED (SCOPE P1 #18): accept spine sets `contentStatus='in_review'`; bulk "Approve all accepted"; dashboard alert "N accepted sessions aren't public yet"; Published/Unpublished chip on the agenda header. Supersedes K10's "stays draft" note — gate mechanics unchanged |
 | K16 | **CSV import deduped silently** ("imported 100, why 97?") | FIXED (SCOPE P1 #17): import ends on a summary — added / merged-by-email / skipped with per-row reasons |
 | K17 | **Task reminder never re-fires after a deadline extension** (one-shot `reminderSentAt`) | FIXED (SCOPE P1 #17): editing `dueAt` clears `reminderSentAt`; reminder `dedupeKey` includes the due date so outbox idempotency doesn't block the re-send |
+
+## Build-lane deferrals (recorded for the integration owner)
+
+| # | Deferral | Status |
+|---|----------|--------|
+| T1 | **Task-reminder email sends (cron + bulk) have no Queue DLQ** — tech-stack's email rule wants failed sends queued. Both paths are retry-safe without it (cron: `reminderSentAt` stays unstamped on failure so the next tick retries; bulk: occurrence-keyed `dedupeKey` = contact+day+outstanding-set makes an admin retry resume, not duplicate — both pinned by tests), and the bulk send is a synchronous per-speaker loop that will meet subrequest caps at very large rosters. Queues + the `workers/app.ts` consumer + `wrangler.json` are integration-owned, so the queue-backed send is an OWNER decision, not a lane one. | OPEN — integration owner: wire task-reminder sends through a queue w/ DLQ, or stamp this retry model as accepted |
+| T2 | **Task-due cron + bulk deliverables reminder shipped in the TASKS lane** though SCOPE P1 #17/#18 nominally file them under roster/content-management. Owner: reconcile the scope rows so those lanes don't build duplicates (two `*.scheduled.ts` jobs would double-email). | OPEN — scope-row reconciliation |
