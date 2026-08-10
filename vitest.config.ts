@@ -1,10 +1,25 @@
+import fs from "node:fs";
 import path from "node:path";
 import {
 	cloudflareTest,
 	readD1Migrations,
 } from "@cloudflare/vitest-pool-workers";
 import tsconfigPaths from "vite-tsconfig-paths";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
+
+// Tests must never see a developer's .dev.vars: ports treat any present key as
+// "use the real provider" (docs/rules/engineering.md §Tests, hermeticity), so
+// blank every key the file defines. The pattern covers wrangler's dotenv line
+// grammar and over-matches: an extra blank is harmless, a missed key leaks.
+function blankedDevVars(): Record<string, string> {
+	const devVarsPath = path.join(import.meta.dirname, ".dev.vars");
+	if (!fs.existsSync(devVarsPath)) return {};
+	const source = fs.readFileSync(devVarsPath, "utf8");
+	const keys = [
+		...source.matchAll(/^\s*(?:export\s+)?([\w.-]+)\s*(?:=|:\s)/gm),
+	];
+	return Object.fromEntries(keys.map(([, key]) => [key, ""]));
+}
 
 // Runs tests INSIDE workerd against a real (local, isolated) D1 — the same
 // runtime and DB as prod. Applies the same drizzle/migrations the app uses, so
@@ -19,11 +34,18 @@ export default defineConfig(async () => {
 			cloudflareTest({
 				wrangler: { configPath: "./wrangler.json" },
 				miniflare: {
-					bindings: { TEST_MIGRATIONS: migrations, APP_ENV: "test" },
+					bindings: {
+						...blankedDevVars(),
+						TEST_MIGRATIONS: migrations,
+						APP_ENV: "test",
+					},
 				},
 			}),
 		],
 		test: {
+			// Nested git worktrees under .claude/ run their own suites — never
+			// from the parent (same rule as eslint's .claude/** ignore).
+			exclude: [...configDefaults.exclude, ".claude/**"],
 			setupFiles: ["./test/setup.ts"],
 			deps: {
 				optimizer: {
