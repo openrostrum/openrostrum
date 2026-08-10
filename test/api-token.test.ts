@@ -8,9 +8,8 @@ import {
 	sha256Hex,
 } from "../app/lib/api-token";
 
-// Token → tenant resolution for the compat API (docs/multi-tenancy-design.md
-// §Authorization + flows/09 rule p): tokens are organization-scoped, optionally
-// restricted to one event; org A's token must never read org B's data.
+// Token → tenant resolution for the compat API: tokens are organization-scoped,
+// optionally restricted to one event; org A's token must never read org B's data.
 
 // The seeded judge token from drizzle/seed.sql / docs/JUDGING.md — pinning the
 // pair proves the documented raw value really resolves against the seed row.

@@ -16,11 +16,9 @@ import {
 	userCanAccessEvent,
 } from "../app/lib/auth";
 
-// Tenancy contract for event resolution (docs/multi-tenancy-design.md
-// §Authorization): access = event → org → member. The any-event fallback was
-// the hole this closes — a user must NEVER resolve to an event of an org they
-// don't belong to, and a membership-less user resolves to null (not a 500,
-// not someone else's event).
+// Tenancy contract for event resolution: access = event → org → member. A user
+// must NEVER resolve to an event of an org they don't belong to, and a
+// membership-less user resolves to null (not a 500, not someone else's event).
 
 async function seedTwoOrgs(): Promise<void> {
 	const db = getDb(env);
