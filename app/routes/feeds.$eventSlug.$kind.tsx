@@ -16,7 +16,7 @@ import {
 	speakersToXml,
 	widgetLoaderScript,
 } from "~/lib/program-feeds";
-import type { EmbedConfig } from "~/widgets/types";
+import type { EmbedConfig } from "~/lib/program-types";
 import type { Route } from "./+types/feeds.$eventSlug.$kind";
 
 // @public — machine-readable program feeds (JSON / XML / iCal / basic HTML)

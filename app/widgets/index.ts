@@ -29,4 +29,4 @@ export {
 	SessionsSurface,
 	SpeakersSurface,
 } from "./surfaces";
-export * from "./types";
+export * from "~/lib/program-types";

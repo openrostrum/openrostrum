@@ -32,7 +32,7 @@ import type {
 	PublicSpeakerProfile,
 	SessionsSurfaceData,
 	SpeakerDirectoryData,
-} from "./types";
+} from "~/lib/program-types";
 
 /**
  * The five public program surfaces. Each is URL-driven (search, filters,

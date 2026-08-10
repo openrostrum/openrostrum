@@ -27,7 +27,7 @@ import {
 	Tr,
 } from "~/ui";
 import { CopyFieldButton } from "~/widgets";
-import { EMBED_TYPE_LABELS } from "~/widgets/types";
+import { EMBED_TYPE_LABELS } from "~/lib/program-types";
 import type { Route } from "./+types/admin.embeds";
 
 // DB-derived contract (drizzle-zod maps notNull text to z.string(), which
@@ -87,19 +87,19 @@ export async function action({ context, request }: Route.ActionArgs) {
 	const form = await request.formData();
 	const intent = form.get("intent");
 
-	try {
-		if (intent === "create") {
-			const parsed = NewEmbed.safeParse({
-				name: form.get("name"),
-				type: form.get("type"),
-			});
-			if (!parsed.success) {
-				return {
-					fieldErrors: z.flattenError(parsed.error).fieldErrors,
-					formError: undefined,
-				};
-			}
-			const id = crypto.randomUUID();
+	if (intent === "create") {
+		const parsed = NewEmbed.safeParse({
+			name: form.get("name"),
+			type: form.get("type"),
+		});
+		if (!parsed.success) {
+			return {
+				fieldErrors: z.flattenError(parsed.error).fieldErrors,
+				formError: undefined,
+			};
+		}
+		const id = crypto.randomUUID();
+		try {
 			await db.insert(embeds).values({
 				id,
 				eventId: event.id, // server-derived — never from the client
@@ -107,24 +107,35 @@ export async function action({ context, request }: Route.ActionArgs) {
 				type: parsed.data.type,
 				config: {},
 			});
-			track("embed.created", { eventId: event.id, type: parsed.data.type });
-			return redirect(`/admin/embeds/${id}`);
+		} catch (error) {
+			track("embed.create_failed", {
+				eventId: event.id,
+				error: errorMessage(error),
+			});
+			return {
+				fieldErrors: undefined,
+				formError: "Could not create the embed — please try again.",
+			};
 		}
+		track("embed.created", { eventId: event.id, type: parsed.data.type });
+		return redirect(`/admin/embeds/${id}`);
+	}
 
-		const parsed = RowIntent.safeParse({
-			id: new URL(request.url).searchParams.get("id"),
-			intent,
-		});
-		if (!parsed.success) {
-			return { fieldErrors: undefined, formError: "Unknown action." };
-		}
-		const row = await db.query.embeds.findFirst({
-			where: (e, { and: andOp, eq: eqOp }) =>
-				andOp(eqOp(e.id, parsed.data.id), eqOp(e.eventId, event.id)),
-		});
-		if (!row) {
-			return { fieldErrors: undefined, formError: "Embed not found." };
-		}
+	const parsed = RowIntent.safeParse({
+		id: new URL(request.url).searchParams.get("id"),
+		intent,
+	});
+	if (!parsed.success) {
+		return { fieldErrors: undefined, formError: "Unknown action." };
+	}
+	const row = await db.query.embeds.findFirst({
+		where: (e, { and: andOp, eq: eqOp }) =>
+			andOp(eqOp(e.id, parsed.data.id), eqOp(e.eventId, event.id)),
+	});
+	if (!row) {
+		return { fieldErrors: undefined, formError: "Embed not found." };
+	}
+	try {
 		if (parsed.data.intent === "toggle") {
 			await db
 				.update(embeds)
@@ -137,7 +148,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 				.where(and(eq(embeds.id, row.id), eq(embeds.eventId, event.id)));
 			track("embed.deleted", { eventId: event.id, type: row.type });
 		}
-		return redirect("/admin/embeds");
 	} catch (error) {
 		track("embed.action_failed", {
 			eventId: event.id,
@@ -148,6 +158,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			formError: "Could not save the change — please try again.",
 		};
 	}
+	return redirect("/admin/embeds");
 }
 
 function DeleteButton({ id, name }: { id: string; name: string }) {

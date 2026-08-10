@@ -24,7 +24,7 @@ import {
 	EMBED_TYPE_LABELS,
 	type EmbedConfig,
 	type HideableField,
-} from "~/widgets/types";
+} from "~/lib/program-types";
 import type { Route } from "./+types/admin.embeds_.$id";
 
 const UpdateEmbed = z.object({

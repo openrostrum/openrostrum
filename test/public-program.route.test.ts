@@ -10,7 +10,7 @@ import type {
 	ProgramEvent,
 	SessionsSurfaceData,
 	SpeakerDirectoryData,
-} from "../app/widgets/types";
+} from "../app/lib/program-types";
 import { CONTEXT, seedProgram, thrownStatus, unwrap } from "./program.fixtures";
 
 // Oracles come from the data-exposure matrix (public = accepted + approved

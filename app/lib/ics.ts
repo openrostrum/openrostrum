@@ -1,8 +1,7 @@
 /**
- * Dependency-free iCalendar (RFC 5545) serializer. The npm `ics` package
+ * Dependency-free iCalendar (RFC 5545) serializer — the npm `ics` package
  * cannot load in workerd (its yup→property-expr CJS chain breaks under the
- * vitest workers pool), so calendar output is generated here — a pure
- * function that behaves identically in tests, dev, and prod.
+ * vitest workers pool). Pure function; identical in tests, dev, and prod.
  */
 
 export type IcsEvent = {
@@ -29,17 +28,28 @@ function utcStamp(date: Date): string {
 		.replace(/\.\d{3}Z$/, "Z");
 }
 
-/** RFC 5545 §3.1: content lines longer than 75 octets fold with CRLF + space. */
+const encoder = new TextEncoder();
+
+/** RFC 5545 §3.1: fold lines over 75 OCTETS (continuations carry a leading
+ * space), counted in UTF-8 bytes per code point so no character splits. */
 function fold(line: string): string {
-	if (line.length <= 74) return line;
 	const chunks: string[] = [];
-	let rest = line;
-	while (rest.length > 74) {
-		chunks.push(rest.slice(0, 74));
-		rest = ` ${rest.slice(74)}`;
+	let current = "";
+	let octets = 0;
+	for (const ch of line) {
+		const chOctets = encoder.encode(ch).length;
+		const max = chunks.length === 0 ? 75 : 74;
+		if (octets + chOctets > max && current !== "") {
+			chunks.push(current);
+			current = ch;
+			octets = chOctets;
+		} else {
+			current += ch;
+			octets += chOctets;
+		}
 	}
-	chunks.push(rest);
-	return chunks.join("\r\n");
+	chunks.push(current);
+	return chunks.map((c, i) => (i === 0 ? c : ` ${c}`)).join("\r\n");
 }
 
 export function buildIcs(options: {

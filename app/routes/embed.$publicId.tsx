@@ -27,7 +27,7 @@ import type {
 	ItinerarySurfaceData,
 	SessionsSurfaceData,
 	SpeakerDirectoryData,
-} from "~/widgets/types";
+} from "~/lib/program-types";
 import type { Route } from "./+types/embed.$publicId";
 
 // @public — the snippet target: renders one configured embed standalone (and

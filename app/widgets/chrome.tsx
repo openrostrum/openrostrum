@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { isRouteErrorResponse, Link } from "react-router";
 import { ButtonLink, EmptyState, Mark, Tab, Tabs } from "~/ui";
-import type { ProgramEvent } from "./types";
+import type { ProgramEvent } from "~/lib/program-types";
 
 /**
  * Chrome for the anonymous program surfaces. Like app/marketing, this is a

@@ -2,7 +2,7 @@ import type { ChangeEvent } from "react";
 import { Form } from "react-router";
 import { Button, Field, SearchInput, Select, TextLink } from "~/ui";
 import { makeHref } from "./bits";
-import type { ProgramFacets, ProgramFilters } from "./types";
+import type { ProgramFacets, ProgramFilters } from "~/lib/program-types";
 
 /**
  * SSR search + faceted filters as a GET form: the URL is the state, so results

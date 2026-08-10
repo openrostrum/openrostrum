@@ -3,7 +3,7 @@ import type {
 	ProgramEvent,
 	PublicSession,
 	PublicSpeakerProfile,
-} from "~/widgets/types";
+} from "~/lib/program-types";
 
 /**
  * Machine-readable projections of the public program. Same inputs as the

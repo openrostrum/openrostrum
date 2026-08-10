@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import { embeds } from "../app/db/schema";
 import { loader } from "../app/routes/embed.$publicId";
-import type { SessionsSurfaceData } from "../app/widgets/types";
+import type { SessionsSurfaceData } from "../app/lib/program-types";
 import { CONTEXT, seedProgram, thrownStatus, unwrap } from "./program.fixtures";
 
 function callEmbed(publicId: string, search = "") {

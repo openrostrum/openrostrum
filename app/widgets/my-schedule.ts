@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 /**
- * Personal schedule = starred session ids in localStorage, keyed per event.
- * No account required to browse or star; `ready` stays false until after
- * hydration so the server and first client render agree (nothing starred).
- * Persistence happens in an effect on the COMMITTED state — a state updater
- * must stay pure (React may defer or replay it), so writing storage inside
- * one silently loses stars.
+ * Personal schedule = starred ids in localStorage, keyed per event; `ready`
+ * stays false until after hydration so SSR and first client render agree.
+ * Storage writes happen in an effect on COMMITTED state — updaters must stay
+ * pure (React may defer/replay them), and a write inside one loses stars.
  */
 const storageKey = (eventId: string) => `openrostrum.my-schedule.${eventId}`;
 

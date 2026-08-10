@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Chip } from "~/ui";
 import { ShowMoreText, SpeakerPhoto, TagPill } from "./bits";
-import type { HideableField, PublicSession } from "./types";
+import type { HideableField, PublicSession } from "~/lib/program-types";
 
 export function SpeakerRow({
 	speaker,

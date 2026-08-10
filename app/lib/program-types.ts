@@ -1,9 +1,8 @@
 /**
- * Client-safe shapes for the public program surfaces. These are PROJECTIONS,
- * not rows: the server serializes exactly these fields to anonymous visitors,
- * so contact emails/phones and internal statuses can never ride along. All
- * date/time strings are pre-formatted server-side in the EVENT's timezone —
- * components never call Intl, so SSR and hydration can't disagree.
+ * Client-safe PROJECTIONS (not rows) for the public surfaces: the server
+ * serializes exactly these fields, so contact PII and internal statuses can
+ * never ride along. Date/time strings are pre-formatted in the EVENT's
+ * timezone server-side — components never call Intl, so SSR can't disagree.
  */
 
 export type PublicTrack = { id: string; name: string; color: string };

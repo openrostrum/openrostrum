@@ -15,14 +15,13 @@ import type {
 	PublicSpeakerProfile,
 	SessionsSurfaceData,
 	SpeakerDirectoryData,
-} from "~/widgets/types";
+} from "~/lib/program-types";
 
 /**
- * Server-side projection layer for every anonymous surface (pages, embeds,
- * feeds). The whitelist lives HERE, not in components: only accepted sessions
- * whose content an organizer approved exist publicly, hidden speakers are
- * dropped before serialization, and contact emails/phones never enter the
- * payload. Reads hit D1 live, so organizer edits appear without republishing.
+ * The one projection layer behind every anonymous surface (pages, embeds,
+ * feeds): only accepted + content-approved sessions exist publicly, hidden
+ * speakers drop before serialization, contact emails/phones never enter the
+ * payload — and reads hit D1 live, so edits appear without republishing.
  */
 
 type EventRow = typeof events.$inferSelect;
@@ -136,9 +135,9 @@ export function toProgramEvent(event: EventRow): ProgramEvent {
 
 /**
  * Submitter rich text → plain text: tags removed, entities decoded (&amp;
- * LAST, or "&amp;lt;" would double-decode). The output is arbitrary TEXT and
- * may legitimately contain angle brackets — markup safety lives at the sinks
- * (React escaping, the feeds' esc()/escapeText, JSON.stringify), never here.
+ * LAST, or "&amp;lt;" double-decodes). Output is arbitrary TEXT that may
+ * contain angle brackets — markup safety lives at the sinks (React, the
+ * feeds' esc()/escapeText, JSON.stringify), never here.
  */
 export function stripHtml(html: string): string {
 	return html
@@ -179,10 +178,10 @@ export async function loadPublicSessions(
 		},
 	});
 
-	const contactIds = [
-		...new Set(rows.flatMap((r) => r.participants.map((p) => p.contactId))),
-	];
-	const photoByContact = await latestHeadshots(db, contactIds);
+	const contactIds = new Set(
+		rows.flatMap((r) => r.participants.map((p) => p.contactId)),
+	);
+	const photoByContact = await latestHeadshots(db, event.id, contactIds);
 
 	const tz = event.timezone;
 	const sessions = rows.map((r): PublicSession => {
@@ -263,19 +262,24 @@ function projectSpeaker(
 	};
 }
 
+/**
+ * Filtered by event + kind (2 bound params), matched to contacts in JS — an
+ * inArray over hundreds of speaker ids would blow D1's 100-parameter cap.
+ */
 async function latestHeadshots(
 	db: Db,
-	contactIds: string[],
+	eventId: string,
+	contactIds: ReadonlySet<string>,
 ): Promise<Map<string, string>> {
-	if (contactIds.length === 0) return new Map();
+	if (contactIds.size === 0) return new Map();
 	const rows = await db.query.files.findMany({
-		where: (f, { and: andOp, eq: eqOp, inArray: inOp }) =>
-			andOp(eqOp(f.kind, "headshot"), inOp(f.contactId, contactIds)),
+		where: (f, { and: andOp, eq: eqOp }) =>
+			andOp(eqOp(f.eventId, eventId), eqOp(f.kind, "headshot")),
 		orderBy: (f, { desc }) => [desc(f.version), desc(f.createdAt)],
 	});
 	const map = new Map<string, string>();
 	for (const f of rows) {
-		if (f.contactId && !map.has(f.contactId)) {
+		if (f.contactId && contactIds.has(f.contactId) && !map.has(f.contactId)) {
 			map.set(f.contactId, `/files/${f.id}`);
 		}
 	}
