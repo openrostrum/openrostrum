@@ -8,7 +8,6 @@ import {
 	exists,
 	gte,
 	inArray,
-	like,
 	lt,
 	lte,
 	ne,
@@ -16,7 +15,7 @@ import {
 	sql,
 } from "drizzle-orm";
 import { useState } from "react";
-import { Form, data, redirect, useOutlet } from "react-router";
+import { Form, data, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import {
@@ -25,7 +24,6 @@ import {
 	insertTaskSchema,
 	participants,
 	portalForms,
-	portals,
 	submissions,
 	TASK_TYPE,
 	taskAssignments,
@@ -35,8 +33,12 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC, parseDueDate } from "~/lib/format";
 import { escapeHtml } from "~/lib/html";
-import { portalUrl } from "~/lib/portal-url";
-import { TASK_STATUS_LABEL, TASK_STATUS_TONE } from "~/lib/task-status";
+import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
+import {
+	isOverdue,
+	TASK_STATUS_LABEL,
+	TASK_STATUS_TONE,
+} from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
 import {
@@ -247,15 +249,14 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		editId,
 	};
 	if (!event) return empty;
-	// The assignment-detail child nests under this route and renders as its own
-	// full page — skip the dashboard queries when the URL is deeper.
-	if (url.pathname.replace(/\/+$/, "") !== "/admin/tasks") return empty;
 
 	const db = getDb(env);
 	const timings = createTimings();
 	const now = new Date();
 	const nowEpoch = Math.floor(now.getTime() / 1000);
 
+	// %/_ in the search term are literals to the user, not wildcards.
+	const likePattern = `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
 	const eventScope = eq(tasks.eventId, event.id);
 	const outstandingScope = and(
 		eventScope,
@@ -264,13 +265,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const taskFilter = taskId ? eq(tasks.id, taskId) : undefined;
 	const contactSearch = q
 		? or(
-				like(contacts.firstName, `%${q}%`),
-				like(contacts.lastName, `%${q}%`),
-				like(contacts.email, `%${q}%`),
-				like(
-					sql`${contacts.firstName} || ' ' || ${contacts.lastName}`,
-					`%${q}%`,
-				),
+				sql`${contacts.firstName} LIKE ${likePattern} ESCAPE '\\'`,
+				sql`${contacts.lastName} LIKE ${likePattern} ESCAPE '\\'`,
+				sql`${contacts.email} LIKE ${likePattern} ESCAPE '\\'`,
+				sql`${contacts.firstName} || ' ' || ${contacts.lastName} LIKE ${likePattern} ESCAPE '\\'`,
 			)
 		: undefined;
 	const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -395,7 +393,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 						taskName: i.taskName,
 						status: i.status,
 						dueAt: i.dueAt,
-						overdue: i.dueAt != null && i.dueAt.getTime() < now.getTime(),
+						overdue: isOverdue(i.dueAt, i.status, now),
 					})),
 			}));
 			return {
@@ -457,10 +455,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				taskOptions,
 				assignments: rows.map((r) => ({
 					...r,
-					overdue:
-						r.dueAt != null &&
-						r.dueAt.getTime() < now.getTime() &&
-						r.status !== "complete",
+					overdue: isOverdue(r.dueAt, r.status, now),
 				})),
 				assignmentsTotal: total?.n ?? 0,
 			};
@@ -817,15 +812,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 			list.push(row);
 			byContact.set(row.contactId, list);
 		}
-		const [portal] = await db
-			.select({ publicId: portals.publicId })
-			.from(portals)
-			.where(eq(portals.eventId, event.id))
-			.orderBy(asc(portals.createdAt))
-			.limit(1);
+		const portalPublicId = (await firstPortalsByEvent(db)).get(event.id);
 		const origin = new URL(request.url).origin;
-		const portalHref = portal
-			? portalUrl(origin, event.slug, portal.publicId)
+		const portalHref = portalPublicId
+			? portalUrl(origin, event.slug, portalPublicId)
 			: null;
 		const sender = getEmailSender(env);
 		const now = new Date();
@@ -902,23 +892,10 @@ function buildHref(
 	return s ? `/admin/tasks?${s}` : "/admin/tasks";
 }
 
-export default function TasksPage({
+export default function TasksDashboard({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	// The assignment detail child route renders as its own full page.
-	const outlet = useOutlet();
-	if (outlet) return outlet;
-	return <TasksDashboard loaderData={loaderData} actionData={actionData} />;
-}
-
-function TasksDashboard({
-	loaderData,
-	actionData,
-}: {
-	loaderData: Route.ComponentProps["loaderData"];
-	actionData: Route.ComponentProps["actionData"];
-}) {
 	const {
 		view,
 		filters,

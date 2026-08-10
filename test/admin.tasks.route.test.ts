@@ -20,7 +20,6 @@ import {
 
 // The dashboard's numbers must equal an independent aggregation of the fixture:
 // Priya owes 2 (one overdue), Bob owes 1 (pending feedback), Carol owes 0.
-// (Firm requirement: the outstanding-tasks view answers "who still owes what".)
 
 async function seedAssignmentsMix() {
 	const db = await seedTasksBaseline();

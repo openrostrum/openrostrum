@@ -12,3 +12,14 @@ export const TASK_STATUS_LABEL: Record<string, string> = {
 	pending_feedback: "Pending feedback",
 	complete: "Complete",
 };
+
+/** THE overdue definition: past due and not done. */
+export function isOverdue(
+	dueAt: Date | null,
+	status: string,
+	now: Date,
+): boolean {
+	return (
+		dueAt != null && dueAt.getTime() < now.getTime() && status !== "complete"
+	);
+}

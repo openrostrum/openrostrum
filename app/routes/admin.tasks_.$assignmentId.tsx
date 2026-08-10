@@ -13,7 +13,11 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC, parseDueDate } from "~/lib/format";
-import { TASK_STATUS_LABEL, TASK_STATUS_TONE } from "~/lib/task-status";
+import {
+	isOverdue,
+	TASK_STATUS_LABEL,
+	TASK_STATUS_TONE,
+} from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
 import {
 	type BadgeTone,
@@ -34,7 +38,7 @@ import {
 	THead,
 	Tr,
 } from "~/ui";
-import type { Route } from "./+types/admin.tasks.$assignmentId";
+import type { Route } from "./+types/admin.tasks_.$assignmentId";
 
 const FILE_STATUS_TONE: Record<string, BadgeTone> = {
 	pending: "info",
@@ -104,10 +108,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			.orderBy(desc(files.version));
 		return { row: found, uploads: fileRows };
 	});
-	const overdue =
-		row.assignment.dueAt != null &&
-		row.assignment.dueAt.getTime() < Date.now() &&
-		row.assignment.status !== "complete";
+	const overdue = isOverdue(
+		row.assignment.dueAt,
+		row.assignment.status,
+		new Date(),
+	);
 	return data(
 		{
 			assignment: row.assignment,

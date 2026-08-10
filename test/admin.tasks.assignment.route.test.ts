@@ -7,7 +7,7 @@ import {
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
-import { action, loader } from "../app/routes/admin.tasks.$assignmentId";
+import { action, loader } from "../app/routes/admin.tasks_.$assignmentId";
 import {
 	authedRequest,
 	CONTEXT,

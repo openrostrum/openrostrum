@@ -1,10 +1,10 @@
-import { and, asc, eq, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull, lte } from "drizzle-orm";
 import { getDb } from "~/db";
-import { contacts, events, portals, taskAssignments, tasks } from "~/db/schema";
+import { contacts, events, taskAssignments, tasks } from "~/db/schema";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC } from "~/lib/format";
 import { escapeHtml } from "~/lib/html";
-import { emailOrigin, portalUrl } from "~/lib/portal-url";
+import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { type Clock, systemClock } from "~/ports/clock";
 import { getEmailSender } from "~/ports/email";
 import { track } from "~/lib/track";
@@ -83,14 +83,7 @@ export async function runTaskDueReminders(
 		);
 	if (due.length === 0) return { sent: 0, failed: 0 };
 
-	const portalRows = await db
-		.select({ eventId: portals.eventId, publicId: portals.publicId })
-		.from(portals)
-		.orderBy(asc(portals.createdAt));
-	const portalByEvent = new Map<string, string>();
-	for (const p of portalRows) {
-		if (!portalByEvent.has(p.eventId)) portalByEvent.set(p.eventId, p.publicId);
-	}
+	const portalByEvent = await firstPortalsByEvent(db);
 
 	const sender = getEmailSender(env);
 	let sent = 0;
