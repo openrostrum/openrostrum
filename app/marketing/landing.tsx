@@ -342,10 +342,9 @@ function Deploy() {
 							Your instance. Your Cloudflare account. Four commands.
 						</h2>
 						<p className={LEAD}>
-							There is no hosted signup, because there is no hosted product —
-							every event team deploys its own instance and owns the database,
-							the files, and every speaker&rsquo;s data. Nothing is hardcoded to
-							our sandbox.
+							Every event team runs its own instance and owns the database, the
+							files, and every speaker&rsquo;s data. Nothing is hardcoded to our
+							sandbox — the repo deploys clean to any Cloudflare account.
 						</p>
 						<div className="flex flex-wrap gap-2">
 							{STACK.map((item) => (
