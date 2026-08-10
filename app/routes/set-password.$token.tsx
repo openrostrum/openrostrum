@@ -282,7 +282,11 @@ export default function SetPassword({
 				<Button type="submit" disabled={busy}>
 					{loaderData.orgName ? "Set password & join" : "Set password"}
 				</Button>
-				{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
+				{actionData?.formError && (
+					<div role="alert">
+						<ErrorText>{actionData.formError}</ErrorText>
+					</div>
+				)}
 			</Form>
 		</AuthPage>
 	);

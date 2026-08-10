@@ -194,7 +194,11 @@ export default function Signup({
 						<TextLink to="/login">sign in</TextLink> instead.
 					</AuthNote>
 				)}
-				{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
+				{actionData?.formError && (
+					<div role="alert">
+						<ErrorText>{actionData.formError}</ErrorText>
+					</div>
+				)}
 			</Form>
 		</AuthPage>
 	);

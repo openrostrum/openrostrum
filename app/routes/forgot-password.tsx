@@ -149,7 +149,11 @@ export default function ForgotPassword({ actionData }: Route.ComponentProps) {
 					/>
 				</Field>
 				<Button type="submit">Send reset link</Button>
-				{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
+				{actionData?.formError && (
+					<div role="alert">
+						<ErrorText>{actionData.formError}</ErrorText>
+					</div>
+				)}
 			</Form>
 		</AuthPage>
 	);

@@ -92,7 +92,11 @@ export default function Login({ actionData }: Route.ComponentProps) {
 					/>
 				</Field>
 				<Button type="submit">Sign in</Button>
-				{actionData?.error && <ErrorText>{actionData.error}</ErrorText>}
+				{actionData?.error && (
+					<div role="alert">
+						<ErrorText>{actionData.error}</ErrorText>
+					</div>
+				)}
 			</Form>
 		</AuthPage>
 	);
