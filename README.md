@@ -4,7 +4,14 @@
   <p><strong>The open-source Sessionboard alternative.</strong><br>
   Conference speaker, session, and program management — free, self-hostable, and yours to keep.</p>
   <p><a href="https://openrostrum.com">openrostrum.com</a> · <a href="#quick-start">Quick start</a> · <a href="#deploy-your-own">Deploy your own</a></p>
+  <p>
+    <a href="https://github.com/openrostrum/openrostrum/actions/workflows/ci.yml"><img src="https://github.com/openrostrum/openrostrum/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  </p>
 </div>
+
+<a href="https://openrostrum.com"><img src="docs/media/agenda-builder.png" alt="The OpenRostrum agenda builder — sessions scheduled on a day × room grid, with an unscheduled tray, conflict detection, and one-action auto-place"></a>
+<p align="center"><sub>The agenda builder: drag sessions from the tray onto the day × room grid — conflicts flag themselves as you build.</sub></p>
 
 ## What it does
 
@@ -18,6 +25,11 @@ OpenRostrum runs the program side of a conference, end to end:
 - **Task tracking** — which speakers still owe a bio, a headshot, or a travel form, on one screen.
 - **Public pages** — live schedule, speaker directory, session catalog, and personal itinerary, plus embeds and JSON/XML/iCal feeds — rendered from the same data the team edits.
 - **Airtable sync** — native push of submissions, speakers, and sessions into your base (no Zapier).
+
+| Submission review | Speaker portal |
+|---|---|
+| ![Submission review — the full list with statuses, track routing, and bulk accept/decline email actions](docs/media/submissions-review.png) | ![Speaker portal — a speaker's self-service view of their submissions, profile, and outstanding tasks](docs/media/speaker-portal.png) |
+| Review the pipeline, then accept in bulk — decision emails included. | Every speaker gets a portal: submissions, profile, tasks, files. |
 
 See it running at [openrostrum.com](https://openrostrum.com) — the public [schedule](https://openrostrum.com/schedule), [speakers](https://openrostrum.com/speakers), and [sessions](https://openrostrum.com/sessions) pages of a live event are open to everyone, no account needed.
 
@@ -73,8 +85,4 @@ Conventions live in [`docs/rules/`](docs/rules/); `pnpm verify` runs the full ch
 
 ## License
 
-MIT.
-
----
-
-<sub>OpenRostrum began at swyx's Kill My SaaS hackathon.</sub>
+[MIT](LICENSE).
