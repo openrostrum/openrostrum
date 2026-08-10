@@ -94,7 +94,8 @@ Tenancy enforcement lands in the existing chokepoints — no new middleware laye
   a user with null `activeEventId` falls back to the first event in the
   database. It becomes: first event across MY orgs, else null — with a test on
   the null-`activeEventId` path.
-- The admin guard swaps the global-role check for a membership check.
+- The admin guard adds the membership check alongside the global-role check —
+  the enum gates the surface, membership gates which events.
 - The `/api/v1` token guard resolves the token's organization + event
   restriction.
 - The event switcher lists only your orgs' events (metadata leak otherwise).
