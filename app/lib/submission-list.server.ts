@@ -2,7 +2,11 @@ import { and, asc, count, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
 import { data } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
-import { DECISION_STATUS } from "~/db/constants";
+import {
+	DECISION_STATUS,
+	SUBMISSION_STATUS,
+	SUBMISSION_TYPE,
+} from "~/db/constants";
 import { contacts, type events, submissions } from "~/db/schema";
 import { transitionSubmissions } from "~/domain/accept";
 import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
@@ -19,6 +23,29 @@ import { createTimings, track } from "~/lib/track";
 
 type EventRow = typeof events.$inferSelect;
 type SubmissionType = (typeof submissions.$inferSelect)["type"];
+type SubmissionStatus = (typeof submissions.$inferSelect)["status"];
+
+/**
+ * The ONE parser for the All-Submissions `?type=`/`?status=` filters — the
+ * list loader and the CSV export both consume it, so "export what I'm looking
+ * at" stays exact by construction. Unknown values fall back to "no filter"
+ * (a stale link never errors); "" means unfiltered.
+ */
+export function parseSubmissionFilters(url: URL): {
+	filterType: SubmissionType | "";
+	filterStatus: SubmissionStatus | "";
+} {
+	const typeParam = url.searchParams.get("type") ?? "";
+	const statusParam = url.searchParams.get("status") ?? "";
+	return {
+		filterType: (SUBMISSION_TYPE as readonly string[]).includes(typeParam)
+			? (typeParam as SubmissionType)
+			: "",
+		filterStatus: (SUBMISSION_STATUS as readonly string[]).includes(statusParam)
+			? (statusParam as SubmissionStatus)
+			: "",
+	};
+}
 
 function emptyCounts(): Record<ListTab, number> {
 	return Object.fromEntries(LIST_TABS.map((t) => [t, 0])) as Record<

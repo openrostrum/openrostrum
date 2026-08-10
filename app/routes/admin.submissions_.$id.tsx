@@ -1546,8 +1546,9 @@ function AttachParticipants({
 						)}
 						{contactsTruncated && (
 							<p>
-								Showing the first {contactRows.length} contacts — narrow the
-								filter to find the rest.
+								Showing the first {contactRows.length} contacts (A→Z) — anyone
+								missing can be attached through the form below: an email that
+								already belongs to a contact attaches that contact.
 							</p>
 						)}
 					</div>

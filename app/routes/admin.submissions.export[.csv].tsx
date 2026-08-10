@@ -1,10 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "~/db";
-import { SUBMISSION_STATUS, SUBMISSION_TYPE } from "~/db/constants";
 import { submissions } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { formatInTimeZone } from "~/lib/dates";
 import { toCsv } from "~/lib/evaluation";
+import { parseSubmissionFilters } from "~/lib/submission-list.server";
 import { createTimings, track } from "~/lib/track";
 import type { Route } from "./+types/admin.submissions.export[.csv]";
 
@@ -19,17 +19,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const event = await getActiveEvent(env, user);
 	if (!event) throw new Response("Not found", { status: 404 });
 
-	const url = new URL(request.url);
-	const typeParam = url.searchParams.get("type") ?? "";
-	const filterType = (SUBMISSION_TYPE as readonly string[]).includes(typeParam)
-		? (typeParam as (typeof SUBMISSION_TYPE)[number])
-		: "";
-	const statusParam = url.searchParams.get("status") ?? "";
-	const filterStatus = (SUBMISSION_STATUS as readonly string[]).includes(
-		statusParam,
-	)
-		? (statusParam as (typeof SUBMISSION_STATUS)[number])
-		: "";
+	const { filterType, filterStatus } = parseSubmissionFilters(
+		new URL(request.url),
+	);
 
 	const db = getDb(env);
 	const timings = createTimings();

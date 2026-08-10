@@ -25,6 +25,7 @@ import {
 	transitionSubmissions,
 } from "~/domain/accept";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { parseSubmissionFilters } from "~/lib/submission-list.server";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import {
@@ -109,18 +110,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			filterStatus: "",
 		};
 	}
-	const url = new URL(request.url);
-	// Unknown values fall back to "no filter" — a stale link never errors.
-	const typeParam = url.searchParams.get("type") ?? "";
-	const filterType = (SUBMISSION_TYPE as readonly string[]).includes(typeParam)
-		? (typeParam as (typeof SUBMISSION_TYPE)[number])
-		: "";
-	const statusParam = url.searchParams.get("status") ?? "";
-	const filterStatus = (SUBMISSION_STATUS as readonly string[]).includes(
-		statusParam,
-	)
-		? (statusParam as (typeof SUBMISSION_STATUS)[number])
-		: "";
+	const { filterType, filterStatus } = parseSubmissionFilters(
+		new URL(request.url),
+	);
 	const where = and(
 		eq(submissions.eventId, event.id), // scope to the ACTIVE event
 		filterType ? eq(submissions.type, filterType) : undefined,
