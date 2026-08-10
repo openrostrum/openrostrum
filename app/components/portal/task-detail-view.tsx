@@ -1,4 +1,5 @@
 import { Form, useFetcher } from "react-router";
+import type { loader } from "~/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
 import {
 	Button,
 	EmptyState,
@@ -9,12 +10,8 @@ import {
 	TextLink,
 } from "~/ui";
 import { FilePicker } from "../file-picker";
-import {
-	type PortalFormFieldDef,
-	PortalFormFields,
-} from "../portal-form-fields";
+import { PortalFormFields } from "../portal-form-fields";
 import { Card, MetaGrid, Muted, Notice, Strong } from "./bits";
-import type { StatusView } from "./types";
 
 type CommentView = {
 	id: string;
@@ -24,43 +21,7 @@ type CommentView = {
 	on: string;
 };
 
-export type TaskDetailData = {
-	base: string;
-	id: string;
-	name: string;
-	description: string | null;
-	linkUrl: string | null;
-	required: boolean;
-	due: string | null;
-	overdue: boolean;
-	status: StatusView;
-	isComplete: boolean;
-	completedOn: string | null;
-	submissionTitle: string | null;
-	saved: string | null;
-	kind: "simple" | "form" | "file";
-	uploadConstraints: string;
-	form: null | {
-		title: string;
-		schema: PortalFormFieldDef[];
-		submitted: boolean;
-		answers: Record<string, unknown>;
-	};
-	fileRequest: null | {
-		canUpload: boolean;
-		files: Array<{
-			id: string;
-			version: number;
-			fileName: string;
-			size: string;
-			uploadedOn: string;
-			review: StatusView;
-			reviewNote: string | null;
-			latest: boolean;
-			comments: CommentView[];
-		}>;
-	};
-};
+export type TaskDetailData = Awaited<ReturnType<typeof loader>>["data"];
 
 export type TaskDetailActionData = {
 	intent?: string;

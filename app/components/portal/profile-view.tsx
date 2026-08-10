@@ -1,4 +1,5 @@
 import { Form } from "react-router";
+import type { loader } from "~/routes/portals.$eventSlug.$portalId.profile";
 import {
 	Avatar,
 	Button,
@@ -12,28 +13,7 @@ import { FilePicker } from "../file-picker";
 import { RichTextEditor } from "../rich-text";
 import { Card, Muted, Notice } from "./bits";
 
-export type ProfileViewData = {
-	saved: string | null;
-	headshotUrl: string | null;
-	contact: null | {
-		email: string;
-		firstName: string;
-		lastName: string;
-		salutation: string | null;
-		honorific: string | null;
-		pronouns: string | null;
-		gender: string | null;
-		jobTitle: string | null;
-		companyName: string | null;
-		mobilePhone: string | null;
-		homePhone: string | null;
-		bioHtml: string | null;
-		linkedinUrl: string | null;
-		twitterUrl: string | null;
-		facebookUrl: string | null;
-		websiteUrl: string | null;
-	};
-};
+export type ProfileViewData = Awaited<ReturnType<typeof loader>>["data"];
 
 export type ProfileActionData = {
 	intent?: string;

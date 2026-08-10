@@ -1,15 +1,8 @@
+import type { loader } from "~/routes/portals.$eventSlug.$portalId.files";
 import { ButtonLink, EmptyState } from "~/ui";
 import { Card, Muted, Row, RowList, Strong } from "./bits";
 
-export type FilesViewData = {
-	base: string;
-	files: Array<{
-		id: string;
-		fileName: string;
-		size: string;
-		sharedOn: string;
-	}>;
-};
+export type FilesViewData = Awaited<ReturnType<typeof loader>>["data"];
 
 export function FilesView({ data }: { data: FilesViewData }) {
 	return (

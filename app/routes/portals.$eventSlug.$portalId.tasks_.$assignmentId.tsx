@@ -248,6 +248,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		...body,
 	});
 	const here = portalPath(ctx, `/tasks/${assignment.id}`);
+	const timings = createTimings();
 	const isSimple = !task.isFileRequest && !task.portalFormId;
 
 	if (intent === "complete" || intent === "uncomplete") {
@@ -260,14 +261,16 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			});
 		}
 		try {
-			await db
-				.update(taskAssignments)
-				.set(
-					intent === "complete"
-						? { status: "complete", completedAt: new Date() }
-						: { status: "incomplete", completedAt: null },
-				)
-				.where(eq(taskAssignments.id, assignment.id));
+			await timings.time("db", () =>
+				db
+					.update(taskAssignments)
+					.set(
+						intent === "complete"
+							? { status: "complete", completedAt: new Date() }
+							: { status: "incomplete", completedAt: null },
+					)
+					.where(eq(taskAssignments.id, assignment.id)),
+			);
 		} catch (error) {
 			track("portal.task_status_change_failed", {
 				eventId: ctx.event.id,
@@ -283,9 +286,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			assignmentId: assignment.id,
 			status: intent === "complete" ? "complete" : "incomplete",
 		});
+		const headers = { "Server-Timing": timings.header() };
 		return intent === "complete"
-			? redirect(`${here}?saved=completed`)
-			: redirect(here);
+			? redirect(`${here}?saved=completed`, { headers })
+			: redirect(here, { headers });
 	}
 
 	if (intent === "submit-form") {
@@ -326,10 +330,16 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		if (Object.keys(fieldErrors).length > 0) return fail({ fieldErrors });
 
 		try {
-			await db
-				.update(taskAssignments)
-				.set({ status: "complete", completedAt: new Date(), response: answers })
-				.where(eq(taskAssignments.id, assignment.id));
+			await timings.time("db", () =>
+				db
+					.update(taskAssignments)
+					.set({
+						status: "complete",
+						completedAt: new Date(),
+						response: answers,
+					})
+					.where(eq(taskAssignments.id, assignment.id)),
+			);
 		} catch (error) {
 			track("portal.task_form_submit_failed", {
 				eventId: ctx.event.id,
@@ -366,7 +376,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			assignmentId: assignment.id,
 			formId: pf.id,
 		});
-		return redirect(`${here}?saved=submitted`);
+		return redirect(`${here}?saved=submitted`, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	if (intent === "upload") {
@@ -402,30 +414,37 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		const version = (prior[0]?.version ?? 0) + 1;
 		const r2Key = `task-files/${ctx.event.id}/${assignment.id}/v${version}-${crypto.randomUUID()}`;
 		try {
-			await env.BLOBS.put(r2Key, await file.arrayBuffer(), {
-				httpMetadata: { contentType: file.type || "application/octet-stream" },
-			});
-			await db.batch([
-				db.insert(files).values({
-					eventId: ctx.event.id,
-					contactId: ctx.contact?.id ?? null,
-					submissionId: assignment.submissionId,
-					taskAssignmentId: assignment.id,
-					r2Key,
-					fileName: file.name,
-					kind,
-					contentType: file.type || "application/octet-stream",
-					sizeBytes: file.size,
-					version,
-					reviewStatus: "pending",
+			const bytes = await file.arrayBuffer();
+			await timings.time("r2", () =>
+				env.BLOBS.put(r2Key, bytes, {
+					httpMetadata: {
+						contentType: file.type || "application/octet-stream",
+					},
 				}),
-				// Upload lands the request in the review queue, not "complete" —
-				// the organizer approves or denies it.
-				db
-					.update(taskAssignments)
-					.set({ status: "pending_feedback", fileKey: r2Key })
-					.where(eq(taskAssignments.id, assignment.id)),
-			]);
+			);
+			await timings.time("db", () =>
+				db.batch([
+					db.insert(files).values({
+						eventId: ctx.event.id,
+						contactId: ctx.contact?.id ?? null,
+						submissionId: assignment.submissionId,
+						taskAssignmentId: assignment.id,
+						r2Key,
+						fileName: file.name,
+						kind,
+						contentType: file.type || "application/octet-stream",
+						sizeBytes: file.size,
+						version,
+						reviewStatus: "pending",
+					}),
+					// Upload lands the request in the review queue, not "complete" —
+					// the organizer approves or denies it.
+					db
+						.update(taskAssignments)
+						.set({ status: "pending_feedback", fileKey: r2Key })
+						.where(eq(taskAssignments.id, assignment.id)),
+				]),
+			);
 		} catch (error) {
 			track("portal.file_upload_failed", {
 				eventId: ctx.event.id,
@@ -442,7 +461,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			version,
 			sizeBytes: file.size,
 		});
-		return redirect(`${here}?saved=uploaded`);
+		return redirect(`${here}?saved=uploaded`, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	if (intent === "comment") {
@@ -460,14 +481,16 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			.limit(1);
 		if (!file) throw data(null, { status: 404 });
 		try {
-			await db.insert(fileComments).values({
-				fileId: file.id,
-				authorId: user.id,
-				authorName: ctx.contact
-					? `${ctx.contact.firstName} ${ctx.contact.lastName}`
-					: (user.name ?? user.email),
-				body,
-			});
+			await timings.time("db", () =>
+				db.insert(fileComments).values({
+					fileId: file.id,
+					authorId: user.id,
+					authorName: ctx.contact
+						? `${ctx.contact.firstName} ${ctx.contact.lastName}`
+						: (user.name ?? user.email),
+					body,
+				}),
+			);
 		} catch (error) {
 			track("portal.file_comment_failed", {
 				eventId: ctx.event.id,
@@ -482,7 +505,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			eventId: ctx.event.id,
 			fileId: file.id,
 		});
-		return { intent, ok: true };
+		return data(
+			{ intent, ok: true },
+			{ headers: { "Server-Timing": timings.header() } },
+		);
 	}
 
 	return fail({ formError: "Unknown action." });

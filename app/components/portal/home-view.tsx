@@ -1,30 +1,14 @@
 import { useState } from "react";
+import type { loader } from "~/routes/portals.$eventSlug.$portalId.home";
 import { Avatar, EmptyState, StatusBadge, TextLink } from "~/ui";
 import { RichHtml } from "../rich-html";
 import { Card, Muted, PillToggle, Row, RowList } from "./bits";
 import { TaskRows } from "./tasks-view";
-import type { StatusView, TaskRowView } from "./types";
+import { isSubmissionTask } from "./types";
 
-export type HomeViewData = {
-	base: string;
-	welcomeHtml: string | null;
-	firstName: string | null;
-	profile: {
-		name: string;
-		email: string;
-		jobTitle: string | null;
-		companyName: string | null;
-	} | null;
-	userEmail: string;
-	submissionCount: number;
-	submissions: Array<{
-		id: string;
-		title: string;
-		status: StatusView;
-		format: string | null;
-	}>;
-	tasks: TaskRowView[];
-};
+/** The owning loader's payload — derived, never hand-mirrored (type-only
+ * import; the route↔view cycle is erased at build). */
+export type HomeViewData = Awaited<ReturnType<typeof loader>>["data"];
 
 const TASK_TABS = ["All", "My Tasks", "Submission Tasks"] as const;
 
@@ -44,8 +28,8 @@ export function HomeView({ data }: { data: HomeViewData }) {
 		taskTab === "All"
 			? true
 			: taskTab === "Submission Tasks"
-				? t.type === "submission"
-				: t.type !== "submission",
+				? isSubmissionTask(t)
+				: !isSubmissionTask(t),
 	);
 	const outstanding = tasks.filter((t) => t.open).length;
 

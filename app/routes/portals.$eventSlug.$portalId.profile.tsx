@@ -6,7 +6,7 @@ import {
 	ProfileView,
 } from "~/components/portal/profile-view";
 import { getDb } from "~/db";
-import { contacts, files } from "~/db/schema";
+import { contacts, files, insertContactSchema } from "~/db/schema";
 import { getPortalContext, portalPath } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
@@ -70,23 +70,43 @@ const urlOrEmpty = z.union([
 	z.literal(""),
 ]);
 
-const ProfileSchema = z.object({
-	firstName: z.string().min(1, "First name is required").max(100),
-	lastName: z.string().min(1, "Last name is required").max(100),
-	salutation: z.string().max(50),
-	honorific: z.string().max(50),
-	pronouns: z.string().max(50),
-	gender: z.string().max(50),
-	jobTitle: z.string().max(150),
-	companyName: z.string().max(150),
-	mobilePhone: z.string().max(50),
-	homePhone: z.string().max(50),
-	bio: z.string().max(60000, "Biography is too long"),
-	linkedinUrl: urlOrEmpty,
-	twitterUrl: urlOrEmpty,
-	facebookUrl: urlOrEmpty,
-	websiteUrl: urlOrEmpty,
-});
+// Derived from the DB schema (single source of truth) with form refinements —
+// a renamed contact column breaks this pick at compile time.
+const ProfileSchema = insertContactSchema
+	.pick({
+		firstName: true,
+		lastName: true,
+		salutation: true,
+		honorific: true,
+		pronouns: true,
+		gender: true,
+		jobTitle: true,
+		companyName: true,
+		mobilePhone: true,
+		homePhone: true,
+		bio: true,
+		linkedinUrl: true,
+		twitterUrl: true,
+		facebookUrl: true,
+		websiteUrl: true,
+	})
+	.extend({
+		firstName: z.string().min(1, "First name is required").max(100),
+		lastName: z.string().min(1, "Last name is required").max(100),
+		salutation: z.string().max(50),
+		honorific: z.string().max(50),
+		pronouns: z.string().max(50),
+		gender: z.string().max(50),
+		jobTitle: z.string().max(150),
+		companyName: z.string().max(150),
+		mobilePhone: z.string().max(50),
+		homePhone: z.string().max(50),
+		bio: z.string().max(60000, "Biography is too long"),
+		linkedinUrl: urlOrEmpty,
+		twitterUrl: urlOrEmpty,
+		facebookUrl: urlOrEmpty,
+		websiteUrl: urlOrEmpty,
+	});
 
 const HEADSHOT_TYPES: Record<string, string> = {
 	"image/png": "png",
@@ -109,6 +129,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		...body,
 	});
 	const here = portalPath(ctx, "/profile");
+	const timings = createTimings();
 
 	if (intent === "headshot") {
 		const file = form.get("headshot");
@@ -129,31 +150,36 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		}
 		const r2Key = `headshots/${ctx.event.id}/${contact.id}/${crypto.randomUUID()}.${ext}`;
 		try {
-			await env.BLOBS.put(r2Key, await file.arrayBuffer(), {
-				httpMetadata: { contentType: file.type },
-			});
+			const bytes = await file.arrayBuffer();
+			await timings.time("r2", () =>
+				env.BLOBS.put(r2Key, bytes, {
+					httpMetadata: { contentType: file.type },
+				}),
+			);
 			const [prior] = await db
 				.select({ version: files.version })
 				.from(files)
 				.where(and(eq(files.contactId, contact.id), eq(files.kind, "headshot")))
 				.orderBy(desc(files.version))
 				.limit(1);
-			await db.batch([
-				db.insert(files).values({
-					eventId: ctx.event.id,
-					contactId: contact.id,
-					r2Key,
-					fileName: file.name,
-					kind: "headshot",
-					contentType: file.type,
-					sizeBytes: file.size,
-					version: (prior?.version ?? 0) + 1,
-				}),
-				db
-					.update(contacts)
-					.set({ headshotKey: r2Key })
-					.where(eq(contacts.id, contact.id)),
-			]);
+			await timings.time("db", () =>
+				db.batch([
+					db.insert(files).values({
+						eventId: ctx.event.id,
+						contactId: contact.id,
+						r2Key,
+						fileName: file.name,
+						kind: "headshot",
+						contentType: file.type,
+						sizeBytes: file.size,
+						version: (prior?.version ?? 0) + 1,
+					}),
+					db
+						.update(contacts)
+						.set({ headshotKey: r2Key })
+						.where(eq(contacts.id, contact.id)),
+				]),
+			);
 		} catch (error) {
 			track("portal.headshot_upload_failed", {
 				eventId: ctx.event.id,
@@ -171,7 +197,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			contactId: contact.id,
 			sizeBytes: file.size,
 		});
-		return redirect(`${here}?saved=headshot`);
+		return redirect(`${here}?saved=headshot`, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	if (intent === "profile") {
@@ -207,26 +235,28 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		const opt = (v: string) => v.trim() || null;
 		try {
 			// Ownership is the ctx.contact chain — the WHERE hits only MY row.
-			await db
-				.update(contacts)
-				.set({
-					firstName: parsed.data.firstName.trim(),
-					lastName: parsed.data.lastName.trim(),
-					salutation: opt(parsed.data.salutation),
-					honorific: opt(parsed.data.honorific),
-					pronouns: opt(parsed.data.pronouns),
-					gender: opt(parsed.data.gender),
-					jobTitle: opt(parsed.data.jobTitle),
-					companyName: opt(parsed.data.companyName),
-					mobilePhone: opt(parsed.data.mobilePhone),
-					homePhone: opt(parsed.data.homePhone),
-					bio: bio || null,
-					linkedinUrl: opt(parsed.data.linkedinUrl),
-					twitterUrl: opt(parsed.data.twitterUrl),
-					facebookUrl: opt(parsed.data.facebookUrl),
-					websiteUrl: opt(parsed.data.websiteUrl),
-				})
-				.where(eq(contacts.id, contact.id));
+			await timings.time("db", () =>
+				db
+					.update(contacts)
+					.set({
+						firstName: parsed.data.firstName.trim(),
+						lastName: parsed.data.lastName.trim(),
+						salutation: opt(parsed.data.salutation),
+						honorific: opt(parsed.data.honorific),
+						pronouns: opt(parsed.data.pronouns),
+						gender: opt(parsed.data.gender),
+						jobTitle: opt(parsed.data.jobTitle),
+						companyName: opt(parsed.data.companyName),
+						mobilePhone: opt(parsed.data.mobilePhone),
+						homePhone: opt(parsed.data.homePhone),
+						bio: bio || null,
+						linkedinUrl: opt(parsed.data.linkedinUrl),
+						twitterUrl: opt(parsed.data.twitterUrl),
+						facebookUrl: opt(parsed.data.facebookUrl),
+						websiteUrl: opt(parsed.data.websiteUrl),
+					})
+					.where(eq(contacts.id, contact.id)),
+			);
 		} catch (error) {
 			track("portal.profile_update_failed", {
 				eventId: ctx.event.id,
@@ -241,7 +271,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			eventId: ctx.event.id,
 			contactId: contact.id,
 		});
-		return redirect(`${here}?saved=profile`);
+		return redirect(`${here}?saved=profile`, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	return fail({ formError: "Unknown action." });

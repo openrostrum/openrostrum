@@ -19,6 +19,7 @@ import {
 	users,
 } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
+import { formatInTz } from "~/lib/format";
 import type { BadgeTone } from "~/ui";
 
 type AppUser = typeof users.$inferSelect;
@@ -298,12 +299,16 @@ export type PortalTaskRow = {
 	type: string;
 	status: PortalStatus;
 	open: boolean;
-	dueAtMs: number | null;
+	/** Due date pre-rendered in the EVENT's timezone. */
+	due: string | null;
 	overdue: boolean;
 	submissionTitle: string | null;
 };
 
-/** All of MY task assignments, required-then-due-soonest, open work first. */
+/**
+ * All of MY task assignments as display rows (converted once at this
+ * boundary), required-then-due-soonest, open work first.
+ */
 export async function listPortalTasks(
 	env: Env,
 	ctx: PortalContext,
@@ -326,6 +331,13 @@ export async function listPortalTasks(
 		.leftJoin(submissions, eq(submissions.id, taskAssignments.submissionId))
 		.where(eq(taskAssignments.contactId, ctx.contact.id));
 	return rows
+		.sort(
+			(a, b) =>
+				Number(b.status !== "complete") - Number(a.status !== "complete") ||
+				Number(b.required) - Number(a.required) ||
+				(a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity) ||
+				a.name.localeCompare(b.name),
+		)
 		.map((r) => ({
 			id: r.id,
 			name: r.name,
@@ -333,17 +345,10 @@ export async function listPortalTasks(
 			type: r.type,
 			status: TASK_STATUS_PROJECTION[r.status],
 			open: r.status !== "complete",
-			dueAtMs: r.dueAt?.getTime() ?? null,
+			due: r.dueAt ? formatInTz(r.dueAt, ctx.event.timezone, "date") : null,
 			overdue: r.status !== "complete" && !!r.dueAt && r.dueAt < now,
 			submissionTitle: r.submissionTitle,
-		}))
-		.sort(
-			(a, b) =>
-				Number(b.open) - Number(a.open) ||
-				Number(b.required) - Number(a.required) ||
-				(a.dueAtMs ?? Infinity) - (b.dueAtMs ?? Infinity) ||
-				a.name.localeCompare(b.name),
-		);
+		}));
 }
 
 /** Streams a private R2 object inline (headshots, portal logos). */

@@ -14,6 +14,7 @@ import {
 	PORTAL_PARAMS,
 	seedPortalWorld,
 	thrownStatus,
+	unwrap,
 } from "./portal.helpers";
 
 type ActionArgs = Parameters<typeof detailAction>[0];
@@ -67,24 +68,28 @@ describe("per-participant acceptance", () => {
 	it("keeps two co-speakers' confirmations independent: one confirms, one withdraws", async () => {
 		await seedPanel("accepted");
 
-		const confirm = (await detailAction({
-			context: CONTEXT,
-			request: await act("u_priya", {
-				intent: "confirm-participation",
-				participantId: "p_priya",
-			}),
-			params,
-		} as unknown as ActionArgs)) as { ok?: boolean };
+		const confirm = unwrap<{ ok?: boolean }>(
+			await detailAction({
+				context: CONTEXT,
+				request: await act("u_priya", {
+					intent: "confirm-participation",
+					participantId: "p_priya",
+				}),
+				params,
+			} as unknown as ActionArgs),
+		);
 		expect(confirm.ok).toBe(true);
 
-		const withdraw = (await detailAction({
-			context: CONTEXT,
-			request: await act("u_dana", {
-				intent: "withdraw-participation",
-				participantId: "p_dana",
-			}),
-			params,
-		} as unknown as ActionArgs)) as { ok?: boolean };
+		const withdraw = unwrap<{ ok?: boolean }>(
+			await detailAction({
+				context: CONTEXT,
+				request: await act("u_dana", {
+					intent: "withdraw-participation",
+					participantId: "p_dana",
+				}),
+				params,
+			} as unknown as ActionArgs),
+		);
 		expect(withdraw.ok).toBe(true);
 
 		expect(await acceptance("p_priya")).toBe("accepted");

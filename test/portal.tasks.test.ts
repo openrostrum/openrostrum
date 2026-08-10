@@ -24,6 +24,7 @@ import {
 	PORTAL_PARAMS,
 	seedPortalWorld,
 	thrownStatus,
+	unwrap,
 } from "./portal.helpers";
 
 type ActionArgs = Parameters<typeof taskAction>[0];
@@ -321,19 +322,21 @@ describe("portal tasks", () => {
 			.from(files)
 			.where(eq(files.taskAssignmentId, "ta_slides"));
 
-		const commented = (await taskAction({
-			context: CONTEXT,
-			request: await act(
-				"u_priya",
-				"ta_slides",
-				new URLSearchParams({
-					intent: "comment",
-					fileId: upload?.id ?? "",
-					body: "Speaker notes are on slide 12.",
-				}),
-			),
-			params: params("ta_slides"),
-		} as unknown as ActionArgs)) as { ok?: boolean };
+		const commented = unwrap<{ ok?: boolean }>(
+			await taskAction({
+				context: CONTEXT,
+				request: await act(
+					"u_priya",
+					"ta_slides",
+					new URLSearchParams({
+						intent: "comment",
+						fileId: upload?.id ?? "",
+						body: "Speaker notes are on slide 12.",
+					}),
+				),
+				params: params("ta_slides"),
+			} as unknown as ActionArgs),
+		);
 		expect(commented.ok).toBe(true);
 		const thread = await db
 			.select()

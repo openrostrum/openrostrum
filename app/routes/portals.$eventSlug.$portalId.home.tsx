@@ -7,7 +7,6 @@ import {
 	portalPath,
 } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
-import { formatInTz } from "~/lib/format";
 import { createTimings } from "~/lib/track";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.home";
 
@@ -47,19 +46,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				status: s.status,
 				format: s.format,
 			})),
-			tasks: taskRows.map((t) => ({
-				id: t.id,
-				name: t.name,
-				required: t.required,
-				type: t.type,
-				status: t.status,
-				open: t.open,
-				overdue: t.overdue,
-				due:
-					t.dueAtMs !== null
-						? formatInTz(new Date(t.dueAtMs), ctx.event.timezone, "date")
-						: null,
-			})),
+			tasks: taskRows,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);

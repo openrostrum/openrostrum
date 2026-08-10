@@ -1,4 +1,5 @@
 import { Form } from "react-router";
+import type { loader } from "~/routes/portals.$eventSlug.$portalId.submissions_.$submissionId";
 import {
 	Avatar,
 	Button,
@@ -17,57 +18,8 @@ import { RichHtml } from "../rich-html";
 import { RichTextEditor } from "../rich-text";
 import { Card, MetaGrid, Muted, Notice, Row, RowList, Strong } from "./bits";
 import { ParticipationControls } from "./participation-controls";
-import type { ParticipationView, StatusView } from "./types";
 
-export type SubmissionDetailData = {
-	base: string;
-	id: string;
-	title: string;
-	descriptionHtml: string;
-	status: StatusView;
-	isDraft: boolean;
-	schedule: string | null;
-	room: string | null;
-	meta: {
-		format: string | null;
-		level: string | null;
-		language: string;
-		tracks: Array<{ name: string; color: string }>;
-		tags: Array<{ name: string; color: string }>;
-	};
-	withdrawnReason: string | null;
-	isWithdrawn: boolean;
-	participants: Array<{
-		id: string;
-		name: string;
-		role: string;
-		isMe: boolean;
-		acceptance: StatusView | null;
-		removable: boolean;
-	}>;
-	myParticipation: ParticipationView | null;
-	editWindow: {
-		editable: boolean;
-		reason: string | null;
-		closesLabel: string | null;
-	};
-	canWithdrawSubmission: boolean;
-	saved: string | null;
-	edit: null | {
-		formatId: string | null;
-		levelId: string | null;
-		language: string;
-		trackIds: string[];
-		tagIds: string[];
-		options: {
-			formats: Array<{ id: string; name: string }>;
-			levels: Array<{ id: string; name: string }>;
-			languages: string[];
-			tracks: Array<{ id: string; name: string }>;
-			tags: Array<{ id: string; name: string }>;
-		};
-	};
-};
+export type SubmissionDetailData = Awaited<ReturnType<typeof loader>>["data"];
 
 export type SubmissionDetailActionData = {
 	fieldErrors?: Record<string, string[] | undefined>;

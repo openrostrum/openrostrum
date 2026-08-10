@@ -1,11 +1,9 @@
+import type { loader } from "~/routes/portals.$eventSlug.$portalId.tasks";
 import { EmptyState, StatusBadge, TextLink } from "~/ui";
 import { Card, Muted, Row, RowList } from "./bits";
-import type { TaskRowView } from "./types";
+import { isSubmissionTask, type TaskRowView } from "./types";
 
-export type TasksViewData = {
-	base: string;
-	tasks: TaskRowView[];
-};
+export type TasksViewData = Awaited<ReturnType<typeof loader>>["data"];
 
 export function TaskRows({
 	base,
@@ -43,8 +41,8 @@ export function TaskRows({
 }
 
 export function TasksView({ data }: { data: TasksViewData }) {
-	const myTasks = data.tasks.filter((t) => t.type !== "submission");
-	const submissionTasks = data.tasks.filter((t) => t.type === "submission");
+	const myTasks = data.tasks.filter((t) => !isSubmissionTask(t));
+	const submissionTasks = data.tasks.filter(isSubmissionTask);
 	const outstanding = data.tasks.filter((t) => t.open).length;
 
 	if (data.tasks.length === 0) {

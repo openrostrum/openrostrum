@@ -10,6 +10,8 @@ import {
 	contacts,
 	formats,
 	forms,
+	insertContactSchema,
+	insertSubmissionSchema,
 	languages,
 	levels,
 	participants,
@@ -202,23 +204,35 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	);
 }
 
-const UpdateSchema = z.object({
-	title: z
-		.string()
-		.min(1, "Title is required")
-		.max(255, "Keep the title under 255 characters"),
-	description: z.string().max(60000, "Description is too long"),
-	formatId: z.string().optional(),
-	levelId: z.string().optional(),
-	language: z.string().max(100).optional(),
-});
+// Derived from the DB schema (single source of truth) with form refinements —
+// a renamed column breaks these picks at compile time.
+const UpdateSchema = insertSubmissionSchema
+	.pick({
+		title: true,
+		description: true,
+		formatId: true,
+		levelId: true,
+		language: true,
+	})
+	.extend({
+		title: z
+			.string()
+			.min(1, "Title is required")
+			.max(255, "Keep the title under 255 characters"),
+		description: z.string().max(60000, "Description is too long"),
+		formatId: z.string().optional(),
+		levelId: z.string().optional(),
+		language: z.string().max(100).optional(),
+	});
 
-const AddParticipantSchema = z.object({
-	firstName: z.string().min(1, "First name is required").max(100),
-	lastName: z.string().min(1, "Last name is required").max(100),
-	email: z.string().email("Enter a valid email address"),
-	role: z.enum(["speaker", "secondary"]),
-});
+const AddParticipantSchema = insertContactSchema
+	.pick({ firstName: true, lastName: true, email: true })
+	.extend({
+		firstName: z.string().min(1, "First name is required").max(100),
+		lastName: z.string().min(1, "Last name is required").max(100),
+		email: z.string().email("Enter a valid email address"),
+		role: z.enum(["speaker", "secondary"]),
+	});
 
 export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
@@ -238,6 +252,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		...body,
 	});
 	const here = portalPath(ctx, `/submissions/${submission.id}`);
+	const timings = createTimings();
 
 	if (
 		intent === "confirm-participation" ||
@@ -255,10 +270,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		const acceptance =
 			intent === "confirm-participation" ? "accepted" : "declined";
 		try {
-			await db
-				.update(participants)
-				.set({ acceptanceStatus: acceptance })
-				.where(eq(participants.id, myParticipant.id));
+			await timings.time("db", () =>
+				db
+					.update(participants)
+					.set({ acceptanceStatus: acceptance })
+					.where(eq(participants.id, myParticipant.id)),
+			);
 		} catch (error) {
 			track("portal.participation_change_failed", {
 				eventId: ctx.event.id,
@@ -275,7 +292,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			participantId: myParticipant.id,
 			acceptance,
 		});
-		return { intent, ok: true };
+		return data(
+			{ intent, ok: true },
+			{ headers: { "Server-Timing": timings.header() } },
+		);
 	}
 
 	if (intent === "withdraw-submission") {
@@ -285,20 +305,22 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		}
 		const reason = String(form.get("reason") ?? "").trim();
 		try {
-			await db
-				.update(submissions)
-				.set({
-					status: "withdrawn",
-					statusChangedAt: new Date(),
-					withdrawnAt: new Date(),
-					withdrawnById: user.id,
-					withdrawnReason: reason || null,
-					// A withdrawn session must not linger on the agenda grid.
-					startsAt: null,
-					endsAt: null,
-					roomId: null,
-				})
-				.where(eq(submissions.id, submission.id));
+			await timings.time("db", () =>
+				db
+					.update(submissions)
+					.set({
+						status: "withdrawn",
+						statusChangedAt: new Date(),
+						withdrawnAt: new Date(),
+						withdrawnById: user.id,
+						withdrawnReason: reason || null,
+						// A withdrawn session must not linger on the agenda grid.
+						startsAt: null,
+						endsAt: null,
+						roomId: null,
+					})
+					.where(eq(submissions.id, submission.id)),
+			);
 		} catch (error) {
 			track("portal.submission_withdraw_failed", {
 				eventId: ctx.event.id,
@@ -313,7 +335,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			eventId: ctx.event.id,
 			submissionId: submission.id,
 		});
-		return redirect(here);
+		return redirect(here, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	// Everything below edits the submission — gated by the form's close date.
@@ -388,55 +412,57 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			.filter((id) => eventTags.some((t) => t.id === id));
 
 		try {
-			await db.batch([
-				db
-					.update(submissions)
-					.set({
+			await timings.time("db", () =>
+				db.batch([
+					db
+						.update(submissions)
+						.set({
+							title: parsed.data.title,
+							description,
+							formatId,
+							levelId,
+							language:
+								parsed.data.language &&
+								eventLanguages.some((l) => l.name === parsed.data.language)
+									? parsed.data.language
+									: submission.language,
+						})
+						.where(eq(submissions.id, submission.id)),
+					db
+						.delete(submissionTracks)
+						.where(eq(submissionTracks.submissionId, submission.id)),
+					db
+						.delete(submissionTags)
+						.where(eq(submissionTags.submissionId, submission.id)),
+					...(trackIds.length
+						? [
+								db.insert(submissionTracks).values(
+									trackIds.map((trackId) => ({
+										submissionId: submission.id,
+										trackId,
+									})),
+								),
+							]
+						: []),
+					...(tagIds.length
+						? [
+								db.insert(submissionTags).values(
+									tagIds.map((tagId) => ({
+										submissionId: submission.id,
+										tagId,
+									})),
+								),
+							]
+						: []),
+					// Editor-attributed snapshot AFTER the save — history is append-only.
+					db.insert(submissionRevisions).values({
+						submissionId: submission.id,
 						title: parsed.data.title,
 						description,
-						formatId,
-						levelId,
-						language:
-							parsed.data.language &&
-							eventLanguages.some((l) => l.name === parsed.data.language)
-								? parsed.data.language
-								: submission.language,
-					})
-					.where(eq(submissions.id, submission.id)),
-				db
-					.delete(submissionTracks)
-					.where(eq(submissionTracks.submissionId, submission.id)),
-				db
-					.delete(submissionTags)
-					.where(eq(submissionTags.submissionId, submission.id)),
-				...(trackIds.length
-					? [
-							db.insert(submissionTracks).values(
-								trackIds.map((trackId) => ({
-									submissionId: submission.id,
-									trackId,
-								})),
-							),
-						]
-					: []),
-				...(tagIds.length
-					? [
-							db.insert(submissionTags).values(
-								tagIds.map((tagId) => ({
-									submissionId: submission.id,
-									tagId,
-								})),
-							),
-						]
-					: []),
-				// Editor-attributed snapshot AFTER the save — history is append-only.
-				db.insert(submissionRevisions).values({
-					submissionId: submission.id,
-					title: parsed.data.title,
-					description,
-					editedById: user.id,
-				}),
-			]);
+						editedById: user.id,
+					}),
+				]),
+			);
 		} catch (error) {
 			track("portal.submission_update_failed", {
 				eventId: ctx.event.id,
@@ -451,7 +477,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			eventId: ctx.event.id,
 			submissionId: submission.id,
 		});
-		return redirect(`${here}?saved=content`);
+		return redirect(`${here}?saved=content`, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	if (intent === "add-participant") {
@@ -520,12 +548,14 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			return fail({ formError: "This person is already on this submission." });
 		}
 		try {
-			await db.insert(participants).values({
-				submissionId: submission.id,
-				contactId: contact.id,
-				role: parsed.data.role,
-				position: existing.length,
-			});
+			await timings.time("db", () =>
+				db.insert(participants).values({
+					submissionId: submission.id,
+					contactId: contact.id,
+					role: parsed.data.role,
+					position: existing.length,
+				}),
+			);
 		} catch (error) {
 			track("portal.participant_add_failed", {
 				eventId: ctx.event.id,
@@ -541,7 +571,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			submissionId: submission.id,
 			role: parsed.data.role,
 		});
-		return redirect(`${here}?saved=participant`);
+		return redirect(`${here}?saved=participant`, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	if (intent === "remove-participant") {
@@ -594,7 +626,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			}
 		}
 		try {
-			await db.delete(participants).where(eq(participants.id, row.id));
+			await timings.time("db", () =>
+				db.delete(participants).where(eq(participants.id, row.id)),
+			);
 		} catch (error) {
 			track("portal.participant_remove_failed", {
 				eventId: ctx.event.id,
@@ -609,7 +643,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			eventId: ctx.event.id,
 			submissionId: submission.id,
 		});
-		return redirect(`${here}?saved=removed`);
+		return redirect(`${here}?saved=removed`, {
+			headers: { "Server-Timing": timings.header() },
+		});
 	}
 
 	return fail({ formError: "Unknown action." });

@@ -1,9 +1,13 @@
-import type { PortalStatus } from "~/domain/portal";
+import type { PortalStatus, PortalTaskRow } from "~/domain/portal";
 
-/** Loader-serialized status projection (label + tone, never a raw enum).
- * Type-only re-export of the domain projection — erased at build, so the
- * server module never enters the client bundle. */
+/** Loader-serialized projections. Type-only re-exports of the domain shapes —
+ * erased at build, so the server module never enters the client bundle. */
 export type StatusView = PortalStatus;
+export type TaskRowView = PortalTaskRow;
+
+/** My Tasks vs Submission Tasks — the ONE classification both pages share. */
+export const isSubmissionTask = (t: { type: string }) =>
+	t.type === "submission";
 
 export type ParticipationView = {
 	id: string;
@@ -18,16 +22,4 @@ export type SubmissionRowView = {
 	status: StatusView;
 	format: string | null;
 	participation: ParticipationView | null;
-};
-
-export type TaskRowView = {
-	id: string;
-	name: string;
-	required: boolean;
-	type: string;
-	status: StatusView;
-	open: boolean;
-	overdue: boolean;
-	due: string | null;
-	submissionTitle?: string | null;
 };
