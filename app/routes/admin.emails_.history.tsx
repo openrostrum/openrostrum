@@ -38,6 +38,44 @@ const STATUS_TONE: Record<string, BadgeTone> = {
 	bounced: "caution",
 };
 
+/**
+ * System sends (invites, resets, reminders…) have no template row, but every
+ * send path stamps a stable dedupe-key prefix — that prefix IS the send's
+ * identity, so the audit columns derive from it instead of showing "—".
+ * All of these are transactional except the compose blast ("bulk").
+ */
+const SYSTEM_SEND_LABELS: Record<string, { name: string; kind: string }> = {
+	password_reset: { name: "Password reset (system)", kind: "Transactional" },
+	reviewer_invite: { name: "Reviewer invite (system)", kind: "Transactional" },
+	reviewer_added: { name: "Reviewer added (system)", kind: "Transactional" },
+	org_invite: { name: "Team invite (system)", kind: "Transactional" },
+	portal_invite: { name: "Portal invite (system)", kind: "Transactional" },
+	portal_form: {
+		name: "Portal form receipt (system)",
+		kind: "Transactional",
+	},
+	"task-due": { name: "Task due reminder (system)", kind: "Transactional" },
+	"task-remind": { name: "Task reminder (system)", kind: "Transactional" },
+	eval_reminder: {
+		name: "Evaluation reminder (system)",
+		kind: "Transactional",
+	},
+	review_feedback: { name: "Review feedback (system)", kind: "Transactional" },
+	submission_confirmation: {
+		name: "Submission confirmation (system)",
+		kind: "Transactional",
+	},
+	decision: { name: "Decision (system)", kind: "Transactional" },
+	bulk: { name: "Composed announcement", kind: "Announcement" },
+};
+
+function systemSendLabel(
+	dedupeKey: string | null,
+): { name: string; kind: string } | undefined {
+	const prefix = dedupeKey?.split(":")[0];
+	return prefix ? SYSTEM_SEND_LABELS[prefix] : undefined;
+}
+
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
@@ -94,6 +132,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					status: emailOutbox.status,
 					sentAt: emailOutbox.sentAt,
 					createdAt: emailOutbox.createdAt,
+					dedupeKey: emailOutbox.dedupeKey,
 					templateName: emailTemplates.name,
 					templateCategory: emailTemplates.category,
 				})
@@ -116,6 +155,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 							error: emailOutbox.error,
 							icsAttachment: emailOutbox.icsAttachment,
 							html: emailOutbox.html,
+							dedupeKey: emailOutbox.dedupeKey,
 							templateName: emailTemplates.name,
 						})
 						.from(emailOutbox)
@@ -139,15 +179,20 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const open = detailRow[0];
 	return data(
 		{
-			rows: rows.map((r) => ({
-				id: r.id,
-				to: r.to,
-				subject: r.subject,
-				status: r.status,
-				kind: templateKindLabel(r.templateCategory),
-				templateName: r.templateName ?? "—",
-				sentAtLabel: formatInTimeZone(r.sentAt ?? r.createdAt, tz),
-			})),
+			rows: rows.map((r) => {
+				const system = r.templateName
+					? undefined
+					: systemSendLabel(r.dedupeKey);
+				return {
+					id: r.id,
+					to: r.to,
+					subject: r.subject,
+					status: r.status,
+					kind: system?.kind ?? templateKindLabel(r.templateCategory),
+					templateName: r.templateName ?? system?.name ?? "—",
+					sentAtLabel: formatInTimeZone(r.sentAt ?? r.createdAt, tz),
+				};
+			}),
 			total: totalRow?.n ?? 0,
 			page,
 			pageSize: PAGE_SIZE,
@@ -161,7 +206,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 						subject: open.subject,
 						statusLabel: open.status,
 						sentAtLabel: formatInTimeZone(open.sentAt, tz),
-						templateName: open.templateName,
+						templateName:
+							open.templateName ??
+							systemSendLabel(open.dedupeKey)?.name ??
+							null,
 						error: open.error,
 						hasIcs: Boolean(open.icsAttachment),
 						html: open.html,
