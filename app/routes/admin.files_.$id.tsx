@@ -26,6 +26,7 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatBytes, formatDateUTC } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -257,6 +258,7 @@ export default function FileDetail({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const { latest, versions, submission, contact, assignment, comments } =
 		loaderData;
 	const inReviewLoop = latest.taskAssignmentId !== null;
@@ -330,7 +332,7 @@ export default function FileDetail({
 										? "Speakers can download this file from their portal."
 										: "Not visible in the speaker portal."}
 								</span>
-								<Button type="submit" variant="ghost">
+								<Button type="submit" variant="ghost" disabled={busy}>
 									{latest.sharedToPortal
 										? "Stop sharing"
 										: "Share with speakers"}
@@ -351,7 +353,9 @@ export default function FileDetail({
 						{latest.reviewStatus !== "approved" && (
 							<Form method="post">
 								<Input type="hidden" name="intent" value="approve" />
-								<Button type="submit">Approve v{latest.version}</Button>
+								<Button type="submit" disabled={busy}>
+									Approve v{latest.version}
+								</Button>
 							</Form>
 						)}
 						<Form method="post" className="flex flex-wrap items-end gap-2">
@@ -366,7 +370,7 @@ export default function FileDetail({
 									maxLength={2000}
 								/>
 							</Field>
-							<Button type="submit" variant="ghost">
+							<Button type="submit" variant="ghost" disabled={busy}>
 								Request changes on v{latest.version}
 							</Button>
 						</Form>
@@ -456,7 +460,9 @@ export default function FileDetail({
 								maxLength={2000}
 							/>
 						</Field>
-						<Button type="submit">Post comment</Button>
+						<Button type="submit" disabled={busy}>
+							Post comment
+						</Button>
 					</Form>
 				</div>
 			</Panel>

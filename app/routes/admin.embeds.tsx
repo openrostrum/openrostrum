@@ -9,6 +9,7 @@ import { embeds } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	EmptyRow,
@@ -161,7 +162,15 @@ export async function action({ context, request }: Route.ActionArgs) {
 	return redirect("/admin/embeds");
 }
 
-function DeleteButton({ id, name }: { id: string; name: string }) {
+function DeleteButton({
+	id,
+	name,
+	busy,
+}: {
+	id: string;
+	name: string;
+	busy: boolean;
+}) {
 	const [armed, setArmed] = useState(false);
 	if (!armed) {
 		return (
@@ -177,6 +186,7 @@ function DeleteButton({ id, name }: { id: string; name: string }) {
 					type="submit"
 					name="intent"
 					value="delete"
+					disabled={busy}
 					aria-label={`Confirm deleting ${name}`}
 				>
 					Confirm delete
@@ -193,6 +203,7 @@ export default function AdminEmbeds({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const { embeds: rows, origin } = loaderData;
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
@@ -220,7 +231,13 @@ export default function AdminEmbeds({
 							))}
 						</Select>
 					</Field>
-					<Button type="submit" name="intent" value="create" icon="plus">
+					<Button
+						type="submit"
+						name="intent"
+						value="create"
+						icon="plus"
+						disabled={busy}
+					>
 						Add embed
 					</Button>
 					{actionData?.formError && (
@@ -270,12 +287,13 @@ export default function AdminEmbeds({
 												type="submit"
 												name="intent"
 												value="toggle"
+												disabled={busy}
 												variant="ghost"
 											>
 												{row.enabled ? "Disable" : "Enable"}
 											</Button>
 										</Form>
-										<DeleteButton id={row.id} name={row.name} />
+										<DeleteButton id={row.id} name={row.name} busy={busy} />
 									</span>
 								</Td>
 							</Tr>

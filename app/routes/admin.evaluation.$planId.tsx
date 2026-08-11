@@ -40,6 +40,7 @@ import { loadPlanScores } from "~/lib/plan-scores";
 import { listEventReviewers } from "~/lib/reviewers";
 import { escapeHtmlText } from "~/lib/html";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { getEmailSender } from "~/ports/email";
 import {
 	Button,
@@ -1165,6 +1166,7 @@ function RoundsTab({
 		fieldErrors?: Record<string, string[] | undefined>;
 	};
 }) {
+	const busy = useBusy();
 	const [editing, setEditing] = useState<string | null>(null);
 	const [editingQuestion, setEditingQuestion] = useState<string | null>(null);
 	const [confirming, setConfirming] = useState<string | null>(null);
@@ -1223,7 +1225,11 @@ function RoundsTab({
 									Delete “{round.name}” with its scorecard and every evaluation
 									recorded in it? This cannot be undone.
 								</ErrorText>
-								<Button type="submit" onClick={() => setConfirming(null)}>
+								<Button
+									type="submit"
+									disabled={busy}
+									onClick={() => setConfirming(null)}
+								>
 									Delete round
 								</Button>
 								<Button
@@ -1240,6 +1246,7 @@ function RoundsTab({
 								intent="update-round"
 								round={round}
 								actionData={actionData}
+								busy={busy}
 							/>
 						)}
 						<Table>
@@ -1290,7 +1297,7 @@ function RoundsTab({
 														value={round.id}
 													/>
 													<Input type="hidden" name="questionId" value={q.id} />
-													<Button type="submit" variant="ghost">
+													<Button type="submit" variant="ghost" disabled={busy}>
 														Delete
 													</Button>
 												</Form>
@@ -1315,6 +1322,7 @@ function RoundsTab({
 										(q) => q.id === editingQuestion,
 									)}
 									actionData={actionData}
+									busy={busy}
 									onDone={() => setEditingQuestion(null)}
 								/>
 							)}
@@ -1322,6 +1330,7 @@ function RoundsTab({
 							intent="add-question"
 							roundId={round.id}
 							actionData={actionData}
+							busy={busy}
 						/>
 						<div className="flex flex-wrap items-end gap-3">
 							<Field label="Reviewer pool for this round">
@@ -1337,7 +1346,7 @@ function RoundsTab({
 											<Input type="hidden" name="userId" value={member.id} />
 											<div className="flex items-center gap-1">
 												<StatusBadge tone="info">{member.name}</StatusBadge>
-												<Button type="submit" variant="ghost">
+												<Button type="submit" variant="ghost" disabled={busy}>
 													Remove
 												</Button>
 											</div>
@@ -1365,7 +1374,12 @@ function RoundsTab({
 											))}
 									</Select>
 								</Field>
-								<Button type="submit" variant="ghost" icon="plus">
+								<Button
+									type="submit"
+									variant="ghost"
+									icon="plus"
+									disabled={busy}
+								>
 									Add to pool
 								</Button>
 							</Form>
@@ -1375,7 +1389,7 @@ function RoundsTab({
 				</Panel>
 			))}
 			<Panel>
-				<RoundForm intent="add-round" actionData={actionData} />
+				<RoundForm intent="add-round" actionData={actionData} busy={busy} />
 			</Panel>
 		</>
 	);
@@ -1385,6 +1399,7 @@ function RoundForm({
 	intent,
 	round,
 	actionData,
+	busy,
 }: {
 	intent: "add-round" | "update-round";
 	round?: RoundView;
@@ -1392,6 +1407,7 @@ function RoundForm({
 		intent?: string;
 		fieldErrors?: Record<string, string[] | undefined>;
 	};
+	busy: boolean;
 }) {
 	const errors =
 		actionData?.intent === intent ? actionData.fieldErrors : undefined;
@@ -1430,7 +1446,7 @@ function RoundForm({
 					<option value="yes">Yes — scores only, never comments</option>
 				</Select>
 			</Field>
-			<Button type="submit" icon={round ? undefined : "plus"}>
+			<Button type="submit" icon={round ? undefined : "plus"} disabled={busy}>
 				{round ? "Save round" : "Add round"}
 			</Button>
 		</Form>
@@ -1443,6 +1459,7 @@ function QuestionForm({
 	question,
 	actionData,
 	onDone,
+	busy,
 }: {
 	intent: "add-question" | "update-question";
 	roundId: string;
@@ -1453,6 +1470,7 @@ function QuestionForm({
 		fieldErrors?: Record<string, string[] | undefined>;
 	};
 	onDone?: () => void;
+	busy: boolean;
 }) {
 	const errors =
 		actionData?.intent === intent && actionData.roundId === roundId
@@ -1531,6 +1549,7 @@ function QuestionForm({
 				type="submit"
 				variant={question ? "primary" : "ghost"}
 				icon={question ? undefined : "plus"}
+				disabled={busy}
 				onClick={onDone}
 			>
 				{question ? "Save question" : "Add question"}
@@ -1546,6 +1565,7 @@ function AssignTab({
 	rounds: RoundView[];
 	assign: NonNullable<LoaderData["assign"]>;
 }) {
+	const busy = useBusy();
 	const round = rounds.find((r) => r.id === assign.roundId) ?? rounds[0];
 	const baseParams = (over: Record<string, string | number>) => {
 		const sp = new URLSearchParams({ tab: "assign" });
@@ -1632,7 +1652,9 @@ function AssignTab({
 					<Field label="Max per evaluator (empty = no cap)">
 						<Input type="number" name="maxPerEvaluator" min="1" size={4} />
 					</Field>
-					<Button type="submit">Auto-distribute</Button>
+					<Button type="submit" disabled={busy}>
+						Auto-distribute
+					</Button>
 				</Form>
 			</Panel>
 
@@ -1676,7 +1698,7 @@ function AssignTab({
 											</option>
 										))}
 									</Select>
-									<Button type="submit" variant="ghost">
+									<Button type="submit" variant="ghost" disabled={busy}>
 										Assign
 									</Button>
 								</Form>
@@ -1724,7 +1746,7 @@ function AssignTab({
 									<Form method="post">
 										<Input type="hidden" name="intent" value="unassign" />
 										<Input type="hidden" name="evaluationId" value={row.id} />
-										<Button type="submit" variant="ghost">
+										<Button type="submit" variant="ghost" disabled={busy}>
 											Remove
 										</Button>
 									</Form>
@@ -1754,13 +1776,14 @@ function ProgressTab({
 }: {
 	progress: NonNullable<LoaderData["progress"]>;
 }) {
+	const busy = useBusy();
 	return (
 		<>
 			<div className="flex items-center gap-3">
 				<Form method="post">
 					<Input type="hidden" name="intent" value="remind" />
 					<Input type="hidden" name="roundId" value="all" />
-					<Button type="submit" icon="mail">
+					<Button type="submit" icon="mail" disabled={busy}>
 						Remind all lagging reviewers
 					</Button>
 				</Form>
@@ -1796,7 +1819,12 @@ function ProgressTab({
 												name="userIds"
 												value={row.evaluatorId}
 											/>
-											<Button type="submit" variant="ghost" icon="mail">
+											<Button
+												type="submit"
+												variant="ghost"
+												icon="mail"
+												disabled={busy}
+											>
 												Send reminder
 											</Button>
 										</Form>
@@ -2038,6 +2066,7 @@ function SettingsTab({
 }: {
 	plan: { id: string; name: string; instructions: string; status: string };
 }) {
+	const busy = useBusy();
 	const [confirming, setConfirming] = useState(false);
 	return (
 		<>
@@ -2054,14 +2083,16 @@ function SettingsTab({
 							size={60}
 						/>
 					</Field>
-					<Button type="submit">Save</Button>
+					<Button type="submit" disabled={busy}>
+						Save
+					</Button>
 				</Form>
 			</Panel>
 			<Panel>
 				<div className="flex flex-wrap items-center gap-3">
 					<Form method="post">
 						<Input type="hidden" name="intent" value="toggle-plan" />
-						<Button type="submit" variant="ghost">
+						<Button type="submit" variant="ghost" disabled={busy}>
 							{plan.status === "open"
 								? "Close plan (locks all reviews)"
 								: "Reopen plan"}
@@ -2082,7 +2113,9 @@ function SettingsTab({
 								Delete this plan with every round, scorecard, and recorded
 								evaluation? This cannot be undone.
 							</ErrorText>
-							<Button type="submit">Delete plan</Button>
+							<Button type="submit" disabled={busy}>
+								Delete plan
+							</Button>
 							<Button
 								type="button"
 								variant="ghost"

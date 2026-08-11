@@ -18,6 +18,7 @@ import { errorMessage } from "~/lib/errors";
 import { escapeHtml } from "~/lib/html";
 import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { getEmailSender } from "~/ports/email";
 import {
 	Button,
@@ -356,6 +357,7 @@ export default function ComposeBulkEmail({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const { recipients, selection, selectionLabel, template } = loaderData;
 	const state = actionData;
 	// A re-render after preview/validation/partial-failure keeps the POSTed
@@ -528,11 +530,18 @@ export default function ComposeBulkEmail({
 									type="submit"
 									name="intent"
 									value="preview"
+									disabled={busy}
 									variant="ghost"
 								>
 									Preview for recipient
 								</Button>
-								<Button type="submit" name="intent" value="send" icon="mail">
+								<Button
+									type="submit"
+									name="intent"
+									value="send"
+									icon="mail"
+									disabled={busy || !sendKey}
+								>
 									Send to {recipients.length}{" "}
 									{recipients.length === 1 ? "speaker" : "speakers"}
 								</Button>

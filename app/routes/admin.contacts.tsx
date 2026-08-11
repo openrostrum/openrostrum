@@ -11,6 +11,7 @@ import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { headshotUrl } from "~/lib/headshot";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -211,6 +212,7 @@ export default function ContactsRoster({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const { rows, counts, total, page, perPage, q, status } = loaderData;
 	const composeParams = new URLSearchParams();
 	if (q) composeParams.set("q", q);
@@ -286,7 +288,7 @@ export default function ContactsRoster({
 						<Textarea name="bio" rows={3} />
 					</Field>
 					<div className="flex items-center gap-3">
-						<Button type="submit" icon="plus">
+						<Button type="submit" icon="plus" disabled={busy}>
 							Add speaker
 						</Button>
 						{actionData?.formError && (

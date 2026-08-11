@@ -9,6 +9,7 @@ import { parseCsv } from "~/lib/csv";
 import { errorMessage } from "~/lib/errors";
 import { normalizeXUrl } from "~/lib/social";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -397,6 +398,7 @@ const OUTCOME_TONE = {
 } as const;
 
 export default function ImportContacts({ actionData }: Route.ComponentProps) {
+	const busy = useBusy();
 	const state = actionData;
 
 	return (
@@ -427,7 +429,13 @@ export default function ImportContacts({ actionData }: Route.ComponentProps) {
 							contact fields next, so any column order works.
 						</p>
 						<div className="flex items-center gap-3">
-							<Button type="submit" name="intent" value="upload" icon="export">
+							<Button
+								type="submit"
+								name="intent"
+								value="upload"
+								icon="export"
+								disabled={busy}
+							>
 								Upload and map columns
 							</Button>
 							{state?.formError && <ErrorText>{state.formError}</ErrorText>}
@@ -467,7 +475,12 @@ export default function ImportContacts({ actionData }: Route.ComponentProps) {
 								))}
 							</div>
 							<div className="flex items-center gap-3">
-								<Button type="submit" name="intent" value="import">
+								<Button
+									type="submit"
+									name="intent"
+									value="import"
+									disabled={busy}
+								>
 									Import {state.rowCount} rows
 								</Button>
 								<ButtonLink to="/admin/contacts/import" variant="ghost">

@@ -16,6 +16,7 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { formatBytes, formatDateUTC } from "~/lib/format";
 import { createTimings } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	EmptyRow,
@@ -126,6 +127,7 @@ function isReviewStatus(
 }
 
 export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
+	const busy = useBusy();
 	const {
 		rows,
 		total,
@@ -200,7 +202,7 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 							Share with speakers
 						</span>
 					</Field>
-					<Button type="submit" icon="plus">
+					<Button type="submit" icon="plus" disabled={busy}>
 						Upload
 					</Button>
 					{uploadError && <ErrorText>{uploadError}</ErrorText>}
