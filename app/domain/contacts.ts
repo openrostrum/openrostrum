@@ -43,6 +43,26 @@ export function splitFullName(value: string): {
 	};
 }
 
+const normalizeIdentityPart = (value: string) =>
+	value
+		.normalize("NFKC")
+		.trim()
+		.toLocaleLowerCase("en-US")
+		.replace(/\s+/g, " ");
+
+/** A conservative import-only duplicate signal: a complete name and company
+ * must both agree, so common names alone never block a roster write. */
+export function probableContactDuplicateKey(input: {
+	firstName: string;
+	lastName: string;
+	companyName: string | null | undefined;
+}): string | null {
+	const name =
+		`${normalizeIdentityPart(input.firstName)} ${normalizeIdentityPart(input.lastName)}`.trim();
+	const company = normalizeIdentityPart(input.companyName ?? "");
+	return name && company ? `${name}\u0000${company}` : null;
+}
+
 /** Escape LIKE wildcards so a user searching "100%" matches literally. */
 function likeContains(column: AnyColumn | SQL, q: string): SQL {
 	const pattern = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
