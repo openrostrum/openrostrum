@@ -2,20 +2,20 @@ import { and, eq } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
 import { contacts, files } from "~/db/schema";
-import { fileAttachmentResponse } from "~/domain/files";
-import { requireUser, userCanAccessEvent } from "~/lib/auth";
+import { fileAttachmentResponse, serveBlob } from "~/domain/files";
+import { getUser, userCanAccessEvent } from "~/lib/auth";
+import { getPublicHeadshotKey } from "~/lib/program";
 import { track } from "~/lib/track";
 import type { Route } from "./+types/files.$id";
 
 /**
- * The canonical authz gate for file bytes (the bucket is private; r2 keys
- * never reach clients): an admin MEMBER of the file's org, or the user linked
- * to the owning contact. Everyone else gets a bodiless 404 — existence itself
- * is data. Portal-shared downloads have their own portal-scoped route.
+ * The canonical file-byte gate. Program headshots are the narrow public case;
+ * every other object keeps the existing org/contact authorization and hides
+ * whether a requested id exists.
  */
+// @public — only the current headshot of a speaker in the public program is anonymous.
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
-	const user = await requireUser(env, request);
 	const db = getDb(env);
 	const [file] = await db
 		.select()
@@ -24,6 +24,17 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		.limit(1);
 	if (!file) throw data(null, { status: 404 });
 
+	if (file.kind === "headshot" && file.contactId) {
+		const publicHeadshotKey = await getPublicHeadshotKey(db, {
+			id: file.id,
+			eventId: file.eventId,
+			contactId: file.contactId,
+		});
+		if (publicHeadshotKey) return serveBlob(env, publicHeadshotKey);
+	}
+
+	const user = await getUser(env, request);
+	if (!user) throw data(null, { status: 404 });
 	let allowed = false;
 	if (user.role === "admin") {
 		allowed = await userCanAccessEvent(env, user.id, file.eventId);

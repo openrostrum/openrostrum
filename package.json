@@ -18,7 +18,7 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "wrangler d1 migrations apply openrostrum --local",
 		"db:migrate:remote": "wrangler d1 migrations apply openrostrum --remote",
-		"db:seed": "wrangler d1 execute openrostrum --local --file=./drizzle/seed.sql",
+		"db:seed": "wrangler d1 execute openrostrum --local --file=./drizzle/seed.sql && wrangler d1 execute openrostrum --local --file=./drizzle/seed-demo-enrichment.sql && node scripts/seed-demo-blobs.mjs",
 		"db:reset": "rm -rf .wrangler/state && pnpm db:migrate && pnpm db:seed",
 		"test": "vitest run",
 		"test:watch": "vitest",
