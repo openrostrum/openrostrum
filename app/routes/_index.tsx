@@ -13,7 +13,7 @@ export function meta(_: Route.MetaArgs) {
 		{
 			name: "description",
 			content:
-				"Conference speaker and program management, free and open source: call for speakers, submission review, speaker portals, agenda building, and speaker comms in one place. Sign up on openrostrum.com or self-host your own instance.",
+				"Speaker CRM, configurable calls for speakers, human and AI-assisted submission review, presenter portals, comms, agenda building, embeds, and feeds. Free and open source: create your organization here or self-host.",
 		},
 	];
 }

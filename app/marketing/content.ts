@@ -2,19 +2,23 @@ export const GITHUB_URL = "https://github.com/openrostrum/openrostrum";
 export const DEPLOY_GUIDE_URL = `${GITHUB_URL}#deploy-your-own`;
 export const ISSUES_URL = `${GITHUB_URL}/issues`;
 
-// The six jobs that make up the program side of a conference, in the order an
+// The nine jobs that make up the program side of a conference, in the order an
 // event team lives them. Copy stays concrete — what an organizer can do, never
 // adjectives — and no claim ships without a verified feature behind it.
 export type Job = { title: string; body: string };
 
 export const JOBS: Job[] = [
 	{
+		title: "Speaker CRM",
+		body: "Keep speakers and prospects across events in one searchable directory. Save segments, assign people to events, and move prospects through an eight-stage pipeline with scores, notes, and history.",
+	},
+	{
 		title: "Call for speakers",
-		body: "A multi-step form builder with conditional logic, participant roles, and close dates. Copy the public link and submissions start arriving.",
+		body: "Build multi-step CFPs from reusable fields, rich text, and conditional questions. Set deadlines and draft rules, configure limits for speakers, chairs, and moderators, and collect secondary contacts.",
 	},
 	{
 		title: "Submission review",
-		body: "Approve, maybe, or deny — routed to reviewers by track. Accepting a submission links each speaker's account and mints their onboarding tasks; decision emails go out only when you send them.",
+		body: "Route proposals by track, collect approve, maybe, or deny decisions, and run optional AI first-pass scoring with rationale. Sort or override any result; humans stay authoritative.",
 	},
 	{
 		title: "Speaker portals",
@@ -22,15 +26,23 @@ export const JOBS: Job[] = [
 	},
 	{
 		title: "Speaker comms",
-		body: "Templated confirmations, decisions, and reminders — editable subjects and bodies, reply-to that reaches your inbox, a full send history.",
-	},
-	{
-		title: "Agenda building",
-		body: "Drag accepted sessions onto a day × room grid. Double-booked speakers and rooms surface the moment they happen, not after publishing.",
+		body: "Edit confirmations, decisions, and reminders. Preview every decision recipient before sending, keep replies in your inbox, attach calendar updates, and retain the full send history.",
 	},
 	{
 		title: "Outstanding tasks",
-		body: "Which speakers still owe a bio, a headshot, or a hotel form — the whole roster on one screen, no spreadsheet on the side.",
+		body: "See which speakers still owe a bio, headshot, travel form, or slides. Track their submitted form responses from the same roster instead of chasing a spreadsheet.",
+	},
+	{
+		title: "Agenda building",
+		body: "Drag accepted sessions onto a day × room grid. Double-booked speakers and rooms surface the moment they happen, before you publish.",
+	},
+	{
+		title: "Content & feeds",
+		body: "Publish session, speaker, gallery, agenda, and itinerary views. Reuse approved content as styled embeds or filtered HTML, JSON, and XML feeds — plus iCal for the published agenda.",
+	},
+	{
+		title: "Your event workspace",
+		body: "Sign up to create an organization and first event in one flow. Choose System, Light, or Dark across admin, sign-in, and the speaker portal.",
 	},
 ];
 
