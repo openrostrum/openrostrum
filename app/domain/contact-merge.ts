@@ -1,0 +1,1014 @@
+import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
+import type { Db } from "~/db";
+import {
+	airtableLinks,
+	contactFieldValues,
+	contactIdentityAliases,
+	contactMerges,
+	contacts,
+	crmNotes,
+	events,
+	files,
+	participants,
+	pipelineCards,
+	pipelineStageChanges,
+	submissions,
+	taskAssignments,
+	users,
+	type ContactMergeAuditSummary,
+} from "~/db/schema";
+import { isUniqueViolation } from "~/lib/errors";
+
+const MISSING_REASON = "Both contacts must exist in your organization.";
+const UUID_PATTERN =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const PROFILE_FIELDS = [
+	"salutation",
+	"honorific",
+	"pronouns",
+	"gender",
+	"jobTitle",
+	"companyName",
+	"mobilePhone",
+	"homePhone",
+	"zip",
+	"bio",
+	"headshotKey",
+	"linkedinUrl",
+	"twitterUrl",
+	"facebookUrl",
+	"websiteUrl",
+	"logisticsNotes",
+] as const;
+
+type ContactRow = typeof contacts.$inferSelect & { eventName: string };
+type ParticipantRow = typeof participants.$inferSelect;
+type AssignmentRow = typeof taskAssignments.$inferSelect;
+type CustomValueRow = typeof contactFieldValues.$inferSelect;
+type AirtableLinkRow = typeof airtableLinks.$inferSelect;
+
+type EventPair = {
+	source: ContactRow;
+	survivor: ContactRow | null;
+	survivorId: string;
+	profileUpdates: Partial<typeof contacts.$inferInsert>;
+	profileFieldsFilled: string[];
+};
+
+type MergePlan = {
+	sourceEmail: string;
+	survivorEmail: string;
+	sourceRows: ContactRow[];
+	survivorRows: ContactRow[];
+	sourceLatest: ContactRow;
+	survivorLatest: ContactRow;
+	pairs: EventPair[];
+	sourceParticipants: ParticipantRow[];
+	survivorParticipants: ParticipantRow[];
+	sourceAssignments: AssignmentRow[];
+	survivorAssignments: AssignmentRow[];
+	sourceFiles: Array<typeof files.$inferSelect>;
+	sourceCustomValues: CustomValueRow[];
+	survivorCustomValues: CustomValueRow[];
+	sourceNotes: Array<typeof crmNotes.$inferSelect>;
+	sourceCard: typeof pipelineCards.$inferSelect | null;
+	survivorCard: typeof pipelineCards.$inferSelect | null;
+	sourceHistory: Array<typeof pipelineStageChanges.$inferSelect>;
+	canonicalUserId: string | null;
+	retiredUserIds: string[];
+	aliasUserIds: string[];
+	sourceSubmissions: Array<{ id: string }>;
+	sourceAirtableLinks: AirtableLinkRow[];
+	survivorAirtableLinks: AirtableLinkRow[];
+	summary: ContactMergeAuditSummary;
+};
+
+export type ContactMergeIdentity = {
+	email: string;
+	firstName: string;
+	lastName: string;
+	jobTitle: string | null;
+	companyName: string | null;
+	bio: string | null;
+};
+
+export type ContactMergeEventPreview = {
+	eventId: string;
+	eventName: string;
+	sourceContactId: string;
+	survivorContactId: string | null;
+	createsSurvivor: boolean;
+	profileFieldsFilled: string[];
+};
+
+export type ContactMergePreview = {
+	source: ContactMergeIdentity;
+	survivor: ContactMergeIdentity;
+	events: ContactMergeEventPreview[];
+	summary: ContactMergeAuditSummary;
+};
+
+export type ContactMergePreviewResult =
+	| { ok: true; preview: ContactMergePreview }
+	| { ok: false; code: "same" | "missing"; reason: string };
+
+export type ContactMergeExecutionResult =
+	| {
+			ok: true;
+			mergeId: string;
+			survivorEmail: string;
+			summary: ContactMergeAuditSummary;
+			replayed: boolean;
+	  }
+	| {
+			ok: false;
+			code: "same" | "missing" | "invalid_key" | "failed";
+			reason: string;
+	  };
+
+export function emptyContactMergeSummary(): ContactMergeAuditSummary {
+	return {
+		eventContactsCreated: 0,
+		contactsRetired: 0,
+		profileFieldsFilled: 0,
+		participantLinksMoved: 0,
+		participantLinksConsolidated: 0,
+		taskAssignmentsMoved: 0,
+		taskAssignmentsConsolidated: 0,
+		filesMoved: 0,
+		customValuesMoved: 0,
+		customValuesConsolidated: 0,
+		notesMoved: 0,
+		pipelineCardsMoved: 0,
+		pipelineCardsConsolidated: 0,
+		pipelineHistoryMoved: 0,
+		portalIdentitiesAliased: 0,
+		submissionsReassigned: 0,
+		airtableLinksMoved: 0,
+		airtableLinksConsolidated: 0,
+	};
+}
+
+function normalize(value: string): string {
+	return value.trim().toLowerCase();
+}
+
+function identity(row: ContactRow, email: string): ContactMergeIdentity {
+	return {
+		email,
+		firstName: row.firstName,
+		lastName: row.lastName,
+		jobTitle: row.jobTitle,
+		companyName: row.companyName,
+		bio: row.bio,
+	};
+}
+
+function isBlank(value: string | null): boolean {
+	return value === null || value.trim() === "";
+}
+
+function contactSnapshot(row: ContactRow): typeof contacts.$inferSelect {
+	const { eventName: _eventName, ...contact } = row;
+	return contact;
+}
+
+async function loadPersonRows(
+	db: Db,
+	organizationId: string,
+	email: string,
+): Promise<ContactRow[]> {
+	return db
+		.select({ contact: contacts, eventName: events.name })
+		.from(contacts)
+		.innerJoin(events, eq(events.id, contacts.eventId))
+		.where(
+			and(
+				eq(events.organizationId, organizationId),
+				sql`lower(${contacts.email}) = ${email}`,
+			),
+		)
+		.orderBy(asc(events.createdAt), asc(events.id), asc(contacts.id))
+		.then((rows) =>
+			rows.map((row) => ({ ...row.contact, eventName: row.eventName })),
+		);
+}
+
+function pairKey(contactId: string, suffix: string): string {
+	return `${contactId}\u0000${suffix}`;
+}
+
+function participantKey(row: ParticipantRow): string {
+	return `${row.submissionId}\u0000${row.role}`;
+}
+
+function assignmentKey(row: AssignmentRow): string {
+	return `${row.taskId}\u0000${row.submissionId ?? ""}`;
+}
+
+function targetForSource(
+	plan: Pick<MergePlan, "pairs">,
+	sourceId: string,
+): string {
+	const pair = plan.pairs.find((candidate) => candidate.source.id === sourceId);
+	if (!pair) throw new Error("Merge plan lost a verified source contact.");
+	return pair.survivorId;
+}
+
+function buildEventPairs(
+	sourceRows: ContactRow[],
+	survivorRows: ContactRow[],
+): EventPair[] {
+	const survivorByEvent = new Map(
+		survivorRows.map((row) => [row.eventId, row]),
+	);
+	return sourceRows.map((source) => {
+		const survivor = survivorByEvent.get(source.eventId) ?? null;
+		const profileUpdates: Partial<typeof contacts.$inferInsert> = {};
+		const profileFieldsFilled: string[] = [];
+		if (survivor) {
+			for (const field of PROFILE_FIELDS) {
+				if (isBlank(survivor[field]) && !isBlank(source[field])) {
+					profileUpdates[field] = source[field];
+					profileFieldsFilled.push(field);
+				}
+			}
+		}
+		return {
+			source,
+			survivor,
+			survivorId: survivor?.id ?? crypto.randomUUID(),
+			profileUpdates,
+			profileFieldsFilled,
+		};
+	});
+}
+
+function conflictCount<T>(
+	sourceRows: T[],
+	targetRows: T[],
+	targetIdForSource: (row: T) => string,
+	contactId: (row: T) => string,
+	key: (row: T) => string,
+): number {
+	const targets = new Set(
+		targetRows.map((row) => pairKey(contactId(row), key(row))),
+	);
+	return sourceRows.filter((row) =>
+		targets.has(pairKey(targetIdForSource(row), key(row))),
+	).length;
+}
+
+async function loadMergePlan(
+	db: Db,
+	organizationId: string,
+	rawSourceEmail: string,
+	rawSurvivorEmail: string,
+): Promise<
+	| { ok: true; plan: MergePlan }
+	| { ok: false; code: "same" | "missing"; reason: string }
+> {
+	const sourceEmail = normalize(rawSourceEmail);
+	const survivorEmail = normalize(rawSurvivorEmail);
+	if (sourceEmail === survivorEmail) {
+		return {
+			ok: false,
+			code: "same",
+			reason: "Pick two different contacts to merge.",
+		};
+	}
+
+	const [sourceRows, survivorRows] = await Promise.all([
+		loadPersonRows(db, organizationId, sourceEmail),
+		loadPersonRows(db, organizationId, survivorEmail),
+	]);
+	const sourceLatest = sourceRows.at(-1);
+	const survivorLatest = survivorRows.at(-1);
+	if (!sourceLatest || !survivorLatest) {
+		return { ok: false, code: "missing", reason: MISSING_REASON };
+	}
+
+	const pairs = buildEventPairs(sourceRows, survivorRows);
+	const sourceIds = sourceRows.map((row) => row.id);
+	const survivorIds = survivorRows.map((row) => row.id);
+	const eventIds = [
+		...new Set([...sourceRows, ...survivorRows].map((row) => row.eventId)),
+	];
+	const sourceCardQuery = db
+		.select()
+		.from(pipelineCards)
+		.where(
+			and(
+				eq(pipelineCards.organizationId, organizationId),
+				eq(pipelineCards.email, sourceEmail),
+			),
+		)
+		.limit(1);
+	const survivorCardQuery = db
+		.select()
+		.from(pipelineCards)
+		.where(
+			and(
+				eq(pipelineCards.organizationId, organizationId),
+				eq(pipelineCards.email, survivorEmail),
+			),
+		)
+		.limit(1);
+	const [
+		sourceParticipants,
+		survivorParticipants,
+		sourceAssignments,
+		survivorAssignments,
+		sourceFiles,
+		sourceCustomValues,
+		survivorCustomValues,
+		sourceNotes,
+		[sourceCard],
+		[survivorCard],
+		accounts,
+		priorAliases,
+		sourceAirtableLinks,
+		survivorAirtableLinks,
+	] = await Promise.all([
+		db
+			.select()
+			.from(participants)
+			.where(inArray(participants.contactId, sourceIds)),
+		survivorIds.length
+			? db
+					.select()
+					.from(participants)
+					.where(inArray(participants.contactId, survivorIds))
+			: Promise.resolve([]),
+		db
+			.select()
+			.from(taskAssignments)
+			.where(inArray(taskAssignments.contactId, sourceIds)),
+		survivorIds.length
+			? db
+					.select()
+					.from(taskAssignments)
+					.where(inArray(taskAssignments.contactId, survivorIds))
+			: Promise.resolve([]),
+		db.select().from(files).where(inArray(files.contactId, sourceIds)),
+		db
+			.select()
+			.from(contactFieldValues)
+			.where(inArray(contactFieldValues.contactId, sourceIds)),
+		survivorIds.length
+			? db
+					.select()
+					.from(contactFieldValues)
+					.where(inArray(contactFieldValues.contactId, survivorIds))
+			: Promise.resolve([]),
+		db
+			.select()
+			.from(crmNotes)
+			.where(
+				and(
+					eq(crmNotes.organizationId, organizationId),
+					eq(crmNotes.email, sourceEmail),
+				),
+			),
+		sourceCardQuery,
+		survivorCardQuery,
+		db
+			.select({ id: users.id, email: users.email })
+			.from(users)
+			.where(inArray(users.email, [sourceEmail, survivorEmail])),
+		db
+			.select()
+			.from(contactIdentityAliases)
+			.where(
+				and(
+					eq(contactIdentityAliases.organizationId, organizationId),
+					eq(contactIdentityAliases.survivorEmail, sourceEmail),
+				),
+			),
+		db
+			.select()
+			.from(airtableLinks)
+			.where(
+				and(
+					eq(airtableLinks.tableName, "contacts"),
+					inArray(airtableLinks.recordId, sourceIds),
+				),
+			),
+		survivorIds.length
+			? db
+					.select()
+					.from(airtableLinks)
+					.where(
+						and(
+							eq(airtableLinks.tableName, "contacts"),
+							inArray(airtableLinks.recordId, survivorIds),
+						),
+					)
+			: Promise.resolve([]),
+	]);
+
+	const survivorAccount = accounts.find((row) => row.email === survivorEmail);
+	const sourceAccount = accounts.find((row) => row.email === sourceEmail);
+	const canonicalUserId =
+		survivorAccount?.id ??
+		survivorLatest.userId ??
+		sourceAccount?.id ??
+		sourceLatest.userId ??
+		null;
+	const directSourceUserIds = [
+		...sourceRows.map((row) => row.userId),
+		sourceAccount?.id,
+	].filter((id): id is string => Boolean(id));
+	const retiredUserIds = [
+		...new Set([
+			...directSourceUserIds,
+			...priorAliases.map((row) => row.sourceUserId),
+		]),
+	];
+	const aliasUserIds = retiredUserIds.filter((id) => id !== canonicalUserId);
+	const sourceSubmissions =
+		canonicalUserId && aliasUserIds.length
+			? await db
+					.select({ id: submissions.id })
+					.from(submissions)
+					.where(
+						and(
+							inArray(submissions.eventId, eventIds),
+							inArray(submissions.submitterId, aliasUserIds),
+						),
+					)
+			: [];
+	const sourceHistory = sourceCard
+		? await db
+				.select()
+				.from(pipelineStageChanges)
+				.where(eq(pipelineStageChanges.cardId, sourceCard.id))
+		: [];
+
+	const participantConflicts = conflictCount(
+		sourceParticipants,
+		survivorParticipants,
+		(row) => targetForSource({ pairs }, row.contactId),
+		(row) => row.contactId,
+		participantKey,
+	);
+	const assignmentConflicts = conflictCount(
+		sourceAssignments,
+		survivorAssignments,
+		(row) => targetForSource({ pairs }, row.contactId ?? ""),
+		(row) => row.contactId ?? "",
+		assignmentKey,
+	);
+	const valueConflicts = conflictCount(
+		sourceCustomValues,
+		survivorCustomValues,
+		(row) => targetForSource({ pairs }, row.contactId),
+		(row) => row.contactId,
+		(row) => row.fieldId,
+	);
+	const survivorAirtableByRecord = new Set(
+		survivorAirtableLinks.map((row) => row.recordId),
+	);
+	const airtableConflicts = sourceAirtableLinks.filter((row) =>
+		survivorAirtableByRecord.has(targetForSource({ pairs }, row.recordId)),
+	).length;
+	const summary = emptyContactMergeSummary();
+	summary.eventContactsCreated = pairs.filter((pair) => !pair.survivor).length;
+	summary.contactsRetired = sourceRows.length;
+	summary.profileFieldsFilled = pairs.reduce(
+		(total, pair) => total + pair.profileFieldsFilled.length,
+		0,
+	);
+	summary.participantLinksMoved =
+		sourceParticipants.length - participantConflicts;
+	summary.participantLinksConsolidated = participantConflicts;
+	summary.taskAssignmentsMoved = sourceAssignments.length - assignmentConflicts;
+	summary.taskAssignmentsConsolidated = assignmentConflicts;
+	summary.filesMoved = sourceFiles.length;
+	summary.customValuesMoved = sourceCustomValues.length - valueConflicts;
+	summary.customValuesConsolidated = valueConflicts;
+	summary.notesMoved = sourceNotes.length;
+	summary.pipelineCardsMoved = sourceCard && !survivorCard ? 1 : 0;
+	summary.pipelineCardsConsolidated = sourceCard && survivorCard ? 1 : 0;
+	summary.pipelineHistoryMoved =
+		sourceCard && survivorCard ? sourceHistory.length : 0;
+	summary.portalIdentitiesAliased = aliasUserIds.length;
+	summary.submissionsReassigned = sourceSubmissions.length;
+	summary.airtableLinksMoved = sourceAirtableLinks.length - airtableConflicts;
+	summary.airtableLinksConsolidated = airtableConflicts;
+
+	return {
+		ok: true,
+		plan: {
+			sourceEmail,
+			survivorEmail,
+			sourceRows,
+			survivorRows,
+			sourceLatest,
+			survivorLatest,
+			pairs,
+			sourceParticipants,
+			survivorParticipants,
+			sourceAssignments,
+			survivorAssignments,
+			sourceFiles,
+			sourceCustomValues,
+			survivorCustomValues,
+			sourceNotes,
+			sourceCard: sourceCard ?? null,
+			survivorCard: survivorCard ?? null,
+			sourceHistory,
+			canonicalUserId,
+			retiredUserIds,
+			aliasUserIds,
+			sourceSubmissions,
+			sourceAirtableLinks,
+			survivorAirtableLinks,
+			summary,
+		},
+	};
+}
+
+function previewFromPlan(plan: MergePlan): ContactMergePreview {
+	return {
+		source: identity(plan.sourceLatest, plan.sourceEmail),
+		survivor: identity(plan.survivorLatest, plan.survivorEmail),
+		events: plan.pairs.map((pair) => ({
+			eventId: pair.source.eventId,
+			eventName: pair.source.eventName,
+			sourceContactId: pair.source.id,
+			survivorContactId: pair.survivor?.id ?? null,
+			createsSurvivor: pair.survivor === null,
+			profileFieldsFilled: pair.profileFieldsFilled,
+		})),
+		summary: plan.summary,
+	};
+}
+
+export async function buildContactMergePreview(
+	db: Db,
+	organizationId: string,
+	rawSourceEmail: string,
+	rawSurvivorEmail: string,
+): Promise<ContactMergePreviewResult> {
+	const result = await loadMergePlan(
+		db,
+		organizationId,
+		rawSourceEmail,
+		rawSurvivorEmail,
+	);
+	if (!result.ok) return result;
+	return { ok: true, preview: previewFromPlan(result.plan) };
+}
+
+function strongerAcceptance(
+	left: ParticipantRow["acceptanceStatus"],
+	right: ParticipantRow["acceptanceStatus"],
+): ParticipantRow["acceptanceStatus"] {
+	const rank = { pending: 0, declined: 1, accepted: 2 } as const;
+	return rank[left] > rank[right] ? left : right;
+}
+
+function strongerTaskStatus(
+	left: AssignmentRow["status"],
+	right: AssignmentRow["status"],
+): AssignmentRow["status"] {
+	const rank = { incomplete: 0, pending_feedback: 1, complete: 2 } as const;
+	return rank[left] > rank[right] ? left : right;
+}
+
+function earlierDate(left: Date | null, right: Date | null): Date | null {
+	if (!left) return right;
+	if (!right) return left;
+	return left < right ? left : right;
+}
+
+function newSurvivorContact(
+	pair: EventPair,
+	plan: MergePlan,
+): typeof contacts.$inferInsert {
+	const preferred = plan.survivorLatest;
+	const source = pair.source;
+	const value = <K extends (typeof PROFILE_FIELDS)[number]>(field: K) =>
+		!isBlank(preferred[field]) ? preferred[field] : source[field];
+	return {
+		id: pair.survivorId,
+		eventId: source.eventId,
+		userId: plan.canonicalUserId,
+		email: plan.survivorEmail,
+		firstName: preferred.firstName || source.firstName,
+		lastName: preferred.lastName || source.lastName,
+		salutation: value("salutation"),
+		honorific: value("honorific"),
+		pronouns: value("pronouns"),
+		gender: value("gender"),
+		jobTitle: value("jobTitle"),
+		companyName: value("companyName"),
+		mobilePhone: value("mobilePhone"),
+		homePhone: value("homePhone"),
+		zip: value("zip"),
+		bio: value("bio"),
+		headshotKey: value("headshotKey"),
+		linkedinUrl: value("linkedinUrl"),
+		twitterUrl: value("twitterUrl"),
+		facebookUrl: value("facebookUrl"),
+		websiteUrl: value("websiteUrl"),
+		status: source.status,
+		publicVisible: source.publicVisible,
+		logisticsNotes: source.logisticsNotes ?? preferred.logisticsNotes,
+	};
+}
+
+async function findReplay(
+	db: Db,
+	organizationId: string,
+	idempotencyKey: string,
+): Promise<ContactMergeExecutionResult | null> {
+	const [audit] = await db
+		.select()
+		.from(contactMerges)
+		.where(
+			and(
+				eq(contactMerges.organizationId, organizationId),
+				eq(contactMerges.idempotencyKey, idempotencyKey),
+			),
+		)
+		.limit(1);
+	return audit
+		? {
+				ok: true,
+				mergeId: audit.id,
+				survivorEmail: audit.survivorEmail,
+				summary: audit.summary,
+				replayed: true,
+			}
+		: null;
+}
+
+export async function executeContactMerge(
+	db: Db,
+	organizationId: string,
+	input: {
+		sourceEmail: string;
+		survivorEmail: string;
+		idempotencyKey: string;
+		actor: { id: string; name: string };
+	},
+): Promise<ContactMergeExecutionResult> {
+	if (!UUID_PATTERN.test(input.idempotencyKey)) {
+		return {
+			ok: false,
+			code: "invalid_key",
+			reason: "Reload the comparison before merging.",
+		};
+	}
+	const replay = await findReplay(db, organizationId, input.idempotencyKey);
+	if (replay) return replay;
+	const loaded = await loadMergePlan(
+		db,
+		organizationId,
+		input.sourceEmail,
+		input.survivorEmail,
+	);
+	if (!loaded.ok) return loaded;
+	const plan = loaded.plan;
+	const mergeId = crypto.randomUUID();
+	const statements: unknown[] = [];
+
+	for (const pair of plan.pairs) {
+		if (pair.survivor) {
+			const profileUpdates = { ...pair.profileUpdates };
+			if (!pair.survivor.userId && plan.canonicalUserId) {
+				profileUpdates.userId = plan.canonicalUserId;
+			}
+			if (Object.keys(profileUpdates).length > 0) {
+				statements.push(
+					db
+						.update(contacts)
+						.set(profileUpdates)
+						.where(eq(contacts.id, pair.survivor.id)),
+				);
+			}
+		} else {
+			statements.push(
+				db.insert(contacts).values(newSurvivorContact(pair, plan)),
+			);
+		}
+	}
+
+	statements.push(
+		db.insert(contactMerges).values({
+			id: mergeId,
+			organizationId,
+			sourceEmail: plan.sourceEmail,
+			survivorEmail: plan.survivorEmail,
+			actorId: input.actor.id,
+			actorName: input.actor.name,
+			idempotencyKey: input.idempotencyKey,
+			summary: plan.summary,
+			retiredContacts: plan.sourceRows.map(contactSnapshot),
+		}),
+	);
+
+	const targetParticipants = new Map(
+		plan.survivorParticipants.map((row) => [
+			pairKey(row.contactId, participantKey(row)),
+			row,
+		]),
+	);
+	for (const source of plan.sourceParticipants) {
+		const survivorId = targetForSource(plan, source.contactId);
+		const target = targetParticipants.get(
+			pairKey(survivorId, participantKey(source)),
+		);
+		if (target) {
+			statements.push(
+				db
+					.update(participants)
+					.set({
+						isPrimary: target.isPrimary || source.isPrimary,
+						position: Math.min(target.position, source.position),
+						acceptanceStatus: strongerAcceptance(
+							target.acceptanceStatus,
+							source.acceptanceStatus,
+						),
+					})
+					.where(eq(participants.id, target.id)),
+				db.delete(participants).where(eq(participants.id, source.id)),
+			);
+		} else {
+			statements.push(
+				db
+					.update(participants)
+					.set({ contactId: survivorId })
+					.where(eq(participants.id, source.id)),
+			);
+		}
+	}
+
+	const targetAssignments = new Map(
+		plan.survivorAssignments.map((row) => [
+			pairKey(row.contactId ?? "", assignmentKey(row)),
+			row,
+		]),
+	);
+	for (const source of plan.sourceAssignments) {
+		if (!source.contactId) continue;
+		const survivorId = targetForSource(plan, source.contactId);
+		const target = targetAssignments.get(
+			pairKey(survivorId, assignmentKey(source)),
+		);
+		if (target) {
+			statements.push(
+				db
+					.update(taskAssignments)
+					.set({
+						status: strongerTaskStatus(target.status, source.status),
+						response: {
+							...(source.response ?? {}),
+							...(target.response ?? {}),
+						},
+						fileKey: target.fileKey ?? source.fileKey,
+						dueAt: earlierDate(target.dueAt, source.dueAt),
+						completedAt: target.completedAt ?? source.completedAt,
+						reminderSentAt: target.reminderSentAt ?? source.reminderSentAt,
+					})
+					.where(eq(taskAssignments.id, target.id)),
+				db.delete(taskAssignments).where(eq(taskAssignments.id, source.id)),
+			);
+		} else {
+			statements.push(
+				db
+					.update(taskAssignments)
+					.set({ contactId: survivorId })
+					.where(eq(taskAssignments.id, source.id)),
+			);
+		}
+	}
+
+	for (const source of plan.sourceFiles) {
+		if (!source.contactId) continue;
+		statements.push(
+			db
+				.update(files)
+				.set({ contactId: targetForSource(plan, source.contactId) })
+				.where(eq(files.id, source.id)),
+		);
+	}
+
+	const targetValues = new Map(
+		plan.survivorCustomValues.map((row) => [
+			pairKey(row.contactId, row.fieldId),
+			row,
+		]),
+	);
+	for (const source of plan.sourceCustomValues) {
+		const survivorId = targetForSource(plan, source.contactId);
+		if (targetValues.has(pairKey(survivorId, source.fieldId))) {
+			statements.push(
+				db
+					.delete(contactFieldValues)
+					.where(eq(contactFieldValues.id, source.id)),
+			);
+		} else {
+			statements.push(
+				db
+					.update(contactFieldValues)
+					.set({ contactId: survivorId })
+					.where(eq(contactFieldValues.id, source.id)),
+			);
+		}
+	}
+
+	if (plan.sourceNotes.length > 0) {
+		statements.push(
+			db
+				.update(crmNotes)
+				.set({ email: plan.survivorEmail })
+				.where(
+					and(
+						eq(crmNotes.organizationId, organizationId),
+						eq(crmNotes.email, plan.sourceEmail),
+					),
+				),
+		);
+	}
+
+	if (plan.sourceCard && plan.survivorCard) {
+		if (plan.sourceHistory.length > 0) {
+			statements.push(
+				db
+					.update(pipelineStageChanges)
+					.set({ cardId: plan.survivorCard.id })
+					.where(eq(pipelineStageChanges.cardId, plan.sourceCard.id)),
+			);
+		}
+		statements.push(
+			db.delete(pipelineCards).where(eq(pipelineCards.id, plan.sourceCard.id)),
+		);
+	} else if (plan.sourceCard) {
+		statements.push(
+			db
+				.update(pipelineCards)
+				.set({
+					email: plan.survivorEmail,
+					firstName: plan.survivorLatest.firstName,
+					lastName: plan.survivorLatest.lastName,
+					companyName: plan.survivorLatest.companyName,
+				})
+				.where(eq(pipelineCards.id, plan.sourceCard.id)),
+		);
+	}
+
+	if (plan.canonicalUserId && plan.sourceSubmissions.length > 0) {
+		statements.push(
+			db
+				.update(submissions)
+				.set({ submitterId: plan.canonicalUserId })
+				.where(
+					inArray(
+						submissions.id,
+						plan.sourceSubmissions.map((row) => row.id),
+					),
+				),
+		);
+	}
+
+	const targetAirtableRecords = new Set(
+		plan.survivorAirtableLinks.map((row) => row.recordId),
+	);
+	for (const source of plan.sourceAirtableLinks) {
+		const survivorId = targetForSource(plan, source.recordId);
+		if (targetAirtableRecords.has(survivorId)) {
+			statements.push(
+				db.delete(airtableLinks).where(eq(airtableLinks.id, source.id)),
+			);
+		} else {
+			statements.push(
+				db
+					.update(airtableLinks)
+					.set({ recordId: survivorId })
+					.where(eq(airtableLinks.id, source.id)),
+			);
+		}
+	}
+
+	for (const sourceUserId of plan.aliasUserIds) {
+		statements.push(
+			db
+				.insert(contactIdentityAliases)
+				.values({
+					organizationId,
+					sourceUserId,
+					survivorUserId: plan.canonicalUserId,
+					survivorEmail: plan.survivorEmail,
+					mergeId,
+				})
+				.onConflictDoUpdate({
+					target: [
+						contactIdentityAliases.organizationId,
+						contactIdentityAliases.sourceUserId,
+					],
+					set: {
+						survivorUserId: plan.canonicalUserId,
+						survivorEmail: plan.survivorEmail,
+						mergeId,
+					},
+				}),
+		);
+	}
+
+	statements.push(
+		db.delete(contacts).where(
+			inArray(
+				contacts.id,
+				plan.sourceRows.map((row) => row.id),
+			),
+		),
+	);
+
+	try {
+		await db.batch(statements as unknown as Parameters<Db["batch"]>[0]);
+	} catch (error) {
+		if (isUniqueViolation(error)) {
+			const raced = await findReplay(db, organizationId, input.idempotencyKey);
+			if (raced) return raced;
+		}
+		return {
+			ok: false,
+			code: "failed",
+			reason:
+				"The contacts could not be merged. Reload the comparison and try again.",
+		};
+	}
+
+	return {
+		ok: true,
+		mergeId,
+		survivorEmail: plan.survivorEmail,
+		summary: plan.summary,
+		replayed: false,
+	};
+}
+
+export async function resolveContactIdentityAlias(
+	db: Db,
+	organizationId: string,
+	userId: string,
+): Promise<{ survivorEmail: string; survivorUserId: string | null } | null> {
+	const [alias] = await db
+		.select({
+			survivorEmail: contactIdentityAliases.survivorEmail,
+			survivorUserId: contactIdentityAliases.survivorUserId,
+		})
+		.from(contactIdentityAliases)
+		.where(
+			and(
+				eq(contactIdentityAliases.organizationId, organizationId),
+				eq(contactIdentityAliases.sourceUserId, userId),
+			),
+		)
+		.limit(1);
+	return alias ?? null;
+}
+
+export async function queryContactMergeHistory(
+	db: Db,
+	organizationId: string,
+	rawSurvivorEmail: string,
+	limit: number,
+): Promise<{
+	merges: Array<{
+		id: string;
+		sourceEmail: string;
+		survivorEmail: string;
+		actorName: string;
+		summary: ContactMergeAuditSummary;
+		createdAt: Date;
+	}>;
+	total: number;
+}> {
+	const survivorEmail = normalize(rawSurvivorEmail);
+	const where = and(
+		eq(contactMerges.organizationId, organizationId),
+		eq(contactMerges.survivorEmail, survivorEmail),
+	);
+	const [merges, [totalRow]] = await Promise.all([
+		db
+			.select({
+				id: contactMerges.id,
+				sourceEmail: contactMerges.sourceEmail,
+				survivorEmail: contactMerges.survivorEmail,
+				actorName: contactMerges.actorName,
+				summary: contactMerges.summary,
+				createdAt: contactMerges.createdAt,
+			})
+			.from(contactMerges)
+			.where(where)
+			.orderBy(desc(contactMerges.createdAt), desc(contactMerges.id))
+			.limit(Math.max(1, Math.min(limit, 100))),
+		db.select({ n: count() }).from(contactMerges).where(where),
+	]);
+	return { merges, total: totalRow?.n ?? 0 };
+}

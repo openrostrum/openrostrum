@@ -45,7 +45,6 @@ export function PipelineColumn({
 	);
 }
 
-/** `control` hosts the route-owned move form (fetcher lives with the route). */
 export function PipelineCardTile({
 	to,
 	name,

@@ -4,7 +4,6 @@ import { getPortalContext } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.logo";
 
-/** Serves the portal's configured logo (per-portal appearance) to portal users. */
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);

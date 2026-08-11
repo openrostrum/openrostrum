@@ -1,4 +1,14 @@
-import { and, desc, eq, isNull, ne, type SQL, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	isNotNull,
+	isNull,
+	ne,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import { data } from "react-router";
 import type { Db } from "~/db";
 import {
@@ -293,20 +303,91 @@ export function currentHeadshotsSql(eventId: string, contactId?: string): SQL {
 
 export type FileRow = typeof files.$inferSelect;
 
-/** Every file of the event, ranked within its chain (rn = 1 is latest,
- * version_count spans the chain) — the single source of "latest", shared by
- * the library and the ZIP export so they can never disagree. */
-export function rankedChainsSql(eventId: string): SQL {
+/** Every event file with one canonical presentation key. A direct row joins a
+ * unique task chain only after either side proves it is a later version; two
+ * unrelated v1 rows with the same filename remain independent. */
+export function canonicalRowsSql(eventId: string): SQL {
 	return sql`(
+		with task_matches as (
+			select task_file.event_id, task_file.submission_id,
+				lower(task_file.file_name) as file_name_key,
+				min(task_file.task_assignment_id) as assignment_id,
+				count(distinct task_file.task_assignment_id) as assignment_count,
+				max(task_file.version) as task_max_version
+			from ${files} task_file
+			where task_file.event_id = ${eventId}
+				and task_file.submission_id is not null
+				and task_file.task_assignment_id is not null
+			group by task_file.event_id, task_file.submission_id,
+				lower(task_file.file_name)
+		), direct_matches as (
+			select direct_file.event_id, direct_file.submission_id,
+				lower(direct_file.file_name) as file_name_key,
+				max(direct_file.version) as direct_max_version
+			from ${files} direct_file
+			where direct_file.event_id = ${eventId}
+				and direct_file.submission_id is not null
+				and direct_file.task_assignment_id is null
+			group by direct_file.event_id, direct_file.submission_id,
+				lower(direct_file.file_name)
+		)
 		select ${files}.*,
-			${GROUP_KEY_SQL} as grp,
-			row_number() over (
-				partition by ${GROUP_KEY_SQL}
-				order by ${files.version} desc, ${files.createdAt} desc, ${files.id} desc
-			) as rn,
-			count(*) over (partition by ${GROUP_KEY_SQL}) as version_count
+			case
+				when ${files.taskAssignmentId} is null
+					and tm.assignment_count = 1
+					and (tm.task_max_version > 1 or dm.direct_max_version > 1)
+				then tm.assignment_id
+				else ${files.taskAssignmentId}
+			end as canonical_task_assignment_id,
+			case
+				when ${files.taskAssignmentId} is null
+					and tm.assignment_count = 1
+					and (tm.task_max_version > 1 or dm.direct_max_version > 1)
+				then 'a:' || tm.assignment_id
+				else ${GROUP_KEY_SQL}
+			end as grp
 		from ${files}
+		left join task_matches tm
+			on tm.event_id = ${files.eventId}
+			and tm.submission_id = ${files.submissionId}
+			and tm.file_name_key = lower(${files.fileName})
+		left join direct_matches dm
+			on dm.event_id = ${files.eventId}
+			and dm.submission_id = ${files.submissionId}
+			and dm.file_name_key = lower(${files.fileName})
 		where ${files.eventId} = ${eventId}
+	)`;
+}
+
+/** One row per logical version, ranked latest-first inside its canonical key.
+ * A duplicate direct/task row with the same version keeps the task-owned row. */
+export function rankedChainsSql(eventId: string): SQL {
+	const canonical = canonicalRowsSql(eventId);
+	return sql`(
+		select logical.*,
+			row_number() over (
+				partition by logical.grp
+				order by logical.version desc, logical.created_at desc, logical.id desc
+			) as rn,
+			count(*) over (partition by logical.grp) as version_count,
+			first_value(logical.review_status) over (
+				partition by logical.grp
+				order by case when logical.task_assignment_id is null then 1 else 0 end,
+					logical.version desc, logical.created_at desc, logical.id desc
+			) as canonical_review_status,
+			max(logical.shared_to_portal) over (
+				partition by logical.grp
+			) as canonical_shared_to_portal
+		from (
+			select c.*,
+				row_number() over (
+					partition by c.grp, c.version
+					order by case when c.task_assignment_id is null then 1 else 0 end,
+						c.created_at desc, c.id desc
+				) as canonical_position
+			from ${canonical} c
+		) logical
+		where logical.canonical_position = 1
 	)`;
 }
 
@@ -326,14 +407,13 @@ type ChainValues = {
 
 type BatchItem = Parameters<Db["batch"]>[0][number];
 
-/** Appends a row to its chain in ONE batch (D1 has no transactions): the
- * insert mints version = max+1 via a scalar subquery (a double-submit can't
- * duplicate versions), the portal-shared flag migrates to this latest version
- * (the portal lists shared rows flat — one flagged version per chain), and
- * caller statements (e.g. the assignment flip) commit atomically with it. */
+/** Appends one physical upload atomically. `maxVersion` may bridge direct
+ * and task sources; `flagChain` never does, preserving each source's access
+ * policy while the central library presents one logical deliverable. */
 async function appendToChain(
 	db: Db,
-	chain: SQL,
+	maxVersion: SQL,
+	flagChain: SQL,
 	values: ChainValues,
 	alongside: BatchItem[] = [],
 ): Promise<{ id: string; version: number }> {
@@ -352,7 +432,7 @@ async function appendToChain(
 				kind: values.kind,
 				contentType: values.contentType,
 				sizeBytes: values.sizeBytes,
-				version: sql`coalesce((select max(${files.version}) from ${files} where ${chain}), 0) + 1`,
+				version: sql`coalesce((${maxVersion}), 0) + 1`,
 				reviewStatus: values.reviewStatus,
 				sharedToPortal: values.sharedToPortal,
 			})
@@ -364,13 +444,13 @@ async function appendToChain(
 				and(
 					eq(files.id, id),
 					sql`(select count(*) from ${files}
-						where ${chain} and ${files.id} != ${id} and ${files.sharedToPortal} = 1) > 0`,
+						where ${flagChain} and ${files.id} != ${id} and ${files.sharedToPortal} = 1) > 0`,
 				),
 			),
 		db
 			.update(files)
 			.set({ sharedToPortal: false })
-			.where(and(chain, ne(files.id, id))),
+			.where(and(flagChain, ne(files.id, id))),
 		...alongside,
 	]);
 	const row = inserted[0];
@@ -389,7 +469,8 @@ export type DirectUploadInput = {
 	sharedToPortal: boolean;
 };
 
-/** Admin (non-task) upload: chains per submission-or-event + filename. */
+/** Admin uploads stay direct resources. Version allocation can bridge one
+ * existing task chain, but never changes speaker ownership or task lifecycle. */
 export async function insertDirectUpload(
 	db: Db,
 	input: DirectUploadInput,
@@ -397,18 +478,40 @@ export async function insertDirectUpload(
 	const scope = input.submissionId
 		? eq(files.submissionId, input.submissionId)
 		: and(isNull(files.submissionId), isNull(files.contactId));
-	const chain = and(
+	const directChain = and(
 		eq(files.eventId, input.eventId),
 		isNull(files.taskAssignmentId),
 		scope,
 		sql`lower(${files.fileName}) = lower(${input.fileName})`,
 	) as SQL;
-	return appendToChain(db, chain, {
-		...input,
-		contactId: null,
-		taskAssignmentId: null,
-		reviewStatus: "none",
-	});
+	const versionScope = input.submissionId
+		? (or(
+				directChain,
+				and(
+					eq(files.eventId, input.eventId),
+					eq(files.submissionId, input.submissionId),
+					isNotNull(files.taskAssignmentId),
+					sql`lower(${files.fileName}) = lower(${input.fileName})`,
+					sql`(select count(distinct candidate.task_assignment_id)
+						from ${files} candidate
+						where candidate.event_id = ${input.eventId}
+							and candidate.submission_id = ${input.submissionId}
+							and candidate.task_assignment_id is not null
+							and lower(candidate.file_name) = lower(${input.fileName})) = 1`,
+				),
+			) as SQL)
+		: directChain;
+	return appendToChain(
+		db,
+		sql`select max(${files.version}) from ${files} where ${versionScope}`,
+		directChain,
+		{
+			...input,
+			contactId: null,
+			taskAssignmentId: null,
+			reviewStatus: "none",
+		},
+	);
 }
 
 export type TaskUploadInput = {
@@ -423,21 +526,52 @@ export type TaskUploadInput = {
 	sizeBytes: number;
 };
 
-/** Speaker file-request upload: chains per assignment, lands in the review
- * queue, and flips the assignment to pending_feedback in the same batch. */
+/** Speaker upload: task ownership and review stay assignment-scoped, while a
+ * uniquely attributable direct predecessor can supply the next version number. */
 export async function insertTaskUpload(
 	db: Db,
 	input: TaskUploadInput,
 ): Promise<{ id: string; version: number }> {
-	const chain = eq(files.taskAssignmentId, input.taskAssignmentId) as SQL;
+	const taskChain = and(
+		eq(files.eventId, input.eventId),
+		eq(files.taskAssignmentId, input.taskAssignmentId),
+	) as SQL;
+	const canonical = canonicalRowsSql(input.eventId);
+	const maxVersion = input.submissionId
+		? sql`select max(source.version) from (
+				select c.version
+				from ${canonical} c
+				where c.canonical_task_assignment_id = ${input.taskAssignmentId}
+				union all
+				select direct_candidate.version
+				from ${files} direct_candidate
+				where direct_candidate.event_id = ${input.eventId}
+					and direct_candidate.submission_id = ${input.submissionId}
+					and direct_candidate.task_assignment_id is null
+					and lower(direct_candidate.file_name) = lower(${input.fileName})
+					and not exists (
+						select 1 from ${files} competing_task
+						where competing_task.event_id = ${input.eventId}
+							and competing_task.submission_id = ${input.submissionId}
+							and competing_task.task_assignment_id is not null
+							and competing_task.task_assignment_id != ${input.taskAssignmentId}
+							and lower(competing_task.file_name) = lower(${input.fileName})
+					)
+			) source`
+		: sql`select max(${files.version}) from ${files} where ${taskChain}`;
 	return appendToChain(
 		db,
-		chain,
+		maxVersion,
+		taskChain,
 		{ ...input, reviewStatus: "pending", sharedToPortal: false },
 		[
 			db
 				.update(taskAssignments)
-				.set({ status: "pending_feedback", fileKey: input.r2Key })
+				.set({
+					status: "pending_feedback",
+					fileKey: input.r2Key,
+					completedAt: null,
+				})
 				.where(eq(taskAssignments.id, input.taskAssignmentId)),
 		],
 	);
@@ -507,7 +641,7 @@ export async function listFileGroups(
 	const pageSize = filters.pageSize ?? 50;
 	const conditions = [sql`r.rn = 1`];
 	if (filters.reviewStatus) {
-		conditions.push(sql`r.review_status = ${filters.reviewStatus}`);
+		conditions.push(sql`r.canonical_review_status = ${filters.reviewStatus}`);
 	}
 	if (filters.submissionId) {
 		conditions.push(sql`r.submission_id = ${filters.submissionId}`);
@@ -524,7 +658,8 @@ export async function listFileGroups(
 	const base = sql`
 		from ${rankedChainsSql(eventId)} r
 		left join ${submissions} s on s.id = r.submission_id
-		left join ${contacts} c on c.id = r.contact_id
+		left join ${taskAssignments} ta on ta.id = r.canonical_task_assignment_id
+		left join ${contacts} c on c.id = coalesce(r.contact_id, ta.contact_id)
 		where ${where}`;
 
 	type Raw = {
@@ -545,9 +680,11 @@ export async function listFileGroups(
 	};
 	const rows = await db.all<Raw>(sql`
 		select r.id, r.file_name, r.kind, r.size_bytes, r.version, r.version_count,
-			r.review_status, r.shared_to_portal, r.created_at,
+			r.canonical_review_status as review_status,
+			r.canonical_shared_to_portal as shared_to_portal, r.created_at,
 			r.submission_id, s.title as submission_title,
-			r.contact_id, c.first_name, c.last_name
+			coalesce(r.contact_id, ta.contact_id) as contact_id,
+			c.first_name, c.last_name
 		${base}
 		order by r.created_at desc, r.id desc
 		limit ${pageSize} offset ${(page - 1) * pageSize}`);
@@ -575,27 +712,58 @@ export async function listFileGroups(
 	};
 }
 
-/** A file's whole version chain, descending — index 0 is the latest.
- * Null when the id doesn't resolve inside the event. */
+/** A file's canonical version chain, descending — index 0 is the latest.
+ * `members` retains duplicate alias ids so their comments remain in-thread. */
 export async function getFileChain(
 	db: Db,
 	eventId: string,
 	fileId: string,
-): Promise<{ versions: FileRow[] } | null> {
-	// The subquery's `files` shadows the outer one — both sides evaluate the
-	// same chain-key expression on their own row.
-	const versions = await db
-		.select()
-		.from(files)
-		.where(
-			and(
-				eq(files.eventId, eventId),
-				sql`${GROUP_KEY_SQL} = (select ${GROUP_KEY_SQL} from ${files} where ${files.id} = ${fileId} and ${files.eventId} = ${eventId})`,
-			),
-		)
-		.orderBy(desc(files.version), desc(files.createdAt));
+): Promise<{
+	versions: FileRow[];
+	members: Array<{ id: string; version: number }>;
+	canonicalTaskAssignmentId: string | null;
+	canonicalSharedToPortal: boolean;
+} | null> {
+	const canonical = canonicalRowsSql(eventId);
+	const ranked = rankedChainsSql(eventId);
+	const targetGroup = sql`(
+		select target.grp from ${canonical} target
+		where target.id = ${fileId}
+		limit 1
+	)`;
+	const [versions, members, context] = await Promise.all([
+		db
+			.select()
+			.from(files)
+			.where(
+				and(
+					eq(files.eventId, eventId),
+					sql`${files.id} in (
+						select r.id from ${ranked} r where r.grp = ${targetGroup}
+					)`,
+				),
+			)
+			.orderBy(desc(files.version), desc(files.createdAt), desc(files.id)),
+		db.all<{ id: string; version: number }>(sql`
+			select c.id, c.version from ${canonical} c
+			where c.grp = ${targetGroup}`),
+		db.all<{
+			canonical_task_assignment_id: string | null;
+			canonical_shared_to_portal: number;
+		}>(sql`
+			select r.canonical_task_assignment_id,
+				r.canonical_shared_to_portal
+			from ${ranked} r
+			where r.grp = ${targetGroup} and r.rn = 1
+			limit 1`),
+	]);
 	if (versions.length === 0) return null;
-	return { versions };
+	return {
+		versions,
+		members,
+		canonicalTaskAssignmentId: context[0]?.canonical_task_assignment_id ?? null,
+		canonicalSharedToPortal: context[0]?.canonical_shared_to_portal === 1,
+	};
 }
 
 /** Windows-and-zip-safe display name (also used for Content-Disposition). */

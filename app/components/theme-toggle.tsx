@@ -1,5 +1,14 @@
-import { useRef, useState } from "react";
-import { useFetcher, useRouteLoaderData } from "react-router";
+import {
+	type ElementType,
+	type FormEventHandler,
+	useRef,
+	useState,
+} from "react";
+import {
+	type FetcherFormProps,
+	useFetcher,
+	useRouteLoaderData,
+} from "react-router";
 import { parseTheme, THEMES, type Theme } from "~/lib/theme";
 import { useBusy } from "~/lib/use-busy";
 import { useDismiss } from "~/lib/use-dismiss";
@@ -27,6 +36,57 @@ const ICONS: Record<Theme, IconName> = {
 	dark: "moon",
 };
 
+type ThemeMenuFormProps = {
+	Form: ElementType<FetcherFormProps>;
+	busy: boolean;
+	theme: Theme;
+	onSubmit: FormEventHandler<HTMLFormElement>;
+};
+
+export function ThemeMenuForm({
+	Form,
+	busy,
+	theme,
+	onSubmit,
+}: ThemeMenuFormProps) {
+	return (
+		<Form
+			method="post"
+			action="/theme"
+			onSubmit={onSubmit}
+			className="absolute bottom-full right-0 z-20 mb-[6px] flex w-[168px] flex-col overflow-hidden rounded-card bg-surface py-1 shadow-card"
+		>
+			{THEMES.map((option) => (
+				<button
+					key={option}
+					type="submit"
+					name="theme"
+					value={option}
+					disabled={busy}
+					aria-current={option === theme || undefined}
+					className={cn(
+						"flex h-[34px] w-full items-center gap-[10px] px-[12px] text-left text-[13px] font-medium text-fg-muted",
+						"transition-colors duration-150 hover:bg-row-hover hover:text-fg",
+						"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
+						option === theme &&
+							"bg-row-selected text-fg shadow-[inset_2px_0_0_var(--color-petrol)]",
+					)}
+				>
+					<span
+						className={cn(
+							"opacity-70",
+							option === theme && "text-petrol opacity-100",
+						)}
+					>
+						<Icon name={ICONS[option]} size={15} />
+					</span>
+					{LABELS[option]}
+				</button>
+			))}
+		</Form>
+	);
+}
+
 export function ThemeToggle() {
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
@@ -52,40 +112,12 @@ export function ThemeToggle() {
 				<Icon name={ICONS[theme]} size={15} />
 			</button>
 			{open && (
-				<fetcher.Form
-					method="post"
-					action="/theme"
-					className="absolute bottom-full right-0 z-20 mb-[6px] flex w-[168px] flex-col overflow-hidden rounded-card bg-surface py-1 shadow-card"
-				>
-					{THEMES.map((option) => (
-						<button
-							key={option}
-							type="submit"
-							name="theme"
-							value={option}
-							disabled={busy}
-							aria-current={option === theme || undefined}
-							onClick={() => setOpen(false)}
-							className={cn(
-								"flex h-[34px] w-full items-center gap-[10px] px-[12px] text-left text-[13px] font-medium text-fg-muted",
-								"transition-colors duration-150 hover:bg-row-hover hover:text-fg",
-								"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
-								option === theme &&
-									"bg-row-selected text-fg shadow-[inset_2px_0_0_var(--color-petrol)]",
-							)}
-						>
-							<span
-								className={cn(
-									"opacity-70",
-									option === theme && "text-petrol opacity-100",
-								)}
-							>
-								<Icon name={ICONS[option]} size={15} />
-							</span>
-							{LABELS[option]}
-						</button>
-					))}
-				</fetcher.Form>
+				<ThemeMenuForm
+					Form={fetcher.Form}
+					busy={busy}
+					theme={theme}
+					onSubmit={() => setOpen(false)}
+				/>
 			)}
 		</div>
 	);

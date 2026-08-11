@@ -6,7 +6,6 @@
 
 export const SLOT_MINS = 15;
 
-/** Placement length when a session's format carries no default. */
 export const DEFAULT_DURATION_MINS = 30;
 
 export type AgendaSession = {
@@ -176,8 +175,6 @@ export function matchesSessionFilters(
 	return true;
 }
 
-/* ------------------------------------------------------------ wall clock --- */
-
 const fmtCache = new Map<string, Intl.DateTimeFormat>();
 
 function tzFormatter(timeZone: string): Intl.DateTimeFormat {
@@ -240,8 +237,6 @@ export function wallToUtc(
 	return ms;
 }
 
-/* ------------------------------------------------------------ event days --- */
-
 /** Next "YYYY-MM-DD" — pure calendar arithmetic on the day string, so DST
  * (23/25-hour days) can never skip or duplicate a column. */
 function nextDay(day: string): string {
@@ -298,8 +293,6 @@ export function resolveEventDays(
 	return [utcToWall(Date.now(), timezone).day];
 }
 
-/* ------------------------------------------------------------- formatting --- */
-
 export function formatMinutes(minutes: number): string {
 	const h24 = Math.floor(minutes / 60) % 24;
 	const mins = minutes % 60;
@@ -330,8 +323,6 @@ export function formatDayLabel(day: string): string {
 		timeZone: "UTC",
 	});
 }
-
-/* -------------------------------------------------------------- conflicts --- */
 
 export type Conflict = {
 	aId: string;
@@ -525,8 +516,6 @@ export function conflictSentence(
 		: `Shares ${conflict.roomName} with “${other}” (overlapping ${range}).`;
 }
 
-/* ------------------------------------------------------------ lane layout --- */
-
 /**
  * Interval partitioning for blocks sharing a column: overlapping blocks split
  * the column into side-by-side lanes so nothing renders on top of anything.
@@ -566,8 +555,6 @@ export function layoutLanes(
 	flush();
 	return result;
 }
-
-/* -------------------------------------------------------------- autoplace --- */
 
 export type AutoPlaceInput = {
 	days: readonly string[];

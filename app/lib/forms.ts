@@ -30,8 +30,6 @@ export const FORM_STATUS_TONE: Record<FormStatus, BadgeTone> = {
 	draft: "faint",
 };
 
-/* ------------------------------------------------------------- built-ins --- */
-
 export type BuiltinRef = NonNullable<
 	(typeof formFields.$inferSelect)["builtinRef"]
 >;
@@ -41,14 +39,10 @@ export type BuiltinMeta = {
 	label: string;
 	caption: string;
 	section: FormSectionId;
-	/** Placed automatically on every new form. */
 	defaultOn: boolean;
-	/** Cannot be removed from a form. */
 	locked: boolean;
-	/** Required state is fixed ON (identity fields + Title). */
 	requiredLocked: boolean;
 	defaultRequired: boolean;
-	/** Eligible as a question-rule trigger (dropdown-backed built-ins). */
 	trigger: boolean;
 };
 
@@ -296,8 +290,6 @@ export function defaultBuiltinPlacements(
 		},
 	);
 }
-
-/* ------------------------------------------------------------- timezones --- */
 
 function tzOffsetMs(ts: number, timeZone: string): number {
 	const dtf = new Intl.DateTimeFormat("en-US", {

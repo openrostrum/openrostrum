@@ -13,7 +13,7 @@ import {
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
 import { verifyUnsubscribeToken } from "../app/lib/unsubscribe";
-import { action } from "../app/routes/admin.contacts_.compose";
+import { action, loader } from "../app/routes/admin.contacts_.compose";
 
 async function adminRequest(url: string, init?: RequestInit): Promise<Request> {
 	const db = getDb(env);
@@ -83,6 +83,14 @@ function run(request: Request, actionEnv: Env = env) {
 	} as unknown as Parameters<typeof action>[0]);
 }
 
+function runLoader(request: Request) {
+	return loader({
+		context: { cloudflare: { env, ctx: {} } },
+		request,
+		params: {},
+	} as unknown as Parameters<typeof loader>[0]);
+}
+
 function sendBody(overrides: Record<string, string> = {}): URLSearchParams {
 	return new URLSearchParams({
 		intent: "send",
@@ -99,6 +107,121 @@ function sendBody(overrides: Record<string, string> = {}): URLSearchParams {
 afterEach(() => vi.restoreAllMocks());
 
 describe("compose bulk email", () => {
+	it("resolves selected directory people once across event appearances", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/compose?directoryEmails=alice%40example.com%2Cbob%40example.com",
+		);
+		await seedRoster();
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org1",
+			name: "Second Event",
+			slug: "second-event",
+		});
+		await db.insert(contacts).values({
+			id: "c_alice_e2",
+			eventId: "e2",
+			email: "Alice@Example.com",
+			firstName: "Alice",
+			lastName: "Anders",
+			status: "pending",
+			createdAt: new Date("2030-02-01T00:00:00Z"),
+		});
+
+		const result = (await runLoader(request)) as {
+			data: { recipients: Array<{ id: string; email: string }> };
+		};
+		expect(result.data.recipients.map((recipient) => recipient.email)).toEqual([
+			"Alice@Example.com",
+			"bob@example.com",
+		]);
+		expect(
+			result.data.recipients.filter(
+				(recipient) => recipient.email.toLowerCase() === "alice@example.com",
+			),
+		).toHaveLength(1);
+	});
+
+	it("previews and sends only the selected directory subset", async () => {
+		const db = getDb(env);
+		const previewRequest = await adminRequest(
+			"http://localhost/admin/contacts/compose",
+			{
+				method: "POST",
+				body: sendBody({
+					intent: "preview",
+					ids: "",
+					status: "",
+					directoryEmails: "alice@example.com,bob@example.com",
+					previewContact: "c_bob",
+				}),
+			},
+		);
+		await seedRoster();
+		const preview = (await run(previewRequest)) as {
+			step: string;
+			preview?: { email: string; subject: string };
+		};
+		expect(preview.preview).toMatchObject({
+			email: "bob@example.com",
+			subject: "Welcome to DevFlow Conf, Bob!",
+		});
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+
+		const cookie = await createSession(env, "u_admin");
+		const sendRequest = new Request("http://localhost/admin/contacts/compose", {
+			method: "POST",
+			headers: { Cookie: cookie.split(";")[0] ?? "" },
+			body: sendBody({
+				ids: "",
+				status: "",
+				directoryEmails: "alice@example.com,bob@example.com",
+			}),
+		});
+		const sent = (await run(sendRequest)) as { step: string; sent: number };
+		expect(sent).toMatchObject({ step: "sent", sent: 2 });
+		expect(
+			(await db.select().from(emailOutbox)).map((row) => row.to).sort(),
+		).toEqual(["alice@example.com", "bob@example.com"]);
+	});
+
+	it("drops cross-organization directory emails without leaking them", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/compose",
+			{
+				method: "POST",
+				body: sendBody({
+					ids: "",
+					status: "",
+					directoryEmails: "alice@example.com,mallory@rival.example",
+				}),
+			},
+		);
+		await seedRoster();
+		await db.insert(organizations).values({ id: "org2", name: "Rival" });
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org2",
+			name: "Rival Event",
+			slug: "rival-event",
+		});
+		await db.insert(contacts).values({
+			id: "c_mallory",
+			eventId: "e2",
+			email: "mallory@rival.example",
+			firstName: "Mallory",
+			lastName: "Rival",
+		});
+
+		const sent = (await run(request)) as { step: string; sent: number };
+		expect(sent).toMatchObject({ step: "sent", sent: 1 });
+		expect((await db.select().from(emailOutbox)).map((row) => row.to)).toEqual([
+			"alice@example.com",
+		]);
+	});
+
 	it("resolves recipients from the roster filter, personalizes per recipient, and skips the unsubscribed", async () => {
 		const db = getDb(env);
 		const request = await adminRequest(

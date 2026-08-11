@@ -73,6 +73,27 @@
       "breakpoints": true
     },
     {
+      "idx": 10,
+      "version": "6",
+      "when": 1786467842757,
+      "tag": "0010_nasty_jasper_sitwell",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1786468160821,
+      "tag": "0011_silky_demogoblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786472242000,
+      "tag": "0012_event_date_integrity",
+      "breakpoints": true
+    },
+    {
       "idx": 13,
       "version": "6",
       "when": 1786472465172,

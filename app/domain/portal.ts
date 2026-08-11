@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
 import { PARTICIPANT_ROLE, type SUBMISSION_STATUS } from "~/db/constants";
@@ -18,6 +18,7 @@ import {
 	tasks,
 	users,
 } from "~/db/schema";
+import { resolveContactIdentityAlias } from "~/domain/contact-merge";
 import { normalizeEmail, userCanAccessEvent } from "~/lib/auth";
 import { formatDateUTC } from "~/lib/format";
 import {
@@ -134,12 +135,34 @@ export async function getPortalContext(
 		}
 	}
 
-	let [contact] = await db
-		.select()
-		.from(contacts)
-		.where(and(eq(contacts.userId, user.id), eq(contacts.eventId, event.id)))
-		.limit(1);
-	if (!contact) {
+	const alias = await resolveContactIdentityAlias(
+		db,
+		event.organizationId,
+		user.id,
+	);
+	const subjectUserId = alias?.survivorUserId ?? user.id;
+	let [contact] = alias
+		? await db
+				.select()
+				.from(contacts)
+				.where(
+					and(
+						eq(contacts.eventId, event.id),
+						sql`lower(${contacts.email}) = ${alias.survivorEmail}`,
+					),
+				)
+				.limit(1)
+		: await db
+				.select()
+				.from(contacts)
+				.where(
+					and(
+						eq(contacts.userId, subjectUserId),
+						eq(contacts.eventId, event.id),
+					),
+				)
+				.limit(1);
+	if (!contact && !alias) {
 		const [match] = await db
 			.select()
 			.from(contacts)
@@ -163,7 +186,7 @@ export async function getPortalContext(
 		event,
 		portal,
 		contact: contact ?? null,
-		subjectUserId: user.id,
+		subjectUserId,
 		preview: null,
 	};
 }

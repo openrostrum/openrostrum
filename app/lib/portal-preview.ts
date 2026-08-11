@@ -16,7 +16,6 @@ import { readCookie, serializeCookie } from "~/lib/cookies";
 const COOKIE = "__portal_preview";
 const PREVIEW_TTL_SECONDS = 60 * 60 * 2;
 
-/** `Set-Cookie` value that starts previewing the given contact. */
 export function startPreviewCookie(contactId: string, secure: boolean): string {
 	return serializeCookie(
 		COOKIE,
@@ -26,12 +25,10 @@ export function startPreviewCookie(contactId: string, secure: boolean): string {
 	);
 }
 
-/** `Set-Cookie` value that ends the preview. */
 export function clearPreviewCookie(secure: boolean): string {
 	return serializeCookie(COOKIE, "", 0, secure);
 }
 
-/** One home for the previewed speaker's display name. */
 export function contactDisplayName(contact: {
 	firstName: string;
 	lastName: string;

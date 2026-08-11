@@ -13,7 +13,6 @@ export function ParticipationControls({
 	action,
 	participation,
 }: {
-	/** URL of the owning submission's action. */
 	action: string;
 	participation: ParticipationView;
 }) {

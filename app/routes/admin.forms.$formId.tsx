@@ -91,8 +91,6 @@ import {
 } from "~/ui";
 import type { Route } from "./+types/admin.forms.$formId";
 
-/* ------------------------------------------------------------- built-ins --- */
-
 // Local alias — the shared contract lives in ~/lib/forms.
 type SectionId = FormSectionId;
 
@@ -131,8 +129,6 @@ function chunk<T>(items: T[], size: number): T[][] {
 		out.push(items.slice(i, i + size));
 	return out;
 }
-
-/* ------------------------------------------------------------ validation --- */
 
 const boolish = z.enum(["true", "false"]).transform((v) => v === "true");
 
@@ -274,8 +270,6 @@ function zodErrors(error: z.ZodError): ActionResult {
 	return { fieldErrors: z.flattenError(error).fieldErrors };
 }
 
-/* ---------------------------------------------------------------- loader --- */
-
 // Without this export, RR7 drops loader/action headers from DOCUMENT
 // responses — Server-Timing would silently vanish on full page loads.
 export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
@@ -285,18 +279,37 @@ export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
 function fieldScopePredicate(eventId: string, organizationId: string) {
 	// Event fields of THIS event, plus org-wide fields of THIS org — never
 	// another tenant's library.
-	return or(
-		eq(fields.eventId, eventId),
-		and(eq(fields.organizationId, organizationId), isNull(fields.eventId)),
+	return and(
+		eq(fields.recordType, "session"),
+		or(
+			eq(fields.eventId, eventId),
+			and(eq(fields.organizationId, organizationId), isNull(fields.eventId)),
+		),
 	);
 }
 
 async function loadPlacements(db: Db, formId: string) {
-	return db.query.formFields.findMany({
+	const placements = await db.query.formFields.findMany({
 		where: eq(formFields.formId, formId),
-		with: { field: true },
+		with: {
+			field: {
+				columns: {
+					id: true,
+					organizationId: true,
+					name: true,
+					recordType: true,
+					type: true,
+					maxLength: true,
+					options: true,
+				},
+			},
+		},
 		orderBy: [asc(formFields.position), asc(formFields.createdAt)],
 	});
+	return placements.filter(
+		(placement) =>
+			placement.field === null || placement.field.recordType === "session",
+	);
 }
 
 const VIEW_PAGE_SIZE = 50;
@@ -556,8 +569,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
-
-/* ---------------------------------------------------------------- action --- */
 
 async function nextPosition(
 	db: Db,
@@ -1284,8 +1295,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		} satisfies ActionResult;
 	}
 }
-
-/* ------------------------------------------------------------- component --- */
 
 type LoaderData = Route.ComponentProps["loaderData"];
 type Placement = LoaderData["placements"][number];

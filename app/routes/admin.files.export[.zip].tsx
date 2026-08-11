@@ -1,8 +1,12 @@
-import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
 import { contacts, submissions } from "~/db/schema";
-import { rankedChainsSql, sanitizeFileName } from "~/domain/files";
+import {
+	canonicalRowsSql,
+	rankedChainsSql,
+	sanitizeFileName,
+} from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { track } from "~/lib/track";
@@ -33,24 +37,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	}
 
 	const ranked = rankedChainsSql(event.id);
-	// Selected ids (whatever version they point at) resolve to chain keys —
-	// inside the event-scoped ranking, so foreign ids simply drop out. Both
-	// IN lists run in slices: D1 caps bound variables per statement.
-	let selectedKeys: string[] | null = null;
-	if (!all) {
-		const keys = new Set<string>();
-		for (const idSlice of slices(fileIds)) {
-			const found = await db.all<{ grp: string }>(
-				sql`select distinct grp from ${ranked} r where r.id in (${sql.join(
-					idSlice.map((id) => sql`${id}`),
-					sql`, `,
-				)})`,
-			);
-			for (const k of found) keys.add(k.grp);
-		}
-		if (keys.size === 0) throw data(null, { status: 404 });
-		selectedKeys = [...keys];
-	}
+	const canonical = canonicalRowsSql(event.id);
 
 	type LatestRow = {
 		id: string;
@@ -60,27 +47,18 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		submission_id: string | null;
 		contact_id: string | null;
 	};
-	const latestQuery = (filter: SQL) =>
-		db.all<LatestRow>(sql`
+	const selection = all
+		? sql``
+		: sql`and r.grp in (
+			select distinct c.grp from ${canonical} c
+			where c.id in (
+				select value from json_each(${JSON.stringify(fileIds)})
+			)
+		)`;
+	const latest = await db.all<LatestRow>(sql`
 		select id, r2_key, file_name, size_bytes, submission_id, contact_id
 		from ${ranked} r
-		where r.rn = 1${filter}`);
-	let latest: LatestRow[];
-	if (selectedKeys) {
-		latest = [];
-		for (const keySlice of slices(selectedKeys)) {
-			latest.push(
-				...(await latestQuery(
-					sql` and r.grp in (${sql.join(
-						keySlice.map((k) => sql`${k}`),
-						sql`, `,
-					)})`,
-				)),
-			);
-		}
-	} else {
-		latest = await latestQuery(sql``);
-	}
+		where r.rn = 1 ${selection}`);
 	latest.sort(
 		(a, b) =>
 			(a.submission_id ?? "").localeCompare(b.submission_id ?? "") ||
@@ -218,10 +196,6 @@ async function folderNames(
 	}
 	folders.set("", claim("Event files"));
 	return folders;
-}
-
-function* slices<T>(items: T[], size = 80): Generator<T[]> {
-	for (let i = 0; i < items.length; i += size) yield items.slice(i, i + size);
 }
 
 function uniquePath(used: Set<string>, folder: string, name: string): string {

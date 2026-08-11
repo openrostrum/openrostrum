@@ -1,5 +1,3 @@
-/** Pure formatting helpers — safe on client and server. */
-
 /**
  * Due dates are stored as UTC end-of-day instants; rendering them in any local
  * timezone could shift the calendar date, so they always render as UTC.

@@ -575,7 +575,7 @@ async function fingerprintDecisionPlan(
 				to: item.to,
 				subject: item.subject,
 				html: item.html,
-				ics: item.ics,
+				ics: item.ics?.replace(/^DTSTAMP:[^\r\n]*\r?\n/m, ""),
 				reason: item.reason,
 			})),
 		}),

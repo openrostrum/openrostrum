@@ -328,8 +328,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	);
 }
 
-/* ---------------------------------------------------------------- action --- */
-
 const ScheduleIntent = z.object({
 	submissionId: z.string().min(1),
 	roomId: z.string().min(1),
@@ -726,8 +724,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 		return fail("Could not save that change — please try again.");
 	}
 }
-
-/* ------------------------------------------------------------- component --- */
 
 /**
  * One keyed fetcher for all drag/unschedule posts, with a queue: a quick

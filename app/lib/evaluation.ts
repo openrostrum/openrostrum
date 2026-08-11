@@ -222,8 +222,6 @@ export function parseDateInput(value: string | null | undefined): Date | null {
 	return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-/* ------------------------------------------------------------------- CSV --- */
-
 export function csvCell(value: unknown): string {
 	const s = value == null ? "" : String(value);
 	return /[",\n\r]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;

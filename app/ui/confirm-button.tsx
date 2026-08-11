@@ -23,7 +23,6 @@ export function ConfirmButton({
 	value: string;
 	variant?: "primary" | "ghost";
 	disabled?: boolean;
-	/** Extra fields revealed while confirming (e.g. a reason input). */
 	children?: ReactNode;
 }) {
 	const [arming, setArming] = useState(false);

@@ -353,8 +353,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	}
 }
 
-/* -------------------------------------------------------------- component --- */
-
 export default function SessionStep({
 	loaderData,
 	params,

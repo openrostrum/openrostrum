@@ -1,7 +1,10 @@
 import { env } from "cloudflare:test";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
+import { events } from "../app/db/schema";
+import { toProgramEvent } from "../app/lib/program";
+import remediationSql from "../drizzle/migrations/0012_event_date_integrity.sql?raw";
 import enrichmentSql from "../drizzle/seed-demo-enrichment.sql?raw";
 import seedSql from "../drizzle/seed.sql?raw";
 import headshotManifest from "../scripts/seed-assets/headshots/manifest.json";
@@ -40,7 +43,43 @@ async function applyEnrichment() {
 	await applySql(enrichmentSql);
 }
 
+async function demoEvent() {
+	const db = getDb(env);
+	const event = await db.query.events.findFirst({
+		where: eq(events.id, "e_demo"),
+	});
+	if (!event) throw new Error("demo event was not seeded");
+	return event;
+}
+
 describe("demo seed baseline", () => {
+	it("stores the demo event's Los Angeles dates as correct instants", async () => {
+		await applyBaseSeed();
+		const event = await demoEvent();
+
+		expect(event.startsAt?.toISOString()).toBe("2026-10-12T15:00:00.000Z");
+		expect(event.endsAt?.toISOString()).toBe("2026-10-15T01:00:00.000Z");
+		expect(toProgramEvent(event).dateRange).toBe("October 12 – 14, 2026");
+	});
+
+	it("repairs the exact deployed UTC-midnight demo event signature", async () => {
+		await applyBaseSeed();
+		const db = getDb(env);
+		await db.run(sql`
+			UPDATE events
+			SET starts_at = unixepoch('2026-10-12'),
+				ends_at = unixepoch('2026-10-14')
+			WHERE id = 'e_demo'
+		`);
+
+		await applySql(remediationSql);
+		const event = await demoEvent();
+
+		expect(event.startsAt?.toISOString()).toBe("2026-10-12T15:00:00.000Z");
+		expect(event.endsAt?.toISOString()).toBe("2026-10-15T01:00:00.000Z");
+		expect(toProgramEvent(event).dateRange).toBe("October 12 – 14, 2026");
+	});
+
 	it("applies cleanly and gives every publicly-surfaced speaker contact a title and company", async () => {
 		const db = getDb(env);
 		await applySeed();

@@ -112,6 +112,12 @@ export default function CrmShell({ loaderData }: Route.ComponentProps) {
 				>
 					Segments
 				</Tab>
+				<Tab
+					to="/admin/crm/fields"
+					active={pathname.startsWith("/admin/crm/fields")}
+				>
+					Fields
+				</Tab>
 			</Tabs>
 			<Outlet />
 		</div>
