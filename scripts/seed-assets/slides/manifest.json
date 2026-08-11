@@ -1,0 +1,29 @@
+[
+	{
+		"submissionId": "s_accepted",
+		"fileName": "rag-to-riches.pdf",
+		"r2Key": "slides/e_demo/s_accepted/v1.pdf",
+		"contentType": "application/pdf",
+		"sizeBytes": 1528,
+		"sha256": "34786288a975213bfd75d831bf47495dfb636182b56477c26c8c123e8141f253",
+		"version": 1
+	},
+	{
+		"submissionId": "s_open_keynote",
+		"fileName": "opening-keynote.pdf",
+		"r2Key": "slides/e_demo/s_open_keynote/v1.pdf",
+		"contentType": "application/pdf",
+		"sizeBytes": 1508,
+		"sha256": "6480da8cd3e909b76faa03cb985b530bb9d5fec2e2ba424172c1ef3b0fc013d1",
+		"version": 1
+	},
+	{
+		"submissionId": "s_evals_ws",
+		"fileName": "evals-from-scratch.pdf",
+		"r2Key": "slides/e_demo/s_evals_ws/v1.pdf",
+		"contentType": "application/pdf",
+		"sizeBytes": 1544,
+		"sha256": "d026273087562f26ca41dfbdd93ec32b18038ababc681eb3c85278cba47afbcd",
+		"version": 1
+	}
+]

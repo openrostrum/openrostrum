@@ -1,0 +1,98 @@
+[
+	{
+		"contactId": "c_sam",
+		"fileName": "sam-speaker.png",
+		"r2Key": "headshots/e_demo/c_sam/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 3593,
+		"sha256": "c9127af7b1a92efc51a959bf71da146f1c721fb63c46a47e0bacf326343eba36"
+	},
+	{
+		"contactId": "c_alex",
+		"fileName": "alex-co.png",
+		"r2Key": "headshots/e_demo/c_alex/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 4026,
+		"sha256": "5dc53126a61246a35f2909bc2f43a697da3d6017b2ec158c40f714c48103b289"
+	},
+	{
+		"contactId": "c_noor",
+		"fileName": "noor-haddad.png",
+		"r2Key": "headshots/e_demo/c_noor/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 4276,
+		"sha256": "60d0f4db14053f86a59684cacad385327b92b4e63f3d64bd37b7ecce98102a6c"
+	},
+	{
+		"contactId": "c_marco",
+		"fileName": "marco-silva.png",
+		"r2Key": "headshots/e_demo/c_marco/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 3749,
+		"sha256": "b40ebe48d8df689c4a81bf6c376cbd43532a2039521680cba57a15e18f15a57e"
+	},
+	{
+		"contactId": "c_dana",
+		"fileName": "dana-fields.png",
+		"r2Key": "headshots/e_demo/c_dana/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 3618,
+		"sha256": "5c44fa63f9fbedfc6b9afb8a7c7db3f11c48c86487fe02051d43d64b10a00922"
+	},
+	{
+		"contactId": "c_lena",
+		"fileName": "lena-ortiz.png",
+		"r2Key": "headshots/e_demo/c_lena/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 3944,
+		"sha256": "ecc600da172b656e6cb5a0a28c516a6885eb86a03eddc7fad2ae1f9b048ac7f8"
+	},
+	{
+		"contactId": "c_maya",
+		"fileName": "maya-chen.png",
+		"r2Key": "headshots/e_demo/c_maya/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 3971,
+		"sha256": "bd27cbb5cb6f377b17cba8dfb191d8af1c3f6aeedfc3d1e59e93a5a6a48fbfb8"
+	},
+	{
+		"contactId": "c_priya",
+		"fileName": "priya-narayanan.png",
+		"r2Key": "headshots/e_demo/c_priya/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 3797,
+		"sha256": "890fdf7853fec8f305e03fa5ebbbb1096094f805cc0d7b8f0035ba667b4676a7"
+	},
+	{
+		"contactId": "c_yuki",
+		"fileName": "yuki-tanaka.png",
+		"r2Key": "headshots/e_demo/c_yuki/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 3618,
+		"sha256": "83eb43d2ede5885f7e594ce2e0f08ca1724c3cf84b90f53d3cb8a8103b39c75d"
+	},
+	{
+		"contactId": "c_amina",
+		"fileName": "amina-okafor.png",
+		"r2Key": "headshots/e_demo/c_amina/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 4032,
+		"sha256": "70d1d6702e033e3f1d5dd86ac376561e7a6c9fafeae42d2873116ada810e58c1"
+	},
+	{
+		"contactId": "c_sofia",
+		"fileName": "sofia-alvarez.png",
+		"r2Key": "headshots/e_demo/c_sofia/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 4027,
+		"sha256": "2fb15850ca9c8f153c9715f6c798b3125181f125139bd5a5edfe05ca993f67be"
+	},
+	{
+		"contactId": "c_rohan",
+		"fileName": "rohan-mehta.png",
+		"r2Key": "headshots/e_demo/c_rohan/seed.png",
+		"contentType": "image/png",
+		"sizeBytes": 3702,
+		"sha256": "0136ebd2b4dc18e05c81fc2421bad243c7a4853560e4f0e66799f1b55b14ee1a"
+	}
+]
