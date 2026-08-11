@@ -313,9 +313,16 @@ describe("portal-form builder — update/delete/tenancy", () => {
 		expect(row?.schema?.map((f) => f.name)).toEqual(["Hotel name", "Nights"]);
 	});
 
-	it("a foreign org's admin cannot read or write this event's forms", async () => {
+	it("keeps both tenants' forms isolated in both directions", async () => {
 		const db = await seedTasksBaseline();
 		const cookie = await makeForeignAdmin();
+		await db.insert(portalForms).values({
+			id: "pf_other",
+			eventId: "e2",
+			name: "Other Travel",
+			title: "Other event only",
+			schema: [{ name: "Carrier", type: "text", required: true }],
+		});
 
 		const data = unwrap<LoaderData>(
 			await loader({
@@ -326,7 +333,7 @@ describe("portal-form builder — update/delete/tenancy", () => {
 				params: {},
 			} as unknown as Parameters<typeof loader>[0]),
 		);
-		expect(data.forms).toHaveLength(0);
+		expect(data.forms.map((form) => form.id)).toEqual(["pf_other"]);
 
 		const forged = (await action({
 			context: CONTEXT,
@@ -347,11 +354,29 @@ describe("portal-form builder — update/delete/tenancy", () => {
 			params: {},
 		} as unknown as Parameters<typeof action>[0])) as ActionResult;
 		expect(forged.formError).toMatch(/no longer exists/);
-		const [row] = await db
+
+		const reverseForged = (await post({
+			intent: "save-form",
+			formId: "pf_other",
+			name: "Also hijacked",
+			title: "",
+			targetType: "contact",
+			fieldsJson: JSON.stringify([
+				{ name: "X", type: "text", required: false },
+			]),
+		})) as ActionResult;
+		expect(reverseForged.formError).toMatch(/no longer exists/);
+
+		const [mine] = await db
 			.select()
 			.from(portalForms)
 			.where(eq(portalForms.id, "pf_hotel"));
-		expect(row?.name).toBe("Hotel Stay");
+		const [theirs] = await db
+			.select()
+			.from(portalForms)
+			.where(eq(portalForms.id, "pf_other"));
+		expect(mine?.name).toBe("Hotel Stay");
+		expect(theirs?.name).toBe("Other Travel");
 	});
 
 	it("refuses deleting a form a task still points at — the task must never silently lose its form", async () => {

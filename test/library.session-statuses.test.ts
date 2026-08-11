@@ -116,15 +116,23 @@ describe("library — session statuses (custom statuses)", () => {
 		expect(await getDb(env).select().from(sessionStatuses)).toHaveLength(0);
 	});
 
-	it("renames in place; a foreign tenant's forged update touches nothing", async () => {
+	it("renames in place; forged updates are blocked in both directions", async () => {
 		await seed();
 		const db = getDb(env);
-		await db.insert(sessionStatuses).values({
-			id: "st_offered",
-			eventId: "e_a",
-			name: "Offered",
-			color: "#0E6C66",
-		});
+		await db.insert(sessionStatuses).values([
+			{
+				id: "st_offered",
+				eventId: "e_a",
+				name: "Offered",
+				color: "#0E6C66",
+			},
+			{
+				id: "st_foreign",
+				eventId: "e_b",
+				name: "Contracted",
+				color: "#2563EB",
+			},
+		]);
 		expect(
 			(
 				await post({
@@ -135,7 +143,10 @@ describe("library — session statuses (custom statuses)", () => {
 				})
 			).ok,
 		).toBe(true);
-		const [renamed] = await db.select().from(sessionStatuses);
+		const [renamed] = await db
+			.select()
+			.from(sessionStatuses)
+			.where(eq(sessionStatuses.id, "st_offered"));
 		expect(renamed).toMatchObject({ name: "Offer Sent", color: "#2563EB" });
 
 		const forged = await post(
@@ -148,8 +159,22 @@ describe("library — session statuses (custom statuses)", () => {
 			"u_b",
 		);
 		expect(forged.formError).toMatch(/no longer exists/);
-		const [after] = await db.select().from(sessionStatuses);
-		expect(after?.name).toBe("Offer Sent");
+
+		const reverseForged = await post({
+			intent: "status.update",
+			id: "st_foreign",
+			name: "Also hijacked",
+			color: "#000000",
+		});
+		expect(reverseForged.formError).toMatch(/no longer exists/);
+
+		const rows = await db.select().from(sessionStatuses);
+		expect(rows.find((row) => row.id === "st_offered")?.name).toBe(
+			"Offer Sent",
+		);
+		expect(rows.find((row) => row.id === "st_foreign")?.name).toBe(
+			"Contracted",
+		);
 	});
 
 	it("refuses deleting a status a submission still carries — never silently stripped", async () => {
