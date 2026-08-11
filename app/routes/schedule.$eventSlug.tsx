@@ -4,8 +4,10 @@ import {
 	buildAgendaData,
 	getEventBySlug,
 	loadPublicSessions,
+	sessionCalendarHref,
 	toProgramEvent,
 } from "~/lib/program";
+import { CalendarDownloadSurface } from "~/components/add-to-calendar";
 import { createTimings } from "~/lib/track";
 import {
 	AgendaSurface,
@@ -38,28 +40,29 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 	if (!event) throw data("Event not found", { status: 404 });
 	if (!event.agendaPublishedAt) {
 		return data(
-			{ event: toProgramEvent(event), surface: null },
+			{ event: toProgramEvent(event), surface: null, calendarHref: null },
 			{ headers: { "Server-Timing": timings.header() } },
 		);
 	}
 	const sessions = await timings.time("db", () =>
 		loadPublicSessions(db, event),
 	);
+	const surface = buildAgendaData(sessions, event, new URL(request.url));
+	const calendarHref = sessionCalendarHref(event, surface.detail);
 	return data(
-		{
-			event: toProgramEvent(event),
-			surface: buildAgendaData(sessions, event, new URL(request.url)),
-		},
+		{ event: toProgramEvent(event), surface, calendarHref },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
 
 export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
-	const { event, surface } = loaderData;
+	const { event, surface, calendarHref } = loaderData;
 	return (
 		<ProgramShell event={event} active="schedule">
 			{surface ? (
-				<AgendaSurface data={surface} base={`/schedule/${event.slug}`} />
+				<CalendarDownloadSurface href={calendarHref}>
+					<AgendaSurface data={surface} base={`/schedule/${event.slug}`} />
+				</CalendarDownloadSurface>
 			) : (
 				<AgendaUnpublished event={event} />
 			)}

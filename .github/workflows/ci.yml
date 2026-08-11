@@ -123,8 +123,8 @@ jobs:
   # to Cloudflare. Deployer-specific values are injected from repo secrets, so
   # the committed wrangler.json stays generic (open-source safe). Until the
   # secrets exist the guard step skips the rest — the job stays green, never a
-  # red X on main. Runtime secrets (RESEND_API_KEY, AIRTABLE_*, TURNSTILE_*)
-  # persist on the worker via `wrangler secret put` and are not needed here.
+  # red X on main. Most runtime secrets persist after `wrangler secret put`;
+  # DEEPSEEK_API_KEY is synced below from the write-only GitHub repo secret.
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: quality
@@ -166,3 +166,13 @@ jobs:
       - name: Deploy to Cloudflare
         if: steps.guard.outputs.go == 'true'
         run: pnpm run deploy
+      - name: Sync DeepSeek API key
+        if: steps.guard.outputs.go == 'true'
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -z "${DEEPSEEK_API_KEY}" ]; then
+            echo "::notice::DeepSeek secret sync skipped — DEEPSEEK_API_KEY repo secret is not configured."
+            exit 0
+          fi
+          printf '%s' "$DEEPSEEK_API_KEY" | pnpm exec wrangler secret put DEEPSEEK_API_KEY

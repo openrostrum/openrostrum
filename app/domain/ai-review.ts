@@ -14,16 +14,12 @@ import {
 import { errorMessage } from "~/lib/errors";
 import { REVIEWABLE_EXCLUDED } from "~/lib/evaluation";
 import { stripHtml } from "~/lib/html";
+import type { AiChatProvider } from "~/ports/ai-review";
 
 /**
- * AI first-pass review of a CFP submission on Cloudflare Workers AI. The AI is
- * a triage signal only: its score lives in `ai_reviews`, is always labeled as
- * AI, and never enters human evaluation aggregates. When the binding is absent
- * (self-host without Workers AI) every surface degrades to an explicit
- * "not available" state — never a crash, never a fabricated score.
+ * AI scores are triage signals: always labeled AI and never in human aggregates.
+ * Provider absence is an explicit unavailable state, never a fabricated score.
  */
-
-export const AI_REVIEW_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 
 /** How many missing submissions one bulk click processes (kept small so the request stays bounded). */
 export const AI_BULK_BATCH = 5;
@@ -31,23 +27,8 @@ export const AI_BULK_BATCH = 5;
 const DEFAULT_TIMEOUT_MS = 45_000;
 const MAX_ABSTRACT_CHARS = 6_000;
 
-/** The slice of the Workers AI binding this feature uses — tests stub this shape. */
-export type AiRunner = {
-	run(
-		model: string,
-		inputs: Record<string, unknown>,
-	): Promise<Record<string, unknown>>;
-};
-
-export function getAiRunner(env: Env): AiRunner | null {
-	// Structural access, not `env.AI`: a self-host without the `ai` binding
-	// regenerates an Env type that lacks the property, and this seam must keep
-	// compiling there for the degraded state to be reachable at all.
-	return (env as { AI?: AiRunner }).AI ?? null;
-}
-
 export const AI_UNAVAILABLE_MESSAGE =
-	"AI review is not available on this deployment — the Workers AI binding is not configured.";
+	"AI review is not available on this deployment — set DEEPSEEK_API_KEY or configure the Workers AI binding.";
 
 export const AI_FAILURE_MESSAGES: Record<AiReviewFailure["reason"], string> = {
 	timeout: "The AI model timed out — try again in a moment.",
@@ -67,7 +48,14 @@ export type AiReviewSubmission = {
 	tags: string[];
 };
 
-export type AiReviewSuccess = { ok: true; score: number; rationale: string };
+export type AiReviewSuccess = {
+	ok: true;
+	score: number;
+	rationale: string;
+	/** The id that actually answered — API-reported when available. */
+	model: string;
+	attempts: number;
+};
 export type AiReviewFailure = {
 	ok: false;
 	reason: "timeout" | "malformed" | "error";
@@ -75,9 +63,13 @@ export type AiReviewFailure = {
 };
 export type AiReviewResult = AiReviewSuccess | AiReviewFailure;
 
-// Coerced: models occasionally quote the number ("score": "7.5").
+const ReviewScore = z
+	.union([z.number(), z.string().trim().min(1)])
+	.transform(Number)
+	.pipe(z.number().min(0).max(10));
+
 const Verdict = z.object({
-	score: z.coerce.number().min(0).max(10),
+	score: ReviewScore,
 	rationale: z.string().trim().min(40),
 });
 
@@ -119,7 +111,12 @@ export function buildReviewMessages(
 
 class TimeoutError extends Error {}
 
-async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+async function withTimeout<T>(
+	start: (signal: AbortSignal) => Promise<T>,
+	ms: number,
+): Promise<T> {
+	const controller = new AbortController();
+	const promise = start(controller.signal);
 	// A late loser must not surface as an unhandled rejection.
 	promise.catch(() => {});
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -127,32 +124,15 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 		return await Promise.race([
 			promise,
 			new Promise<never>((_, reject) => {
-				timer = setTimeout(() => reject(new TimeoutError()), ms);
+				timer = setTimeout(() => {
+					reject(new TimeoutError());
+					controller.abort();
+				}, ms);
 			}),
 		]);
 	} finally {
 		clearTimeout(timer);
 	}
-}
-
-/**
- * Workers AI is mid-migration between reply envelopes: some models/routes
- * return `{ response }`, the current llama-4 chat route returns the OpenAI
- * chat-completions shape (verified live 2026-08-10). Accept both.
- */
-function responseText(result: unknown): string {
-	if (typeof result === "string") return result;
-	if (result && typeof result === "object") {
-		const r = (result as { response?: unknown }).response;
-		if (typeof r === "string") return r;
-		const choices = (result as { choices?: unknown }).choices;
-		if (Array.isArray(choices)) {
-			const content = (choices[0] as { message?: { content?: unknown } })
-				?.message?.content;
-			if (typeof content === "string") return content;
-		}
-	}
-	return "";
 }
 
 /** Salvage the JSON object from a reply that may wrap it in fences or prose. */
@@ -174,20 +154,20 @@ function parseVerdict(raw: string): z.infer<typeof Verdict> | null {
  * failure comes back as a typed result — callers render it, never throw it.
  */
 export async function generateAiReview(
-	ai: AiRunner,
+	provider: AiChatProvider,
 	sub: AiReviewSubmission,
 	opts: { timeoutMs?: number } = {},
 ): Promise<AiReviewResult> {
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const messages = buildReviewMessages(sub);
 	let lastRaw = "";
-	for (let attempt = 0; attempt < 2; attempt++) {
+	for (let attempt = 1; attempt <= 2; attempt++) {
 		const thread =
-			attempt === 0
+			attempt === 1
 				? messages
 				: [
 						...messages,
-						{ role: "assistant", content: lastRaw },
+						...(lastRaw ? [{ role: "assistant", content: lastRaw }] : []),
 						{
 							role: "user",
 							content:
@@ -195,14 +175,15 @@ export async function generateAiReview(
 								'Reply again with ONLY {"score": <number 0-10>, "rationale": "<3 to 6 specific sentences>"} — nothing else.',
 						},
 					];
-		let result: Record<string, unknown>;
+		let reply: { text: string; model?: string };
 		try {
-			result = await withTimeout(
-				ai.run(AI_REVIEW_MODEL, {
-					messages: thread,
-					max_tokens: 600,
-					temperature: 0.2,
-				}),
+			reply = await withTimeout(
+				(signal) =>
+					provider.chat(thread, {
+						maxTokens: 600,
+						temperature: 0.2,
+						signal,
+					}),
 				timeoutMs,
 			);
 		} catch (error) {
@@ -215,13 +196,15 @@ export async function generateAiReview(
 			}
 			return { ok: false, reason: "error", detail: errorMessage(error) };
 		}
-		lastRaw = responseText(result);
+		lastRaw = reply.text;
 		const verdict = parseVerdict(lastRaw);
 		if (verdict) {
 			return {
 				ok: true,
 				score: roundToTenth(verdict.score),
 				rationale: verdict.rationale,
+				model: reply.model ?? provider.model,
+				attempts: attempt,
 			};
 		}
 	}
@@ -318,13 +301,13 @@ export async function loadAiReviewContexts(
 export async function saveAiReview(
 	db: Db,
 	submissionId: string,
-	verdict: { score: number; rationale: string },
+	verdict: { score: number; rationale: string; model: string },
 	expected: Date | null,
 ): Promise<boolean> {
 	const values = {
 		score: verdict.score,
 		rationale: verdict.rationale,
-		model: AI_REVIEW_MODEL,
+		model: verdict.model,
 		overrideScore: null,
 		overrideById: null,
 		overrideAt: null,

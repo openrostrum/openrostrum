@@ -831,7 +831,7 @@ function FieldsSection({ rows }: { rows: FieldRow[] }) {
 				<PageHeader
 					title="Fields"
 					count={String(rows.length)}
-					subtitle="Reusable custom questions for your forms — org-wide fields appear in every event of your organization."
+					subtitle="Reusable custom questions — a field appears once you place it on a form in the Form builder, and answers are collected with each submission. Org-wide fields are offered to the form builder of every event in your organization."
 				/>
 				<save.Form
 					method="post"

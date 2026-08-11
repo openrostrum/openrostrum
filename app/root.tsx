@@ -1,5 +1,4 @@
 import {
-	isRouteErrorResponse,
 	Links,
 	Meta,
 	Outlet,
@@ -10,6 +9,8 @@ import {
 	useRouteLoaderData,
 } from "react-router";
 
+import { describeRouteError } from "~/lib/error-page";
+import { ButtonLink, EmptyState } from "~/ui";
 import type { Route } from "./+types/root";
 import "./app.css";
 import {
@@ -109,28 +110,27 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-	let message = "Oops!";
-	let details = "An unexpected error occurred.";
-	let stack: string | undefined;
-
-	if (isRouteErrorResponse(error)) {
-		message = error.status === 404 ? "404" : "Error";
-		details =
-			error.status === 404
-				? "The requested page could not be found."
-				: error.statusText || details;
-	} else if (import.meta.env.DEV && error && error instanceof Error) {
-		details = error.message;
-		stack = error.stack;
-	}
-
+	// import.meta.env.DEV is a build-time flag: false in every deployed bundle,
+	// so the diagnostic detail below can only ever render on a dev server.
+	const { title, body, detail } = describeRouteError(
+		error,
+		import.meta.env.DEV,
+	);
 	return (
-		<main className="pt-16 p-4 container mx-auto">
-			<h1>{message}</h1>
-			<p>{details}</p>
-			{stack && (
-				<pre className="w-full p-4 overflow-x-auto">
-					<code>{stack}</code>
+		<main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center gap-6 px-6 py-16">
+			<EmptyState
+				icon="grid"
+				title={title}
+				body={body}
+				action={
+					<ButtonLink to="/" variant="ghost">
+						Go to homepage
+					</ButtonLink>
+				}
+			/>
+			{detail && (
+				<pre className="overflow-x-auto rounded-card bg-surface p-4 text-[12px] leading-relaxed text-fg-muted shadow-card">
+					<code>{detail}</code>
 				</pre>
 			)}
 		</main>
