@@ -195,10 +195,10 @@ function participantRoleCounts(
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
 	const { submission, myParticipant } = await timings.time("db", () =>
-		requireOwnedSubmission(env, ctx, user.id, params.submissionId),
+		requireOwnedSubmission(env, ctx, params.submissionId),
 	);
 	const db = getDb(env);
 
@@ -218,6 +218,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			db
 				.select({
 					id: participants.id,
+					contactId: participants.contactId,
 					role: participants.role,
 					acceptance: participants.acceptanceStatus,
 					position: participants.position,
@@ -312,18 +313,21 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				tags: subTags.map((t) => ({ name: t.name, color: t.color })),
 			},
 			allowedParticipantRoles: rolePolicy.allowedRoles,
-			participants: sortedPeople.map((p) => ({
-				id: p.id,
-				name: `${p.firstName} ${p.lastName}`,
-				role: p.role,
-				roleLabel: PARTICIPANT_ROLE_LABELS[p.role],
-				isMe: p.contactUserId === user.id,
-				acceptance:
-					isAccepted && p.role !== "secondary"
-						? PARTICIPATION_PROJECTION[p.acceptance]
-						: null,
-				removable: p.contactUserId !== user.id,
-			})),
+			participants: sortedPeople.map((p) => {
+				const isMe = ctx.contact !== null && p.contactId === ctx.contact.id;
+				return {
+					id: p.id,
+					name: `${p.firstName} ${p.lastName}`,
+					role: p.role,
+					roleLabel: PARTICIPANT_ROLE_LABELS[p.role],
+					isMe,
+					acceptance:
+						isAccepted && p.role !== "secondary"
+							? PARTICIPATION_PROJECTION[p.acceptance]
+							: null,
+					removable: !isMe,
+				};
+			}),
 			myParticipation: myParticipant
 				? {
 						id: myParticipant.id,
@@ -340,7 +344,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					: null,
 			},
 			canWithdrawSubmission:
-				submission.submitterId === user.id &&
+				ctx.subjectUserId !== null &&
+				submission.submitterId === ctx.subjectUserId &&
 				!["withdrawn", "declined", "draft"].includes(submission.status),
 			saved: new URL(request.url).searchParams.get("saved"),
 			edit: editWindow.editable
@@ -402,11 +407,10 @@ const SetParticipantRoleSchema = z.object({
 export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const { submission, myParticipant } = await requireOwnedSubmission(
 		env,
 		ctx,
-		user.id,
 		params.submissionId,
 	);
 	const db = getDb(env);

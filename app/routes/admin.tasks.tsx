@@ -113,6 +113,31 @@ const TaskForm = insertTaskSchema.pick({ type: true }).extend({
 	autoAssign: z.enum(["yes", "no"]),
 });
 
+/**
+ * The type decides what an assignment is anchored to: session tasks carry the
+ * submission id, so portal uploads attach to that session in the files
+ * library; speaker tasks never can. Raw enum words hid that consequence.
+ */
+const TASK_TYPE_META: Record<
+	(typeof TASK_TYPE)[number],
+	{ label: string; hint: string | null }
+> = {
+	contact: { label: "Speaker", hint: "one per person" },
+	submission: {
+		label: "Session",
+		hint: "one per accepted session; uploads attach to it",
+	},
+	group: { label: "Group", hint: null },
+};
+
+const taskTypeLabel = (type: string) =>
+	(TASK_TYPE_META as Record<string, { label: string }>)[type]?.label ?? type;
+
+const taskTypeOption = (type: (typeof TASK_TYPE)[number]) => {
+	const { label, hint } = TASK_TYPE_META[type];
+	return hint ? `${label} — ${hint}` : label;
+};
+
 const AssignForm = z.object({
 	taskId: z.string().min(1, "Pick a task to assign"),
 	target: z.enum([
@@ -1279,7 +1304,7 @@ export default function TasksDashboard({
 								<Select name="type" defaultValue={editTask?.type ?? "contact"}>
 									{loaderData.taskTypes.map((t) => (
 										<option key={t} value={t}>
-											{t}
+											{taskTypeOption(t)}
 										</option>
 									))}
 								</Select>
@@ -1305,6 +1330,12 @@ export default function TasksDashboard({
 											Fill in: {f.name}
 										</option>
 									))}
+									{portalFormOptions.length === 0 && (
+										<option value="" disabled>
+											No portal forms yet — create one under Portals → Portal
+											forms
+										</option>
+									)}
 								</Select>
 							</Field>
 							<Field
@@ -1442,7 +1473,7 @@ export default function TasksDashboard({
 							{definitions.map((t) => (
 								<Tr key={t.id} selected={t.id === editId}>
 									<Td kind="strong">{t.name}</Td>
-									<Td>{t.type}</Td>
+									<Td>{taskTypeLabel(t.type)}</Td>
 									<Td>
 										{t.formName
 											? `Portal form: ${t.formName}`

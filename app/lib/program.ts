@@ -2,6 +2,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import type { Db } from "~/db";
 import { contacts, events, participants, submissions } from "~/db/schema";
 import { currentHeadshotsSql } from "~/domain/files";
+import { resolveTimezone } from "~/lib/event-time";
 import type {
 	AgendaBlock,
 	AgendaSurfaceData,
@@ -120,12 +121,13 @@ function minutesToLabel(min: number): string {
 		: `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
-/** Event start/end are date-only boundaries stored at UTC midnight — format
- * them in UTC so the range doesn't slip a day in western timezones. */
+/** Event start/end are real instants (the organizer's wall-clock datetimes)
+ * — format their calendar dates in the EVENT's timezone, never UTC, or the
+ * range slips a day at date boundaries. */
 function eventDateRange(event: EventRow): string | null {
 	if (!event.startsAt) return null;
 	const fmt = new Intl.DateTimeFormat("en-US", {
-		timeZone: "UTC",
+		timeZone: resolveTimezone(event.timezone),
 		month: "long",
 		day: "numeric",
 		year: "numeric",
@@ -173,6 +175,25 @@ export function stripHtml(html: string): string {
 
 const PUBLIC_ROLES = new Set(["speaker", "chairperson", "moderator"]);
 
+/** The two visibility literals — the predicate and the loadPublicSessions
+ * WHERE clause both consume these, so they cannot drift. */
+const PUBLIC_STATUS = "accepted";
+const PUBLIC_CONTENT_STATUS = "approved";
+
+/**
+ * The status/contentStatus slice of the public-visibility rule (event and
+ * parent/subsession scoping stay the query's own concern). The agenda counts
+ * scheduled rows this rejects to warn organizers what the page withholds.
+ */
+export function isPubliclyVisible(s: {
+	status: string;
+	contentStatus: string;
+}): boolean {
+	return (
+		s.status === PUBLIC_STATUS && s.contentStatus === PUBLIC_CONTENT_STATUS
+	);
+}
+
 export async function loadPublicSessions(
 	db: Db,
 	event: EventRow,
@@ -194,8 +215,8 @@ export async function loadPublicSessions(
 		where: (s, { and: andOp, eq: eqOp, isNull }) =>
 			andOp(
 				eqOp(s.eventId, event.id),
-				eqOp(s.status, "accepted"),
-				eqOp(s.contentStatus, "approved"),
+				eqOp(s.status, PUBLIC_STATUS),
+				eqOp(s.contentStatus, PUBLIC_CONTENT_STATUS),
 				isNull(s.parentId),
 			),
 		with: {
@@ -230,7 +251,7 @@ export async function loadPublicSessions(
 	);
 	const photoByContact = await latestHeadshots(db, event.id, contactIds);
 
-	const tz = event.timezone;
+	const tz = resolveTimezone(event.timezone);
 	const sessions = rows.map((r): PublicSession => {
 		const scheduled = r.startsAt !== null && r.endsAt !== null;
 		const start = r.startsAt;

@@ -171,3 +171,10 @@ export function postForm(
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 	};
 }
+
+export function unwrap<T>(result: unknown): T {
+	const maybe = result as { data?: T };
+	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
+		? maybe.data
+		: (result as T);
+}

@@ -39,7 +39,7 @@ async function seedBase() {
 		timezone: "America/Los_Angeles",
 		location: "Sandbox Center",
 		startsAt: new Date("2026-10-12T00:00:00Z"),
-		endsAt: new Date("2026-10-14T00:00:00Z"),
+		endsAt: new Date("2026-10-15T06:59:00Z"),
 	});
 	return d;
 }
@@ -664,12 +664,12 @@ describe("send decisions", () => {
 		expect(marcoMail?.icsAttachment).toContain("BEGIN:VCALENDAR");
 		expect(marcoMail?.icsAttachment).toContain("DTSTART:20261013T170000Z");
 		expect(marcoMail?.icsAttachment).toContain("LOCATION:Room A");
-		// The body names the session the decision covers.
 		expect(marcoMail?.html).toContain("Edge-Native Vector Search on D1");
 		const danaMail = outbox.find((o) => o.to === "dana.kim@example.com");
-		// Unscheduled session → save-the-date hold spanning the event.
+		// Unscheduled session → save-the-date hold through October 14 at 23:59
+		// in the event's Los Angeles timezone, covering the selected final day.
 		expect(danaMail?.icsAttachment).toContain("DTSTART:20261012T000000Z");
-		expect(danaMail?.icsAttachment).toContain("DTEND:20261014T000000Z");
+		expect(danaMail?.icsAttachment).toContain("DTEND:20261015T065900Z");
 		expect(danaMail?.html).toContain("to be announced");
 
 		const after = await d.select().from(submissions);
@@ -740,6 +740,59 @@ describe("send decisions", () => {
 		// ever reaches a recipient.
 		expect(mail?.subject).not.toMatch(/\{\{/);
 		expect(mail?.html).not.toMatch(/\{\{/);
+	});
+
+	it("renders the complete classic decision template with separate schedule values and location", async () => {
+		const d = await seedBase();
+		await d
+			.insert(rooms)
+			.values({ id: "room_classic", eventId: "e1", name: "Main Stage" });
+		await d.insert(emailTemplates).values({
+			id: "et_accept",
+			eventId: "e1",
+			key: "accept",
+			name: "Classic Accept Sessions",
+			subject: "{{{recipient.first_name}}}: {{{title}}} at {{{event.name}}}",
+			bodyHtml:
+				"<p>{{{recipient.last_name}}}|{{{title}}}|{{{starts_at}}}|{{{ends_at}}}|{{{location}}}</p>",
+		});
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Classic Rendering",
+			startsAt: new Date("2026-10-13T17:00:00Z"),
+			endsAt: new Date("2026-10-13T17:30:00Z"),
+			roomId: "room_classic",
+		});
+		await d.insert(contacts).values({
+			id: "c_classic",
+			eventId: "e1",
+			email: "priya@example.com",
+			firstName: "Priya",
+			lastName: "Patel",
+		});
+		await d.insert(participants).values({
+			submissionId: row.id,
+			contactId: "c_classic",
+			role: "speaker",
+			isPrimary: true,
+		});
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		await sendDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "classic-render-key",
+		});
+
+		const [mail] = await d.select().from(emailOutbox);
+		expect(mail?.subject).toBe("Priya: Classic Rendering at DemoConf");
+		expect(mail?.html).toContain(
+			"<p>Patel|Classic Rendering|Oct 13, 2026, 10:00 AM|Oct 13, 2026, 10:30 AM|Main Stage</p>",
+		);
+		expect(mail?.subject).not.toContain("{");
+		expect(mail?.html).not.toContain("{");
 	});
 
 	it("a deduped retry back-fills a missing notifiedAt stamp (partial-failure recovery)", async () => {

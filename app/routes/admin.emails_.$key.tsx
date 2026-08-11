@@ -94,6 +94,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const tz = event.timezone;
 	const firstName = sample.contact?.firstName ?? "Alex";
 	const lastName = sample.contact?.lastName ?? "Rivera";
+	const isDraftReminder =
+		template.key === "reminder_5day" || template.key === "reminder_1day";
 	const sampleCtx: MergeContext = {
 		first_name: firstName,
 		last_name: lastName,
@@ -101,10 +103,24 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		email: sample.contact?.email ?? "alex@example.com",
 		event_name: event.name,
 		session_title: sample.submission?.title ?? "Sample session title",
-		session_date_time: sample.submission?.startsAt
-			? formatInTimeZone(sample.submission.startsAt, tz)
-			: null,
-		session_room: sample.submission?.room?.name ?? null,
+		session_date_time:
+			!isDraftReminder && sample.submission?.startsAt
+				? formatInTimeZone(sample.submission.startsAt, tz)
+				: null,
+		starts_at:
+			!isDraftReminder && sample.submission?.startsAt
+				? formatInTimeZone(sample.submission.startsAt, tz)
+				: null,
+		ends_at:
+			!isDraftReminder && sample.submission?.endsAt
+				? formatInTimeZone(sample.submission.endsAt, tz)
+				: null,
+		session_room: isDraftReminder
+			? null
+			: (sample.submission?.room?.name ?? null),
+		location: isDraftReminder
+			? null
+			: (sample.submission?.room?.name ?? event.location ?? null),
 		portal_link: sample.portal
 			? `${origin}/portals/${event.slug}/${sample.portal.publicId}`
 			: null,

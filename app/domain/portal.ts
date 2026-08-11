@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
-import type { SUBMISSION_STATUS } from "~/db/constants";
+import { PARTICIPANT_ROLE, type SUBMISSION_STATUS } from "~/db/constants";
 import {
 	type Contact,
 	contacts,
@@ -18,8 +18,12 @@ import {
 	tasks,
 	users,
 } from "~/db/schema";
-import { normalizeEmail } from "~/lib/auth";
+import { normalizeEmail, userCanAccessEvent } from "~/lib/auth";
 import { formatDateUTC } from "~/lib/format";
+import {
+	contactDisplayName,
+	previewContactForEvent,
+} from "~/lib/portal-preview";
 import { isOverdue } from "~/lib/task-status";
 import type { BadgeTone } from "~/ui";
 
@@ -81,20 +85,22 @@ export type PortalContext = {
 	portal: Portal;
 	/** Null = authenticated user with no contact in this event yet (e.g. draft-only). */
 	contact: Contact | null;
+	/** Account whose ownership portal GETs project; null for an unlinked preview contact. */
+	subjectUserId: string | null;
+	/** Set while an org admin views the portal as `contact` — read-only mode. */
+	preview: { contactName: string } | null;
 };
 
 /**
- * The portal identity chain: URL slug → event → portal (scoped to that event)
- * → the caller's contact via `contacts.userId + contacts.eventId`. Cross-tenant
- * denial is inherited from this join — a foreign event/portal 404s before any
- * data query, and every downstream read anchors on the resolved contact.
- * A contact created before the user existed (co-speaker added by someone else)
- * is linked here by normalized-email match, once, at first portal entry.
+ * Resolves URL, event, portal, and effective contact as one tenancy chain.
+ * Preview keeps organizer authority while projecting the selected contact;
+ * rejecting non-GET requests here blocks every nested mutation before effects.
  */
 export async function getPortalContext(
 	env: Env,
 	user: AppUser,
 	params: { eventSlug: string; portalId: string },
+	request: Request,
 ): Promise<PortalContext> {
 	const db = getDb(env);
 	const [event] = await db
@@ -111,6 +117,22 @@ export async function getPortalContext(
 		)
 		.limit(1);
 	if (!portal) throw data(null, { status: 404 });
+
+	if (user.role === "admin") {
+		const previewContact = await previewContactForEvent(db, request, event.id);
+		if (previewContact && (await userCanAccessEvent(env, user.id, event.id))) {
+			if (request.method !== "GET" && request.method !== "HEAD") {
+				throw data(null, { status: 403 });
+			}
+			return {
+				event,
+				portal,
+				contact: previewContact,
+				subjectUserId: previewContact.userId,
+				preview: { contactName: contactDisplayName(previewContact) },
+			};
+		}
+	}
 
 	let [contact] = await db
 		.select()
@@ -137,7 +159,13 @@ export async function getPortalContext(
 			contact = { ...match, userId: user.id };
 		}
 	}
-	return { event, portal, contact: contact ?? null };
+	return {
+		event,
+		portal,
+		contact: contact ?? null,
+		subjectUserId: user.id,
+		preview: null,
+	};
 }
 
 export function portalPath(ctx: PortalContext, suffix = ""): string {
@@ -159,6 +187,13 @@ export type PortalSubmissionRow = {
 	} | null;
 };
 
+const PORTAL_SUBMISSION_LIMIT = 100;
+
+type PortalSubmissionList = {
+	rows: PortalSubmissionRow[];
+	truncated: boolean;
+};
+
 /**
  * My Sessions = submissions I'm a PARTICIPANT on ∪ submissions I SUBMITTED
  * (a draft saved before the participant step has no participants row, and a
@@ -168,37 +203,39 @@ export type PortalSubmissionRow = {
 export async function listPortalSubmissions(
 	env: Env,
 	ctx: PortalContext,
-	userId: string,
-): Promise<PortalSubmissionRow[]> {
+): Promise<PortalSubmissionList> {
 	const db = getDb(env);
 	const byId = new Map<string, PortalSubmissionRow>();
 
-	const own = await db
-		.select({
-			id: submissions.id,
-			title: submissions.title,
-			status: submissions.status,
-			format: formats.name,
-			createdAt: submissions.createdAt,
-		})
-		.from(submissions)
-		.leftJoin(formats, eq(formats.id, submissions.formatId))
-		.where(
-			and(
-				eq(submissions.submitterId, userId),
-				eq(submissions.eventId, ctx.event.id),
-			),
-		)
-		.orderBy(desc(submissions.createdAt));
-	for (const row of own) {
-		byId.set(row.id, {
-			id: row.id,
-			title: row.title,
-			status: portalStatus(row.status),
-			format: row.format,
-			createdAt: row.createdAt.getTime(),
-			participation: null,
-		});
+	if (ctx.subjectUserId !== null) {
+		const own = await db
+			.select({
+				id: submissions.id,
+				title: submissions.title,
+				status: submissions.status,
+				format: formats.name,
+				createdAt: submissions.createdAt,
+			})
+			.from(submissions)
+			.leftJoin(formats, eq(formats.id, submissions.formatId))
+			.where(
+				and(
+					eq(submissions.submitterId, ctx.subjectUserId),
+					eq(submissions.eventId, ctx.event.id),
+				),
+			)
+			.orderBy(desc(submissions.createdAt))
+			.limit(PORTAL_SUBMISSION_LIMIT + 1);
+		for (const row of own) {
+			byId.set(row.id, {
+				id: row.id,
+				title: row.title,
+				status: portalStatus(row.status),
+				format: row.format,
+				createdAt: row.createdAt.getTime(),
+				participation: null,
+			});
+		}
 	}
 
 	if (ctx.contact) {
@@ -227,7 +264,8 @@ export async function listPortalSubmissions(
 				asc(participants.position),
 				asc(participants.createdAt),
 				asc(participants.id),
-			);
+			)
+			.limit((PORTAL_SUBMISSION_LIMIT + 1) * PARTICIPANT_ROLE.length);
 		for (const row of linked) {
 			const existing = byId.get(row.id) ?? {
 				id: row.id,
@@ -249,7 +287,11 @@ export async function listPortalSubmissions(
 		}
 	}
 
-	return [...byId.values()].sort((a, b) => b.createdAt - a.createdAt);
+	const rows = [...byId.values()].sort((a, b) => b.createdAt - a.createdAt);
+	return {
+		rows: rows.slice(0, PORTAL_SUBMISSION_LIMIT),
+		truncated: rows.length > PORTAL_SUBMISSION_LIMIT,
+	};
 }
 
 /**
@@ -259,7 +301,6 @@ export async function listPortalSubmissions(
 export async function requireOwnedSubmission(
 	env: Env,
 	ctx: PortalContext,
-	userId: string,
 	submissionId: string,
 ) {
 	const db = getDb(env);
@@ -298,7 +339,10 @@ export async function requireOwnedSubmission(
 		ownsThroughParticipant = links.length > 0;
 		myParticipant = links.find((link) => link.role !== "secondary") ?? null;
 	}
-	if (!ownsThroughParticipant && submission.submitterId !== userId)
+	if (
+		!ownsThroughParticipant &&
+		(ctx.subjectUserId === null || submission.submitterId !== ctx.subjectUserId)
+	)
 		throw data(null, { status: 404 });
 	return { submission, myParticipant };
 }

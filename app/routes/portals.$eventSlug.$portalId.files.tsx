@@ -16,7 +16,7 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const db = getDb(env);
 	const timings = createTimings();
 	// Only rows the organizer explicitly shared to the portal — the payload

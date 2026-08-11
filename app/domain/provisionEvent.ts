@@ -1,5 +1,11 @@
 import type { Db } from "~/db";
-import { emailTemplates, languages, portals } from "~/db/schema";
+import {
+	emailTemplates,
+	languages,
+	portalForms,
+	portals,
+	tasks,
+} from "~/db/schema";
 
 /**
  * The template set every event carries from birth. Senders resolve templates
@@ -31,19 +37,25 @@ const DEFAULT_EMAIL_TEMPLATES = [
 		category: "lifecycle",
 		trigger: "manual",
 	},
+	// Reminder copy leans on {{form_close_date}}, never a literal day count —
+	// occurrences send at the first tick INSIDE a ranged window, so "five days"
+	// can be stale on delivery. Bodies stay lean: the sender appends the
+	// draft/form/close-date/resume-link block below whatever the organizer writes.
 	{
 		key: "reminder_5day",
 		name: "Session Form - Five Days Reminder",
-		subject: "Five days left to submit",
-		bodyHtml: "<p>The form closes in five days.</p>",
+		subject: "{{form_title}} closes {{form_close_date}}",
+		bodyHtml:
+			"<p>Hi {{first_name}}, you saved a draft that hasn't been submitted yet — there's still time to finish it.</p>",
 		category: "lifecycle",
 		trigger: "auto",
 	},
 	{
 		key: "reminder_1day",
 		name: "Session Form - One Day Reminder",
-		subject: "One day left to submit",
-		bodyHtml: "<p>The form closes tomorrow.</p>",
+		subject: "Last chance: {{form_title}} closes {{form_close_date}}",
+		bodyHtml:
+			"<p>Hi {{first_name}}, this is the final day — submit your draft before the form closes.</p>",
 		category: "lifecycle",
 		trigger: "auto",
 	},
@@ -64,13 +76,14 @@ export const EVENT_EMAIL_TEMPLATE_KEYS = DEFAULT_EMAIL_TEMPLATES.map(
 export type EventEmailTemplateKey = (typeof EVENT_EMAIL_TEMPLATE_KEYS)[number];
 
 /**
- * Every event-creation path must SPREAD this into its batch: an event without
- * its default templates silently never sends its confirmation email, and one
- * without its default speaker portal has no portal URL for the CFP success
- * redirect or any emailed link to resolve to. Returns unexecuted inserts so
- * callers batch them atomically with the event insert.
+ * Every event-creation path must SPREAD this into its batch (returns
+ * unexecuted inserts, batched atomically with the event insert). An event
+ * missing these defaults fails silently: no confirmation email (templates),
+ * no portal URL for emailed links, no task mints from the accept spine.
  */
 export function provisionEventDefaults(db: Db, eventId: string) {
+	const hotelFormId = crypto.randomUUID();
+	const flightFormId = crypto.randomUUID();
 	return [
 		db
 			.insert(emailTemplates)
@@ -81,5 +94,59 @@ export function provisionEventDefaults(db: Db, eventId: string) {
 		// unanswerable on the public CFP. Other taxonomies (tracks/formats/
 		// levels/tags) are event-specific editorial choices and stay empty.
 		db.insert(languages).values({ eventId, name: "English", position: 0 }),
+		db.insert(portalForms).values([
+			{
+				id: hotelFormId,
+				eventId,
+				name: "Hotel Stay",
+				title: "Book your hotel",
+				targetType: "contact",
+				schema: [
+					{ name: "Hotel name", type: "text", required: true },
+					{ name: "Check-in date", type: "date", required: true },
+					{ name: "Check-out date", type: "date", required: true },
+				],
+			},
+			{
+				id: flightFormId,
+				eventId,
+				name: "Flight Reimbursement",
+				title: "Submit your flight",
+				targetType: "contact",
+				schema: [
+					{ name: "Airline", type: "text", required: true },
+					{ name: "Amount (USD)", type: "number", required: true },
+				],
+			},
+		]),
+		db.insert(tasks).values([
+			{
+				eventId,
+				name: "Hotel & Travel Reservations",
+				type: "contact",
+				description: "Book your hotel stay.",
+				portalFormId: hotelFormId,
+				isOnboardingDefault: true,
+				required: true,
+			},
+			{
+				eventId,
+				name: "Flight Reimbursement",
+				type: "contact",
+				description: "Submit your flight for reimbursement.",
+				portalFormId: flightFormId,
+				isOnboardingDefault: true,
+				required: true,
+			},
+			{
+				eventId,
+				name: "Presentation Upload",
+				type: "submission",
+				description: "Upload your slides.",
+				isFileRequest: true,
+				isOnboardingDefault: true,
+				required: false,
+			},
+		]),
 	] as const;
 }

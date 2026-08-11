@@ -12,7 +12,7 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
 	const tasks = await timings.time("db", () => listPortalTasks(env, ctx));
 	return data(

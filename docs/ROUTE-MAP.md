@@ -24,7 +24,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Email templates | `admin.emails.tsx` · `admin.emails_.$key.tsx` (underscore: the editor must not nest inside the list route) | `/admin/emails` · `/admin/emails/:key` | 1 | done |
 | Event settings | `admin.settings.tsx` (shell: header+tabs) · `admin.settings._index.tsx` (details + images) | `/admin/settings` | 1 | done |
 | Library (taxonomies + fields) | `admin.settings.library.tsx` | `/admin/settings/library` | 0/1 | done |
-| Portals admin | `admin.portals.tsx` · `admin.portal-forms.tsx` · `admin.file-requests.tsx` | `/admin/portals` … | 3 | todo |
+| Portals admin | `admin.portals.tsx` (list + "View portal as" preview) · `admin.portal-forms.tsx` (portal-form builder) | `/admin/portals` · `/admin/portal-forms` | 3 | done — `admin.file-requests.tsx` proposed dropped: file requests already ship as `isFileRequest` task definitions (owner ratifies by merging the portal-admin PR that carries this row) |
 | Public CFP | `submit.$eventSlug.$formId.tsx` (+ `.step.*`) | `/submit/:eventSlug/:formId` | 2 | done |
 | Speaker portal | `portals.$eventSlug.$portalId.tsx` (+ `_index/home/submissions/submissions_.$submissionId/profile/tasks/tasks_.$assignmentId/files/files_.$fileId/headshot/logo` children) | `/portals/:eventSlug/:portalId/*` | 2 | done |
 | Portal resolver (speaker login landing) | `portal.tsx` | `/portal` (resolves the user's portal, else designed empty state) | 2 | done |
@@ -66,6 +66,13 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Airtable webhook receiver | `hooks.airtable.tsx` | `/hooks/airtable` (POST; HMAC-verified via `X-Airtable-Content-MAC`, no session auth — `// @public`; P1 #15) | 2 | done |
 | Theme preference | `theme.tsx` | `/theme` (POST; persists the tri-state System/Light/Dark cookie; `// @public` — per-browser, works pre-login) | — | done |
 | Airtable sync status | `admin.settings.airtable.tsx` | `/admin/settings/airtable` (last sync, breaker alert + resume, Sync now; explicit not-configured states; P1 #15) | 2 | done |
+| Speaker CRM shell (org-level) | `admin.crm.tsx` | `/admin/crm/*` (header + module tabs; children below) | 3 | done |
+| CRM overview dashboard | `admin.crm._index.tsx` | `/admin/crm` (org KPIs + widgets, CRM-12) | 3 | done |
+| CRM directory | `admin.crm.directory.tsx` | `/admin/crm/directory` (cross-event union by email; filters, add-to-event, enroll, save-segment; CRM-01/02/06/09/10) | 3 | done |
+| CRM person profile | `admin.crm.person.$email.tsx` | `/admin/crm/person/:email` (appearances, notes, duplicates, enroll, add-to-event; CRM-03) | 3 | done |
+| CRM sourcing pipeline | `admin.crm.pipeline.tsx` | `/admin/crm/pipeline` (kanban board + enroll + move; CRM-07) | 3 | done |
+| CRM pipeline card detail | `admin.crm.pipeline_.$cardId.tsx` (trailing `_`: renders beside the board, not nested in it) | `/admin/crm/pipeline/:cardId` (notes + stage history + assign-to-event; CRM-08) | 3 | done |
+| CRM saved segments | `admin.crm.segments.tsx` | `/admin/crm/segments` (dynamic segments over directory filters; CRM-09) | 3 | done |
 
 If you need a route not listed here, add the row on the integration branch first
 (so no one else claims the same file), then build it in your worktree.
