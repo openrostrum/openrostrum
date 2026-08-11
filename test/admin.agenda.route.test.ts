@@ -16,6 +16,10 @@ import {
 	users,
 } from "../app/db/schema";
 import { inviteRecipients } from "../app/domain/accept";
+import {
+	computeScheduleChanges,
+	sendScheduleUpdates,
+} from "../app/domain/schedule-update";
 import { createSession, hashPassword } from "../app/lib/auth";
 import { buildIcs, parseIcsAttachment } from "../app/lib/ics";
 import { action, loader } from "../app/routes/admin.agenda";
@@ -150,7 +154,11 @@ function unwrap<T>(result: unknown): T {
 }
 
 async function callAction(fields: Record<string, string>): Promise<ActionData> {
-	const request = await adminRequest(new URLSearchParams(fields));
+	const body = new URLSearchParams(fields);
+	if (fields.intent === "schedule-updates" && !body.has("idempotencyKey")) {
+		body.set("idempotencyKey", crypto.randomUUID());
+	}
+	const request = await adminRequest(body);
 	const result = await action({
 		context: CONTEXT,
 		request,
@@ -1204,7 +1212,7 @@ END:VCALENDAR
 		expect(unsafeSend).toBeUndefined();
 	});
 
-	it("SEQUENCE increases monotonically across successive moves", async () => {
+	it("rejects a missing or malformed client idempotency key without sending", async () => {
 		const db = await invitedBaseline();
 		await callAction({
 			intent: "schedule",
@@ -1213,7 +1221,50 @@ END:VCALENDAR
 			day: "2026-10-12",
 			startMinutes: "570",
 		});
-		await callAction({ intent: "schedule-updates" });
+
+		const result = await callAction({
+			intent: "schedule-updates",
+			idempotencyKey: "not-a-uuid",
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.formError).toMatch(/try again/i);
+		const updates = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(updates).toHaveLength(0);
+	});
+
+	it("one client key dedupes a replay, while a later schedule revision still sends", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+		const firstState = await computeScheduleChanges(db, event);
+		const clientKey = "11111111-2222-4333-8444-555555555555";
+
+		const first = await callAction({
+			intent: "schedule-updates",
+			idempotencyKey: clientKey,
+		});
+		expect(first.updates).toMatchObject({ sent: 1, deduped: 0 });
+		const replay = await sendScheduleUpdates(
+			db,
+			env,
+			event,
+			firstState.changes,
+			clientKey,
+		);
+		expect(replay).toMatchObject({ sent: 0, deduped: 1 });
+
 		await callAction({
 			intent: "schedule",
 			submissionId: "s_keynote",
@@ -1221,13 +1272,21 @@ END:VCALENDAR
 			day: "2026-10-13",
 			startMinutes: "840",
 		});
-		const second = await callAction({ intent: "schedule-updates" });
-		expect(second.updates?.sent).toBe(1);
+		const second = await callAction({
+			intent: "schedule-updates",
+			idempotencyKey: clientKey,
+		});
+		expect(second.updates).toMatchObject({ sent: 1, deduped: 0 });
+		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(updateRows).toHaveLength(2);
+		expect(new Set(updateRows.map((row) => row.dedupeKey)).size).toBe(2);
 		const { vevent } = await latestUpdateInvite(db);
 		expect(vevent).toMatchObject({
 			uid: "submission-s_keynote@openrostrum",
 			sequence: 2,
-			start: utc(2026, 10, 13, 21, 0), // 2:00 PM PDT next day
+			start: utc(2026, 10, 13, 21, 0),
 			location: "Room 305",
 		});
 	});

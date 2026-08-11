@@ -47,8 +47,6 @@ export type ScheduleChange = {
 	nextSequence: number;
 	/** Primary speaker (submitter fallback) — null when nobody is emailable. */
 	to: string | null;
-	/** True when the last delivered invite went to a different address. */
-	recipientChanged: boolean;
 	/** Latest matching bounce, included in retry identity without advancing SEQUENCE. */
 	retryAfterBounceId: string | null;
 };
@@ -308,7 +306,6 @@ export async function computeScheduleChanges(
 			invite,
 			nextSequence: last ? last.sequence + 1 : 0,
 			to,
-			recipientChanged: last !== undefined && !recipientUnchanged,
 			retryAfterBounceId,
 		});
 	}
@@ -369,14 +366,15 @@ function updateEmailHtml(
 
 /**
  * One message per normalized recipient, with all changed VEVENTs attached.
- * A hashed semantic-state key keeps clicks idempotent; relevant bounce row IDs
- * salt retries. Each call sends at most EMAIL_BATCH_LIMIT recipients.
+ * A client-keyed semantic-state hash dedupes replays without collapsing a later
+ * real revision; bounce row IDs salt retries. Each call sends at most one batch.
  */
 export async function sendScheduleUpdates(
 	db: Db,
 	env: Env,
 	event: EventRow,
 	changes: readonly ScheduleChange[],
+	idempotencyKey: string,
 ): Promise<ScheduleUpdateSendResult> {
 	const result: ScheduleUpdateSendResult = {
 		sent: 0,
@@ -420,6 +418,7 @@ export async function sendScheduleUpdates(
 			})),
 		);
 		const state = JSON.stringify({
+			idempotencyKey,
 			eventId: event.id,
 			recipient,
 			revisions: items.map((item) => ({
