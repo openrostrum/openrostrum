@@ -1038,6 +1038,35 @@ describe("fresh event with zero taxonomies", () => {
 		} as unknown as Parameters<typeof submitAction>[0]);
 	}
 
+	it("excludes a contact field even if a malformed placement references it", async () => {
+		await seedFreshCfp();
+		const db = getDb(env);
+		const [form] = await db
+			.select()
+			.from(forms)
+			.where(eq(forms.id, FRESH.formId));
+		if (!form) throw new Error("fixture form missing");
+		await db.insert(fields).values({
+			id: "contact-field-malformed",
+			eventId: form.eventId,
+			recordType: "contact",
+			name: "Private CRM rating",
+			type: "number",
+		});
+		await db.insert(formFields).values({
+			id: "contact-placement-malformed",
+			formId: form.id,
+			fieldId: "contact-field-malformed",
+			section: "session",
+			position: 99,
+		});
+
+		const definition = await resolveFormDefinition(db, form);
+		expect(definition.session.map((field) => field.key)).not.toContain(
+			"f_contact-field-malformed",
+		);
+	});
+
 	it("omits every option-backed built-in from the resolved definition", async () => {
 		await seedFreshCfp();
 		const db = getDb(env);

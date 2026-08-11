@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
-import { crmNotes } from "../app/db/schema";
+import { contactAnswers, crmNotes, fields } from "../app/db/schema";
 import { action, loader } from "../app/routes/admin.crm.person.$email";
 import { CONTEXT, requestAs, seedCrmBaseline } from "./crm-fixtures";
 import { catchThrown, thrownStatus } from "./thrown";
@@ -14,6 +14,7 @@ type LoaderResult = {
 			appearances: Array<{ eventName: string; status: string }>;
 			sameNamePeople: Array<{ email: string }>;
 		};
+		customFields: Array<{ id: string; name: string; value: string | null }>;
 		notes: Array<{ body: string; authorName: string }>;
 		noteCount: number;
 		addableEvents: Array<{ id: string }>;
@@ -33,6 +34,88 @@ async function runLoader(userId: string, email: string): Promise<LoaderResult> {
 }
 
 describe("CRM person profile", () => {
+	it("persists organization field values across profile reloads", async () => {
+		await seedCrmBaseline();
+		const db = getDb(env);
+		await db.insert(fields).values({
+			id: "person-field-diet",
+			organizationId: "org1",
+			eventId: null,
+			recordType: "contact",
+			name: "Dietary requirements",
+			type: "text",
+		});
+		const email = "priya@example.com";
+		const request = await requestAs(
+			"u_admin1",
+			`http://localhost/admin/crm/person/${encodeURIComponent(email)}`,
+			{
+				method: "POST",
+				body: new URLSearchParams({
+					intent: "save-custom-field",
+					fieldId: "person-field-diet",
+					value: "Vegetarian",
+				}),
+			},
+		);
+		const result = (await action({
+			context: CONTEXT,
+			request,
+			params: { email },
+		} as unknown as Parameters<typeof action>[0])) as {
+			data?: { notice?: string };
+		};
+		expect(result.data?.notice).toMatch(/saved/i);
+
+		const reloaded = await runLoader("u_admin1", email);
+		expect(reloaded.data.customFields).toEqual([
+			expect.objectContaining({
+				id: "person-field-diet",
+				name: "Dietary requirements",
+				value: "Vegetarian",
+			}),
+		]);
+	});
+
+	it("rejects cross-organization custom-field and person writes", async () => {
+		await seedCrmBaseline();
+		const db = getDb(env);
+		await db.insert(fields).values({
+			id: "org2-person-field",
+			organizationId: "org2",
+			eventId: null,
+			recordType: "contact",
+			name: "Private rating",
+			type: "number",
+		});
+		for (const [email, fieldId] of [
+			["priya@example.com", "org2-person-field"],
+			["zara@rival.com", "org2-person-field"],
+		] as const) {
+			const request = await requestAs(
+				"u_admin1",
+				`http://localhost/admin/crm/person/${encodeURIComponent(email)}`,
+				{
+					method: "POST",
+					body: new URLSearchParams({
+						intent: "save-custom-field",
+						fieldId,
+						value: "5",
+					}),
+				},
+			);
+			const result = (await action({
+				context: CONTEXT,
+				request,
+				params: { email },
+			} as unknown as Parameters<typeof action>[0])) as {
+				customFieldError?: string;
+			};
+			expect(result.customFieldError).toBeTruthy();
+		}
+		expect(await db.select().from(contactAnswers)).toHaveLength(0);
+	});
+
 	it("shows the union of appearances, surfaces the same-name duplicate, and offers only missing events", async () => {
 		await seedCrmBaseline();
 		const { data } = await runLoader("u_admin1", "priya@example.com");

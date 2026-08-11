@@ -70,15 +70,17 @@ function Hero() {
 	return (
 		<section className={cn(SHELL, "pt-16 md:pt-24")}>
 			<div className="flex max-w-[46rem] flex-col items-start gap-6">
-				<Eyebrow>Conference speaker &amp; program management</Eyebrow>
+				<Eyebrow>
+					Conference speaker, submission &amp; program management
+				</Eyebrow>
 				<h1 className="font-display text-[clamp(2.1rem,4.6vw,3.4rem)] font-semibold leading-[1.06] tracking-[-0.018em] text-balance text-fg">
 					The open-source Sessionboard alternative.
 				</h1>
 				<p className="text-[16.5px] leading-relaxed text-fg-muted">
-					Call for speakers, submission review, speaker portals, agenda
-					building, and speaker comms — the whole program side of your
-					conference in one place. Free and open source: use it here, or run
-					your own.
+					Manage speaker relationships, collect and review proposals, coordinate
+					every presenter, and publish the program everywhere — all in one
+					place. Free and open source: create your organization here, or run it
+					on your own infrastructure.
 				</p>
 				<div className="flex flex-wrap items-center gap-3">
 					<Cta to="/signup">Create your event</Cta>
@@ -105,11 +107,12 @@ function Jobs() {
 			<div className={cn(SHELL, "py-20 md:py-28")}>
 				<div className="flex flex-col gap-4">
 					<Eyebrow>What it does</Eyebrow>
-					<h2 className={H2}>From first submission to final schedule.</h2>
+					<h2 className={H2}>From first contact to published program.</h2>
 					<p className={LEAD}>
-						Open the call, review what arrives, confirm your speakers, and build
-						the agenda — with the follow-up work tracked in the same place, not
-						in a spreadsheet on the side.
+						Build a speaker pipeline, open the call, review with your team, keep
+						every presenter moving, and publish the program — without stitching
+						together a CRM, spreadsheet, inbox, and separate publishing
+						workflow.
 					</p>
 				</div>
 				<div className="mt-12 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
@@ -227,10 +230,11 @@ function PublicPages() {
 					<Eyebrow>Public pages</Eyebrow>
 					<h2 className={H2}>The pages your attendees see, published live.</h2>
 					<p className={LEAD}>
-						Schedule, speakers, and sessions render straight from the data your
-						team edits — no export step, no stale copy on the event site. Embeds
-						and JSON, XML, and iCal feeds included. These are the live pages of
-						an event running on this site:
+						Schedule, speakers, sessions, gallery, and itinerary render straight
+						from approved content — no export step or stale event site. Place
+						them anywhere with styled embeds, or use filtered HTML, JSON, and
+						XML feeds. The published agenda also has iCal. These are the live
+						pages of an event running on this site:
 					</p>
 				</div>
 				<div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -403,8 +407,8 @@ function ClosingCta() {
 			>
 				<h2 className={H2}>Run your next event on OpenRostrum.</h2>
 				<p className={LEAD}>
-					Create your organization, open a call for speakers, and take the
-					program from first submission to published schedule.
+					Create your organization and first event, then take the program from
+					speaker pipeline to published schedule.
 				</p>
 				<div className="flex flex-wrap items-center gap-3 md:justify-center">
 					<Cta to="/signup">Create your event</Cta>
@@ -457,8 +461,9 @@ function Footer() {
 					<div className="flex max-w-[320px] flex-col gap-3">
 						<Wordmark />
 						<p className="text-[13px] leading-relaxed text-fg-muted">
-							The open-source Sessionboard alternative for conference speaker
-							and program management.
+							The open-source Sessionboard alternative for speaker
+							relationships, submission review, and conference program
+							management.
 						</p>
 					</div>
 					{/* No "Live event" column here: footer links describe the product,
