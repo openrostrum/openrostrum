@@ -90,6 +90,7 @@ describe("parseIcsAttachment (the outbox ledger reader)", () => {
 				uid: "submission-s1@openrostrum",
 				start: new Date("2027-05-12T16:30:00Z"),
 				end: new Date("2027-05-12T17:00:00Z"),
+				title: "Talk",
 				location,
 				sequence: 2,
 			},
@@ -125,10 +126,30 @@ describe("parseIcsAttachment (the outbox ledger reader)", () => {
 				uid: "submission-s_keynote@openrostrum",
 				start: new Date("2026-10-12T15:00:00Z"),
 				end: new Date("2026-10-15T01:00:00Z"),
+				title:
+					"AI.Engineer Sandbox Event (save the date): Closing Keynote: The Post-SaaS Stack",
 				location: null,
 				sequence: 0,
 			},
 		]);
+	});
+
+	it("rejects malformed SEQUENCE values", () => {
+		for (const sequence of ["-1", "1.5", "NaN", "Infinity"]) {
+			const ics = [
+				"BEGIN:VCALENDAR",
+				"BEGIN:VEVENT",
+				"UID:submission-s1@openrostrum",
+				"DTSTART:20270512T163000Z",
+				"DTEND:20270512T170000Z",
+				"SUMMARY:Talk",
+				`SEQUENCE:${sequence}`,
+				"END:VEVENT",
+				"END:VCALENDAR",
+			].join("\r\n");
+
+			expect(parseIcsAttachment(ics), sequence).toEqual([]);
+		}
 	});
 
 	it("skips unparseable blocks instead of throwing", () => {

@@ -2,19 +2,16 @@ import {
 	and,
 	asc,
 	eq,
-	gt,
 	inArray,
 	isNotNull,
 	isNull,
 	like,
-	lte,
 	or,
 	sql,
 } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
 import type { Db } from "~/db";
 import {
-	calendarInviteLedgerCursors,
+	calendarInviteProcessedOutbox,
 	calendarInviteRevisions,
 	emailOutbox,
 	type events,
@@ -70,13 +67,12 @@ export type ScheduleChangeSet = {
 
 const EMPTY: ScheduleChangeSet = { changes: [], speakers: 0, truncated: false };
 
-const OUTBOX_NORMALIZE_PAGE = 100;
+const OUTBOX_NORMALIZE_PAGE = 200;
 const D1_QUERY_CHUNK = 80;
-const D1_BATCH_CHUNK = 50;
-const OUTBOX_ROWID = sql<number>`${emailOutbox}.rowid`;
+const ATTEMPT_INSERT_CHUNK = 8;
+const MARKER_INSERT_CHUNK = 25;
 
 const NORMALIZATION_COLUMNS = {
-	rowid: OUTBOX_ROWID,
 	id: emailOutbox.id,
 	dedupeKey: emailOutbox.dedupeKey,
 	to: emailOutbox.to,
@@ -85,7 +81,6 @@ const NORMALIZATION_COLUMNS = {
 };
 
 type NormalizationRow = {
-	rowid: number;
 	id: string;
 	dedupeKey: string | null;
 	to: string;
@@ -97,15 +92,20 @@ type ParsedNormalizationRow = NormalizationRow & {
 	invites: ParsedIcsEvent[];
 	acceptanceSubmissionId: string | null;
 	associatedSubmissionIds: Set<string>;
+	icsEventCount: number;
 };
 
 type InviteBaseline = {
 	start: Date;
 	end: Date;
+	title: string;
 	location: string | null;
 	sequence: number;
 	to: string;
 };
+
+type RevisionInsert = typeof calendarInviteRevisions.$inferInsert;
+type ProcessedOutboxInsert = typeof calendarInviteProcessedOutbox.$inferInsert;
 
 function acceptanceSubmissionId(dedupeKey: string | null): string | null {
 	if (!dedupeKey?.startsWith("decision:accept:")) return null;
@@ -121,11 +121,15 @@ function stableUidSubmissionId(uid: string): string | null {
 	return submissionId.length > 0 ? submissionId : null;
 }
 
+function countIcsEvents(ics: string): number {
+	const unfolded = ics.replace(/\r?\n[ \t]/g, "");
+	return unfolded.match(/^BEGIN:VEVENT\r?$/gm)?.length ?? 0;
+}
+
 function parseNormalizationRows(
 	rows: readonly NormalizationRow[],
 ): ParsedNormalizationRow[] {
 	return rows.map((row) => {
-		// Parse exactly once even when one message contains several VEVENTs.
 		const invites = parseIcsAttachment(row.ics ?? "");
 		const acceptedId = acceptanceSubmissionId(row.dedupeKey);
 		const associatedSubmissionIds = new Set<string>();
@@ -139,6 +143,7 @@ function parseNormalizationRows(
 			invites,
 			acceptanceSubmissionId: acceptedId,
 			associatedSubmissionIds,
+			icsEventCount: row.ics === null ? 0 : countIcsEvents(row.ics),
 		};
 	});
 }
@@ -178,83 +183,181 @@ async function normalizedInviteStateHash(
 			start: invite.start.toISOString(),
 			end: invite.end.toISOString(),
 			location: invite.location ?? null,
-			title: null,
+			title: invite.title,
 		}),
 	);
 }
 
-async function runNormalizationWrites(
+function normalizationRowIsInvalid(
+	row: ParsedNormalizationRow,
+	validSubmissionIds: ReadonlySet<string>,
+): boolean {
+	const submissionIds = row.invites.map((invite) =>
+		stableUidSubmissionId(invite.uid),
+	);
+	const parsedCompletely =
+		row.ics !== null &&
+		row.icsEventCount > 0 &&
+		row.icsEventCount === row.invites.length;
+	const allInvitesUsable = row.invites.every((invite, index) => {
+		const submissionId = submissionIds[index];
+		return (
+			invite.title !== null &&
+			submissionId !== null &&
+			submissionId !== undefined &&
+			validSubmissionIds.has(submissionId)
+		);
+	});
+	const uniqueSubmissions = new Set(submissionIds.filter((id) => id !== null));
+	const hasDuplicateSubmission =
+		uniqueSubmissions.size !== submissionIds.length;
+
+	if (row.dedupeKey?.startsWith("decision:accept:")) {
+		const acceptedId = row.acceptanceSubmissionId;
+		if (!acceptedId || !validSubmissionIds.has(acceptedId)) return true;
+		if (row.ics === null) return false;
+		return (
+			!parsedCompletely ||
+			!allInvitesUsable ||
+			hasDuplicateSubmission ||
+			!submissionIds.includes(acceptedId)
+		);
+	}
+
+	return !parsedCompletely || !allInvitesUsable || hasDuplicateSubmission;
+}
+
+async function normalizationAttemptsForRow(
+	row: ParsedNormalizationRow,
+	eventId: string,
+	validSubmissionIds: ReadonlySet<string>,
+): Promise<{ attempts: RevisionInsert[]; invalid: boolean }> {
+	const invalid = normalizationRowIsInvalid(row, validSubmissionIds);
+	const attempts = new Map<string, RevisionInsert>();
+
+	for (const invite of row.invites) {
+		const submissionId = stableUidSubmissionId(invite.uid);
+		if (!submissionId || !validSubmissionIds.has(submissionId)) continue;
+		if (attempts.has(submissionId)) continue;
+		attempts.set(submissionId, {
+			id: crypto.randomUUID(),
+			submissionId,
+			sequence: invite.sequence,
+			stateHash: await normalizedInviteStateHash(
+				eventId,
+				submissionId,
+				row.to,
+				invite,
+			),
+			recipient: row.to,
+			startsAt: invite.start,
+			endsAt: invite.end,
+			location: invite.location ?? null,
+			title: invite.title,
+			outboxId: row.id,
+			invalid,
+			createdAt: row.createdAt,
+		});
+	}
+
+	const acceptedId = row.acceptanceSubmissionId;
+	if (
+		acceptedId &&
+		validSubmissionIds.has(acceptedId) &&
+		!attempts.has(acceptedId)
+	) {
+		const markerKind =
+			row.ics === null ? "acceptance-without-ics" : "invalid-acceptance-ics";
+		attempts.set(acceptedId, {
+			id: crypto.randomUUID(),
+			submissionId: acceptedId,
+			sequence: null,
+			stateHash: await sha256Hex(
+				JSON.stringify({
+					eventId,
+					submissionId: acceptedId,
+					recipient: normalizeEmail(row.to),
+					markerKind,
+				}),
+			),
+			recipient: row.to,
+			startsAt: null,
+			endsAt: null,
+			location: null,
+			title: null,
+			outboxId: row.id,
+			invalid,
+			createdAt: row.createdAt,
+		});
+	}
+
+	return { attempts: [...attempts.values()], invalid };
+}
+
+async function insertNormalizationAttempts(
 	db: Db,
-	writes: readonly BatchItem<"sqlite">[],
+	attempts: readonly RevisionInsert[],
 ): Promise<void> {
-	for (let offset = 0; offset < writes.length; offset += D1_BATCH_CHUNK) {
-		const chunk = writes.slice(offset, offset + D1_BATCH_CHUNK);
-		const first = chunk[0];
-		if (!first) continue;
-		await db.batch([first, ...chunk.slice(1)]);
+	for (
+		let offset = 0;
+		offset < attempts.length;
+		offset += ATTEMPT_INSERT_CHUNK
+	) {
+		const chunk = attempts.slice(offset, offset + ATTEMPT_INSERT_CHUNK);
+		if (chunk.length === 0) continue;
+		await db
+			.insert(calendarInviteRevisions)
+			.values(chunk)
+			.onConflictDoNothing({
+				target: [
+					calendarInviteRevisions.outboxId,
+					calendarInviteRevisions.submissionId,
+				],
+			});
 	}
 }
 
-async function advanceNormalizationCursor(
+async function insertProcessedOutboxMarkers(
 	db: Db,
-	eventId: string,
-	lastOutboxRowid: number,
+	markers: readonly ProcessedOutboxInsert[],
 ): Promise<void> {
-	await db
-		.insert(calendarInviteLedgerCursors)
-		.values({ eventId, lastOutboxRowid, updatedAt: new Date() })
-		.onConflictDoUpdate({
-			target: calendarInviteLedgerCursors.eventId,
-			set: {
-				lastOutboxRowid: sql<number>`max(${calendarInviteLedgerCursors.lastOutboxRowid}, ${lastOutboxRowid})`,
-				updatedAt: new Date(),
-			},
-		});
+	for (let offset = 0; offset < markers.length; offset += MARKER_INSERT_CHUNK) {
+		const chunk = markers.slice(offset, offset + MARKER_INSERT_CHUNK);
+		if (chunk.length === 0) continue;
+		await db
+			.insert(calendarInviteProcessedOutbox)
+			.values(chunk)
+			.onConflictDoNothing({
+				target: calendarInviteProcessedOutbox.outboxId,
+			});
+	}
 }
 
-/**
- * Project structured calendar history into durable revisions. A fixed high-water
- * mark makes each run finite; rowid keyset pages bound every read without ever
- * treating row count as a completeness limit.
- */
 export async function normalizeCalendarInviteHistory(
 	db: Db,
 	eventId: string,
 ): Promise<void> {
-	const [cursorRow] = await db
-		.select({ lastOutboxRowid: calendarInviteLedgerCursors.lastOutboxRowid })
-		.from(calendarInviteLedgerCursors)
-		.where(eq(calendarInviteLedgerCursors.eventId, eventId))
-		.limit(1);
-	const [highWaterRow] = await db
-		.select({ rowid: sql<number | null>`max(${OUTBOX_ROWID})` })
-		.from(emailOutbox)
-		.where(eq(emailOutbox.eventId, eventId));
-	const highWater = Number(highWaterRow?.rowid ?? 0);
-	let cursor = cursorRow?.lastOutboxRowid ?? 0;
-	if (cursor >= highWater) return;
-
-	while (cursor < highWater) {
-		const page = (await db
+	while (true) {
+		const page = await db
 			.select(NORMALIZATION_COLUMNS)
 			.from(emailOutbox)
+			.leftJoin(
+				calendarInviteProcessedOutbox,
+				eq(calendarInviteProcessedOutbox.outboxId, emailOutbox.id),
+			)
 			.where(
 				and(
 					eq(emailOutbox.eventId, eventId),
-					gt(OUTBOX_ROWID, cursor),
-					lte(OUTBOX_ROWID, highWater),
 					or(
 						like(emailOutbox.dedupeKey, "decision:accept:%"),
 						like(emailOutbox.dedupeKey, "schedule-update:%"),
 					),
+					isNull(calendarInviteProcessedOutbox.outboxId),
 				),
 			)
-			.orderBy(asc(OUTBOX_ROWID))
-			.limit(OUTBOX_NORMALIZE_PAGE)) as NormalizationRow[];
-		if (page.length === 0) {
-			await advanceNormalizationCursor(db, eventId, highWater);
-			return;
-		}
+			.orderBy(asc(emailOutbox.createdAt), asc(emailOutbox.id))
+			.limit(OUTBOX_NORMALIZE_PAGE);
+		if (page.length === 0) return;
 
 		const parsedPage = parseNormalizationRows(page);
 		const associatedIds = [
@@ -265,154 +368,233 @@ export async function normalizeCalendarInviteHistory(
 			eventId,
 			associatedIds,
 		);
-		const writes: BatchItem<"sqlite">[] = [];
+		const attempts: RevisionInsert[] = [];
+		const markers: ProcessedOutboxInsert[] = [];
+		const processedAt = new Date();
 
 		for (const row of parsedPage) {
-			for (const invite of row.invites) {
-				const submissionId = stableUidSubmissionId(invite.uid);
-				if (!submissionId || !validSubmissionIds.has(submissionId)) continue;
-				const stateHash = await normalizedInviteStateHash(
-					eventId,
-					submissionId,
-					row.to,
-					invite,
-				);
-				writes.push(
-					db
-						.insert(calendarInviteRevisions)
-						.values({
-							id: crypto.randomUUID(),
-							submissionId,
-							sequence: invite.sequence,
-							stateHash,
-							recipient: row.to,
-							startsAt: invite.start,
-							endsAt: invite.end,
-							location: invite.location ?? null,
-							title: null,
-							outboxId: row.id,
-							invalid: false,
-							createdAt: row.createdAt,
-						})
-						.onConflictDoUpdate({
-							target: [
-								calendarInviteRevisions.submissionId,
-								calendarInviteRevisions.sequence,
-							],
-							set: { outboxId: row.id },
-							setWhere: eq(calendarInviteRevisions.stateHash, stateHash),
-						}),
-				);
-			}
-
-			const acceptedId = row.acceptanceSubmissionId;
-			if (!acceptedId || !validSubmissionIds.has(acceptedId)) continue;
-			const hasExpectedInvite = row.invites.some(
-				(invite) => stableUidSubmissionId(invite.uid) === acceptedId,
+			const normalized = await normalizationAttemptsForRow(
+				row,
+				eventId,
+				validSubmissionIds,
 			);
-			if (hasExpectedInvite) continue;
-			const invalid = row.ics !== null;
-			const markerKind = invalid
-				? "invalid-acceptance-ics"
-				: "acceptance-without-ics";
-			const markerIdentity = await sha256Hex(
-				JSON.stringify({
-					markerKind,
-					outboxId: row.id,
-					submissionId: acceptedId,
-				}),
-			);
-			const stateHash = await sha256Hex(
-				JSON.stringify({
-					eventId,
-					submissionId: acceptedId,
-					recipient: normalizeEmail(row.to),
-					markerKind,
-				}),
-			);
-			writes.push(
-				db
-					.insert(calendarInviteRevisions)
-					.values({
-						id: `calendar-marker:${markerIdentity}`,
-						submissionId: acceptedId,
-						sequence: null,
-						stateHash,
-						recipient: row.to,
-						startsAt: null,
-						endsAt: null,
-						location: null,
-						title: null,
-						outboxId: row.id,
-						invalid,
-						createdAt: row.createdAt,
-					})
-					.onConflictDoNothing({ target: calendarInviteRevisions.id }),
-			);
+			attempts.push(...normalized.attempts);
+			markers.push({
+				outboxId: row.id,
+				eventId,
+				invalid: normalized.invalid,
+				processedAt,
+			});
 		}
 
-		await runNormalizationWrites(db, writes);
-		const lastRowid = page[page.length - 1]?.rowid ?? cursor;
-		const checkpoint =
-			page.length < OUTBOX_NORMALIZE_PAGE ? highWater : lastRowid;
-		await advanceNormalizationCursor(db, eventId, checkpoint);
-		cursor = checkpoint;
+		await insertNormalizationAttempts(db, attempts);
+		await insertProcessedOutboxMarkers(db, markers);
 	}
 }
 
-type RevisionProjection = {
-	submissionId: string;
-	sequence: number | null;
-	recipient: string;
-	startsAt: Date | null;
-	endsAt: Date | null;
-	location: string | null;
-	outboxId: string | null;
-	invalid: boolean;
-	outboxStatus: (typeof emailOutbox.$inferSelect)["status"] | null;
-	outboxRecipient: string | null;
-	outboxRowid: number | null;
-};
+async function hasUnprocessedCalendarInviteHistory(
+	db: Db,
+	eventId: string,
+): Promise<boolean> {
+	const [row] = await db
+		.select({ id: emailOutbox.id })
+		.from(emailOutbox)
+		.leftJoin(
+			calendarInviteProcessedOutbox,
+			eq(calendarInviteProcessedOutbox.outboxId, emailOutbox.id),
+		)
+		.where(
+			and(
+				eq(emailOutbox.eventId, eventId),
+				or(
+					like(emailOutbox.dedupeKey, "decision:accept:%"),
+					like(emailOutbox.dedupeKey, "schedule-update:%"),
+				),
+				isNull(calendarInviteProcessedOutbox.outboxId),
+			),
+		)
+		.limit(1);
+	return row !== undefined;
+}
 
-async function revisionHistory(
+async function hasUnsafeSentCalendarHistory(
+	db: Db,
+	eventId: string,
+): Promise<boolean> {
+	const [row] = await db
+		.select({ id: emailOutbox.id })
+		.from(emailOutbox)
+		.innerJoin(
+			calendarInviteProcessedOutbox,
+			eq(calendarInviteProcessedOutbox.outboxId, emailOutbox.id),
+		)
+		.where(
+			and(
+				eq(emailOutbox.eventId, eventId),
+				eq(emailOutbox.status, "sent"),
+				eq(calendarInviteProcessedOutbox.invalid, true),
+			),
+		)
+		.limit(1);
+	return row !== undefined;
+}
+
+async function trackedSubmissionIds(
 	db: Db,
 	submissionIds: readonly string[],
-): Promise<RevisionProjection[]> {
-	const revisions: RevisionProjection[] = [];
+): Promise<Set<string>> {
+	const tracked = new Set<string>();
 	for (
 		let offset = 0;
 		offset < submissionIds.length;
 		offset += D1_QUERY_CHUNK
 	) {
-		revisions.push(
-			...(await db
-				.select({
-					submissionId: calendarInviteRevisions.submissionId,
-					sequence: calendarInviteRevisions.sequence,
-					recipient: calendarInviteRevisions.recipient,
-					startsAt: calendarInviteRevisions.startsAt,
-					endsAt: calendarInviteRevisions.endsAt,
-					location: calendarInviteRevisions.location,
-					outboxId: calendarInviteRevisions.outboxId,
-					invalid: calendarInviteRevisions.invalid,
-					outboxStatus: emailOutbox.status,
-					outboxRecipient: emailOutbox.to,
-					outboxRowid: sql<number | null>`${emailOutbox}.rowid`,
-				})
-				.from(calendarInviteRevisions)
-				.leftJoin(
-					emailOutbox,
-					eq(calendarInviteRevisions.outboxId, emailOutbox.id),
-				)
-				.where(
+		const rows = await db
+			.selectDistinct({ submissionId: calendarInviteRevisions.submissionId })
+			.from(calendarInviteRevisions)
+			.innerJoin(
+				emailOutbox,
+				eq(calendarInviteRevisions.outboxId, emailOutbox.id),
+			)
+			.where(
+				and(
 					inArray(
 						calendarInviteRevisions.submissionId,
 						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
 					),
-				)),
-		);
+					inArray(emailOutbox.status, ["sent", "bounced"]),
+				),
+			);
+		for (const row of rows) tracked.add(row.submissionId);
 	}
-	return revisions;
+	return tracked;
+}
+
+async function sentInviteBaselines(
+	db: Db,
+	submissionIds: readonly string[],
+): Promise<Map<string, InviteBaseline>> {
+	const baselines = new Map<string, InviteBaseline>();
+	for (
+		let offset = 0;
+		offset < submissionIds.length;
+		offset += D1_QUERY_CHUNK
+	) {
+		const ranked = db
+			.select({
+				submissionId: calendarInviteRevisions.submissionId,
+				sequence: calendarInviteRevisions.sequence,
+				startsAt: calendarInviteRevisions.startsAt,
+				endsAt: calendarInviteRevisions.endsAt,
+				title: calendarInviteRevisions.title,
+				location: calendarInviteRevisions.location,
+				to: emailOutbox.to,
+				deliveryRank: sql<number>`row_number() over (
+					partition by ${calendarInviteRevisions.submissionId}
+					order by ${calendarInviteRevisions.sequence} desc,
+						coalesce(${emailOutbox.sentAt}, ${emailOutbox.createdAt}) asc,
+						${emailOutbox.id} asc
+				)`.as("delivery_rank"),
+			})
+			.from(calendarInviteRevisions)
+			.innerJoin(
+				emailOutbox,
+				eq(calendarInviteRevisions.outboxId, emailOutbox.id),
+			)
+			.where(
+				and(
+					inArray(
+						calendarInviteRevisions.submissionId,
+						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
+					),
+					eq(emailOutbox.status, "sent"),
+					eq(calendarInviteRevisions.invalid, false),
+					isNotNull(calendarInviteRevisions.sequence),
+					isNotNull(calendarInviteRevisions.startsAt),
+					isNotNull(calendarInviteRevisions.endsAt),
+					isNotNull(calendarInviteRevisions.title),
+				),
+			)
+			.as("ranked_sent_calendar_invites");
+		const rows = await db
+			.select({
+				submissionId: ranked.submissionId,
+				sequence: ranked.sequence,
+				startsAt: ranked.startsAt,
+				endsAt: ranked.endsAt,
+				title: ranked.title,
+				location: ranked.location,
+				to: ranked.to,
+			})
+			.from(ranked)
+			.where(eq(ranked.deliveryRank, 1));
+		for (const row of rows) {
+			if (
+				row.sequence === null ||
+				row.startsAt === null ||
+				row.endsAt === null ||
+				row.title === null
+			) {
+				continue;
+			}
+			baselines.set(row.submissionId, {
+				start: row.startsAt,
+				end: row.endsAt,
+				title: row.title,
+				location: row.location,
+				sequence: row.sequence,
+				to: row.to,
+			});
+		}
+	}
+	return baselines;
+}
+
+async function latestBounces(
+	db: Db,
+	submissionIds: readonly string[],
+): Promise<Map<string, string>> {
+	const bounces = new Map<string, string>();
+	for (
+		let offset = 0;
+		offset < submissionIds.length;
+		offset += D1_QUERY_CHUNK
+	) {
+		const ranked = db
+			.select({
+				submissionId: calendarInviteRevisions.submissionId,
+				outboxId: calendarInviteRevisions.outboxId,
+				deliveryRank: sql<number>`row_number() over (
+					partition by ${calendarInviteRevisions.submissionId}
+					order by coalesce(${emailOutbox.sentAt}, ${emailOutbox.createdAt}) desc,
+						${emailOutbox.id} desc
+				)`.as("delivery_rank"),
+			})
+			.from(calendarInviteRevisions)
+			.innerJoin(
+				emailOutbox,
+				eq(calendarInviteRevisions.outboxId, emailOutbox.id),
+			)
+			.where(
+				and(
+					inArray(
+						calendarInviteRevisions.submissionId,
+						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
+					),
+					eq(emailOutbox.status, "bounced"),
+				),
+			)
+			.as("ranked_bounced_calendar_invites");
+		const rows = await db
+			.select({
+				submissionId: ranked.submissionId,
+				outboxId: ranked.outboxId,
+			})
+			.from(ranked)
+			.where(eq(ranked.deliveryRank, 1));
+		for (const row of rows) bounces.set(row.submissionId, row.outboxId);
+	}
+	return bounces;
 }
 
 /**
@@ -424,7 +606,13 @@ export async function computeScheduleChanges(
 	db: Db,
 	event: EventRow,
 ): Promise<ScheduleChangeSet> {
-	await normalizeCalendarInviteHistory(db, event.id);
+	if (await hasUnprocessedCalendarInviteHistory(db, event.id)) {
+		return { ...EMPTY, truncated: true };
+	}
+	if (await hasUnsafeSentCalendarHistory(db, event.id)) {
+		return { ...EMPTY, truncated: true };
+	}
+
 	const candidates = await db
 		.select({
 			id: submissions.id,
@@ -445,51 +633,13 @@ export async function computeScheduleChanges(
 	if (candidates.length === 0) return EMPTY;
 
 	const candidateIds = candidates.map((candidate) => candidate.id);
-	const revisions = await revisionHistory(db, candidateIds);
-	const trackedCandidates = new Set<string>();
-	const lastSent = new Map<string, InviteBaseline>();
-	const latestBounce = new Map<string, { id: string; rowid: number }>();
-	let unsafe = false;
-	for (const revision of revisions) {
-		trackedCandidates.add(revision.submissionId);
-		if (revision.invalid && revision.outboxStatus === "sent") unsafe = true;
-		if (
-			revision.outboxStatus === "sent" &&
-			!revision.invalid &&
-			revision.sequence !== null &&
-			revision.startsAt !== null &&
-			revision.endsAt !== null
-		) {
-			const prior = lastSent.get(revision.submissionId);
-			// Sequence uniqueness preserves the first state projected at an equal
-			// revision. Only a strictly higher delivered sequence replaces it.
-			if (!prior || revision.sequence > prior.sequence) {
-				lastSent.set(revision.submissionId, {
-					start: revision.startsAt,
-					end: revision.endsAt,
-					location: revision.location,
-					sequence: revision.sequence,
-					to: revision.outboxRecipient ?? revision.recipient,
-				});
-			}
-		}
-		if (
-			revision.outboxStatus === "bounced" &&
-			revision.outboxId !== null &&
-			revision.outboxRowid !== null
-		) {
-			const prior = latestBounce.get(revision.submissionId);
-			if (!prior || revision.outboxRowid > prior.rowid) {
-				latestBounce.set(revision.submissionId, {
-					id: revision.outboxId,
-					rowid: revision.outboxRowid,
-				});
-			}
-		}
-	}
-	if (unsafe) return { ...EMPTY, truncated: true };
-
-	const recipientById = await inviteRecipients(db, candidateIds);
+	const [trackedCandidates, lastSent, latestBounce, recipientById] =
+		await Promise.all([
+			trackedSubmissionIds(db, candidateIds),
+			sentInviteBaselines(db, candidateIds),
+			latestBounces(db, candidateIds),
+			inviteRecipients(db, candidateIds),
+		]);
 	const roomIds = [
 		...new Set(candidates.map((c) => c.roomId).filter((v): v is string => !!v)),
 	];
@@ -521,6 +671,7 @@ export async function computeScheduleChanges(
 			last !== undefined &&
 			last.start.getTime() === invite.start.getTime() &&
 			last.end.getTime() === invite.end.getTime() &&
+			last.title === invite.title &&
 			(last.location ?? null) === (invite.location ?? null);
 		const recipientUnchanged =
 			last !== undefined &&
@@ -534,7 +685,7 @@ export async function computeScheduleChanges(
 			invite,
 			nextSequence: last ? last.sequence + 1 : 0,
 			to,
-			retryAfterBounceId: latestBounce.get(row.id)?.id ?? null,
+			retryAfterBounceId: latestBounce.get(row.id) ?? null,
 		});
 	}
 	if (changes.length === 0) return EMPTY;

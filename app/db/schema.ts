@@ -1486,29 +1486,37 @@ export const calendarInviteRevisions = sqliteTable(
 		endsAt: integer("ends_at", { mode: "timestamp" }),
 		location: text("location"),
 		title: text("title"),
-		outboxId: text("outbox_id").references(() => emailOutbox.id, {
-			onDelete: "set null",
-		}),
+		outboxId: text("outbox_id")
+			.notNull()
+			.references(() => emailOutbox.id, { onDelete: "cascade" }),
 		invalid: integer("invalid", { mode: "boolean" }).notNull().default(false),
 		createdAt: createdAt(),
 	},
 	(t) => [
-		unique("calendar_invite_revisions_submission_sequence_uq").on(
+		unique("calendar_invite_revisions_outbox_submission_uq").on(
+			t.outboxId,
+			t.submissionId,
+		),
+		index("calendar_invite_revisions_submission_sequence_idx").on(
 			t.submissionId,
 			t.sequence,
 		),
-		index("calendar_invite_revisions_outbox_idx").on(t.outboxId),
 	],
 );
 
-export const calendarInviteLedgerCursors = sqliteTable(
-	"calendar_invite_ledger_cursors",
+export const calendarInviteProcessedOutbox = sqliteTable(
+	"calendar_invite_processed_outbox",
 	{
-		eventId: text("event_id")
+		outboxId: text("outbox_id")
 			.primaryKey()
+			.references(() => emailOutbox.id, { onDelete: "cascade" }),
+		eventId: text("event_id")
+			.notNull()
 			.references(() => events.id, { onDelete: "cascade" }),
-		lastOutboxRowid: integer("last_outbox_rowid").notNull().default(0),
-		updatedAt: updatedAt(),
+		invalid: integer("invalid", { mode: "boolean" }).notNull().default(false),
+		processedAt: integer("processed_at", { mode: "timestamp" })
+			.notNull()
+			.$defaultFn(() => new Date()),
 	},
 );
 

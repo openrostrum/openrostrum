@@ -100,6 +100,7 @@ export type ParsedIcsEvent = {
 	uid: string;
 	start: Date;
 	end: Date;
+	title: string | null;
 	location: string | null;
 	sequence: number;
 };
@@ -167,15 +168,21 @@ export function parseIcsAttachment(ics: string): ParsedIcsEvent[] {
 		const uid = prop("UID");
 		const start = parseStamp(prop("DTSTART") ?? "");
 		const end = parseStamp(prop("DTEND") ?? "");
-		if (!uid || !start || !end) continue;
+		const sequenceText = prop("SEQUENCE");
+		const sequence = Number(sequenceText ?? "0");
+		const validSequence =
+			sequenceText === null ||
+			(/^\+?\d+$/.test(sequenceText.trim()) && Number.isSafeInteger(sequence));
+		if (!uid || !start || !end || !validSequence) continue;
+		const title = prop("SUMMARY");
 		const location = prop("LOCATION");
-		const sequence = Number(prop("SEQUENCE") ?? "0");
 		events.push({
 			uid: unescapeText(uid),
 			start,
 			end,
+			title: title === null ? null : unescapeText(title),
 			location: location ? unescapeText(location) : null,
-			sequence: Number.isFinite(sequence) ? sequence : 0,
+			sequence,
 		});
 	}
 	return events;

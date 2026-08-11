@@ -8,20 +8,22 @@ CREATE TABLE `calendar_invite_revisions` (
 	`ends_at` integer,
 	`location` text,
 	`title` text,
-	`outbox_id` text,
+	`outbox_id` text NOT NULL,
 	`invalid` integer DEFAULT false NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`submission_id`) REFERENCES `submissions`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`outbox_id`) REFERENCES `email_outbox`(`id`) ON UPDATE no action ON DELETE set null
+	FOREIGN KEY (`outbox_id`) REFERENCES `email_outbox`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `calendar_invite_revisions_submission_sequence_uq` ON `calendar_invite_revisions` (`submission_id`,`sequence`);
+CREATE UNIQUE INDEX `calendar_invite_revisions_outbox_submission_uq` ON `calendar_invite_revisions` (`outbox_id`,`submission_id`);
 --> statement-breakpoint
-CREATE INDEX `calendar_invite_revisions_outbox_idx` ON `calendar_invite_revisions` (`outbox_id`);
+CREATE INDEX `calendar_invite_revisions_submission_sequence_idx` ON `calendar_invite_revisions` (`submission_id`,`sequence`);
 --> statement-breakpoint
-CREATE TABLE `calendar_invite_ledger_cursors` (
-	`event_id` text PRIMARY KEY NOT NULL,
-	`last_outbox_rowid` integer DEFAULT 0 NOT NULL,
-	`updated_at` integer NOT NULL,
+CREATE TABLE `calendar_invite_processed_outbox` (
+	`outbox_id` text PRIMARY KEY NOT NULL,
+	`event_id` text NOT NULL,
+	`invalid` integer DEFAULT false NOT NULL,
+	`processed_at` integer NOT NULL,
+	FOREIGN KEY (`outbox_id`) REFERENCES `email_outbox`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`event_id`) REFERENCES `events`(`id`) ON UPDATE no action ON DELETE cascade
 );

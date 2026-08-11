@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { detectConflicts, isSessionVisible } from "../app/agenda/lib";
 import { getDb } from "../app/db";
 import {
+	calendarInviteProcessedOutbox,
 	calendarInviteRevisions,
 	contacts,
 	emailOutbox,
@@ -19,6 +20,7 @@ import {
 import { inviteRecipients } from "../app/domain/accept";
 import {
 	computeScheduleChanges,
+	normalizeCalendarInviteHistory,
 	sendScheduleUpdates,
 } from "../app/domain/schedule-update";
 import { createSession, hashPassword } from "../app/lib/auth";
@@ -711,6 +713,7 @@ async function invitedBaseline() {
 		submissionId: "s_keynote",
 		contactId: "c_marco",
 	});
+	await normalizeCalendarInviteHistory(db, "e1");
 	return db;
 }
 
@@ -747,6 +750,7 @@ function keynoteIcs(options: {
 	start: Date;
 	end: Date;
 	location?: string;
+	title?: string;
 	sequence: number;
 }): string {
 	return buildIcs({
@@ -758,6 +762,7 @@ function keynoteIcs(options: {
 				start: options.start,
 				end: options.end,
 				title:
+					options.title ??
 					"Closing Keynote: The Post-SaaS Stack — AI.Engineer Sandbox Event",
 				location: options.location,
 				sequence: options.sequence,
@@ -768,103 +773,109 @@ function keynoteIcs(options: {
 }
 
 describe("schedule-update emails (stale speaker calendars)", () => {
-	it("calendar invite ledger schema preserves revisions and scan cursors", async () => {
-		const [
-			revisionColumnsResult,
-			revisionIndexesResult,
-			revisionForeignKeysResult,
-			cursorColumnsResult,
-			cursorForeignKeysResult,
-		] = await Promise.all([
-			env.DB.prepare(
-				"SELECT name FROM pragma_table_info('calendar_invite_revisions') ORDER BY cid",
-			).all<{ name: string }>(),
-			env.DB.prepare(
-				"SELECT name FROM pragma_index_list('calendar_invite_revisions')",
-			).all<{ name: string }>(),
-			env.DB.prepare(
-				`SELECT "from" AS child_column, "table" AS parent_table,
-					"to" AS parent_column, on_delete
-				FROM pragma_foreign_key_list('calendar_invite_revisions')`,
-			).all<{
-				child_column: string;
-				parent_table: string;
-				parent_column: string;
-				on_delete: string;
-			}>(),
-			env.DB.prepare(
-				"SELECT name FROM pragma_table_info('calendar_invite_ledger_cursors') ORDER BY cid",
-			).all<{ name: string }>(),
-			env.DB.prepare(
-				`SELECT "from" AS child_column, "table" AS parent_table,
-					"to" AS parent_column, on_delete
-				FROM pragma_foreign_key_list('calendar_invite_ledger_cursors')`,
-			).all<{
-				child_column: string;
-				parent_table: string;
-				parent_column: string;
-				on_delete: string;
-			}>(),
-		]);
-		const columnNames = revisionColumnsResult.results.map((row) => row.name);
-		const indexNames = revisionIndexesResult.results.map((row) => row.name);
-		const cursorColumns = cursorColumnsResult.results.map((row) => row.name);
+	it("calendar invite ledger preserves immutable outbox attempts and processed markers", async () => {
+		const [revisionColumns, revisionIndexes, markerColumns, cursorTable] =
+			await Promise.all([
+				env.DB.prepare(
+					"SELECT name FROM pragma_table_info('calendar_invite_revisions')",
+				).all<{ name: string }>(),
+				env.DB.prepare(
+					"SELECT name, \"unique\" AS is_unique FROM pragma_index_list('calendar_invite_revisions')",
+				).all<{ name: string; is_unique: number }>(),
+				env.DB.prepare(
+					"SELECT name FROM pragma_table_info('calendar_invite_processed_outbox')",
+				).all<{ name: string }>(),
+				env.DB.prepare(
+					"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'calendar_invite_ledger_cursors'",
+				).first<{ name: string }>(),
+			]);
 
-		expect(columnNames).toEqual([
-			"id",
-			"submission_id",
-			"sequence",
-			"state_hash",
-			"recipient",
-			"starts_at",
-			"ends_at",
-			"location",
-			"title",
-			"outbox_id",
-			"invalid",
-			"created_at",
-		]);
-		expect(
-			indexNames
-				.filter((name) => name.startsWith("calendar_invite_revisions_"))
-				.sort(),
-		).toEqual(
+		expect(revisionColumns.results.map((row) => row.name)).toEqual(
+			expect.arrayContaining([
+				"submission_id",
+				"sequence",
+				"state_hash",
+				"title",
+				"outbox_id",
+			]),
+		);
+		expect(revisionIndexes.results).toEqual(
+			expect.arrayContaining([
+				{
+					name: "calendar_invite_revisions_outbox_submission_uq",
+					is_unique: 1,
+				},
+				{
+					name: "calendar_invite_revisions_submission_sequence_idx",
+					is_unique: 0,
+				},
+			]),
+		);
+		expect(markerColumns.results.map((row) => row.name)).toEqual(
+			expect.arrayContaining([
+				"outbox_id",
+				"event_id",
+				"invalid",
+				"processed_at",
+			]),
+		);
+		expect(cursorTable).toBeNull();
+
+		const revisionIndexColumns = await Promise.all(
 			[
-				"calendar_invite_revisions_submission_sequence_uq",
-				"calendar_invite_revisions_outbox_idx",
-			].sort(),
+				"calendar_invite_revisions_outbox_submission_uq",
+				"calendar_invite_revisions_submission_sequence_idx",
+			].map((name) =>
+				env.DB.prepare(
+					`SELECT name FROM pragma_index_info('${name}') ORDER BY seqno`,
+				).all<{
+					name: string;
+				}>(),
+			),
 		);
-		expect(revisionForeignKeysResult.results).toEqual(
-			expect.arrayContaining([
-				{
-					child_column: "submission_id",
-					parent_table: "submissions",
-					parent_column: "id",
-					on_delete: "CASCADE",
-				},
-				{
-					child_column: "outbox_id",
-					parent_table: "email_outbox",
-					parent_column: "id",
-					on_delete: "SET NULL",
-				},
-			]),
-		);
-		expect(cursorColumns).toEqual([
-			"event_id",
-			"last_outbox_rowid",
-			"updated_at",
+		expect(
+			revisionIndexColumns.map((result) =>
+				result.results.map((row) => row.name),
+			),
+		).toEqual([
+			["outbox_id", "submission_id"],
+			["submission_id", "sequence"],
 		]);
-		expect(cursorForeignKeysResult.results).toEqual(
-			expect.arrayContaining([
-				{
-					child_column: "event_id",
-					parent_table: "events",
-					parent_column: "id",
-					on_delete: "CASCADE",
-				},
-			]),
-		);
+	});
+
+	it("loader fails closed without writing normalization state", async () => {
+		const db = await seedBaseline();
+		await db.insert(emailOutbox).values({
+			id: "accept-loader-read-only",
+			eventId: "e1",
+			dedupeKey: "decision:accept:loader-read-only:s_keynote",
+			to: "marco@test.co",
+			subject: "Your session was accepted",
+			html: "<p>you're in</p>",
+			icsAttachment: HISTORIC_NPM_ICS_INVITE,
+			status: "sent",
+		});
+		await db
+			.update(submissions)
+			.set({ notifiedAt: new Date() })
+			.where(eq(submissions.id, "s_keynote"));
+
+		const result = await callLoader();
+
+		expect(result.event).toMatchObject({
+			staleSpeakers: 0,
+			scheduleScanTruncated: true,
+		});
+		expect(
+			await db
+				.select({ id: calendarInviteRevisions.id })
+				.from(calendarInviteRevisions),
+		).toEqual([]);
+		expect(
+			await db
+				.select({ outboxId: calendarInviteProcessedOutbox.outboxId })
+				.from(calendarInviteProcessedOutbox),
+		).toEqual([]);
 	});
 
 	it("resolves recipients beyond D1's 100-bound-parameter limit", async () => {
@@ -928,6 +939,27 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		expect(repeat.updates).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
 	});
 
+	it("detects a title-only calendar change", async () => {
+		const db = await invitedBaseline();
+		await db
+			.update(submissions)
+			.set({ title: "Closing Keynote: Durable Agents" })
+			.where(eq(submissions.id, "s_keynote"));
+
+		expect((await callLoader()).event).toMatchObject({
+			staleSpeakers: 1,
+			scheduleScanTruncated: false,
+		});
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
+		const { vevent } = await latestUpdateInvite(db);
+		expect(vevent).toMatchObject({
+			sequence: 1,
+			title:
+				"AI.Engineer Sandbox Event (save the date): Closing Keynote: Durable Agents",
+		});
+	});
+
 	it("surfaces malformed matching history instead of inferring an unsafe baseline", async () => {
 		const db = await seedBaseline();
 		await db
@@ -957,6 +989,58 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		const result = await callAction({ intent: "schedule-updates" });
 		expect(result.ok).toBe(false);
 		expect(result.formError).toMatch(/history/i);
+		expect(
+			await db
+				.select({ invalid: calendarInviteProcessedOutbox.invalid })
+				.from(calendarInviteProcessedOutbox)
+				.where(
+					eq(
+						calendarInviteProcessedOutbox.outboxId,
+						"accept-keynote-malformed",
+					),
+				),
+		).toEqual([{ invalid: true }]);
+		expect(
+			await db
+				.select({ invalid: calendarInviteRevisions.invalid })
+				.from(calendarInviteRevisions)
+				.where(
+					eq(calendarInviteRevisions.outboxId, "accept-keynote-malformed"),
+				),
+		).toEqual([{ invalid: true }]);
+	});
+
+	it("rejects a fractional schedule-update sequence as unsafe history", async () => {
+		const db = await invitedBaseline();
+		await db.insert(emailOutbox).values({
+			id: "update-keynote-fractional",
+			eventId: "e1",
+			dedupeKey: "schedule-update:fractional",
+			to: "marco@test.co",
+			subject: "Schedule update",
+			html: "<p>update</p>",
+			icsAttachment: keynoteIcs({
+				start: utc(2026, 10, 12, 15),
+				end: utc(2026, 10, 15, 1),
+				sequence: 1,
+			}).replace("SEQUENCE:1", "SEQUENCE:1.5"),
+			status: "sent",
+		});
+
+		expect((await callLoader()).event?.scheduleScanTruncated).toBe(true);
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.ok).toBe(false);
+		expect(
+			await db
+				.select({ invalid: calendarInviteProcessedOutbox.invalid })
+				.from(calendarInviteProcessedOutbox)
+				.where(
+					eq(
+						calendarInviteProcessedOutbox.outboxId,
+						"update-keynote-fractional",
+					),
+				),
+		).toEqual([{ invalid: true }]);
 	});
 
 	it("sends the first calendar invite at SEQUENCE 0 after an acceptance had no event dates", async () => {
@@ -984,6 +1068,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			submissionId: "s_keynote",
 			contactId: "c_marco",
 		});
+		await normalizeCalendarInviteHistory(db, "e1");
 		await db
 			.update(events)
 			.set({
@@ -1031,6 +1116,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			submissionId: "s_keynote",
 			contactId: "c_marco",
 		});
+		await normalizeCalendarInviteHistory(db, "e1");
 
 		expect((await callLoader()).event?.staleSpeakers).toBe(1);
 		const result = await callAction({ intent: "schedule-updates" });
@@ -1040,6 +1126,58 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			uid: "submission-s_keynote@openrostrum",
 			sequence: 0,
 		});
+	});
+
+	it("uses a corrected-recipient success after a bounced attempt at the same SEQUENCE", async () => {
+		const db = await seedBaseline();
+		await db.insert(emailOutbox).values([
+			{
+				id: "accept-keynote-wrong-bounced",
+				eventId: "e1",
+				dedupeKey: "decision:accept:wrong:s_keynote",
+				to: "wrong@test.co",
+				subject: "Your session was accepted",
+				html: "<p>you're in</p>",
+				icsAttachment: HISTORIC_NPM_ICS_INVITE,
+				status: "bounced" as const,
+				createdAt: new Date("2026-08-10T20:00:00Z"),
+				sentAt: new Date("2026-08-10T20:01:00Z"),
+			},
+			{
+				id: "accept-keynote-corrected-sent",
+				eventId: "e1",
+				dedupeKey: "decision:accept:corrected:s_keynote",
+				to: "marco@test.co",
+				subject: "Your session was accepted",
+				html: "<p>you're in</p>",
+				icsAttachment: HISTORIC_NPM_ICS_INVITE,
+				status: "sent" as const,
+				createdAt: new Date("2026-08-10T20:02:00Z"),
+				sentAt: new Date("2026-08-10T20:03:00Z"),
+			},
+		]);
+		await db
+			.update(submissions)
+			.set({ notifiedAt: new Date() })
+			.where(eq(submissions.id, "s_keynote"));
+		await db.insert(participants).values({
+			id: "p_keynote",
+			submissionId: "s_keynote",
+			contactId: "c_marco",
+		});
+		await normalizeCalendarInviteHistory(db, "e1");
+
+		expect((await callLoader()).event?.staleSpeakers).toBe(0);
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
+		expect((await latestUpdateInvite(db)).vevent?.sequence).toBe(1);
 	});
 
 	it("ignores generic notifiedAt rows that have no structured acceptance history", async () => {
@@ -1090,12 +1228,52 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			createdAt: new Date("2026-08-10T19:59:00Z"),
 			sentAt: new Date("2026-08-10T20:03:00Z"),
 		});
+		await normalizeCalendarInviteHistory(db, "e1");
 
 		expect((await callLoader()).event?.staleSpeakers).toBe(1);
+		const equalSequenceAttempts = await db
+			.select({
+				outboxId: calendarInviteRevisions.outboxId,
+				sequence: calendarInviteRevisions.sequence,
+				stateHash: calendarInviteRevisions.stateHash,
+			})
+			.from(calendarInviteRevisions)
+			.where(eq(calendarInviteRevisions.submissionId, "s_keynote"));
+		expect(equalSequenceAttempts).toHaveLength(2);
+		expect(
+			new Set(equalSequenceAttempts.map((row) => row.stateHash)).size,
+		).toBe(2);
 		const result = await callAction({ intent: "schedule-updates" });
 		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
 		const { vevent } = await latestUpdateInvite(db);
 		expect(vevent?.sequence).toBe(1);
+	});
+
+	it("keeps a sent baseline when a later same-state attempt fails", async () => {
+		const db = await invitedBaseline();
+		await db.insert(emailOutbox).values({
+			id: "update-keynote-failed-same-state",
+			eventId: "e1",
+			dedupeKey: "schedule-update:failed-same-state",
+			to: "marco@test.co",
+			subject: "Schedule update",
+			html: "<p>failed update</p>",
+			icsAttachment: HISTORIC_NPM_ICS_INVITE,
+			status: "failed",
+			createdAt: new Date("2026-08-10T20:04:00Z"),
+		});
+		await normalizeCalendarInviteHistory(db, "e1");
+
+		expect((await callLoader()).event).toMatchObject({
+			staleSpeakers: 0,
+			scheduleScanTruncated: false,
+		});
+		expect(
+			await db
+				.select({ outboxId: calendarInviteRevisions.outboxId })
+				.from(calendarInviteRevisions)
+				.where(eq(calendarInviteRevisions.submissionId, "s_keynote")),
+		).toHaveLength(2);
 	});
 
 	it("flags a recipient change and delivers the current invite at the next SEQUENCE", async () => {
@@ -1140,6 +1318,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			createdAt: new Date("2026-08-10T20:02:00Z"),
 			sentAt: new Date("2026-08-10T20:03:00Z"),
 		});
+		await normalizeCalendarInviteHistory(db, "e1");
 		await db
 			.update(contacts)
 			.set({ email: "marco.new@test.co" })
@@ -1281,6 +1460,8 @@ END:VCALENDAR
 				icsAttachment: keynoteIcs({
 					start: utc(2026, 10, 12, 15),
 					end: utc(2026, 10, 15, 1),
+					title:
+						"AI.Engineer Sandbox Event (save the date): Closing Keynote: The Post-SaaS Stack",
 					sequence: 2,
 				}),
 				status: "sent",
@@ -1288,13 +1469,17 @@ END:VCALENDAR
 				sentAt: new Date("2026-08-10T20:05:00Z"),
 			},
 		]);
+		await normalizeCalendarInviteHistory(db, "e1");
 
 		expect((await callLoader()).event).toMatchObject({
 			staleSpeakers: 0,
 			scheduleScanTruncated: false,
 		});
 		const revisions = await db
-			.select()
+			.select({
+				sequence: calendarInviteRevisions.sequence,
+				stateHash: calendarInviteRevisions.stateHash,
+			})
 			.from(calendarInviteRevisions)
 			.where(eq(calendarInviteRevisions.submissionId, "s_keynote"));
 		const ordered = revisions.sort(
@@ -1315,7 +1500,57 @@ END:VCALENDAR
 		expect((await latestUpdateInvite(db)).vevent?.sequence).toBe(3);
 	});
 
-	it("normalizes every matching revision beyond 1,000 rows and advances above the true maximum", async () => {
+	it("concurrent normalizers converge on one attempt and marker per outbox", async () => {
+		const db = await invitedBaseline();
+		await db.insert(emailOutbox).values([
+			{
+				id: "concurrent-update-1",
+				eventId: "e1",
+				dedupeKey: "schedule-update:concurrent-1",
+				to: "marco@test.co",
+				subject: "Schedule update",
+				html: "<p>one</p>",
+				icsAttachment: keynoteIcs({
+					start: utc(2026, 10, 12, 16, 30),
+					end: utc(2026, 10, 12, 17, 15),
+					sequence: 1,
+				}),
+				status: "sent" as const,
+			},
+			{
+				id: "concurrent-update-2",
+				eventId: "e1",
+				dedupeKey: "schedule-update:concurrent-2",
+				to: "marco@test.co",
+				subject: "Schedule update",
+				html: "<p>two</p>",
+				icsAttachment: keynoteIcs({
+					start: utc(2026, 10, 13, 16, 30),
+					end: utc(2026, 10, 13, 17, 15),
+					sequence: 2,
+				}),
+				status: "bounced" as const,
+			},
+		]);
+
+		await Promise.all([
+			normalizeCalendarInviteHistory(db, "e1"),
+			normalizeCalendarInviteHistory(db, "e1"),
+		]);
+
+		expect(
+			await db
+				.select({ outboxId: calendarInviteRevisions.outboxId })
+				.from(calendarInviteRevisions),
+		).toHaveLength(3);
+		expect(
+			await db
+				.select({ outboxId: calendarInviteProcessedOutbox.outboxId })
+				.from(calendarInviteProcessedOutbox),
+		).toHaveLength(3);
+	});
+
+	it("normalizes 1,001 attempts within D1 query limits and advances above the true maximum", async () => {
 		const db = await invitedBaseline();
 		await callAction({
 			intent: "schedule",
@@ -1347,6 +1582,7 @@ BEGIN:VEVENT
 UID:submission-s_keynote@openrostrum
 DTSTART:20261012T150000Z
 DTEND:20261015T010000Z
+SUMMARY:AI.Engineer Sandbox Event (save the date): Closing Keynote: The Post-SaaS Stack
 SEQUENCE:' || CASE WHEN n = 0 THEN 5000 ELSE n END || '
 END:VEVENT
 END:VCALENDAR
@@ -1360,9 +1596,10 @@ END:VCALENDAR
 
 		const data = await callLoader();
 		expect(data.event).toMatchObject({
-			staleSpeakers: 1,
-			scheduleScanTruncated: false,
+			staleSpeakers: 0,
+			scheduleScanTruncated: true,
 		});
+
 		const result = await callAction({ intent: "schedule-updates" });
 		expect(result).toMatchObject({ ok: true });
 		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
@@ -1508,6 +1745,7 @@ END:VCALENDAR
 			.update(submissions)
 			.set({ notifiedAt: new Date() })
 			.where(eq(submissions.id, "s_live"));
+		await normalizeCalendarInviteHistory(db, "e1");
 		await callAction({
 			intent: "schedule",
 			submissionId: "s_keynote",

@@ -51,6 +51,7 @@ import { SUBMISSION_STATUS } from "~/db/constants";
 import { events, formats, rooms as roomsTable, submissions } from "~/db/schema";
 import {
 	computeScheduleChanges,
+	normalizeCalendarInviteHistory,
 	sendScheduleUpdates,
 } from "~/domain/schedule-update";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
@@ -573,6 +574,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 		}
 
 		if (intent === "schedule-updates") {
+			await timings.time("db-write", () =>
+				normalizeCalendarInviteHistory(db, event.id),
+			);
 			const changeSet = await timings.time("db", () =>
 				computeScheduleChanges(db, event),
 			);
@@ -586,6 +590,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 			}
 			const outcome = await timings.time("send", () =>
 				sendScheduleUpdates(db, env, event, changeSet.changes),
+			);
+			await timings.time("db-write", () =>
+				normalizeCalendarInviteHistory(db, event.id),
 			);
 			track("agenda.schedule_updates_sent", {
 				eventId: event.id,

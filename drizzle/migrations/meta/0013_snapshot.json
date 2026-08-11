@@ -1003,7 +1003,7 @@
           "name": "outbox_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "invalid": {
@@ -1023,18 +1023,19 @@
         }
       },
       "indexes": {
-        "calendar_invite_revisions_submission_sequence_uq": {
-          "name": "calendar_invite_revisions_submission_sequence_uq",
+        "calendar_invite_revisions_outbox_submission_uq": {
+          "name": "calendar_invite_revisions_outbox_submission_uq",
           "columns": [
-            "submission_id",
-            "sequence"
+            "outbox_id",
+            "submission_id"
           ],
           "isUnique": true
         },
-        "calendar_invite_revisions_outbox_idx": {
-          "name": "calendar_invite_revisions_outbox_idx",
+        "calendar_invite_revisions_submission_sequence_idx": {
+          "name": "calendar_invite_revisions_submission_sequence_idx",
           "columns": [
-            "outbox_id"
+            "submission_id",
+            "sequence"
           ],
           "isUnique": false
         }
@@ -1063,7 +1064,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -1071,26 +1072,33 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "calendar_invite_ledger_cursors": {
-      "name": "calendar_invite_ledger_cursors",
+    "calendar_invite_processed_outbox": {
+      "name": "calendar_invite_processed_outbox",
       "columns": {
-        "event_id": {
-          "name": "event_id",
+        "outbox_id": {
+          "name": "outbox_id",
           "type": "text",
           "primaryKey": true,
           "notNull": true,
           "autoincrement": false
         },
-        "last_outbox_rowid": {
-          "name": "last_outbox_rowid",
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "invalid": {
+          "name": "invalid",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 0
+          "default": false
         },
-        "updated_at": {
-          "name": "updated_at",
+        "processed_at": {
+          "name": "processed_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1099,9 +1107,22 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "calendar_invite_ledger_cursors_event_id_events_id_fk": {
-          "name": "calendar_invite_ledger_cursors_event_id_events_id_fk",
-          "tableFrom": "calendar_invite_ledger_cursors",
+        "calendar_invite_processed_outbox_outbox_id_email_outbox_id_fk": {
+          "name": "calendar_invite_processed_outbox_outbox_id_email_outbox_id_fk",
+          "tableFrom": "calendar_invite_processed_outbox",
+          "tableTo": "email_outbox",
+          "columnsFrom": [
+            "outbox_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "calendar_invite_processed_outbox_event_id_events_id_fk": {
+          "name": "calendar_invite_processed_outbox_event_id_events_id_fk",
+          "tableFrom": "calendar_invite_processed_outbox",
           "tableTo": "events",
           "columnsFrom": [
             "event_id"
