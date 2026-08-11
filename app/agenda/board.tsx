@@ -92,8 +92,6 @@ const pointerFirstCollision: CollisionDetection = (args) => {
 	return withPointer.length > 0 ? withPointer : rectIntersection(args);
 };
 
-/* ------------------------------------------------------------------ bits --- */
-
 export function ConflictClock({ label }: { label: string }) {
 	return (
 		<svg
@@ -112,7 +110,6 @@ export function ConflictClock({ label }: { label: string }) {
 	);
 }
 
-/** Informational strip (e.g. “N accepted sessions still need a time slot”). */
 export function InfoBar({ children }: { children: ReactNode }) {
 	return (
 		<div className="rounded-card bg-chip px-4 py-[9px] text-[12.5px] text-fg-muted">
@@ -383,8 +380,6 @@ export function ToggleChips({
 		</div>
 	);
 }
-
-/* ---------------------------------------------------------------- blocks --- */
 
 function conflictTitle(
 	conflicts: Conflict[] | undefined,
@@ -711,8 +706,6 @@ function TrayCard({
 	);
 }
 
-/* ----------------------------------------------------------------- cells --- */
-
 function SlotCell({
 	id,
 	minutes,
@@ -767,8 +760,6 @@ function TimeGutter({
 		</div>
 	);
 }
-
-/* ---------------------------------------------------------------- columns --- */
 
 type ColumnBlock = {
 	session: AgendaSession;
@@ -870,8 +861,6 @@ function GridColumn({
 	);
 }
 
-/* ------------------------------------------------------------------ tray --- */
-
 function Tray({
 	unscheduled,
 	scheduled,
@@ -933,8 +922,6 @@ function Tray({
 		</div>
 	);
 }
-
-/* ----------------------------------------------------------------- board --- */
 
 export function AgendaBoard({
 	view,

@@ -62,8 +62,6 @@ function normalizeRemoteDate(value: AirtableFieldValue): AirtableFieldValue {
 	return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
 }
 
-/* ------------------------------------------------------------ status labels --- */
-
 type SubmissionStatus = (typeof SUBMISSION_STATUS)[number];
 type TaskStatus = (typeof TASK_STATUS)[number];
 
@@ -93,8 +91,6 @@ export function parseSubmissionStatus(
 export function parseTaskStatus(value: AirtableFieldValue): TaskStatus | null {
 	return parseLabel(value, TASK_STATUS);
 }
-
-/* ------------------------------------------------------------- projections --- */
 
 export interface SubmissionSyncRow {
 	submission: Submission;
@@ -160,8 +156,6 @@ export function projectTaskAssignment(
 		"Completed At": isoOrNull(row.assignment.completedAt),
 	};
 }
-
-/* ------------------------------------------------------------------- maps --- */
 
 export const SUBMISSIONS_MAP: TableMap = {
 	table: "submissions",
@@ -246,8 +240,6 @@ export const TABLE_MAPS: Record<SyncedTableName, TableMap> = {
 	contacts: CONTACTS_MAP,
 	task_assignments: TASK_ASSIGNMENTS_MAP,
 };
-
-/* ---------------------------------------------------------- pull validation --- */
 
 export type PullOutcome =
 	| { ok: true; set: Record<string, unknown> }

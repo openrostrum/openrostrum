@@ -39,7 +39,6 @@ export function zonedCalendarDate(instant: Date, timeZone: string): number {
 	return Date.UTC(parts.year ?? 1970, (parts.month ?? 1) - 1, parts.day ?? 1);
 }
 
-/** Hour-of-day (0–23) in `timeZone`. */
 export function zonedHour(instant: Date, timeZone: string): number {
 	const fmt = new Intl.DateTimeFormat("en-US", {
 		timeZone,

@@ -16,23 +16,18 @@ import { cn } from "./cn";
  * consumers (the public wizard's draft state) pass `value`/`onChange` instead.
  */
 export type RichTextProps = {
-	/** Form field name. When set, the HTML submits through a hidden input. */
 	name?: string;
 	/** `<form id>` for editors rendered outside their form element. */
 	form?: string;
-	/** Initial content (uncontrolled). */
 	defaultValue?: string;
 	/** Controlled content — external changes adopt while the editor is unfocused. */
 	value?: string;
-	/** Fires with the current HTML ("" when visually empty). */
 	onChange?: (html: string) => void;
 	invalid?: boolean;
 	placeholder?: string;
-	/** Compact = fewer toolbar buttons (short bios). */
 	compact?: boolean;
 	/** Accessible name (a visual label can't reach the contenteditable). */
 	ariaLabel?: string;
-	/** Editing-area height: `sm` for field-sized content, `lg` for email bodies. */
 	size?: "sm" | "lg";
 };
 

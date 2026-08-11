@@ -23,7 +23,6 @@ export function Tab({
 }: {
 	to: string;
 	count?: number;
-	/** Overrides NavLink matching when the route computes activeness itself. */
 	active?: boolean;
 	children: ReactNode;
 }) {

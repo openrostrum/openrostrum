@@ -1090,8 +1090,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	return { intent, formError: "Unknown action." };
 }
 
-/* ---------------------------------------------------------------- view --- */
-
 type LoaderData = Awaited<ReturnType<typeof loader>>["data"];
 
 export default function PlanEditor({

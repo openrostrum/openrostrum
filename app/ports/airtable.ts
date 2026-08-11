@@ -42,8 +42,6 @@ export interface AirtableBase {
 	refreshWebhook(webhookId: string): Promise<void>;
 }
 
-/* ------------------------------------------------------------------- fake --- */
-
 export interface FakeAirtableCall {
 	op: "list" | "upsert" | "delete" | "refresh";
 	table: string;
@@ -158,8 +156,6 @@ export function createFakeAirtableBase(): FakeAirtableBase {
 	};
 }
 
-/* ------------------------------------------------------------------- prod --- */
-
 const AIRTABLE_API = "https://api.airtable.com/v0";
 // Airtable rejects >10 records per write request.
 const BATCH_SIZE = 10;
@@ -180,7 +176,6 @@ const realTransport: AirtableTransport = {
 	sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
-/** Prod adapter: the real base named by AIRTABLE_BASE_ID, rate-limit tolerant. */
 export function createAirtableBase(
 	env: Env,
 	transport: AirtableTransport = realTransport,

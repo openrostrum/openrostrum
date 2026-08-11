@@ -3,7 +3,6 @@ import type { Db } from "~/db";
 import { portals } from "~/db/schema";
 import { hasRealEmailProvider } from "~/ports/email";
 
-/** Single home for the speaker-portal URL shape used in emails. */
 export function portalUrl(
 	origin: string,
 	eventSlug: string,

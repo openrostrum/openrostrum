@@ -47,8 +47,6 @@ type Db = ReturnType<typeof getDb>;
 export type PublicForm = typeof forms.$inferSelect;
 export type PublicEvent = typeof events.$inferSelect;
 
-/* ------------------------------------------------------------- form load --- */
-
 export async function loadPublicForm(
 	env: Env,
 	eventSlug: string,
@@ -126,8 +124,6 @@ export async function countSubmissionsUsed(
 		);
 	return row?.used ?? 0;
 }
-
-/* --------------------------------------------------------- form definition --- */
 
 export type FormDefinition = {
 	session: WizardField[];
@@ -309,8 +305,6 @@ export async function resolveFormDefinition(
 	};
 }
 
-/* ------------------------------------------------------------- sanitizing --- */
-
 const ALLOWED_TAGS = new Set([
 	"p",
 	"strong",
@@ -385,8 +379,6 @@ export async function sanitizeHtml(html: string): Promise<string> {
 	return await response.text();
 }
 
-/* ------------------------------------------------------- contacts linking --- */
-
 /**
  * Attach an authenticated user to THIS event's roster contact carrying their
  * email — a speaker whose address the organizer already imported must land in
@@ -442,8 +434,6 @@ export async function loadSelfContact(
 		bio: "",
 	};
 }
-
-/* --------------------------------------------------------------- writing --- */
 
 type WriteInput = {
 	form: PublicForm;
@@ -1095,8 +1085,6 @@ export async function writeSubmission(
 	};
 }
 
-/* ------------------------------------------------------------ wizard load --- */
-
 export async function listDrafts(
 	db: Db,
 	formId: string,
@@ -1221,8 +1209,6 @@ export async function loadWizardInitial(
 		})),
 	};
 }
-
-/* ----------------------------------------------------------------- email --- */
 
 /** Replace {{tag}} merge tags; unknown tags render as empty strings. */
 export function renderTemplate(

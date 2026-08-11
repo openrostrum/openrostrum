@@ -22,7 +22,6 @@ export type GettingStartedFacts = {
 	/** Forms whose status left `draft` — a closed form was still published. */
 	publishedFormCount: number;
 	reviewerCount: number;
-	/** Non-draft submissions. */
 	submissionCount: number;
 };
 

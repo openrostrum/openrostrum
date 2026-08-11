@@ -71,8 +71,6 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
 
-/* ------------------------------------------------------------- validation --- */
-
 const Name = z.string().trim().min(1, "Name is required").max(120);
 const Color = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Pick a color");
 
@@ -145,8 +143,6 @@ const FieldForm = z
 		options: v.type === "dropdown" ? v.options : null,
 	}));
 
-/* ---------------------------------------------------------------- actions --- */
-
 function fieldErrorsOf(error: z.ZodError): Record<string, string[]> {
 	return z.flattenError(error).fieldErrors as Record<string, string[]>;
 }
@@ -195,12 +191,9 @@ function taxonomy<T extends TaxonomyTable, S extends z.ZodType>(cfg: {
 	table: T;
 	schema: S;
 	pick(form: FormData): Record<string, FormDataEntryValue | null>;
-	/** Append-ordered tables: the insert sets `key` to max(column)+1. */
 	position?: { key: "position" | "displayOrder"; column: SQLiteColumn };
 	inUse?: {
-		/** TRUE while nothing references the row — ANDed into the delete. */
 		free(db: Db, id: string): SQL | undefined;
-		/** Refusal message once a delete was blocked by live references. */
 		describe(db: Db, id: string): Promise<string>;
 	};
 }) {
@@ -441,8 +434,6 @@ async function runFieldOp(
 	return touched.length === 0 ? MISSING : { ok: true };
 }
 
-/* ----------------------------------------------------------- loader/action --- */
-
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	// Self-authenticate — never rely on layout loaders.
@@ -595,8 +586,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 	});
 	return data(result, { headers: { "Server-Timing": timings.header() } });
 }
-
-/* -------------------------------------------------------------------- view --- */
 
 /**
  * Save-lifecycle state for one section: a successful save exits edit mode and

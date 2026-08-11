@@ -91,8 +91,6 @@ import {
 } from "~/ui";
 import type { Route } from "./+types/admin.forms.$formId";
 
-/* ------------------------------------------------------------- built-ins --- */
-
 // Local alias — the shared contract lives in ~/lib/forms.
 type SectionId = FormSectionId;
 
@@ -131,8 +129,6 @@ function chunk<T>(items: T[], size: number): T[][] {
 		out.push(items.slice(i, i + size));
 	return out;
 }
-
-/* ------------------------------------------------------------ validation --- */
 
 const boolish = z.enum(["true", "false"]).transform((v) => v === "true");
 
@@ -273,8 +269,6 @@ type ActionResult = {
 function zodErrors(error: z.ZodError): ActionResult {
 	return { fieldErrors: z.flattenError(error).fieldErrors };
 }
-
-/* ---------------------------------------------------------------- loader --- */
 
 // Without this export, RR7 drops loader/action headers from DOCUMENT
 // responses — Server-Timing would silently vanish on full page loads.
@@ -556,8 +550,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
-
-/* ---------------------------------------------------------------- action --- */
 
 async function nextPosition(
 	db: Db,
@@ -1284,8 +1276,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		} satisfies ActionResult;
 	}
 }
-
-/* ------------------------------------------------------------- component --- */
 
 type LoaderData = Route.ComponentProps["loaderData"];
 type Placement = LoaderData["placements"][number];

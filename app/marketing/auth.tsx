@@ -16,9 +16,7 @@ const TITLE_TONES = {
 	danger: "text-danger",
 } as const;
 
-/** Header slot steering to the opposite half of the auth pair. */
 export type AuthNav = {
-	/** Context shown before the link on wider screens, e.g. "New to OpenRostrum?" */
 	prompt: string;
 	label: string;
 	to: string;
@@ -36,9 +34,7 @@ export function AuthPage({
 	subtitle?: ReactNode;
 	tone?: keyof typeof TITLE_TONES;
 	nav?: AuthNav;
-	/** Card content — the form, or a short status message (`AuthNote`). */
 	children: ReactNode;
-	/** Quiet secondary links under the platform, e.g. "Forgot your password?" */
 	below?: ReactNode;
 }) {
 	return (
@@ -108,7 +104,6 @@ export function AuthPage({
 	);
 }
 
-/** Body copy inside the auth card — status and steering messages. */
 export function AuthNote({ children }: { children: ReactNode }) {
 	return (
 		<p className="text-[13.5px] leading-relaxed text-fg-muted">{children}</p>

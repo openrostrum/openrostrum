@@ -259,7 +259,6 @@ export function createResendEmailSender(env: Env): EmailSender {
 	};
 }
 
-/** THE provider predicate — anything gating on "is real mail configured" asks here. */
 export function hasRealEmailProvider(env: Env): boolean {
 	return Boolean(env.RESEND_API_KEY);
 }
