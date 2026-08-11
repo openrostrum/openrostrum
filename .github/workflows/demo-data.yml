@@ -1,0 +1,29 @@
+name: Apply production demo data
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply-demo-data:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Inject remote D1 database ID
+        run: node scripts/inject-wrangler-id.mjs wrangler.json
+      - name: Apply demo-data runbook
+        run: |
+          node scripts/seed-demo-blobs.mjs --remote
+          pnpm exec wrangler d1 execute openrostrum --remote --file=drizzle/seed-demo-enrichment.sql
