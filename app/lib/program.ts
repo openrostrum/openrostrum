@@ -48,6 +48,21 @@ export async function getDefaultEvent(db: Db): Promise<EventRow | null> {
 	return row ?? null;
 }
 
+/**
+ * The per-session "Add to calendar" link, or null when the feed wouldn't
+ * serve it: /feeds/:slug/agenda.ics 404s until the agenda is published, and
+ * an unscheduled session has no times to export. The one place that knows
+ * the feed's URL + query contract.
+ */
+export function sessionCalendarHref(
+	event: EventRow,
+	detail: PublicSession | null,
+): string | null {
+	return event.agendaPublishedAt && detail?.scheduled
+		? `/feeds/${event.slug}/agenda.ics?ids=${detail.id}`
+		: null;
+}
+
 /* ------------------------------------------------------- date formatting --- */
 
 function zonedParts(date: Date, timeZone: string) {

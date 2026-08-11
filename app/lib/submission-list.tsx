@@ -77,6 +77,12 @@ export function humanStatus(status: string): string {
 	return status.replaceAll("_", " ");
 }
 
+export interface RowSpeaker {
+	contactId: string;
+	name: string;
+	publicVisible: boolean;
+}
+
 export interface SubmissionListRow {
 	id: string;
 	title: string;
@@ -85,9 +91,60 @@ export interface SubmissionListRow {
 	schedule: string | null;
 	roomName: string | null;
 	speakerCount: number;
+	/** Sessions only (empty for abstracts): the per-speaker eye toggles. */
+	speakers: RowSpeaker[];
 	formatName: string | null;
 	tracks: Array<{ id: string; name: string; color: string }>;
 	submittedAt: string;
+}
+
+/**
+ * Sessionboard's eye toggle: hides the CONTACT from every public surface —
+ * all their sessions, embeds, and feeds — not just this row. Optimistic while
+ * the fetcher is in flight so a slow write doesn't read as a dead button.
+ */
+function SpeakerVisibilityToggle({ speaker }: { speaker: RowSpeaker }) {
+	const fetcher = useFetcher<ListActionData>();
+	const pending = fetcher.formData?.get("visible");
+	const visible = pending != null ? pending === "1" : speaker.publicVisible;
+	return (
+		<fetcher.Form method="post" className="flex flex-col gap-1">
+			<div className="flex items-center gap-2">
+				<Input
+					type="hidden"
+					name="contactId"
+					value={speaker.contactId}
+					readOnly
+				/>
+				<Input
+					type="hidden"
+					name="visible"
+					value={visible ? "0" : "1"}
+					readOnly
+				/>
+				<Button
+					type="submit"
+					name="intent"
+					value="set-speaker-visibility"
+					variant="ghost"
+					icon="eye"
+					disabled={fetcher.state !== "idle"}
+					aria-pressed={!visible}
+					title={
+						visible
+							? `Hide ${speaker.name} from the public program (all their sessions, embeds, and feeds)`
+							: `Show ${speaker.name} on the public program`
+					}
+				>
+					{speaker.name}
+				</Button>
+				{!visible && <StatusBadge tone="neutral">Hidden</StatusBadge>}
+			</div>
+			{fetcher.data?.formError && (
+				<ErrorText>{fetcher.data.formError}</ErrorText>
+			)}
+		</fetcher.Form>
+	);
 }
 
 export interface DrawerContact {
@@ -497,7 +554,24 @@ export function SubmissionListPage({
 									))}
 								</div>
 							</Td>
-							<Td kind="mono">{s.speakerCount}</Td>
+							{kind === "session" ? (
+								<Td>
+									{s.speakers.length === 0 ? (
+										"—"
+									) : (
+										<div className="flex flex-col items-start gap-1">
+											{s.speakers.map((speaker) => (
+												<SpeakerVisibilityToggle
+													key={speaker.contactId}
+													speaker={speaker}
+												/>
+											))}
+										</div>
+									)}
+								</Td>
+							) : (
+								<Td kind="mono">{s.speakerCount}</Td>
+							)}
 							<Td>
 								{kind === "session" ? (s.formatName ?? "—") : s.submittedAt}
 							</Td>
