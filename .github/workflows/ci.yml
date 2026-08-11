@@ -93,7 +93,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node tooling/pr-review/ci-review.mjs
 
-  quality:
+  quality-checks:
+    name: quality checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,8 +110,6 @@ jobs:
         run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
-      - name: Test
-        run: pnpm test
       # Unit tests for tooling/pr-review/inline.mjs. Outside `pnpm test`
       # (workerd has no node:test) and in THIS unconditional job, not the
       # secret-gated ai-review — see tooling/pr-review/README.md.
@@ -118,6 +117,40 @@ jobs:
         run: node --test tooling/pr-review/inline.test.node.mjs
       - name: Build
         run: pnpm build
+
+  test:
+    name: test (shard ${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Test shard ${{ matrix.shard }}/3
+        run: pnpm test --shard=${{ matrix.shard }}/3
+
+  # Keep one stable required check while the test suite runs in parallel.
+  quality:
+    if: always()
+    needs: [quality-checks, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate quality checks and all test shards
+        env:
+          QUALITY_CHECKS_RESULT: ${{ needs.quality-checks.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          if [ "$QUALITY_CHECKS_RESULT" != "success" ] || [ "$TEST_RESULT" != "success" ]; then
+            echo "::error::quality checks: $QUALITY_CHECKS_RESULT; test matrix: $TEST_RESULT"
+            exit 1
+          fi
 
   # main is the live site: once quality is green, migrate remote D1 and deploy
   # to Cloudflare. Deployer-specific values are injected from repo secrets, so
