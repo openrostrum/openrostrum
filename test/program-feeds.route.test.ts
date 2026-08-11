@@ -1,4 +1,7 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { getDb } from "../app/db";
+import { embeds } from "../app/db/schema";
 import { loader } from "../app/routes/feeds.$eventSlug.$kind";
 import { CONTEXT, seedProgram } from "./program.fixtures";
 
@@ -76,6 +79,27 @@ describe("program feeds", () => {
 		expect(res.status).toBe(404);
 	});
 
+	it("agenda embed feeds stay gated until the agenda is published", async () => {
+		await seedProgram({ agendaPublished: false });
+		await getDb(CONTEXT.cloudflare.env)
+			.update(embeds)
+			.set({ type: "agenda" })
+			.where(eq(embeds.id, "emb1"));
+
+		for (const kind of [
+			"sessions.html",
+			"sessions.json",
+			"sessions.xml",
+		] as const) {
+			expect(
+				(await fetchFeed(`/feeds/devflow/${kind}?embed=pub-emb-1`)).status,
+			).toBe(404);
+		}
+		const widget = await fetchFeed("/feeds/devflow/widget.js?embed=pub-emb-1");
+		expect(widget.status).toBe(200);
+		expect(await widget.text()).toContain("/embed/");
+	});
+
 	it("speakers.json derives from the same projection (hidden speaker absent)", async () => {
 		await seedProgram();
 		const res = await fetchFeed("/feeds/devflow/speakers.json");
@@ -99,6 +123,45 @@ describe("program feeds", () => {
 			"/feeds/devflow/sessions.json?embed=pub-emb-2",
 		);
 		expect(disabled.status).toBe(404);
+		expect(
+			(await fetchFeed("/feeds/devflow/widget.js?embed=pub-emb-2")).status,
+		).toBe(404);
+	});
+
+	it("applies one saved embed filter to basic HTML, JSON, XML, and iCal", async () => {
+		await seedProgram();
+		const query = "?embed=pub-emb-1";
+
+		const htmlResponse = await fetchFeed(
+			`/feeds/devflow/sessions.html${query}`,
+		);
+		expect(htmlResponse.status).toBe(200);
+		expect(htmlResponse.headers.get("Content-Type")).toContain("text/html");
+		const html = await htmlResponse.text();
+		expect(html).toContain('id="session-s1"');
+		expect(html).not.toContain('id="session-s2"');
+		expect(html).not.toContain('id="session-s5"');
+
+		const jsonResponse = await fetchFeed(
+			`/feeds/devflow/sessions.json${query}`,
+		);
+		const json = (await jsonResponse.json()) as {
+			sessions: Array<{ id: string }>;
+		};
+		expect(json.sessions.map((session) => session.id)).toEqual(["s1"]);
+
+		const xmlResponse = await fetchFeed(`/feeds/devflow/sessions.xml${query}`);
+		expect(xmlResponse.status).toBe(200);
+		const xml = await xmlResponse.text();
+		expect(xml).toContain('<session id="s1">');
+		expect(xml).not.toContain('<session id="s2">');
+		expect(xml).not.toContain('<session id="s5">');
+
+		const iCalResponse = await fetchFeed(`/feeds/devflow/agenda.ics${query}`);
+		expect(iCalResponse.status).toBe(200);
+		const iCal = await iCalResponse.text();
+		expect(iCal).toContain("UID:or-session-s1@openrostrum");
+		expect(iCal).not.toContain("UID:or-session-s2@openrostrum");
 	});
 
 	it("serves the widget loader script and 404s unknown kinds/formats", async () => {

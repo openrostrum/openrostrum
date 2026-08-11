@@ -4,6 +4,7 @@ import { z } from "zod";
 import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
 import { embeds } from "~/db/schema";
+import { getEmbedCodeOutputs } from "~/lib/embed-code";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
@@ -194,14 +195,12 @@ export default function AdminEmbedEditor({
 	const busy = useBusy();
 	const { embed, eventSlug, tracks, formats, origin } = loaderData;
 	const config = embed.config;
-	const shareUrl = `${origin}/embed/${embed.publicId}`;
-	const feedKind =
-		embed.type === "speakers" || embed.type === "gallery"
-			? "speakers"
-			: "sessions";
-	const feedUrl = (suffix: string) =>
-		`${origin}/feeds/${eventSlug}/${suffix}?embed=${embed.publicId}`;
-	const scriptSnippet = `<script src="${origin}/feeds/${eventSlug}/widget.js?embed=${embed.publicId}" async></script>`;
+	const code = getEmbedCodeOutputs({
+		origin,
+		eventSlug,
+		publicId: embed.publicId,
+		type: embed.type,
+	});
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
 			<PageHeader
@@ -317,28 +316,18 @@ export default function AdminEmbedEditor({
 
 				<Panel>
 					<div className="flex flex-col gap-4">
-						<h2>Share &amp; embed</h2>
+						<h2>Get Code</h2>
 						<p>
-							Filters and branding above apply to every output. Data is read
-							live — organizer edits show up without regenerating anything.
+							Saved track and format filters apply to every output. Branding and
+							hidden-field settings apply to the styled page and script;
+							organizer edits appear without regenerating code.
 						</p>
-						<SnippetRow label="Share URL (styled page)" value={shareUrl} />
-						<SnippetRow
-							label="Styled HTML (script tag for your site)"
-							value={scriptSnippet}
-						/>
-						<SnippetRow
-							label="Basic HTML (unstyled, restyle it yourself)"
-							value={feedUrl(`${feedKind}.html`)}
-						/>
-						<SnippetRow label="JSON feed" value={feedUrl(`${feedKind}.json`)} />
-						<SnippetRow label="XML feed" value={feedUrl(`${feedKind}.xml`)} />
-						{feedKind === "sessions" && (
-							<SnippetRow
-								label="iCal feed (approved, scheduled sessions)"
-								value={feedUrl("agenda.ics")}
-							/>
-						)}
+						<SnippetRow label="Share URL (styled page)" value={code.shareUrl} />
+						<SnippetRow label="Styled HTML" value={code.styledHtml} />
+						<SnippetRow label="Basic HTML" value={code.basicHtml} />
+						<SnippetRow label="JSON" value={code.json} />
+						<SnippetRow label="XML" value={code.xml} />
+						<SnippetRow label="iCal" value={code.iCal} />
 						<p>
 							Formats stay in sync with the{" "}
 							<TextLink to={`/sessions/${eventSlug}`}>public pages</TextLink> —

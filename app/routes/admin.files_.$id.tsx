@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { useState } from "react";
 import {
 	Form,
@@ -65,7 +65,20 @@ async function loadChain(env: Env, user: AdminUser, fileId: string) {
 	const chain = await getFileChain(db, event.id, fileId);
 	const latest = chain?.versions[0];
 	if (!chain || !latest) throw data(null, { status: 404 });
-	return { event, db, versions: chain.versions, latest };
+	const reviewFile = chain.versions.find(
+		(version) =>
+			version.taskAssignmentId !== null && version.reviewStatus !== "none",
+	);
+	return {
+		event,
+		db,
+		versions: chain.versions,
+		members: chain.members,
+		canonicalTaskAssignmentId: chain.canonicalTaskAssignmentId,
+		canonicalSharedToPortal: chain.canonicalSharedToPortal,
+		reviewFile: reviewFile ?? null,
+		latest,
+	};
 }
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
@@ -73,9 +86,16 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	// Self-authenticate — never rely on the admin.tsx layout loader.
 	const user = await requireAdmin(env, request);
 	const timings = createTimings();
-	const { event, db, versions, latest } = await timings.time("db", () =>
-		loadChain(env, user, params.id),
-	);
+	const {
+		event,
+		db,
+		versions,
+		members,
+		canonicalTaskAssignmentId,
+		canonicalSharedToPortal,
+		reviewFile,
+		latest,
+	} = await timings.time("db", () => loadChain(env, user, params.id));
 	const timezone = resolveTimezone(event.timezone);
 
 	const [submission] = latest.submissionId
@@ -85,7 +105,20 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				.where(eq(submissions.id, latest.submissionId))
 				.limit(1)
 		: [];
-	const [contact] = latest.contactId
+	const [assignment] = canonicalTaskAssignmentId
+		? await db
+				.select({
+					id: taskAssignments.id,
+					contactId: taskAssignments.contactId,
+					taskName: tasks.name,
+				})
+				.from(taskAssignments)
+				.innerJoin(tasks, eq(tasks.id, taskAssignments.taskId))
+				.where(eq(taskAssignments.id, canonicalTaskAssignmentId))
+				.limit(1)
+		: [];
+	const contactId = latest.contactId ?? assignment?.contactId ?? null;
+	const [contact] = contactId
 		? await db
 				.select({
 					id: contacts.id,
@@ -94,39 +127,47 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					email: contacts.email,
 				})
 				.from(contacts)
-				.where(eq(contacts.id, latest.contactId))
-				.limit(1)
-		: [];
-	const [assignment] = latest.taskAssignmentId
-		? await db
-				.select({ id: taskAssignments.id, taskName: tasks.name })
-				.from(taskAssignments)
-				.innerJoin(tasks, eq(tasks.id, taskAssignments.taskId))
-				.where(eq(taskAssignments.id, latest.taskAssignmentId))
+				.where(eq(contacts.id, contactId))
 				.limit(1)
 		: [];
 
 	// One thread per deliverable: comments across ALL versions, oldest first,
 	// tagged with the version they were made on.
-	const versionById = new Map(versions.map((v) => [v.id, v.version]));
-	const comments =
-		versions.length > 0
-			? await db
-					.select()
-					.from(fileComments)
-					.where(
-						inArray(
-							fileComments.fileId,
-							versions.map((v) => v.id),
-						),
-					)
-					.orderBy(asc(fileComments.createdAt), asc(fileComments.id))
-			: [];
+	const versionById = new Map(
+		members.map((member) => [member.id, member.version]),
+	);
+	const comments: Array<typeof fileComments.$inferSelect> = [];
+	for (let index = 0; index < members.length; index += 80) {
+		comments.push(
+			...(await db
+				.select()
+				.from(fileComments)
+				.where(
+					inArray(
+						fileComments.fileId,
+						members.slice(index, index + 80).map((member) => member.id),
+					),
+				)),
+		);
+	}
+	comments.sort(
+		(a, b) =>
+			a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+	);
 
 	return data(
 		{
 			commentKey: crypto.randomUUID(),
 			latest,
+			reviewFile: reviewFile
+				? {
+						id: reviewFile.id,
+						version: reviewFile.version,
+						reviewStatus: reviewFile.reviewStatus,
+						reviewNote: reviewFile.reviewNote,
+					}
+				: null,
+			canonicalSharedToPortal,
 			versions: versions.map((v) => ({
 				id: v.id,
 				version: v.version,
@@ -137,7 +178,9 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			})),
 			submission: submission ?? null,
 			contact: contact ?? null,
-			assignment: assignment ?? null,
+			assignment: assignment
+				? { id: assignment.id, taskName: assignment.taskName }
+				: null,
 			comments: comments.map((c) => ({
 				id: c.id,
 				author: c.authorName,
@@ -166,7 +209,11 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	// Actions MUST self-authenticate — a POST does not re-run the layout loader.
 	const user = await requireAdmin(env, request);
-	const { event, db, latest, versions } = await loadChain(env, user, params.id);
+	const { event, db, latest, versions, members, reviewFile } = await loadChain(
+		env,
+		user,
+		params.id,
+	);
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "");
 	const submittedCommentKey = String(form.get("commentKey") ?? "");
@@ -184,15 +231,14 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 
 	try {
 		if (intent === "approve" || intent === "deny") {
-			// Decisions target the LATEST version, and exist only for the task
-			// upload loop — direct admin uploads have nothing to approve.
-			const assignmentId = latest.taskAssignmentId;
-			if (!assignmentId) {
+			// Decisions target the current task-owned version.
+			const assignmentId = reviewFile?.taskAssignmentId;
+			if (!reviewFile || !assignmentId) {
 				return withTimings({
 					formError: "This upload isn't part of a review loop.",
 				});
 			}
-			const reviewed = { id: latest.id, taskAssignmentId: assignmentId };
+			const reviewed = { id: reviewFile.id, taskAssignmentId: assignmentId };
 			if (intent === "approve") {
 				await timings.time("db", () => setFileReview(db, reviewed, "approved"));
 				track("file.approved", {
@@ -261,11 +307,31 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		}
 
 		if (intent === "share" || intent === "unshare") {
-			await timings.time("db", () =>
+			const clear = (ids: string[]) =>
 				db
 					.update(files)
-					.set({ sharedToPortal: intent === "share" })
-					.where(and(eq(files.id, latest.id), eq(files.eventId, event.id))),
+					.set({ sharedToPortal: false })
+					.where(and(eq(files.eventId, event.id), inArray(files.id, ids)));
+			const firstClear = clear(members.slice(0, 80).map((member) => member.id));
+			const remainingClears: ReturnType<typeof clear>[] = [];
+			for (let index = 80; index < members.length; index += 80) {
+				remainingClears.push(
+					clear(members.slice(index, index + 80).map((member) => member.id)),
+				);
+			}
+			await timings.time("db", () =>
+				intent === "share"
+					? db.batch([
+							firstClear,
+							...remainingClears,
+							db
+								.update(files)
+								.set({ sharedToPortal: true })
+								.where(
+									and(eq(files.id, latest.id), eq(files.eventId, event.id)),
+								),
+						])
+					: db.batch([firstClear, ...remainingClears]),
 			);
 			track("file.share_toggled", {
 				eventId: event.id,
@@ -355,6 +421,8 @@ export default function FileDetail({
 }: Route.ComponentProps) {
 	const {
 		latest,
+		reviewFile,
+		canonicalSharedToPortal,
 		versions,
 		submission,
 		contact,
@@ -363,7 +431,8 @@ export default function FileDetail({
 		commentKey,
 	} = loaderData;
 	const busy = useBusy();
-	const inReviewLoop = latest.taskAssignmentId !== null;
+	const displayedReview = reviewFile ?? latest;
+	const inReviewLoop = reviewFile !== null;
 	const speakerName = contact
 		? `${contact.firstName} ${contact.lastName}`
 		: null;
@@ -403,12 +472,16 @@ export default function FileDetail({
 						<Td>
 							<div className="flex flex-wrap items-center gap-3">
 								<StatusBadge
-									tone={FILE_REVIEW_TONE[latest.reviewStatus] ?? "neutral"}
+									tone={
+										FILE_REVIEW_TONE[displayedReview.reviewStatus] ?? "neutral"
+									}
 								>
-									{FILE_REVIEW_LABEL[latest.reviewStatus] ??
-										latest.reviewStatus}
+									{FILE_REVIEW_LABEL[displayedReview.reviewStatus] ??
+										displayedReview.reviewStatus}
 								</StatusBadge>
-								{latest.reviewNote && <span>{latest.reviewNote}</span>}
+								{displayedReview.reviewNote && (
+									<span>{displayedReview.reviewNote}</span>
+								)}
 							</div>
 						</Td>
 					</Tr>
@@ -429,15 +502,15 @@ export default function FileDetail({
 								<Input
 									type="hidden"
 									name="intent"
-									value={latest.sharedToPortal ? "unshare" : "share"}
+									value={canonicalSharedToPortal ? "unshare" : "share"}
 								/>
 								<span>
-									{latest.sharedToPortal
+									{canonicalSharedToPortal
 										? "Speakers can download this file from their portal."
 										: "Not visible in the speaker portal."}
 								</span>
 								<Button type="submit" variant="ghost" disabled={busy}>
-									{latest.sharedToPortal
+									{canonicalSharedToPortal
 										? "Stop sharing"
 										: "Share with speakers"}
 								</Button>
@@ -454,11 +527,11 @@ export default function FileDetail({
 						subtitle="Approving completes the speaker's task; requesting changes reopens it so they can upload a new version. No email is sent either way — the speaker sees the outcome in their portal."
 					/>
 					<div className="mt-3 flex flex-wrap items-end gap-3">
-						{latest.reviewStatus !== "approved" && (
+						{displayedReview.reviewStatus !== "approved" && (
 							<Form method="post">
 								<Input type="hidden" name="intent" value="approve" />
 								<Button type="submit" disabled={busy}>
-									Approve v{latest.version}
+									Approve v{displayedReview.version}
 								</Button>
 							</Form>
 						)}
@@ -475,7 +548,7 @@ export default function FileDetail({
 								/>
 							</Field>
 							<Button type="submit" variant="ghost" disabled={busy}>
-								Request changes on v{latest.version}
+								Request changes on v{displayedReview.version}
 							</Button>
 						</Form>
 					</div>
