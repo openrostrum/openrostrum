@@ -128,6 +128,7 @@ export function provisionEventDefaults(db: Db, eventId: string) {
 				portalFormId: hotelFormId,
 				isOnboardingDefault: true,
 				required: true,
+				dueInDays: 14,
 			},
 			{
 				eventId,
@@ -137,6 +138,7 @@ export function provisionEventDefaults(db: Db, eventId: string) {
 				portalFormId: flightFormId,
 				isOnboardingDefault: true,
 				required: true,
+				dueInDays: 21,
 			},
 			{
 				eventId,
@@ -146,6 +148,7 @@ export function provisionEventDefaults(db: Db, eventId: string) {
 				isFileRequest: true,
 				isOnboardingDefault: true,
 				required: false,
+				dueInDays: 30,
 			},
 		]),
 	] as const;
