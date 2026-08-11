@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Form, useFetcher } from "react-router";
+import { resolveCommentDraft } from "~/lib/comment-draft";
 import { useBusy } from "~/lib/use-busy";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
 import {
@@ -26,6 +28,10 @@ export type TaskDetailData = Awaited<ReturnType<typeof loader>>["data"];
 
 export type TaskDetailActionData = {
 	intent?: string;
+	ok?: boolean;
+	commentKey?: string;
+	commentFileId?: string;
+	commentBody?: string;
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
 };
@@ -33,43 +39,71 @@ export type TaskDetailActionData = {
 function CommentThread({
 	action,
 	fileId,
+	initialCommentKey,
 	comments,
+	actionData,
 }: {
 	action: string;
 	fileId: string;
+	initialCommentKey: string;
 	comments: CommentView[];
+	actionData: TaskDetailActionData | undefined;
 }) {
 	const fetcher = useFetcher<TaskDetailActionData>();
 	const busy = useBusy();
+	const posting = fetcher.state !== "idle";
+	const [draft, setDraft] = useState({
+		key: initialCommentKey,
+		fileId,
+		body: "",
+	});
+	const routeResult =
+		actionData?.intent === "comment" && actionData.commentFileId === fileId
+			? actionData
+			: undefined;
+	const result = fetcher.data ?? routeResult;
+	const activeDraft = resolveCommentDraft(draft, result, fileId);
 	return (
 		<div className="mt-2 flex flex-col gap-2 border-l-2 border-hair pl-3">
 			{comments.map((c) => (
 				<div key={c.id} className="flex flex-col">
 					<Muted>
-						{c.isYou ? "You" : c.author} · {c.on}
+						{c.author}
+						{c.isYou ? " (you)" : ""} · {c.on}
 					</Muted>
 					<span className="text-[13px] text-fg">{c.body}</span>
 				</div>
 			))}
+			{comments.length === 0 && (
+				<EmptyState
+					icon="mail"
+					title="No comments yet"
+					body="Write a comment below to start the thread with the event team."
+				/>
+			)}
 			<fetcher.Form
+				key={activeDraft.key}
 				method="post"
 				action={action}
 				className="flex flex-wrap items-center gap-2"
 			>
 				<input type="hidden" name="intent" value="comment" />
-				<input type="hidden" name="fileId" value={fileId} />
+				<input type="hidden" name="fileId" value={activeDraft.fileId} />
+				<input type="hidden" name="commentKey" value={activeDraft.key} />
 				<Input
 					name="body"
+					value={activeDraft.body}
+					onChange={(event) =>
+						setDraft({ ...activeDraft, body: event.currentTarget.value })
+					}
 					placeholder="Write a comment for the event team…"
 					maxLength={2000}
 					required
 				/>
 				<Button type="submit" variant="ghost" disabled={busy}>
-					Comment
+					{posting ? "Posting…" : "Comment"}
 				</Button>
-				{fetcher.data?.intent === "comment" && fetcher.data.formError && (
-					<ErrorText>{fetcher.data.formError}</ErrorText>
-				)}
+				{result?.formError && <ErrorText>{result.formError}</ErrorText>}
 			</fetcher.Form>
 		</div>
 	);
@@ -82,7 +116,6 @@ export function TaskDetailView({
 	data: TaskDetailData;
 	actionData?: TaskDetailActionData;
 }) {
-	const busy = useBusy();
 	const errs = actionData?.fieldErrors ?? {};
 	const answerErrors = Object.fromEntries(
 		Object.entries(errs)
@@ -90,6 +123,7 @@ export function TaskDetailView({
 			.map(([k, v]) => [k, (v as string[])[0] ?? ""]),
 	);
 	const here = `${data.base}/tasks/${data.id}`;
+	const busy = useBusy();
 
 	return (
 		<div className="flex flex-col gap-5">
@@ -309,7 +343,9 @@ export function TaskDetailView({
 										<CommentThread
 											action={here}
 											fileId={f.id}
+											initialCommentKey={f.commentKey}
 											comments={f.comments}
+											actionData={actionData}
 										/>
 									</div>
 								))}

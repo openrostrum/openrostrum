@@ -1,9 +1,10 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { useState } from "react";
 import {
 	Form,
 	data,
 	isRouteErrorResponse,
-	redirect,
+	useFetcher,
 	useRouteError,
 } from "react-router";
 import { getDb } from "~/db";
@@ -16,6 +17,7 @@ import {
 	tasks,
 } from "~/db/schema";
 import {
+	addFileComment,
 	FILE_REVIEW_LABEL,
 	FILE_REVIEW_TONE,
 	getFileChain,
@@ -23,8 +25,10 @@ import {
 	setFileReview,
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { resolveCommentDraft } from "~/lib/comment-draft";
 import { errorMessage } from "~/lib/errors";
-import { formatBytes, formatDateUTC } from "~/lib/format";
+import { resolveTimezone } from "~/lib/event-time";
+import { formatBytes, formatInTz } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
@@ -72,6 +76,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const { event, db, versions, latest } = await timings.time("db", () =>
 		loadChain(env, user, params.id),
 	);
+	const timezone = resolveTimezone(event.timezone);
 
 	const [submission] = latest.submissionId
 		? await db
@@ -120,8 +125,16 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 
 	return data(
 		{
+			commentKey: crypto.randomUUID(),
 			latest,
-			versions,
+			versions: versions.map((v) => ({
+				id: v.id,
+				version: v.version,
+				fileName: v.fileName,
+				sizeBytes: v.sizeBytes,
+				uploadedOn: formatInTz(v.createdAt, timezone),
+				reviewStatus: v.reviewStatus,
+			})),
 			submission: submission ?? null,
 			contact: contact ?? null,
 			assignment: assignment ?? null,
@@ -129,7 +142,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				id: c.id,
 				author: c.authorName,
 				body: c.body,
-				on: formatDateUTC(c.createdAt),
+				on: formatInTz(c.createdAt, timezone),
 				version: versionById.get(c.fileId) ?? null,
 			})),
 			eventName: event.name,
@@ -139,6 +152,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 }
 
 type ActionResult = {
+	intent?: string;
+	ok?: boolean;
+	commentKey?: string;
+	commentFileId?: string;
+	commentBody?: string;
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
 	notice?: string;
@@ -148,12 +166,21 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	// Actions MUST self-authenticate — a POST does not re-run the layout loader.
 	const user = await requireAdmin(env, request);
-	const { event, db, latest } = await loadChain(env, user, params.id);
+	const { event, db, latest, versions } = await loadChain(env, user, params.id);
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "");
+	const submittedCommentKey = String(form.get("commentKey") ?? "");
+	const submittedCommentBody = String(form.get("body") ?? "").trim();
 	const timings = createTimings();
 	const withTimings = (result: ActionResult) =>
 		data(result, { headers: { "Server-Timing": timings.header() } });
+	const commentFile =
+		intent === "comment"
+			? versions.find(
+					(version) => version.id === String(form.get("fileId") ?? ""),
+				)
+			: null;
+	if (intent === "comment" && !commentFile) throw data(null, { status: 404 });
 
 	try {
 		if (intent === "approve" || intent === "deny") {
@@ -200,23 +227,36 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		}
 
 		if (intent === "comment") {
-			const body = String(form.get("body") ?? "").trim();
+			if (!commentFile) throw data(null, { status: 404 });
+			const body = submittedCommentBody;
 			if (!body || body.length > REVIEW_NOTE_MAX) {
 				return withTimings({
+					intent,
+					commentKey: submittedCommentKey,
+					commentFileId: commentFile.id,
+					commentBody: body,
 					fieldErrors: { body: ["Write a comment up to 2,000 characters."] },
 				});
 			}
-			await timings.time("db", () =>
-				db.insert(fileComments).values({
-					fileId: latest.id,
+			const { deduped } = await timings.time("db", () =>
+				addFileComment(db, {
+					key: submittedCommentKey,
+					fileId: commentFile.id,
 					authorId: user.id,
 					authorName: user.name ?? user.email,
 					body,
 				}),
 			);
-			track("file.comment_added", { eventId: event.id, fileId: latest.id });
-			return redirect(`/admin/files/${params.id}`, {
-				headers: { "Server-Timing": timings.header() },
+			track("file.comment_added", {
+				eventId: event.id,
+				fileId: commentFile.id,
+				deduped,
+			});
+			return withTimings({
+				intent,
+				ok: true,
+				commentKey: crypto.randomUUID(),
+				commentFileId: latest.id,
 			});
 		}
 
@@ -247,6 +287,10 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			error: errorMessage(error),
 		});
 		return withTimings({
+			intent,
+			commentKey: intent === "comment" ? submittedCommentKey : undefined,
+			commentFileId: commentFile?.id,
+			commentBody: intent === "comment" ? submittedCommentBody : undefined,
 			formError: "Could not save that change — please try again.",
 		});
 	}
@@ -254,13 +298,71 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	return withTimings({ formError: "Unknown action." });
 }
 
+function CommentForm({
+	fileId,
+	initialCommentKey,
+	actionData,
+}: {
+	fileId: string;
+	initialCommentKey: string;
+	actionData: ActionResult | undefined;
+}) {
+	const busy = useBusy();
+	const fetcher = useFetcher<ActionResult>();
+	const posting = fetcher.state !== "idle";
+	const [draft, setDraft] = useState({
+		key: initialCommentKey,
+		fileId,
+		body: "",
+	});
+	const routeResult = actionData?.intent === "comment" ? actionData : undefined;
+	const result = fetcher.data ?? routeResult;
+	const activeDraft = resolveCommentDraft(draft, result, fileId);
+	return (
+		<fetcher.Form
+			key={activeDraft.key}
+			method="post"
+			className="flex flex-wrap items-end gap-3"
+		>
+			<Input type="hidden" name="intent" value="comment" />
+			<Input type="hidden" name="fileId" value={activeDraft.fileId} />
+			<Input type="hidden" name="commentKey" value={activeDraft.key} />
+			<Field
+				label="Reply to the speaker"
+				error={result?.fieldErrors?.body?.[0]}
+			>
+				<Input
+					name="body"
+					value={activeDraft.body}
+					onChange={(event) =>
+						setDraft({ ...activeDraft, body: event.currentTarget.value })
+					}
+					placeholder="Write a comment…"
+					maxLength={REVIEW_NOTE_MAX}
+				/>
+			</Field>
+			<Button type="submit" disabled={busy}>
+				{posting ? "Posting…" : "Post comment"}
+			</Button>
+			{result?.formError && <ErrorText>{result.formError}</ErrorText>}
+		</fetcher.Form>
+	);
+}
+
 export default function FileDetail({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const {
+		latest,
+		versions,
+		submission,
+		contact,
+		assignment,
+		comments,
+		commentKey,
+	} = loaderData;
 	const busy = useBusy();
-	const { latest, versions, submission, contact, assignment, comments } =
-		loaderData;
 	const inReviewLoop = latest.taskAssignmentId !== null;
 	const speakerName = contact
 		? `${contact.firstName} ${contact.lastName}`
@@ -290,7 +392,9 @@ export default function FileDetail({
 					<StatusBadge tone="success">{actionData.notice}</StatusBadge>
 				</div>
 			)}
-			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
+			{actionData?.intent !== "comment" && actionData?.formError && (
+				<ErrorText>{actionData.formError}</ErrorText>
+			)}
 
 			<Table>
 				<TBody>
@@ -407,7 +511,7 @@ export default function FileDetail({
 									</Td>
 									<Td kind="strong">{v.fileName}</Td>
 									<Td kind="mono">{formatBytes(v.sizeBytes)}</Td>
-									<Td kind="mono">{formatDateUTC(v.createdAt)}</Td>
+									<Td kind="mono">{v.uploadedOn}</Td>
 									<Td>
 										<StatusBadge
 											tone={FILE_REVIEW_TONE[v.reviewStatus] ?? "neutral"}
@@ -448,22 +552,11 @@ export default function FileDetail({
 							body="Start the thread below — the speaker sees replies on this file in their portal."
 						/>
 					)}
-					<Form method="post" className="flex flex-wrap items-end gap-3">
-						<Input type="hidden" name="intent" value="comment" />
-						<Field
-							label="Reply to the speaker"
-							error={actionData?.fieldErrors?.body?.[0]}
-						>
-							<Input
-								name="body"
-								placeholder="Write a comment…"
-								maxLength={2000}
-							/>
-						</Field>
-						<Button type="submit" disabled={busy}>
-							Post comment
-						</Button>
-					</Form>
+					<CommentForm
+						fileId={latest.id}
+						initialCommentKey={commentKey}
+						actionData={actionData ?? undefined}
+					/>
 				</div>
 			</Panel>
 		</div>

@@ -3,10 +3,13 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
+	contacts,
 	emailOutbox,
+	events,
 	fileComments,
 	files,
 	portalForms,
+	submissions,
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
@@ -83,11 +86,31 @@ async function seedTasks() {
 			type: "submission",
 			isFileRequest: true,
 		},
+		{
+			id: "t_headshot",
+			eventId: "e1",
+			name: "Headshot Upload",
+			isFileRequest: true,
+		},
 	]);
+	await db.insert(submissions).values({
+		id: "sub_priya",
+		eventId: "e1",
+		type: "session",
+		title: "Priya's Talk",
+		status: "accepted",
+		submitterId: "u_priya",
+	});
 	await db.insert(taskAssignments).values([
 		{ id: "ta_announce", taskId: "t_announce", contactId: "c_priya" },
 		{ id: "ta_hotel", taskId: "t_hotel", contactId: "c_priya" },
-		{ id: "ta_slides", taskId: "t_slides", contactId: "c_priya" },
+		{
+			id: "ta_slides",
+			taskId: "t_slides",
+			contactId: "c_priya",
+			submissionId: "sub_priya",
+		},
+		{ id: "ta_headshot", taskId: "t_headshot", contactId: "c_priya" },
 		{ id: "ta_dana", taskId: "t_announce", contactId: "c_dana" },
 	]);
 }
@@ -258,6 +281,28 @@ describe("portal tasks", () => {
 		expect(uploads).toHaveLength(1);
 		expect(uploads[0]?.version).toBe(1);
 		expect(uploads[0]?.reviewStatus).toBe("pending");
+		// Session tasks anchor their uploads: the files library's Session column
+		// resolves through this copy of the assignment's submission.
+		expect(uploads[0]?.submissionId).toBe("sub_priya");
+
+		// A speaker-scoped (contact) file request has no session anywhere in its
+		// chain — its upload stays honestly unattributed, never inferred.
+		const headshotForm = new FormData();
+		headshotForm.set("intent", "upload");
+		headshotForm.set(
+			"file",
+			new File(["PNG"], "face.png", { type: "image/png" }),
+		);
+		await taskAction({
+			context: CONTEXT,
+			request: await act("u_priya", "ta_headshot", headshotForm),
+			params: params("ta_headshot"),
+		} as unknown as ActionArgs);
+		const [headshotUpload] = await db
+			.select()
+			.from(files)
+			.where(eq(files.taskAssignmentId, "ta_headshot"));
+		expect(headshotUpload?.submissionId).toBeNull();
 
 		const [assignment] = await db
 			.select()
@@ -368,5 +413,214 @@ describe("portal tasks", () => {
 			} as unknown as ActionArgs),
 		);
 		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("lands a replayed comment POST once; a fresh key posts the same words again", async () => {
+		await seedTasks();
+		const db = getDb(env);
+		const form = new FormData();
+		form.set("intent", "upload");
+		form.set(
+			"file",
+			new File(["PDF"], "deck.pdf", { type: "application/pdf" }),
+		);
+		await taskAction({
+			context: CONTEXT,
+			request: await act("u_priya", "ta_slides", form),
+			params: params("ta_slides"),
+		} as unknown as ActionArgs);
+		const [upload] = await db
+			.select()
+			.from(files)
+			.where(eq(files.taskAssignmentId, "ta_slides"));
+
+		const comment = async (body: string, commentKey: string) =>
+			taskAction({
+				context: CONTEXT,
+				request: await act(
+					"u_priya",
+					"ta_slides",
+					new URLSearchParams({
+						intent: "comment",
+						fileId: upload?.id ?? "",
+						commentKey,
+						body,
+					}),
+				),
+				params: params("ta_slides"),
+			} as unknown as ActionArgs);
+
+		const thread = () =>
+			db
+				.select()
+				.from(fileComments)
+				.where(eq(fileComments.fileId, upload?.id ?? ""));
+
+		// One submit firing twice replays the SAME client key — both report
+		// success, one row lands.
+		const key = crypto.randomUUID();
+		const [firstResponse, secondResponse] = await Promise.all([
+			comment("Speaker notes are on slide 12.", key),
+			comment("Speaker notes are on slide 12.", key),
+		]);
+		const first = unwrap<{
+			ok?: boolean;
+			commentKey?: string;
+			commentFileId?: string;
+		}>(firstResponse);
+		const second = unwrap<{
+			ok?: boolean;
+			commentKey?: string;
+			commentFileId?: string;
+		}>(secondResponse);
+		expect(first).toMatchObject({ ok: true, commentFileId: upload?.id });
+		expect(second).toMatchObject({ ok: true, commentFileId: upload?.id });
+		expect(first.commentKey).not.toBe(key);
+		expect(second.commentKey).not.toBe(key);
+		expect(await thread()).toHaveLength(1);
+
+		// The author label is server-derived display data, not part of the
+		// logical operation. A rename between a committed write and its replay
+		// must not turn that replay into a second comment.
+		await db
+			.update(contacts)
+			.set({ firstName: "Priyanka" })
+			.where(eq(contacts.id, "c_priya"));
+		await comment("Speaker notes are on slide 12.", key);
+		expect(await thread()).toHaveLength(1);
+
+		// Reusing a visible key with changed text is a new logical comment, but
+		// replaying that changed request still lands once.
+		await comment("Edited speaker notes.", key);
+		await comment("Edited speaker notes.", key);
+		expect(await thread()).toHaveLength(2);
+
+		// A deliberate re-post of the same words rides a FRESH key and lands —
+		// comments send no notifications, so a re-ping must never vanish.
+		await comment("Speaker notes are on slide 12.", crypto.randomUUID());
+		expect(await thread()).toHaveLength(3);
+
+		// A missing/garbage key never blocks the post — the server mints one.
+		const bare = await taskAction({
+			context: CONTEXT,
+			request: await act(
+				"u_priya",
+				"ta_slides",
+				new URLSearchParams({
+					intent: "comment",
+					fileId: upload?.id ?? "",
+					commentKey: "not-a-uuid",
+					body: "No key, still lands.",
+				}),
+			),
+			params: params("ta_slides"),
+		} as unknown as ActionArgs);
+		expect(unwrap<{ ok?: boolean }>(bare).ok).toBe(true);
+		expect(await thread()).toHaveLength(4);
+
+		// Comment ids are visible in loader payloads — a key colliding with
+		// ANOTHER author's row is not a replay and must not eat the comment.
+		const organizerRowId = crypto.randomUUID();
+		await db.insert(fileComments).values({
+			id: organizerRowId,
+			fileId: upload?.id ?? "",
+			authorId: null,
+			authorName: "Olive Organizer",
+			body: "Looks good.",
+		});
+		await comment("Collides with a foreign id, still lands.", organizerRowId);
+		await comment("Collides with a foreign id, still lands.", organizerRowId);
+		expect(await thread()).toHaveLength(6);
+	});
+
+	it("serializes comments with the author's real name, an isYou flag, and a date+time stamp", async () => {
+		await seedTasks();
+		const db = getDb(env);
+		const form = new FormData();
+		form.set("intent", "upload");
+		form.set(
+			"file",
+			new File(["PDF"], "deck.pdf", { type: "application/pdf" }),
+		);
+		await taskAction({
+			context: CONTEXT,
+			request: await act("u_priya", "ta_slides", form),
+			params: params("ta_slides"),
+		} as unknown as ActionArgs);
+		const [upload] = await db
+			.select()
+			.from(files)
+			.where(eq(files.taskAssignmentId, "ta_slides"));
+		await taskAction({
+			context: CONTEXT,
+			request: await act(
+				"u_priya",
+				"ta_slides",
+				new URLSearchParams({
+					intent: "comment",
+					fileId: upload?.id ?? "",
+					body: "Ready for review.",
+				}),
+			),
+			params: params("ta_slides"),
+		} as unknown as ActionArgs);
+		await db.insert(fileComments).values({
+			fileId: upload?.id ?? "",
+			authorId: null,
+			authorName: "Olive Organizer",
+			body: "Looks great.",
+		});
+		await db
+			.update(files)
+			.set({ createdAt: new Date("2026-08-10T00:30:00Z") })
+			.where(eq(files.id, upload?.id ?? ""));
+		await db
+			.update(fileComments)
+			.set({ createdAt: new Date("2026-08-10T01:30:00Z") })
+			.where(eq(fileComments.body, "Ready for review."));
+		await db
+			.update(fileComments)
+			.set({ createdAt: new Date("2026-08-10T02:30:00Z") })
+			.where(eq(fileComments.body, "Looks great."));
+		await db
+			.update(events)
+			.set({ timezone: "Not/A-Timezone" })
+			.where(eq(events.id, "e1"));
+
+		const loaded = unwrap<{
+			fileRequest: {
+				files: Array<{
+					commentKey: string;
+					uploadedOn: string;
+					comments: Array<{
+						author: string;
+						isYou: boolean;
+						body: string;
+						on: string;
+					}>;
+				}>;
+			};
+		}>(
+			await taskLoader({
+				context: CONTEXT,
+				request: await authedRequest("u_priya", `${BASE}/tasks/ta_slides`),
+				params: params("ta_slides"),
+			} as unknown as LoaderArgs),
+		);
+		const file = loaded.fileRequest.files[0];
+		expect(file?.commentKey).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+		);
+		// The thread names its authors — the viewer is flagged, never renamed.
+		expect(file?.comments.map((c) => [c.author, c.isYou])).toEqual([
+			["Priya R", true],
+			["Olive Organizer", false],
+		]);
+		// The invalid imported timezone degrades to exact UTC date-times.
+		expect(file?.uploadedOn).toBe("Aug 10, 2026, 12:30 AM UTC");
+		expect(file?.comments.map((comment) => comment.on)).toEqual([
+			"Aug 10, 2026, 1:30 AM UTC",
+			"Aug 10, 2026, 2:30 AM UTC",
+		]);
 	});
 });

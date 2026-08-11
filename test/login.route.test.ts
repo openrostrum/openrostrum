@@ -2,8 +2,8 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import { users } from "../app/db/schema";
-import { hashPassword } from "../app/lib/auth";
-import { action } from "../app/routes/login";
+import { createSession, hashPassword } from "../app/lib/auth";
+import { action, loader } from "../app/routes/login";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
@@ -66,5 +66,63 @@ describe("login route", () => {
 
 		expect(res.status).toBe(302);
 		expect(res.headers.get("Location")).toBe("/admin"); // external target dropped
+	});
+});
+
+// Authenticated visitors to /login route by ROLE (flows: speaker -> portal,
+// reviewer -> reviews, admin -> admin shell) — never blanket /admin, which
+// bounced speakers to a bare /403.
+describe("login loader (already signed in)", () => {
+	async function seedRoleUser(role: "admin" | "speaker" | "reviewer") {
+		await getDb(env)
+			.insert(users)
+			.values({
+				id: `u_${role}`,
+				email: `${role}@b.co`,
+				passwordHash: await hashPassword("pw"),
+				role,
+			});
+		const setCookie = await createSession(env, `u_${role}`);
+		return setCookie.split(";")[0] ?? "";
+	}
+
+	async function runLoader(cookie: string, url = "http://localhost/login") {
+		try {
+			await loader({
+				context: CONTEXT,
+				request: new Request(url, { headers: { Cookie: cookie } }),
+				params: {},
+			} as unknown as Parameters<typeof loader>[0]);
+		} catch (thrown) {
+			return thrown as Response;
+		}
+		throw new Error("expected a redirect for an authenticated visitor");
+	}
+
+	it("sends a signed-in speaker to their portal, not /admin", async () => {
+		const res = await runLoader(await seedRoleUser("speaker"));
+		expect(res.status).toBe(302);
+		expect(res.headers.get("Location")).toBe("/portal");
+	});
+
+	it("sends a reviewer to /reviews and an admin to /admin", async () => {
+		const reviewer = await runLoader(await seedRoleUser("reviewer"));
+		expect(reviewer.headers.get("Location")).toBe("/reviews");
+		const admin = await runLoader(await seedRoleUser("admin"));
+		expect(admin.headers.get("Location")).toBe("/admin");
+	});
+
+	it("honors a safe redirectTo but drops an external one", async () => {
+		const cookie = await seedRoleUser("speaker");
+		const safe = await runLoader(
+			cookie,
+			"http://localhost/login?redirectTo=%2Fportal%2Fdevflow%2Fabc",
+		);
+		expect(safe.headers.get("Location")).toBe("/portal/devflow/abc");
+		const external = await runLoader(
+			cookie,
+			"http://localhost/login?redirectTo=//evil.com",
+		);
+		expect(external.headers.get("Location")).toBe("/portal");
 	});
 });

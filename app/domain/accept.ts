@@ -583,7 +583,12 @@ export async function sendDecisionEmails(
 			session_date_time: row.startsAt
 				? formatInTimeZone(row.startsAt, event.timezone)
 				: null,
+			starts_at: row.startsAt
+				? formatInTimeZone(row.startsAt, event.timezone)
+				: null,
+			ends_at: row.endsAt ? formatInTimeZone(row.endsAt, event.timezone) : null,
 			session_room: room ?? null,
+			location: room ?? event.location ?? null,
 			portal_link: portalLink,
 			form_title: form?.externalTitle ?? null,
 			form_close_date: form?.closeAt

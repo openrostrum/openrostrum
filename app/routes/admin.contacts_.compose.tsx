@@ -6,6 +6,10 @@ import {
 	type RecipientSelection,
 	resolveRecipients,
 } from "~/domain/contacts";
+import {
+	assertAnnouncementsConfigured,
+	sendAnnouncement,
+} from "~/lib/announcements";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import {
 	CAMPAIGN_MERGE_TAGS,
@@ -15,11 +19,9 @@ import {
 	templateUsesTag,
 } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
-import { escapeHtml } from "~/lib/html";
 import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
-import { getEmailSender } from "~/ports/email";
 import {
 	Button,
 	ButtonLink,
@@ -189,7 +191,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 	};
 	// Echoed through every re-render so a retry after a partial failure keeps
 	// the SAME dedupe scope — already-delivered recipients are never re-sent.
-	const sendKey = String(form.get("sendKey") ?? crypto.randomUUID());
+	const postedSendKey = String(form.get("sendKey") ?? "").trim();
+	const sendKey = postedSendKey || crypto.randomUUID();
 	const formStep = (
 		fields: Partial<{
 			fieldErrors: Record<string, string[] | undefined>;
@@ -257,7 +260,16 @@ export async function action({ context, request }: Route.ActionArgs) {
 		});
 	}
 
-	const sender = getEmailSender(env);
+	try {
+		assertAnnouncementsConfigured(env);
+	} catch (error) {
+		const reason = errorMessage(error);
+		track("contacts.bulk_email_failed", { eventId: event.id, error: reason });
+		// The assertion's message IS the operator-facing copy — one config
+		// failure, one form error, never a per-recipient "failed" outcome.
+		return formStep({ formError: reason });
+	}
+
 	const timings = createTimings();
 	const outcomes: Array<{
 		id: string;
@@ -269,19 +281,15 @@ export async function action({ context, request }: Route.ActionArgs) {
 		await timings.time("send", async () => {
 			for (const contact of recipients) {
 				const values = buildMergeValues(contact, event.name, portalLink);
-				const html =
-					renderEmailHtml(parsed.data.body, values) +
-					`<p>You're receiving this because you're a speaker contact for ${escapeHtml(event.name)}. Reply to this email if you'd rather not receive announcements about this event.</p>`;
 				const name = `${contact.firstName} ${contact.lastName}`.trim();
 				try {
-					const result = await sender.send({
+					const result = await sendAnnouncement(env, origin, {
 						to: normalizeEmail(contact.email),
-						// The footer says "reply to this email" — replies must actually
-						// reach the organizer who composed it, not the sender address.
+						// Replies must reach the organizer who composed the blast, not
+						// the sender address.
 						replyTo: user.email,
 						subject: renderMergeFields(parsed.data.subject, values),
-						html,
-						kind: "bulk",
+						html: renderEmailHtml(parsed.data.body, values),
 						dedupeKey: `bulk:${sendKey}:${contact.id}`,
 						eventId: event.id,
 					});
@@ -335,6 +343,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 		suppressed,
 		failed,
 	});
+	if (failed > 0) {
+		return formStep({
+			formError: `${failed} ${failed === 1 ? "recipient" : "recipients"} failed. Retry to send only to recipients who have not received it yet.`,
+		});
+	}
 	return {
 		step: "sent" as const,
 		sent,

@@ -2,7 +2,13 @@ import { env } from "cloudflare:test";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
-import { contacts, files, taskAssignments } from "../app/db/schema";
+import {
+	contacts,
+	files,
+	participants,
+	submissions,
+	taskAssignments,
+} from "../app/db/schema";
 import { insertTaskUpload, UPLOAD_MAX_BYTES } from "../app/domain/files";
 import { loader as downloadLoader } from "../app/routes/files.$id";
 import { action as uploadAction } from "../app/routes/files.upload";
@@ -180,6 +186,39 @@ describe("task upload chain (shared with the portal loop)", () => {
 });
 
 describe("file byte serving (/files/:id)", () => {
+	async function seedHeadshot(options: {
+		fileId: string;
+		contactId: "c_priya" | "c_carol";
+		submissionId: "s1" | "s3";
+		approved: boolean;
+	}): Promise<Uint8Array> {
+		const db = await seedFilesWorld();
+		if (options.approved) {
+			await db
+				.update(submissions)
+				.set({ contentStatus: "approved" })
+				.where(eq(submissions.id, options.submissionId));
+		}
+		const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+		const key = `headshots/${options.fileId}.png`;
+		await env.BLOBS.put(key, bytes, {
+			httpMetadata: { contentType: "image/png" },
+		});
+		await db.insert(files).values({
+			id: options.fileId,
+			eventId: "e1",
+			submissionId: options.submissionId,
+			contactId: options.contactId,
+			r2Key: key,
+			fileName: `${options.contactId}.png`,
+			kind: "headshot",
+			contentType: "image/png",
+			sizeBytes: bytes.length,
+			version: 1,
+		});
+		return bytes;
+	}
+
 	// Seeded the way the portal upload loop writes it: contact-owned bytes.
 	async function seedUpload(): Promise<string> {
 		const db = await seedFilesWorld();
@@ -206,6 +245,168 @@ describe("file byte serving (/files/:id)", () => {
 			params: { id: fileId },
 		} as unknown as DownloadArgs)) as Response;
 	}
+
+	it("serves a public program speaker headshot anonymously as inline image bytes", async () => {
+		const bytes = await seedHeadshot({
+			fileId: "f_public_headshot",
+			contactId: "c_priya",
+			submissionId: "s1",
+			approved: true,
+		});
+		const response = await download(
+			"f_public_headshot",
+			new Request("http://localhost/files/f_public_headshot"),
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).toBe("image/png");
+		expect(response.headers.get("Content-Disposition")).toBeNull();
+		expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+	});
+
+	it("does not expose a pending submission speaker headshot anonymously", async () => {
+		await seedHeadshot({
+			fileId: "f_pending_headshot",
+			contactId: "c_carol",
+			submissionId: "s3",
+			approved: true,
+		});
+		const thrown = await catchThrown(() =>
+			download(
+				"f_pending_headshot",
+				new Request("http://localhost/files/f_pending_headshot"),
+			),
+		);
+		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("does not expose an accepted but unapproved speaker headshot", async () => {
+		await seedHeadshot({
+			fileId: "f_unapproved_headshot",
+			contactId: "c_priya",
+			submissionId: "s1",
+			approved: false,
+		});
+		const thrown = await catchThrown(() =>
+			download(
+				"f_unapproved_headshot",
+				new Request("http://localhost/files/f_unapproved_headshot"),
+			),
+		);
+		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("does not expose a hidden contact's headshot", async () => {
+		await seedHeadshot({
+			fileId: "f_hidden_headshot",
+			contactId: "c_priya",
+			submissionId: "s1",
+			approved: true,
+		});
+		await getDb(env)
+			.update(contacts)
+			.set({ publicVisible: false })
+			.where(eq(contacts.id, "c_priya"));
+		const thrown = await catchThrown(() =>
+			download(
+				"f_hidden_headshot",
+				new Request("http://localhost/files/f_hidden_headshot"),
+			),
+		);
+		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("does not authorize a cross-event contact link", async () => {
+		await seedHeadshot({
+			fileId: "f_cross_event_headshot",
+			contactId: "c_priya",
+			submissionId: "s1",
+			approved: true,
+		});
+		await getDb(env)
+			.update(contacts)
+			.set({ eventId: "e2" })
+			.where(eq(contacts.id, "c_priya"));
+		const thrown = await catchThrown(() =>
+			download(
+				"f_cross_event_headshot",
+				new Request("http://localhost/files/f_cross_event_headshot"),
+			),
+		);
+		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("does not expose a secondary contact's headshot", async () => {
+		await seedHeadshot({
+			fileId: "f_secondary_headshot",
+			contactId: "c_priya",
+			submissionId: "s1",
+			approved: true,
+		});
+		await getDb(env)
+			.update(participants)
+			.set({ role: "secondary" })
+			.where(eq(participants.id, "p1"));
+		const thrown = await catchThrown(() =>
+			download(
+				"f_secondary_headshot",
+				new Request("http://localhost/files/f_secondary_headshot"),
+			),
+		);
+		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("does not expose a child-session-only speaker headshot", async () => {
+		await seedHeadshot({
+			fileId: "f_child_headshot",
+			contactId: "c_priya",
+			submissionId: "s1",
+			approved: true,
+		});
+		await getDb(env)
+			.update(submissions)
+			.set({ parentId: "s2" })
+			.where(eq(submissions.id, "s1"));
+		const thrown = await catchThrown(() =>
+			download(
+				"f_child_headshot",
+				new Request("http://localhost/files/f_child_headshot"),
+			),
+		);
+		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("does not expose a superseded public-speaker headshot", async () => {
+		await seedHeadshot({
+			fileId: "f_old_headshot",
+			contactId: "c_priya",
+			submissionId: "s1",
+			approved: true,
+		});
+		const db = getDb(env);
+		await env.BLOBS.put("headshots/f_current_headshot.png", "new photo", {
+			httpMetadata: { contentType: "image/png" },
+		});
+		await db.insert(files).values({
+			id: "f_current_headshot",
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			r2Key: "headshots/f_current_headshot.png",
+			fileName: "priya-current.png",
+			kind: "headshot",
+			contentType: "image/png",
+			sizeBytes: 9,
+			version: 2,
+		});
+
+		const thrown = await catchThrown(() =>
+			download(
+				"f_old_headshot",
+				new Request("http://localhost/files/f_old_headshot"),
+			),
+		);
+		expect(thrownStatus(thrown)).toBe(404);
+	});
 
 	it("serves the exact bytes to an admin of the owning org, as an attachment", async () => {
 		const fileId = await seedUpload();
@@ -257,15 +458,11 @@ describe("file byte serving (/files/:id)", () => {
 		expect(thrownStatus(thrown)).toBe(404);
 	});
 
-	it("redirects a logged-out request to /login without any file bytes", async () => {
+	it("404s a logged-out request for a private file without any bytes", async () => {
 		const fileId = await seedUpload();
 		const thrown = await catchThrown(() =>
 			download(fileId, new Request(`http://localhost/files/${fileId}`)),
 		);
-		expect(thrown).toBeInstanceOf(Response);
-		const response = thrown as Response;
-		expect(response.status).toBe(302);
-		expect(response.headers.get("Location")).toContain("/login");
-		expect(await response.text()).toBe("");
+		expect(thrownStatus(thrown)).toBe(404);
 	});
 });

@@ -3,7 +3,21 @@ import {
 	type EmailResult,
 	getEmailSender,
 } from "~/ports/email";
-import { unsubscribeUrl } from "~/lib/unsubscribe";
+import {
+	assertUnsubscribeSigningConfigured,
+	unsubscribeUrl,
+} from "~/lib/unsubscribe";
+
+/**
+ * Throws when this deployment cannot send a compliant announcement (the
+ * unsubscribe footer would be unmintable). Callers run it BEFORE a recipient
+ * loop so a configuration failure surfaces as one actionable error — never as
+ * a per-recipient "failed" outcome. The thrown message is the operator-facing
+ * copy; don't rewrite it at the call site.
+ */
+export function assertAnnouncementsConfigured(env: Env): void {
+	assertUnsubscribeSigningConfigured(env);
+}
 
 async function appendUnsubscribeFooter(
 	env: Env,

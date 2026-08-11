@@ -28,7 +28,14 @@ export function meta(_: Route.MetaArgs) {
 }
 
 export async function loader({ context, request }: Route.LoaderArgs) {
-	if (await getUser(context.cloudflare.env, request)) throw redirect("/admin");
+	// Already signed in: /login is a doorway, not a wall — send each role to
+	// its home (speaker -> portal, reviewer -> reviews, admin -> /admin), or
+	// honor a safe redirectTo, instead of bouncing non-admins to /403.
+	const user = await getUser(context.cloudflare.env, request);
+	if (user) {
+		const requested = new URL(request.url).searchParams.get("redirectTo") ?? "";
+		throw redirect(safeRedirect(requested) ?? homePathForRole(user.role));
+	}
 	return {};
 }
 

@@ -4,6 +4,7 @@ import type { Db } from "~/db";
 import {
 	contacts,
 	type FILE_KIND,
+	fileComments,
 	files,
 	submissions,
 	taskAssignments,
@@ -123,6 +124,101 @@ export const UPLOAD_ERRORS = {
 /** One rule for how long a deny note / file comment may be, every caller. */
 export const REVIEW_NOTE_MAX = 2000;
 
+const UUID_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type FileCommentWrite = {
+	fileId: string;
+	authorId: string | null;
+	authorName: string;
+	body: string;
+};
+
+function sameComment(
+	existing: FileCommentWrite | undefined,
+	comment: FileCommentWrite,
+): boolean {
+	return (
+		existing?.fileId === comment.fileId &&
+		existing.authorId === comment.authorId &&
+		(existing.authorId !== null ||
+			existing.authorName === comment.authorName) &&
+		existing.body === comment.body
+	);
+}
+
+function commentAuthorIdentity(comment: FileCommentWrite): [string, string] {
+	return comment.authorId === null
+		? ["name", comment.authorName]
+		: ["id", comment.authorId];
+}
+
+async function collisionCommentId(
+	requestedId: string,
+	comment: FileCommentWrite,
+): Promise<string> {
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(
+			JSON.stringify([
+				requestedId,
+				comment.fileId,
+				commentAuthorIdentity(comment),
+				comment.body,
+			]),
+		),
+	);
+	const bytes = Array.from(new Uint8Array(digest).slice(0, 16));
+	bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
+	bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+	const hex = bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * THE file-comment write path (portal and admin). The client-minted key IS
+ * the row id; replay conflicts compare the logical payload. For identified users,
+ * the mutable display-name snapshot is not identity. A key colliding with other
+ * content moves to a deterministic fallback, so its own replay stays safe.
+ */
+export async function addFileComment(
+	db: Db,
+	values: { key: FormDataEntryValue | null } & FileCommentWrite,
+): Promise<{ deduped: boolean }> {
+	const { key, ...comment } = values;
+	const requestedId =
+		typeof key === "string" && UUID_RE.test(key)
+			? key.toLowerCase()
+			: crypto.randomUUID();
+	const insert = (id: string) =>
+		db
+			.insert(fileComments)
+			.values({ id, ...comment })
+			.onConflictDoNothing({ target: fileComments.id })
+			.returning({ id: fileComments.id });
+	const find = async (id: string) =>
+		(
+			await db
+				.select({
+					fileId: fileComments.fileId,
+					authorId: fileComments.authorId,
+					authorName: fileComments.authorName,
+					body: fileComments.body,
+				})
+				.from(fileComments)
+				.where(eq(fileComments.id, id))
+				.limit(1)
+		)[0];
+
+	if ((await insert(requestedId)).length > 0) return { deduped: false };
+	if (sameComment(await find(requestedId), comment)) return { deduped: true };
+
+	const fallbackId = await collisionCommentId(requestedId, comment);
+	if ((await insert(fallbackId)).length > 0) return { deduped: false };
+	if (sameComment(await find(fallbackId), comment)) return { deduped: true };
+	throw new Error("Could not allocate a unique file-comment id");
+}
+
 export type UploadErrorCode = keyof typeof UPLOAD_ERRORS;
 
 /** File review states in ADMIN words (the portal has its own projection). */
@@ -175,6 +271,25 @@ export const GROUP_KEY_SQL = sql<string>`case
 	when ${files.contactId} is not null then 'c:' || ${files.contactId} || ':' || lower(${files.fileName})
 	else 'e:' || ${files.eventId} || ':' || lower(${files.fileName})
 end`;
+
+export function currentHeadshotsSql(eventId: string, contactId?: string): SQL {
+	const contactFilter = contactId ? sql`and contact_id = ${contactId}` : sql``;
+	return sql`(
+		select id, event_id, contact_id, r2_key
+		from (
+			select id, event_id, contact_id, r2_key,
+				row_number() over (
+					partition by event_id, contact_id
+					order by version desc, created_at desc, id desc
+				) as position
+			from ${files}
+			where kind = 'headshot'
+				and event_id = ${eventId}
+				${contactFilter}
+		) ranked
+		where position = 1
+	)`;
+}
 
 export type FileRow = typeof files.$inferSelect;
 
