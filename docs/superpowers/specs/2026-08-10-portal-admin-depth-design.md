@@ -1,7 +1,7 @@
 # Portal Admin Depth Design
 
-**Date:** 2026-08-10  
-**Branch:** `feat/portal-admin-depth`  
+**Date:** 2026-08-10
+**Branch:** `feat/portal-admin-depth`
 **Status:** Approved continuation; the implementation pre-dates this consolidated design record.
 
 ## Outcome
