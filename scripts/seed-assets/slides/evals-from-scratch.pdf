@@ -1,0 +1,86 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] /Resources << /Font << /F1 9 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 156 >>
+stream
+BT
+/F1 30 Tf
+72 700 Td
+(EVALS FROM SCRATCH) Tj
+/F1 18 Tf
+0 -54 Td
+(Build a regression gate in 90 minutes) Tj
+0 -54 Td
+(Eli Rosenberg - Proofpoint AI) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] /Resources << /Font << /F1 9 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 191 >>
+stream
+BT
+/F1 30 Tf
+72 700 Td
+(THE HARNESS) Tj
+/F1 18 Tf
+0 -54 Td
+(Golden cases from real incidents) Tj
+0 -54 Td
+(Exact and rubric graders) Tj
+0 -54 Td
+(Cached runs with reproducible outputs) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] /Resources << /Font << /F1 9 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 200 >>
+stream
+BT
+/F1 30 Tf
+72 700 Td
+(THE RELEASE GATE) Tj
+/F1 18 Tf
+0 -54 Td
+(Compare against the accepted baseline) Tj
+0 -54 Td
+(Inspect every regression) Tj
+0 -54 Td
+(Ship only when the evidence is green) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000133 00000 n 
+0000000259 00000 n 
+0000000465 00000 n 
+0000000591 00000 n 
+0000000832 00000 n 
+0000000958 00000 n 
+0000001208 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+1278
+%%EOF
