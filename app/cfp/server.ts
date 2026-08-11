@@ -234,7 +234,13 @@ export async function resolveFormDefinition(
 			fieldOptions: fieldsTable.options,
 		})
 		.from(formFields)
-		.leftJoin(fieldsTable, eq(fieldsTable.id, formFields.fieldId))
+		.leftJoin(
+			fieldsTable,
+			and(
+				eq(fieldsTable.id, formFields.fieldId),
+				eq(fieldsTable.recordType, "session"),
+			),
+		)
 		.where(eq(formFields.formId, form.id))
 		.orderBy(formFields.position, formFields.createdAt);
 

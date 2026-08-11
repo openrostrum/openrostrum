@@ -3,6 +3,7 @@ import {
 	asc,
 	count,
 	eq,
+	isNull,
 	max,
 	notExists,
 	or,
@@ -374,7 +375,10 @@ const TAXONOMIES = {
 function fieldScopeGuard(eventId: string, organizationId: string) {
 	return and(
 		eq(fields.recordType, "session"),
-		or(eq(fields.eventId, eventId), eq(fields.organizationId, organizationId)),
+		or(
+			eq(fields.eventId, eventId),
+			and(eq(fields.organizationId, organizationId), isNull(fields.eventId)),
+		),
 	);
 }
 

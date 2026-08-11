@@ -363,11 +363,25 @@ describe("editor loader", () => {
 			},
 		]);
 
+		await db.insert(formFields).values({
+			id: "ff_own_contact",
+			formId,
+			fieldId: "f_own_contact",
+			section: "session",
+			position: 99,
+		});
+
 		const result = (await loader(loaderArgs(formId, cookie))) as unknown as {
-			data: { libraryFields: Array<{ id: string }> };
+			data: {
+				libraryFields: Array<{ id: string }>;
+				placements: Array<{ fieldId: string | null }>;
+			};
 		};
 		const ids = result.data.libraryFields.map((f) => f.id).sort();
 		expect(ids).toEqual(["f_own_event", "f_own_org"]);
+		expect(
+			result.data.placements.map((placement) => placement.fieldId),
+		).not.toContain("f_own_contact");
 	});
 
 	it("lists ONLY the event's org members as notify recipients — never other orgs' admins", async () => {

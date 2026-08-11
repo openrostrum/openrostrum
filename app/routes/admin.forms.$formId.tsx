@@ -295,11 +295,15 @@ function fieldScopePredicate(eventId: string, organizationId: string) {
 }
 
 async function loadPlacements(db: Db, formId: string) {
-	return db.query.formFields.findMany({
+	const placements = await db.query.formFields.findMany({
 		where: eq(formFields.formId, formId),
 		with: { field: true },
 		orderBy: [asc(formFields.position), asc(formFields.createdAt)],
 	});
+	return placements.filter(
+		(placement) =>
+			placement.field === null || placement.field.recordType === "session",
+	);
 }
 
 const VIEW_PAGE_SIZE = 50;

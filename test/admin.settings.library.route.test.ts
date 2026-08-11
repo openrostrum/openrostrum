@@ -349,6 +349,13 @@ describe("library fields", () => {
 				type: "checkbox",
 			},
 			{
+				id: "f_malformed",
+				organizationId: "org_a",
+				eventId: "e_a",
+				name: "Malformed scope",
+				type: "text",
+			},
+			{
 				id: "f_contact",
 				organizationId: "org_a",
 				recordType: "contact",
@@ -360,6 +367,7 @@ describe("library fields", () => {
 		// From e_a (the field's home): both visible.
 		const home = await load("u_a");
 		expect(home.fields.map((f) => f.name).sort()).toEqual([
+			"Malformed scope",
 			"Requires visa letter",
 			"T-shirt size",
 		]);
