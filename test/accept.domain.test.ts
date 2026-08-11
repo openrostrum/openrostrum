@@ -699,6 +699,59 @@ describe("send decisions", () => {
 		expect(mail?.html).not.toMatch(/\{\{/);
 	});
 
+	it("renders the complete classic decision template with separate schedule values and location", async () => {
+		const d = await seedBase();
+		await d
+			.insert(rooms)
+			.values({ id: "room_classic", eventId: "e1", name: "Main Stage" });
+		await d.insert(emailTemplates).values({
+			id: "et_accept",
+			eventId: "e1",
+			key: "accept",
+			name: "Classic Accept Sessions",
+			subject: "{{{recipient.first_name}}}: {{{title}}} at {{{event.name}}}",
+			bodyHtml:
+				"<p>{{{recipient.last_name}}}|{{{title}}}|{{{starts_at}}}|{{{ends_at}}}|{{{location}}}</p>",
+		});
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Classic Rendering",
+			startsAt: new Date("2026-10-13T17:00:00Z"),
+			endsAt: new Date("2026-10-13T17:30:00Z"),
+			roomId: "room_classic",
+		});
+		await d.insert(contacts).values({
+			id: "c_classic",
+			eventId: "e1",
+			email: "priya@example.com",
+			firstName: "Priya",
+			lastName: "Patel",
+		});
+		await d.insert(participants).values({
+			submissionId: row.id,
+			contactId: "c_classic",
+			role: "speaker",
+			isPrimary: true,
+		});
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		await sendDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "classic-render-key",
+		});
+
+		const [mail] = await d.select().from(emailOutbox);
+		expect(mail?.subject).toBe("Priya: Classic Rendering at DemoConf");
+		expect(mail?.html).toContain(
+			"<p>Patel|Classic Rendering|Oct 13, 2026, 10:00 AM|Oct 13, 2026, 10:30 AM|Main Stage</p>",
+		);
+		expect(mail?.subject).not.toContain("{");
+		expect(mail?.html).not.toContain("{");
+	});
+
 	it("a deduped retry back-fills a missing notifiedAt stamp (partial-failure recovery)", async () => {
 		const d = await seedBase();
 		await seedDecisionTemplates();

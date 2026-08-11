@@ -7,6 +7,7 @@ import {
 	events,
 	organizationMembers,
 	organizations,
+	submissions,
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
@@ -216,6 +217,76 @@ describe("email template editor", () => {
 			params: { key },
 		} as unknown as Parameters<typeof editorAction>[0];
 	}
+
+	async function seedScheduledAcceptedSample() {
+		const db = getDb(env);
+		await db
+			.update(events)
+			.set({
+				location: "Convention Center",
+				timezone: "America/Los_Angeles",
+			})
+			.where(eq(events.id, "e1"));
+		await db.insert(submissions).values({
+			id: "s_scheduled",
+			eventId: "e1",
+			title: "Scheduled session",
+			status: "accepted",
+			startsAt: new Date("2026-10-13T17:00:00Z"),
+			endsAt: new Date("2026-10-13T17:30:00Z"),
+		});
+	}
+
+	it("keeps draft-reminder preview scheduling and location blank like delivery", async () => {
+		const cookie = await seedAdminAndEvents();
+		await seedScheduledAcceptedSample();
+		await getDb(env).insert(emailTemplates).values({
+			id: "et_reminder_1day",
+			eventId: "e1",
+			key: "reminder_1day",
+			name: "One Day Reminder",
+			category: "lifecycle",
+			trigger: "auto",
+		});
+
+		for (const key of ["reminder_5day", "reminder_1day"]) {
+			const result = (await editorLoader(
+				editorArgs(cookie, key) as unknown as Parameters<
+					typeof editorLoader
+				>[0],
+			)) as unknown as {
+				data: { sampleCtx: Record<string, unknown> };
+			};
+
+			expect(result.data.sampleCtx).toMatchObject({
+				session_date_time: null,
+				starts_at: null,
+				ends_at: null,
+				session_room: null,
+				location: null,
+			});
+		}
+	});
+
+	it("keeps decision preview scheduling and event location populated", async () => {
+		const cookie = await seedAdminAndEvents();
+		await seedScheduledAcceptedSample();
+
+		const result = (await editorLoader(
+			editorArgs(cookie, "accept") as unknown as Parameters<
+				typeof editorLoader
+			>[0],
+		)) as unknown as {
+			data: { sampleCtx: Record<string, unknown> };
+		};
+
+		expect(result.data.sampleCtx).toMatchObject({
+			session_date_time: "Oct 13, 2026, 10:00 AM",
+			starts_at: "Oct 13, 2026, 10:00 AM",
+			ends_at: "Oct 13, 2026, 10:30 AM",
+			location: "Convention Center",
+		});
+	});
 
 	it("rejects a blank subject with a field error and leaves the row untouched", async () => {
 		const cookie = await seedAdminAndEvents();

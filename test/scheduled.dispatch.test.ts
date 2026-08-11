@@ -85,6 +85,7 @@ describe("scheduled() cron dispatch", () => {
 		// daily tick (it no-ops unconfigured); this fails on exactly that flip.
 		const byName = new Map(scheduledJobs.map((j) => [j.name, j.cron]));
 		expect(byName.get("task-due-reminders")).toBe(DAILY_CRON);
+		expect(byName.get("draft-close-reminders")).toBe(DAILY_CRON);
 		expect(byName.get("airtable-sync")).toBe(HOURLY_CRON);
 	});
 });
