@@ -348,6 +348,13 @@ describe("library fields", () => {
 				name: "Requires visa letter",
 				type: "checkbox",
 			},
+			{
+				id: "f_contact",
+				organizationId: "org_a",
+				recordType: "contact",
+				name: "Dietary requirements",
+				type: "text",
+			},
 		]);
 
 		// From e_a (the field's home): both visible.

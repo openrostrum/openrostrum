@@ -10,6 +10,10 @@ import { CrmNotesPanel } from "~/components/crm-notes";
 import { RichHtml } from "~/components/rich-html";
 import { SectionHeading } from "~/components/section-heading";
 import {
+	queryContactFieldValues,
+	saveContactFieldValue,
+} from "~/domain/crm-fields";
+import {
 	addCrmNote,
 	addToEventNotice,
 	enrollInPipeline,
@@ -27,6 +31,7 @@ import {
 	EmptyState,
 	ErrorText,
 	Field,
+	Input,
 	Panel,
 	Select,
 	StatusBadge,
@@ -34,6 +39,7 @@ import {
 	TBody,
 	Td,
 	TextLink,
+	Textarea,
 	Th,
 	THead,
 	Tr,
@@ -59,32 +65,34 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	if (!org) throw redirect("/admin/crm");
 	const email = normalizeEmail(params.email);
-	const [person, noteThread, card, orgEvents] = await timings.time("db", () =>
-		Promise.all([
-			queryPerson(db, org.id, email),
-			queryNotes(db, org.id, email, NOTES_SHOWN),
-			db
-				.select({
-					id: pipelineCards.id,
-					stage: pipelineCards.stage,
-					score: pipelineCards.score,
-				})
-				.from(pipelineCards)
-				.where(
-					and(
-						eq(pipelineCards.organizationId, org.id),
-						eq(pipelineCards.email, email),
-					),
-				)
-				.limit(1)
-				.then((rows) => rows[0] ?? null),
-			db
-				.select({ id: events.id, name: events.name })
-				.from(events)
-				.where(eq(events.organizationId, org.id))
-				.orderBy(asc(events.createdAt)),
-		]),
-	);
+	const [person, customFields, noteThread, card, orgEvents] =
+		await timings.time("db", () =>
+			Promise.all([
+				queryPerson(db, org.id, email),
+				queryContactFieldValues(db, org.id, email),
+				queryNotes(db, org.id, email, NOTES_SHOWN),
+				db
+					.select({
+						id: pipelineCards.id,
+						stage: pipelineCards.stage,
+						score: pipelineCards.score,
+					})
+					.from(pipelineCards)
+					.where(
+						and(
+							eq(pipelineCards.organizationId, org.id),
+							eq(pipelineCards.email, email),
+						),
+					)
+					.limit(1)
+					.then((rows) => rows[0] ?? null),
+				db
+					.select({ id: events.id, name: events.name })
+					.from(events)
+					.where(eq(events.organizationId, org.id))
+					.orderBy(asc(events.createdAt)),
+			]),
+		);
 	if (!person) {
 		throw data("No such person in this organization's directory", {
 			status: 404,
@@ -94,6 +102,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	return data(
 		{
 			person,
+			customFields,
 			email,
 			notes: noteThread.notes,
 			noteCount: noteThread.total,
@@ -116,6 +125,32 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const form = await request.formData();
 	const intent = form.get("intent");
 	const timings = createTimings();
+
+	if (intent === "save-custom-field") {
+		const fieldId = String(form.get("fieldId") ?? "");
+		const rawValues = form.getAll("value");
+		const value = String(rawValues.at(-1) ?? "");
+		try {
+			const result = await timings.time("db", () =>
+				saveContactFieldValue(db, org.id, email, fieldId, value),
+			);
+			if (!result.ok) return { customFieldError: result.reason };
+			track("crm.field_value_saved", { orgId: org.id, fieldId });
+			return data(
+				{ notice: "Organization field saved." },
+				{ headers: { "Server-Timing": timings.header() } },
+			);
+		} catch (error) {
+			track("crm.field_value_failed", {
+				orgId: org.id,
+				fieldId,
+				error: errorMessage(error),
+			});
+			return {
+				customFieldError: "Could not save the field — please try again.",
+			};
+		}
+	}
 
 	if (intent === "add-note") {
 		let result: Awaited<ReturnType<typeof addCrmNote>>;
@@ -177,17 +212,75 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	return { formError: "Unknown action." };
 }
 
+function CustomFieldControl({
+	field,
+}: {
+	field: {
+		type:
+			| "text"
+			| "textarea"
+			| "dropdown"
+			| "checkbox"
+			| "number"
+			| "email"
+			| "phone"
+			| "date";
+		value: string | null;
+		options: string[] | null;
+	};
+}) {
+	if (field.type === "textarea") {
+		return <Textarea name="value" rows={3} defaultValue={field.value ?? ""} />;
+	}
+	if (field.type === "dropdown") {
+		return (
+			<Select name="value" defaultValue={field.value ?? ""}>
+				<option value="">Not set</option>
+				{field.options?.map((option) => (
+					<option key={option} value={option}>
+						{option}
+					</option>
+				))}
+			</Select>
+		);
+	}
+	if (field.type === "checkbox") {
+		return (
+			<Select name="value" defaultValue={field.value ?? "false"}>
+				<option value="false">No</option>
+				<option value="true">Yes</option>
+			</Select>
+		);
+	}
+	const type =
+		field.type === "number"
+			? "number"
+			: field.type === "email"
+				? "email"
+				: field.type === "phone"
+					? "tel"
+					: field.type === "date"
+						? "date"
+						: "text";
+	return <Input name="value" type={type} defaultValue={field.value ?? ""} />;
+}
+
 export default function CrmPerson({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { person, email, notes, noteCount, card, addableEvents } = loaderData;
+	const { person, customFields, email, notes, noteCount, card, addableEvents } =
+		loaderData;
 	const name = `${person.firstName} ${person.lastName}`.trim();
 	const busy = useBusy();
 	const formError =
 		actionData && "formError" in actionData ? actionData.formError : undefined;
 	const noteError =
 		actionData && "noteError" in actionData ? actionData.noteError : undefined;
+	const customFieldError =
+		actionData && "customFieldError" in actionData
+			? actionData.customFieldError
+			: undefined;
 	const notice =
 		actionData && "notice" in actionData ? actionData.notice : undefined;
 
@@ -313,6 +406,47 @@ export default function CrmPerson({
 					</div>
 				</Panel>
 			</div>
+
+			<Panel>
+				<div className="flex flex-col gap-3">
+					<SectionHeading>Organization fields</SectionHeading>
+					{customFieldError && <ErrorText>{customFieldError}</ErrorText>}
+					{customFields.length === 0 ? (
+						<EmptyState
+							icon="clipboard"
+							title="No person fields defined"
+							body="Create organization-wide fields, then set their values on every directory profile."
+							action={
+								<ButtonLink to="/admin/crm/fields" variant="ghost">
+									Manage person fields
+								</ButtonLink>
+							}
+						/>
+					) : (
+						customFields.map((field) => (
+							<Form
+								key={field.id}
+								method="post"
+								className="flex flex-wrap items-end gap-3"
+							>
+								<Input type="hidden" name="fieldId" value={field.id} readOnly />
+								<Field label={field.name}>
+									<CustomFieldControl field={field} />
+								</Field>
+								{field.description && <p>{field.description}</p>}
+								<Button
+									type="submit"
+									name="intent"
+									value="save-custom-field"
+									disabled={busy}
+								>
+									Save field
+								</Button>
+							</Form>
+						))
+					)}
+				</div>
+			</Panel>
 
 			<div className="flex flex-col gap-3">
 				<Table>

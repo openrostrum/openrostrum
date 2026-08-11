@@ -343,6 +343,13 @@ describe("editor loader", () => {
 				type: "text",
 			},
 			{
+				id: "f_own_contact",
+				organizationId: "org1",
+				recordType: "contact",
+				name: "Dietary requirements",
+				type: "text",
+			},
+			{
 				id: "f_other_event",
 				eventId: "e2",
 				name: "Other event field",

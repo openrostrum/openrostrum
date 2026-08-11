@@ -285,9 +285,12 @@ export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
 function fieldScopePredicate(eventId: string, organizationId: string) {
 	// Event fields of THIS event, plus org-wide fields of THIS org — never
 	// another tenant's library.
-	return or(
-		eq(fields.eventId, eventId),
-		and(eq(fields.organizationId, organizationId), isNull(fields.eventId)),
+	return and(
+		eq(fields.recordType, "session"),
+		or(
+			eq(fields.eventId, eventId),
+			and(eq(fields.organizationId, organizationId), isNull(fields.eventId)),
+		),
 	);
 }
 
