@@ -220,7 +220,7 @@ export function RichText({
 							className={cn(
 								"h-7 min-w-0 flex-1 rounded-[5px] bg-canvas px-2 text-[12px] text-fg shadow-control",
 								"placeholder:text-fg-faint",
-								"focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-petrol",
+								"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 							)}
 						/>
 						<ToolbarButton label="Apply link" onClick={applyLink}>
@@ -260,7 +260,7 @@ function ToolbarButton({
 			onClick={onClick}
 			className={cn(
 				`h-7 min-w-7 rounded-[5px] px-2 text-[12px] font-medium text-fg-muted transition-colors ${MOTION_FEEDBACK} hover:bg-chip hover:text-fg`,
-				"focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-petrol",
+				"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 				active && "bg-chip text-fg",
 			)}
 		>

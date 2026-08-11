@@ -250,7 +250,7 @@ function PublicPages() {
 								{page.label}
 								<span
 									aria-hidden="true"
-									className={`text-fg-faint transition-colors ${MOTION_FEEDBACK} group-hover:text-petrol`}
+									className={`text-fg-faint transition-colors ${MOTION_FEEDBACK} group-hover:text-fg`}
 								>
 									→
 								</span>
