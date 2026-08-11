@@ -68,9 +68,13 @@ export function FilterBar({
 					</Select>
 				</Field>
 			))}
-			<Button type="submit" variant="ghost" icon="filter">
-				Apply
-			</Button>
+			{/* A pressed transform can move the target edge out from under pointerup,
+			making coordinate-driven clicks miss the submit entirely. */}
+			<span className="relative flex [&>button]:relative [&>button]:before:absolute [&>button]:before:-inset-[6px] [&>button]:before:content-['']">
+				<Button type="submit" variant="ghost" icon="filter">
+					Apply
+				</Button>
+			</span>
 			{active && <TextLink to={makeHref(base, extraParams)}>Clear</TextLink>}
 		</Form>
 	);
