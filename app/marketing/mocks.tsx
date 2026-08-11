@@ -38,9 +38,6 @@ function Initials({ value }: { value: string }) {
 	);
 }
 
-// Hero: the admin shell, whole — sidebar, tabs, table. The same composition as
-// the live-demo artifact, because the page's centerpiece is the product itself.
-
 const NAV: { icon: IconName; label: string; count?: string; on?: boolean }[] = [
 	{ icon: "grid", label: "Dashboard" },
 	{ icon: "inbox", label: "Submissions", count: "128", on: true },
@@ -317,8 +314,6 @@ export function AdminShellMock() {
 		</div>
 	);
 }
-
-// Spotlights
 
 const ROOMS = ["Room A", "Room B", "Room C"];
 const HOURS = ["9:00", "10:00", "11:00"];
