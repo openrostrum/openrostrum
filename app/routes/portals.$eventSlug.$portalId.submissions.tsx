@@ -16,21 +16,22 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
-	const rows = await timings.time("db", () =>
-		listPortalSubmissions(env, ctx, user.id),
+	const result = await timings.time("db", () =>
+		listPortalSubmissions(env, ctx),
 	);
 	return data(
 		{
 			base: portalPath(ctx),
-			submissions: rows.map((s) => ({
+			submissions: result.rows.map((s) => ({
 				id: s.id,
 				title: s.title,
 				status: s.status,
 				format: s.format,
 				participation: s.participation,
 			})),
+			truncated: result.truncated,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -42,6 +43,7 @@ export default function PortalSubmissions({
 	return (
 		<SubmissionsView
 			base={loaderData.base}
+			truncated={loaderData.truncated}
 			submissions={loaderData.submissions}
 		/>
 	);

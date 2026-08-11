@@ -27,6 +27,7 @@ import {
 	portalPath,
 	TASK_STATUS_PROJECTION,
 } from "~/domain/portal";
+import { persistInitialPortalFormResponse } from "~/domain/portal-task-form";
 import { requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { resolveTimezone } from "~/lib/event-time";
@@ -67,7 +68,7 @@ async function requireMyAssignment(
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
 	const { assignment, task } = await timings.time("db", () =>
 		requireMyAssignment(env, ctx, params.assignmentId),
@@ -173,7 +174,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					.map((c) => ({
 						id: c.id,
 						author: c.authorName,
-						isYou: c.authorId === user.id,
+						isYou:
+							ctx.subjectUserId !== null && c.authorId === ctx.subjectUserId,
 						body: c.body,
 						on: formatInTz(c.createdAt, tz),
 					})),
@@ -220,7 +222,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	const { assignment, task } = await requireMyAssignment(
 		env,
 		ctx,
@@ -281,6 +283,8 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	if (intent === "submit-form") {
 		if (!task.portalFormId)
 			return fail({ formError: "This task has no form." });
+		if (!ctx.contact) throw data(null, { status: 404 });
+		const contact = ctx.contact;
 		if (assignment.response !== null) {
 			return fail({
 				formError:
@@ -316,16 +320,20 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		if (Object.keys(fieldErrors).length > 0) return fail({ fieldErrors });
 
 		try {
-			await timings.time("db", () =>
-				db
-					.update(taskAssignments)
-					.set({
-						status: "complete",
-						completedAt: new Date(),
-						response: answers,
-					})
-					.where(eq(taskAssignments.id, assignment.id)),
+			const persisted = await timings.time("db", () =>
+				persistInitialPortalFormResponse(db, {
+					assignmentId: assignment.id,
+					contactId: contact.id,
+					answers,
+					completedAt: new Date(),
+				}),
 			);
+			if (!persisted) {
+				return fail({
+					formError:
+						"This form was already submitted — contact the event team to change your answers.",
+				});
+			}
 		} catch (error) {
 			track("portal.task_form_submit_failed", {
 				eventId: ctx.event.id,
@@ -336,12 +344,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				formError: "Could not submit the form — please try again.",
 			});
 		}
-		if (pf.sendConfirmationEmail && ctx.contact) {
+		if (pf.sendConfirmationEmail) {
 			// The form is saved either way — a failed email must not read as a
 			// failed submission; it only loses the courtesy copy.
 			try {
 				await getEmailSender(env).send({
-					to: ctx.contact.email,
+					to: contact.email,
 					subject: `We received “${task.name}”`,
 					html:
 						pf.confirmationHtml ??

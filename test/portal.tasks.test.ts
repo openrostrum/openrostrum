@@ -13,6 +13,7 @@ import {
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
+import { persistInitialPortalFormResponse } from "../app/domain/portal-task-form";
 import {
 	action as taskAction,
 	loader as taskLoader,
@@ -175,6 +176,35 @@ describe("portal tasks", () => {
 			.from(taskAssignments)
 			.where(eq(taskAssignments.id, "ta_announce"));
 		expect(row?.status).toBe("incomplete");
+	});
+
+	it("atomically persists only one concurrent first form response", async () => {
+		await seedTasks();
+		const db = getDb(env);
+		const completedAt = new Date("2026-10-01T12:00:00Z");
+		const [first, second] = await Promise.all([
+			persistInitialPortalFormResponse(db, {
+				assignmentId: "ta_hotel",
+				contactId: "c_priya",
+				answers: { "Check-in Date": "2026-10-11" },
+				completedAt,
+			}),
+			persistInitialPortalFormResponse(db, {
+				assignmentId: "ta_hotel",
+				contactId: "c_priya",
+				answers: { "Check-in Date": "2026-10-12" },
+				completedAt,
+			}),
+		]);
+		expect([first, second].sort()).toEqual([false, true]);
+		const [row] = await db
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.id, "ta_hotel"));
+		expect(row?.status).toBe("complete");
+		expect(["2026-10-11", "2026-10-12"]).toContain(
+			(row?.response as Record<string, string> | null)?.["Check-in Date"],
+		);
 	});
 
 	it("rejects a form submission with a missing required field — nothing persisted", async () => {

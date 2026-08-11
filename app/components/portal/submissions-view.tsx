@@ -7,9 +7,11 @@ import type { SubmissionRowView } from "./types";
 export function SubmissionsView({
 	base,
 	submissions,
+	truncated,
 }: {
 	base: string;
 	submissions: SubmissionRowView[];
+	truncated: boolean;
 }) {
 	const [query, setQuery] = useState("");
 	const q = query.trim().toLowerCase();
@@ -29,7 +31,14 @@ export function SubmissionsView({
 				onChange={(e) => setQuery(e.target.value)}
 				aria-label="Search your submissions"
 			/>
-			<Card title="My Submissions" count={`${filtered.length} shown`}>
+			<Card
+				title="My Submissions"
+				count={
+					truncated
+						? `${filtered.length} of first ${submissions.length}`
+						: `${filtered.length} shown`
+				}
+			>
 				{submissions.length === 0 ? (
 					<EmptyState
 						icon="mic"

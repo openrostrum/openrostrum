@@ -27,7 +27,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const user = await requireUser(env, request);
 	const timings = createTimings();
 	const ctx = await timings.time("db", () =>
-		getPortalContext(env, user, params),
+		getPortalContext(env, user, params, request),
 	);
 	const base = portalPath(ctx);
 	const c = ctx.contact;
@@ -138,7 +138,7 @@ const profileSchema = (stored: {
 export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	if (!ctx.contact) throw data(null, { status: 404 });
 	const contact = ctx.contact;
 	const db = getDb(env);

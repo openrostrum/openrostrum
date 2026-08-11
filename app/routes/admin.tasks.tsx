@@ -1330,6 +1330,12 @@ export default function TasksDashboard({
 											Fill in: {f.name}
 										</option>
 									))}
+									{portalFormOptions.length === 0 && (
+										<option value="" disabled>
+											No portal forms yet — create one under Portals → Portal
+											forms
+										</option>
+									)}
 								</Select>
 							</Field>
 							<Field
