@@ -1153,7 +1153,6 @@ export default function SubmissionDetail({
 					<AttachParticipants
 						contacts={contactRows}
 						contactsTruncated={contactsTruncated}
-						busy={busy}
 						feedback={feedback}
 					/>
 
@@ -1529,14 +1528,13 @@ export default function SubmissionDetail({
 function AttachParticipants({
 	contacts: contactRows,
 	contactsTruncated,
-	busy,
 	feedback,
 }: {
 	contacts: Array<{ id: string; name: string; email: string }>;
 	contactsTruncated: boolean;
-	busy: boolean;
 	feedback: ActionData | undefined;
 }) {
+	const busy = useBusy();
 	const [filter, setFilter] = useState("");
 	const needle = filter.trim().toLowerCase();
 	const visible = needle

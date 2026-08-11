@@ -550,14 +550,13 @@ function StatusCell({
 	id,
 	title,
 	status,
-	busy,
 }: {
 	id: string;
 	title: string;
 	status: (typeof SUBMISSION_STATUS)[number];
-	busy: boolean;
 }) {
 	const fetcher = useFetcher();
+	const busy = useBusy();
 	const pending = fetcher.formData?.get("status");
 	const shown =
 		typeof pending === "string" &&
@@ -815,12 +814,7 @@ export default function Submissions({
 							</Td>
 							<Td kind="strong">{s.title}</Td>
 							<Td>
-								<StatusCell
-									id={s.id}
-									title={s.title}
-									status={s.status}
-									busy={busy}
-								/>
+								<StatusCell id={s.id} title={s.title} status={s.status} />
 							</Td>
 							<Td>
 								<div className="flex flex-wrap gap-3">

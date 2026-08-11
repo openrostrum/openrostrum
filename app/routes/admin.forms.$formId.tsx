@@ -1564,19 +1564,18 @@ function FieldRow({
 	placement,
 	siblings,
 	ruleOptions,
-	busy,
 	isRuleOpen,
 	onToggleRule,
 }: {
 	placement: Placement;
 	siblings: Placement[];
 	ruleOptions: RuleOptions;
-	busy: boolean;
 	isRuleOpen: boolean;
 	onToggleRule: () => void;
 }) {
 	const view = placementView(placement);
 	const fetcher = useFetcher<typeof action>();
+	const busy = useBusy();
 	const { attributes, listeners, setNodeRef, transform, transition } =
 		useSortable({ id: placement.id, disabled: busy });
 	// Drag GEOMETRY only (transform/transition) — dnd-kit cannot move the row
@@ -1912,7 +1911,6 @@ function FieldList({
 								placement={p}
 								siblings={ordered}
 								ruleOptions={ruleOptions}
-								busy={busy}
 								isRuleOpen={openRule === p.id}
 								onToggleRule={() =>
 									setOpenRule((cur) => (cur === p.id ? null : p.id))

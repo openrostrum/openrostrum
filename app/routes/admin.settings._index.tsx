@@ -290,13 +290,12 @@ function ImageBlock({
 	kind,
 	preview,
 	result,
-	busy,
 }: {
 	kind: EventImageKind;
 	preview: ImagePreview | null;
 	result: ActionResult | undefined;
-	busy: boolean;
 }) {
+	const busy = useBusy();
 	const mine = result?.intent === "image" && result.kind === kind;
 	const spec = EVENT_IMAGE[kind];
 	return (
@@ -404,13 +403,11 @@ export default function EventDetails({
 							kind="logo"
 							preview={images?.logo ?? null}
 							result={actionData}
-							busy={busy}
 						/>
 						<ImageBlock
 							kind="background"
 							preview={images?.background ?? null}
 							result={actionData}
-							busy={busy}
 						/>
 					</div>
 				</div>
