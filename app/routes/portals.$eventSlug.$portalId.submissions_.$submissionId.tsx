@@ -451,22 +451,24 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				),
 			);
 		try {
-			await timings.time("db", () =>
-				acceptance === "accepted"
-					? db.batch([
-							participantUpdate,
-							db
-								.update(contacts)
-								.set({ status: "confirmed" })
-								.where(
-									and(
-										eq(contacts.id, contactId),
-										eq(contacts.eventId, ctx.event.id),
-									),
+			if (acceptance === "accepted") {
+				await timings.time("db", () =>
+					db.batch([
+						participantUpdate,
+						db
+							.update(contacts)
+							.set({ status: "confirmed" })
+							.where(
+								and(
+									eq(contacts.id, contactId),
+									eq(contacts.eventId, ctx.event.id),
 								),
-						])
-					: db.batch([participantUpdate]),
-			);
+							),
+					]),
+				);
+			} else {
+				await timings.time("db", () => db.batch([participantUpdate]));
+			}
 		} catch (error) {
 			track("portal.participation_change_failed", {
 				eventId: ctx.event.id,
