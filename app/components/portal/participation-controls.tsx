@@ -1,4 +1,5 @@
 import { useFetcher } from "react-router";
+import { useBusy } from "~/lib/use-busy";
 import { ConfirmButton, StatusBadge } from "~/ui";
 
 import { Muted } from "./bits";
@@ -17,6 +18,7 @@ export function ParticipationControls({
 	participation: ParticipationView;
 }) {
 	const fetcher = useFetcher<{ formError?: string }>();
+	const busy = useBusy();
 	if (!participation.confirmable) return null;
 	return (
 		<fetcher.Form
@@ -31,6 +33,7 @@ export function ParticipationControls({
 			</StatusBadge>
 			{participation.raw !== "accepted" && (
 				<ConfirmButton
+					disabled={busy}
 					label="Confirm participation"
 					prompt="Confirm you will participate in this session?"
 					confirmLabel="Yes, confirm"
@@ -41,6 +44,7 @@ export function ParticipationControls({
 			)}
 			{participation.raw !== "declined" && (
 				<ConfirmButton
+					disabled={busy}
 					label="Withdraw"
 					prompt="Withdraw your participation? The event team will see this."
 					confirmLabel="Yes, withdraw"

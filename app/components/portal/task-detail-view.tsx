@@ -1,4 +1,5 @@
 import { Form, useFetcher } from "react-router";
+import { useBusy } from "~/lib/use-busy";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
 import {
 	Button,
@@ -39,6 +40,7 @@ function CommentThread({
 	comments: CommentView[];
 }) {
 	const fetcher = useFetcher<TaskDetailActionData>();
+	const busy = useBusy();
 	return (
 		<div className="mt-2 flex flex-col gap-2 border-l-2 border-hair pl-3">
 			{comments.map((c) => (
@@ -62,7 +64,7 @@ function CommentThread({
 					maxLength={2000}
 					required
 				/>
-				<Button type="submit" variant="ghost">
+				<Button type="submit" variant="ghost" disabled={busy}>
 					Comment
 				</Button>
 				{fetcher.data?.intent === "comment" && fetcher.data.formError && (
@@ -80,6 +82,7 @@ export function TaskDetailView({
 	data: TaskDetailData;
 	actionData?: TaskDetailActionData;
 }) {
+	const busy = useBusy();
 	const errs = actionData?.fieldErrors ?? {};
 	const answerErrors = Object.fromEntries(
 		Object.entries(errs)
@@ -169,12 +172,18 @@ export function TaskDetailView({
 									name="intent"
 									value="uncomplete"
 									variant="ghost"
+									disabled={busy}
 								>
 									Mark as incomplete
 								</Button>
 							</>
 						) : (
-							<Button type="submit" name="intent" value="complete">
+							<Button
+								type="submit"
+								name="intent"
+								value="complete"
+								disabled={busy}
+							>
 								Mark as Complete
 							</Button>
 						)}
@@ -206,7 +215,12 @@ export function TaskDetailView({
 								errors={answerErrors}
 							/>
 							<div className="flex items-center gap-3">
-								<Button type="submit" name="intent" value="submit-form">
+								<Button
+									type="submit"
+									name="intent"
+									value="submit-form"
+									disabled={busy}
+								>
 									Submit
 								</Button>
 								{actionData?.intent === "submit-form" &&
@@ -236,7 +250,7 @@ export function TaskDetailView({
 									required
 								/>
 								<div className="flex items-center gap-3">
-									<Button type="submit" icon="export">
+									<Button type="submit" icon="export" disabled={busy}>
 										{data.fileRequest.files.length > 0
 											? "Upload new version"
 											: "Upload file"}
