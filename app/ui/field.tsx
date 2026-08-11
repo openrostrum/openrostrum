@@ -11,17 +11,26 @@ export function Field({
 	label,
 	error,
 	children,
+	composite = false,
 }: {
 	label: string;
 	error?: string;
 	children: ReactNode;
+	/** Composite controls own their accessible names; wrapping toolbar buttons in a label activates the first button on editor clicks. */
+	composite?: boolean;
 }) {
-	return (
-		<label className="flex flex-col gap-[5px] text-[12.5px]">
+	const content = (
+		<>
 			<span className="font-medium text-fg-muted">{label}</span>
 			{children}
 			{error && <span className="text-[11.5px] text-danger">{error}</span>}
-		</label>
+		</>
+	);
+	const className = "flex flex-col gap-[5px] text-[12.5px]";
+	return composite ? (
+		<div className={className}>{content}</div>
+	) : (
+		<label className={className}>{content}</label>
 	);
 }
 

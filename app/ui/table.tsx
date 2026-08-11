@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { cn } from "./cn";
 
 export function Table({ children }: { children: ReactNode }) {
@@ -29,17 +29,18 @@ export function TBody({ children }: { children: ReactNode }) {
 	return <tbody>{children}</tbody>;
 }
 
-export function Tr({
-	selected,
-	children,
-}: {
+type TrProps = Omit<ComponentPropsWithoutRef<"tr">, "className"> & {
 	selected?: boolean;
-	children: ReactNode;
-}) {
+	interactive?: boolean;
+};
+
+export function Tr({ selected, interactive, children, ...props }: TrProps) {
 	return (
 		<tr
+			{...props}
 			className={cn(
 				"transition-colors duration-100 hover:bg-row-hover",
+				interactive && "cursor-pointer",
 				// Selection = wash + ONE 2px petrol rule on the leading edge only
 				// (a per-cell shadow leaks ticks at every column boundary).
 				selected &&

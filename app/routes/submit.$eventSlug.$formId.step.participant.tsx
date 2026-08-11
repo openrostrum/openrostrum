@@ -336,10 +336,12 @@ export default function ParticipantStep({
 								<Field
 									label={requirements.bio ? "Biography *" : "Biography"}
 									error={errors.rows[p.key]?.bio}
+									composite
 								>
 									<RichText
 										value={p.bio}
 										compact
+										ariaLabel="Biography"
 										placeholder="Tell us a bit about yourself"
 										invalid={Boolean(errors.rows[p.key]?.bio)}
 										onChange={(html) => updateRow(p.key, { bio: html })}

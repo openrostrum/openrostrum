@@ -1,4 +1,7 @@
 import { env } from "cloudflare:test";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -13,7 +16,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { action, loader } from "../app/routes/admin.submissions";
+import Submissions, { action, loader } from "../app/routes/admin.submissions";
 
 // Seeds D1, authenticates as an admin, calls the loader AND the action with a
 // real Cloudflare context, and asserts on results (incl. that validation is
@@ -42,6 +45,20 @@ async function joinOrg1(): Promise<void> {
 }
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
+
+function renderSubmissions(loaderData: unknown): string {
+	const RouteComponent = Submissions as unknown as ComponentType<{
+		loaderData: unknown;
+		actionData?: unknown;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/",
+			Component: () => createElement(RouteComponent, { loaderData }),
+		},
+	]);
+	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
+}
 
 describe("admin submissions route", () => {
 	it("loads submissions with tracks + participants", async () => {
@@ -97,6 +114,10 @@ describe("admin submissions route", () => {
 		);
 		expect(result.data.submissions[0]?.participants).toHaveLength(1);
 		expect(result.init.headers["Server-Timing"]).toContain("db;dur=");
+		const html = renderSubmissions(result.data);
+		expect(html).toContain('href="/admin/submissions/s1"');
+		expect(html).toContain("Preview accept emails + finalize");
+		expect(html).toContain("Preview decline emails + finalize");
 	});
 
 	it("creates a submission via the action (server-derives eventId)", async () => {

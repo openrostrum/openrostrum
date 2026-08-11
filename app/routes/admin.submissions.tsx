@@ -1,8 +1,16 @@
 import { and, count, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { useState } from "react";
-import { Form, data, redirect, useFetcher } from "react-router";
+import {
+	Form,
+	Link,
+	data,
+	redirect,
+	useFetcher,
+	useNavigate,
+} from "react-router";
 import { z } from "zod";
+import { DecisionPreviewDialog } from "~/components/decision-preview-dialog";
 import { getDb } from "~/db";
 // Client-safe enums come from ~/db/constants (pure) — importing them from
 // ~/db/schema would pull drizzle-orm + every table def into the client bundle.
@@ -19,8 +27,11 @@ import {
 	submissions,
 } from "~/db/schema";
 import {
-	canReceiveDecision,
 	MissingTemplateError,
+	StaleDecisionPreviewError,
+	canReceiveDecision,
+	type DecisionEmailPreview,
+	previewDecisionEmails,
 	sendDecisionEmails,
 	transitionSubmissions,
 } from "~/domain/accept";
@@ -70,7 +81,7 @@ const BulkSetStatus = z.object({
 	status: z.enum(DECISION_STATUS),
 });
 
-const SendDecisions = z.object({
+const DecisionSelection = z.object({
 	submissionIds: z
 		.array(z.string().min(1))
 		.min(1, "Select at least one submission.")
@@ -79,7 +90,13 @@ const SendDecisions = z.object({
 			"Decision emails go out in batches of up to 100 — narrow the selection.",
 		),
 	decision: z.enum(["accept", "decline"]),
+});
+
+const SendDecisions = DecisionSelection.extend({
 	idempotencyKey: z.string().min(1),
+	previewFingerprint: z
+		.string()
+		.min(1, "Preview these decision emails before sending."),
 });
 
 type DecisionActionData = {
@@ -87,7 +104,10 @@ type DecisionActionData = {
 	formError?: string;
 	notice?: string;
 	skipped?: string[];
+	preview?: DecisionEmailPreview;
 };
+
+type DecisionFetcherData = DecisionActionData;
 
 // Without this export, RR7 drops loader/action headers from DOCUMENT
 // responses (they only flow to .data requests) — Server-Timing would
@@ -177,6 +197,16 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 	if (intent === "bulk-set-status") {
 		return bulkSetStatusAction(db, event.id, form);
+	}
+	if (intent === "preview-accept" || intent === "preview-decline") {
+		return previewDecisionsAction(
+			db,
+			env,
+			event,
+			form,
+			intent,
+			new URL(request.url).origin,
+		);
 	}
 	if (intent === "send-accept" || intent === "send-decline") {
 		return sendDecisionsAction(
@@ -439,6 +469,78 @@ async function bulkSetStatusAction(
 	return timed(timings, result);
 }
 
+async function loadDecisionRows(
+	db: ReturnType<typeof getDb>,
+	eventId: string,
+	submissionIds: string[],
+) {
+	const rows = await findEventSubmissions(db, eventId, submissionIds);
+	const skipped = missingIdNotes(submissionIds, rows);
+	const eligible: typeof rows = [];
+	for (const row of rows) {
+		const check = canReceiveDecision(row.status);
+		if (check.ok) eligible.push(row);
+		else skipped.push(`"${row.title}": ${check.reason}`);
+	}
+	return { rows, eligible, skipped };
+}
+
+async function previewDecisionsAction(
+	db: ReturnType<typeof getDb>,
+	env: Env,
+	event: NonNullable<Awaited<ReturnType<typeof getActiveEvent>>>,
+	form: FormData,
+	intent: "preview-accept" | "preview-decline",
+	origin: string,
+) {
+	const parsed = DecisionSelection.safeParse({
+		submissionIds: form.getAll("submissionIds"),
+		decision: intent === "preview-accept" ? "accept" : "decline",
+	});
+	if (!parsed.success) return { formError: firstZodMessage(parsed.error) };
+	const timings = createTimings();
+	const { eligible, skipped } = await timings.time("db", () =>
+		loadDecisionRows(db, event.id, parsed.data.submissionIds),
+	);
+	if (eligible.length === 0) {
+		return timed(timings, {
+			formError:
+				"No selected submissions are eligible for this decision email.",
+			skipped: skipped.length ? skipped : undefined,
+		});
+	}
+	try {
+		const preview = await timings.time("preview", () =>
+			previewDecisionEmails(db, env, {
+				event,
+				rows: eligible,
+				decision: parsed.data.decision,
+				origin,
+			}),
+		);
+		const previewSkipped = preview.skipped.map(
+			(item) => `"${item.title}": ${item.reason}`,
+		);
+		return timed(timings, {
+			preview,
+			skipped:
+				skipped.length || previewSkipped.length
+					? [...skipped, ...previewSkipped]
+					: undefined,
+		});
+	} catch (error) {
+		if (error instanceof MissingTemplateError) {
+			return timed(timings, { formError: error.message });
+		}
+		track("email.decision_preview_failed", {
+			eventId: event.id,
+			decision: parsed.data.decision,
+			error: errorMessage(error),
+		});
+		throw error;
+	}
+}
+
 async function sendDecisionsAction(
 	db: ReturnType<typeof getDb>,
 	env: Env,
@@ -451,27 +553,17 @@ async function sendDecisionsAction(
 		submissionIds: form.getAll("submissionIds"),
 		decision: intent === "send-accept" ? "accept" : "decline",
 		idempotencyKey: form.get("idempotencyKey"),
+		previewFingerprint: form.get("previewFingerprint") ?? "",
 	});
 	if (!parsed.success) {
 		return { formError: firstZodMessage(parsed.error) };
 	}
-	const { decision, idempotencyKey } = parsed.data;
+	const { decision, idempotencyKey, previewFingerprint } = parsed.data;
 	const target = decision === "accept" ? "accepted" : "declined";
 	const timings = createTimings();
-	const rows = await timings.time("db", () =>
-		findEventSubmissions(db, event.id, parsed.data.submissionIds),
+	const { rows, eligible, skipped } = await timings.time("db", () =>
+		loadDecisionRows(db, event.id, parsed.data.submissionIds),
 	);
-	const skipped: string[] = missingIdNotes(parsed.data.submissionIds, rows);
-
-	// Sessionboard's loop is send → then flip; we run both as one explicit
-	// action. Rows that can't take the decision (drafts) are excluded from the
-	// send too — nobody gets a decision email for a decision that didn't apply.
-	const eligible: typeof rows = [];
-	for (const row of rows) {
-		const check = canReceiveDecision(row.status);
-		if (check.ok) eligible.push(row);
-		else skipped.push(`"${row.title}": ${check.reason}`);
-	}
 	let sent: Awaited<ReturnType<typeof sendDecisionEmails>>;
 	try {
 		sent = await timings.time("send", () =>
@@ -481,6 +573,7 @@ async function sendDecisionsAction(
 				decision,
 				idempotencyKey,
 				origin,
+				previewFingerprint,
 			}),
 		);
 	} catch (error) {
@@ -494,7 +587,8 @@ async function sendDecisionsAction(
 		// Retrying re-uses the form's key, so partial sends never deliver twice.
 		return timed(timings, {
 			formError:
-				error instanceof MissingTemplateError
+				error instanceof MissingTemplateError ||
+				error instanceof StaleDecisionPreviewError
 					? error.message
 					: "Sending failed partway — try again; emails already sent will not go out twice.",
 		});
@@ -611,6 +705,13 @@ export default function Submissions({
 	actionData,
 }: Route.ComponentProps) {
 	const busy = useBusy();
+	const navigate = useNavigate();
+	const decisionFetcher = useFetcher<DecisionFetcherData>();
+	const [previewDecision, setPreviewDecision] = useState<
+		"accept" | "decline" | null
+	>(null);
+	const decisionPreview = decisionFetcher.data?.preview ?? null;
+	const [previewRecipientIndex, setPreviewRecipientIndex] = useState(0);
 	const { submissions: rows, total, filterType, filterStatus } = loaderData;
 	const filtered = Boolean(filterType || filterStatus);
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -627,7 +728,28 @@ export default function Submissions({
 			return next;
 		});
 		setSendKey(crypto.randomUUID());
+		setPreviewDecision(null);
 	};
+
+	const requestDecisionPreview = (decision: "accept" | "decline") => {
+		setPreviewDecision(decision);
+		setPreviewRecipientIndex(0);
+		const formData = new FormData();
+		formData.set("intent", `preview-${decision}`);
+		for (const id of selected) formData.append("submissionIds", id);
+		decisionFetcher.submit(formData, { method: "post" });
+	};
+
+	const confirmDecisionSend = () => {
+		if (!previewDecision || !decisionPreview || !sendKey) return;
+		const formData = new FormData();
+		formData.set("intent", `send-${previewDecision}`);
+		formData.set("idempotencyKey", sendKey);
+		formData.set("previewFingerprint", decisionPreview.fingerprint);
+		for (const id of selected) formData.append("submissionIds", id);
+		decisionFetcher.submit(formData, { method: "post" });
+	};
+
 	const fieldErrors =
 		actionData && "fieldErrors" in actionData
 			? actionData.fieldErrors
@@ -638,6 +760,9 @@ export default function Submissions({
 		actionData && "notice" in actionData ? actionData.notice : undefined;
 	const skipped =
 		actionData && "skipped" in actionData ? actionData.skipped : undefined;
+	const decisionFormError = decisionFetcher.data?.formError;
+	const decisionNotice = decisionFetcher.data?.notice;
+	const decisionSkipped = decisionFetcher.data?.skipped;
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
 			<PageHeader
@@ -681,7 +806,6 @@ export default function Submissions({
 					id="bulk-actions"
 					className="flex flex-wrap items-end gap-3"
 				>
-					<Input type="hidden" name="idempotencyKey" value={sendKey} readOnly />
 					<Field
 						label={`${selected.size} selected submission${selected.size === 1 ? "" : "s"}`}
 					>
@@ -703,23 +827,21 @@ export default function Submissions({
 						Apply status
 					</Button>
 					<Button
-						type="submit"
-						name="intent"
-						value="send-accept"
+						type="button"
 						icon="mail"
 						disabled={selected.size === 0 || !sendKey || busy}
+						onClick={() => requestDecisionPreview("accept")}
 					>
-						Send accept emails + finalize
+						Preview accept emails + finalize
 					</Button>
 					<Button
-						type="submit"
-						name="intent"
-						value="send-decline"
+						type="button"
 						variant="ghost"
 						icon="mail"
 						disabled={selected.size === 0 || !sendKey || busy}
+						onClick={() => requestDecisionPreview("decline")}
 					>
-						Send decline emails + finalize
+						Preview decline emails + finalize
 					</Button>
 				</Form>
 				<p className="pt-3">
@@ -731,6 +853,13 @@ export default function Submissions({
 				{notice && <p className="pt-3">{notice}</p>}
 				{skipped?.map((s) => (
 					<ErrorText key={s}>Skipped {s}</ErrorText>
+				))}
+				{decisionNotice && <p className="pt-3">{decisionNotice}</p>}
+				{decisionFormError && !previewDecision && (
+					<ErrorText>{decisionFormError}</ErrorText>
+				)}
+				{decisionSkipped?.map((item) => (
+					<ErrorText key={item}>Skipped {item}</ErrorText>
 				))}
 			</Panel>
 
@@ -797,7 +926,17 @@ export default function Submissions({
 				</THead>
 				<TBody>
 					{rows.map((s) => (
-						<Tr key={s.id}>
+						<Tr
+							key={s.id}
+							interactive
+							onClick={(event) => {
+								const target = event.target as HTMLElement;
+								if (target.closest?.("a,button,input,select,textarea,label")) {
+									return;
+								}
+								navigate(`/admin/submissions/${s.id}`);
+							}}
+						>
 							<Td>
 								<Input
 									type="checkbox"
@@ -812,7 +951,9 @@ export default function Submissions({
 									}
 								/>
 							</Td>
-							<Td kind="strong">{s.title}</Td>
+							<Td kind="strong">
+								<Link to={`/admin/submissions/${s.id}`}>{s.title}</Link>
+							</Td>
 							<Td>
 								<StatusCell id={s.id} title={s.title} status={s.status} />
 							</Td>
@@ -844,6 +985,23 @@ export default function Submissions({
 					)}
 				</TBody>
 			</Table>
+			<DecisionPreviewDialog
+				open={previewDecision !== null && !decisionNotice}
+				decision={previewDecision}
+				preview={decisionPreview}
+				skipped={decisionSkipped}
+				activeIndex={previewRecipientIndex}
+				loading={decisionFetcher.state !== "idle"}
+				error={decisionFormError}
+				onSelectRecipient={setPreviewRecipientIndex}
+				onRefresh={() => {
+					if (previewDecision) requestDecisionPreview(previewDecision);
+				}}
+				onCancel={() => {
+					setPreviewDecision(null);
+				}}
+				onConfirm={confirmDecisionSend}
+			/>
 		</div>
 	);
 }

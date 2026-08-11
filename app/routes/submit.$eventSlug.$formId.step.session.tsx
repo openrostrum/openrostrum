@@ -57,6 +57,7 @@ import { submissions } from "~/db/schema";
 import { submitPath } from "~/domain/forms";
 import { getUser, requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { formatInTz } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
@@ -471,6 +472,7 @@ export default function SessionStep({
 				limitReached={loaderData.limitReached}
 				limit={loaderData.limit}
 				portalPath={layout.portalPath}
+				timezone={layout.event.timezone}
 			/>
 		);
 	}
@@ -556,7 +558,7 @@ export default function SessionStep({
 			{state.loadedStatus === "draft" && savedAt !== null && (
 				<InfoNotice>
 					You are editing your draft. Last saved{" "}
-					{new Date(savedAt).toLocaleString()}.
+					{formatInTz(new Date(savedAt), layout.event.timezone)}.
 				</InfoNotice>
 			)}
 			<Panel>
@@ -609,13 +611,14 @@ export default function SessionStep({
 	);
 }
 
-function DraftsHub({
+export function DraftsHub({
 	base,
 	drafts,
 	actionPath,
 	limitReached,
 	limit,
 	portalPath,
+	timezone,
 }: {
 	base: string;
 	drafts: Array<{ id: string; title: string; updatedAt: number }>;
@@ -623,6 +626,7 @@ function DraftsHub({
 	limitReached: boolean;
 	limit: number | null;
 	portalPath: string | null;
+	timezone: string;
 }) {
 	const deleteFetcher = useFetcher<SessionActionResult>();
 	const busy = useBusy();
@@ -648,7 +652,8 @@ function DraftsHub({
 								<span className="flex items-center gap-2">
 									<StatusBadge tone="faint">Draft — not submitted</StatusBadge>
 									<MutedText>
-										Last updated {new Date(draft.updatedAt).toLocaleString()}
+										Last updated{" "}
+										{formatInTz(new Date(draft.updatedAt), timezone)}
 									</MutedText>
 								</span>
 							</div>

@@ -439,6 +439,291 @@ export class MissingTemplateError extends Error {
 	}
 }
 
+export class DecisionPreviewRequiredError extends Error {
+	constructor() {
+		super("Preview these decision emails before sending.");
+		this.name = "DecisionPreviewRequiredError";
+	}
+}
+
+export class StaleDecisionPreviewError extends Error {
+	constructor() {
+		super(
+			"Recipients or template content changed after preview — review the refreshed email before sending.",
+		);
+		this.name = "StaleDecisionPreviewError";
+	}
+}
+
+type Decision = "accept" | "decline";
+
+type DecisionPlanItem = {
+	row: Submission;
+	to?: string;
+	subject?: string;
+	html?: string;
+	ics?: string;
+	reason?: string;
+};
+
+type DecisionEmailPlan = {
+	template: typeof emailTemplates.$inferSelect;
+	items: DecisionPlanItem[];
+	fingerprint: string;
+};
+
+export type DecisionEmailPreview = {
+	decision: Decision;
+	template: { id: string; name: string; replyTo: string | null };
+	recipients: Array<{
+		submissionId: string;
+		title: string;
+		to: string;
+		subject: string;
+		html: string;
+		hasCalendarAttachment: boolean;
+	}>;
+	skipped: Array<{ submissionId: string; title: string; reason: string }>;
+	fingerprint: string;
+};
+
+async function fingerprintDecisionPlan(
+	decision: Decision,
+	template: typeof emailTemplates.$inferSelect,
+	items: DecisionPlanItem[],
+): Promise<string> {
+	const bytes = new TextEncoder().encode(
+		JSON.stringify({
+			decision,
+			template: {
+				id: template.id,
+				name: template.name,
+				replyTo: template.replyTo,
+			},
+			items: items.map((item) => ({
+				submissionId: item.row.id,
+				title: item.row.title,
+				to: item.to,
+				subject: item.subject,
+				html: item.html,
+				ics: item.ics,
+				reason: item.reason,
+			})),
+		}),
+	);
+	const digest = await crypto.subtle.digest("SHA-256", bytes);
+	return [...new Uint8Array(digest)]
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
+}
+
+async function buildDecisionEmailPlan(
+	db: Db,
+	env: Env,
+	opts: {
+		event: typeof events.$inferSelect;
+		rows: Submission[];
+		decision: Decision;
+		origin?: string | null;
+	},
+): Promise<DecisionEmailPlan> {
+	const { event, rows, decision } = opts;
+	if (rows.length === 0) throw new Error("Select at least one submission.");
+	if (rows.length > EMAIL_BATCH_LIMIT) {
+		throw new Error(
+			`Decision emails go out in batches of up to ${EMAIL_BATCH_LIMIT} — narrow the selection.`,
+		);
+	}
+
+	const [template] = await db
+		.select()
+		.from(emailTemplates)
+		.where(
+			and(
+				eq(emailTemplates.eventId, event.id),
+				eq(emailTemplates.key, decision),
+			),
+		)
+		.limit(1);
+	if (!template) throw new MissingTemplateError(decision);
+
+	const ids = rows.map((row) => row.id);
+	const recipientById = await inviteRecipients(db, ids);
+	const speakerRows = await db
+		.select({
+			submissionId: participants.submissionId,
+			firstName: contacts.firstName,
+			lastName: contacts.lastName,
+		})
+		.from(participants)
+		.innerJoin(contacts, eq(contacts.id, participants.contactId))
+		.where(
+			and(
+				inArray(participants.submissionId, ids),
+				eq(participants.role, "speaker"),
+			),
+		)
+		.orderBy(desc(participants.isPrimary), asc(participants.position));
+
+	const submitterIds = [
+		...new Set(
+			rows.map((row) => row.submitterId).filter((id): id is string => !!id),
+		),
+	];
+	const submitterRows = submitterIds.length
+		? await db
+				.select({ id: users.id, name: users.name })
+				.from(users)
+				.where(inArray(users.id, submitterIds))
+		: [];
+	const submitterById = new Map(submitterRows.map((user) => [user.id, user]));
+
+	const roomIds = [
+		...new Set(
+			rows.map((row) => row.roomId).filter((id): id is string => !!id),
+		),
+	];
+	const roomRows = roomIds.length
+		? await db
+				.select({ id: rooms.id, name: rooms.name })
+				.from(rooms)
+				.where(inArray(rooms.id, roomIds))
+		: [];
+	const roomName = new Map(roomRows.map((room) => [room.id, room.name]));
+
+	const formIds = [
+		...new Set(
+			rows.map((row) => row.formId).filter((id): id is string => !!id),
+		),
+	];
+	const formRows = formIds.length
+		? await db
+				.select({
+					id: forms.id,
+					externalTitle: forms.externalTitle,
+					closeAt: forms.closeAt,
+				})
+				.from(forms)
+				.where(inArray(forms.id, formIds))
+		: [];
+	const formById = new Map(formRows.map((form) => [form.id, form]));
+
+	const origin = opts.origin ?? emailOrigin(env);
+	const portalPublicId = (await firstPortalsByEvent(db, event.id)).get(
+		event.id,
+	);
+	const portalLink =
+		origin && portalPublicId
+			? portalUrl(origin, event.slug, portalPublicId)
+			: null;
+	const items: DecisionPlanItem[] = rows.map((row) => {
+		const to = recipientById.get(row.id);
+		if (!to) {
+			return {
+				row,
+				reason: "No speaker or submitter email on this submission.",
+			};
+		}
+		const speaker = speakerRows.find(
+			(candidate) => candidate.submissionId === row.id,
+		);
+		const submitter = row.submitterId
+			? submitterById.get(row.submitterId)
+			: undefined;
+		const [submitterFirst = "", ...submitterRest] = (submitter?.name ?? "")
+			.trim()
+			.split(/\s+/);
+		const firstName = speaker?.firstName ?? submitterFirst;
+		const lastName = speaker?.lastName ?? submitterRest.join(" ");
+		const room = row.roomId ? roomName.get(row.roomId) : undefined;
+		const form = row.formId ? formById.get(row.formId) : undefined;
+		const context: MergeContext = {
+			first_name: firstName,
+			last_name: lastName,
+			full_name: `${firstName} ${lastName}`.trim(),
+			email: to,
+			event_name: event.name,
+			session_title: row.title,
+			session_date_time: row.startsAt
+				? formatInTimeZone(row.startsAt, event.timezone)
+				: null,
+			starts_at: row.startsAt
+				? formatInTimeZone(row.startsAt, event.timezone)
+				: null,
+			ends_at: row.endsAt ? formatInTimeZone(row.endsAt, event.timezone) : null,
+			session_room: room ?? null,
+			location: room ?? event.location ?? null,
+			portal_link: portalLink,
+			form_title: form?.externalTitle ?? null,
+			form_close_date: form?.closeAt
+				? formatInTimeZone(form.closeAt, event.timezone)
+				: null,
+		};
+		return {
+			row,
+			to,
+			subject: renderSubject(template.subject, context),
+			html:
+				renderBody(template.bodyHtml, context) +
+				decisionDetailsHtml(row, event, decision, room),
+			ics:
+				decision === "accept" ? buildDecisionIcs(row, event, room) : undefined,
+		};
+	});
+	return {
+		template,
+		items,
+		fingerprint: await fingerprintDecisionPlan(decision, template, items),
+	};
+}
+
+export async function previewDecisionEmails(
+	db: Db,
+	env: Env,
+	opts: {
+		event: typeof events.$inferSelect;
+		rows: Submission[];
+		decision: Decision;
+		origin?: string | null;
+	},
+): Promise<DecisionEmailPreview> {
+	const plan = await buildDecisionEmailPlan(db, env, opts);
+	return {
+		decision: opts.decision,
+		template: {
+			id: plan.template.id,
+			name: plan.template.name,
+			replyTo: plan.template.replyTo,
+		},
+		recipients: plan.items.flatMap((item) =>
+			item.to && item.subject !== undefined && item.html !== undefined
+				? [
+						{
+							submissionId: item.row.id,
+							title: item.row.title,
+							to: item.to,
+							subject: item.subject,
+							html: item.html,
+							hasCalendarAttachment: item.ics !== undefined,
+						},
+					]
+				: [],
+		),
+		skipped: plan.items.flatMap((item) =>
+			item.reason
+				? [
+						{
+							submissionId: item.row.id,
+							title: item.row.title,
+							reason: item.reason,
+						},
+					]
+				: [],
+		),
+		fingerprint: plan.fingerprint,
+	};
+}
+
 /**
  * The EXPLICIT decision notification — never triggered by a status change.
  * One transactional email per submission (primary speaker contact, fallback
@@ -462,156 +747,41 @@ export async function sendDecisionEmails(
 		idempotencyKey: string;
 		/** Request origin for {{portal_link}}; omitted → APP_ORIGIN fallback. */
 		origin?: string | null;
+		/** Confirm that recipients and rendered content still match the reviewed preview. */
+		previewFingerprint: string;
 	},
 ): Promise<DecisionSendResult[]> {
 	const { event, rows, decision, idempotencyKey } = opts;
 	if (rows.length === 0) return [];
-	if (rows.length > EMAIL_BATCH_LIMIT) {
-		throw new Error(
-			`Decision emails go out in batches of up to ${EMAIL_BATCH_LIMIT} — narrow the selection.`,
-		);
+	const plan = await buildDecisionEmailPlan(db, env, opts);
+	if (!opts.previewFingerprint) throw new DecisionPreviewRequiredError();
+	if (opts.previewFingerprint !== plan.fingerprint) {
+		throw new StaleDecisionPreviewError();
 	}
-
-	const [template] = await db
-		.select()
-		.from(emailTemplates)
-		.where(
-			and(
-				eq(emailTemplates.eventId, event.id),
-				eq(emailTemplates.key, decision),
-			),
-		)
-		.limit(1);
-	if (!template) throw new MissingTemplateError(decision);
-
-	const ids = rows.map((r) => r.id);
-	const recipientById = await inviteRecipients(db, ids);
-	const speakerRows = await db
-		.select({
-			submissionId: participants.submissionId,
-			firstName: contacts.firstName,
-			lastName: contacts.lastName,
-		})
-		.from(participants)
-		.innerJoin(contacts, eq(contacts.id, participants.contactId))
-		.where(
-			and(
-				inArray(participants.submissionId, ids),
-				eq(participants.role, "speaker"),
-			),
-		)
-		.orderBy(desc(participants.isPrimary), asc(participants.position));
-
-	const submitterIds = [
-		...new Set(rows.map((r) => r.submitterId).filter((v): v is string => !!v)),
-	];
-	const submitterRows = submitterIds.length
-		? await db
-				.select({ id: users.id, name: users.name })
-				.from(users)
-				.where(inArray(users.id, submitterIds))
-		: [];
-	const submitterById = new Map(submitterRows.map((u) => [u.id, u]));
-
-	const roomIds = [
-		...new Set(rows.map((r) => r.roomId).filter((v): v is string => !!v)),
-	];
-	const roomRows = roomIds.length
-		? await db
-				.select({ id: rooms.id, name: rooms.name })
-				.from(rooms)
-				.where(inArray(rooms.id, roomIds))
-		: [];
-	const roomName = new Map(roomRows.map((r) => [r.id, r.name]));
-
-	const formIds = [
-		...new Set(rows.map((r) => r.formId).filter((v): v is string => !!v)),
-	];
-	const formRows = formIds.length
-		? await db
-				.select({
-					id: forms.id,
-					externalTitle: forms.externalTitle,
-					closeAt: forms.closeAt,
-				})
-				.from(forms)
-				.where(inArray(forms.id, formIds))
-		: [];
-	const formById = new Map(formRows.map((f) => [f.id, f]));
-
-	const origin = opts.origin ?? emailOrigin(env);
-	const portalPublicId = (await firstPortalsByEvent(db, event.id)).get(
-		event.id,
-	);
-	const portalLink =
-		origin && portalPublicId
-			? portalUrl(origin, event.slug, portalPublicId)
-			: null;
+	const { template } = plan;
 
 	const sender = getEmailSender(env);
 	const results: DecisionSendResult[] = [];
 	const newlySent: string[] = [];
 	const dedupedIds: string[] = [];
-	for (const row of rows) {
-		const speaker = speakerRows.find((s) => s.submissionId === row.id);
-		const submitter = row.submitterId
-			? submitterById.get(row.submitterId)
-			: undefined;
-		const to = recipientById.get(row.id);
-		if (!to) {
+	for (const item of plan.items) {
+		const { row, to, subject, html, ics, reason } = item;
+		if (reason || !to || subject === undefined || html === undefined) {
 			results.push({
 				submissionId: row.id,
 				ok: false,
-				reason: "No speaker or submitter email on this submission.",
+				reason: reason ?? "This decision email could not be prepared.",
 			});
 			continue;
 		}
-		const room = row.roomId ? roomName.get(row.roomId) : undefined;
-		// The SAME renderer the template editor previews with — a sent email must
-		// never carry a literal {{merge_tag}} the preview showed resolved.
-		// Speaker names stay structured (splitting would mangle "Mary Jane");
-		// only the submitter fallback needs a split — users.name is one field.
-		const [subFirst = "", ...subRest] = (submitter?.name ?? "")
-			.trim()
-			.split(/\s+/);
-		const firstName = speaker ? speaker.firstName : subFirst;
-		const lastName = speaker ? speaker.lastName : subRest.join(" ");
-		const form = row.formId ? formById.get(row.formId) : undefined;
-		const ctx: MergeContext = {
-			first_name: firstName,
-			last_name: lastName,
-			full_name: `${firstName} ${lastName}`.trim(),
-			email: to,
-			event_name: event.name,
-			session_title: row.title,
-			session_date_time: row.startsAt
-				? formatInTimeZone(row.startsAt, event.timezone)
-				: null,
-			starts_at: row.startsAt
-				? formatInTimeZone(row.startsAt, event.timezone)
-				: null,
-			ends_at: row.endsAt ? formatInTimeZone(row.endsAt, event.timezone) : null,
-			session_room: room ?? null,
-			location: room ?? event.location ?? null,
-			portal_link: portalLink,
-			form_title: form?.externalTitle ?? null,
-			form_close_date: form?.closeAt
-				? formatInTimeZone(form.closeAt, event.timezone)
-				: null,
-		};
 		let result: EmailResult;
 		try {
 			result = await sender.send({
 				to,
 				replyTo: template.replyTo ?? undefined,
-				subject: renderSubject(template.subject, ctx),
-				html:
-					renderBody(template.bodyHtml, ctx) +
-					decisionDetailsHtml(row, event, decision, room),
-				ics:
-					decision === "accept"
-						? buildDecisionIcs(row, event, room)
-						: undefined,
+				subject,
+				html,
+				ics,
 				// The decision is part of the identity: an accept then a corrective
 				// decline on the SAME untouched selection must both deliver.
 				dedupeKey: `decision:${decision}:${idempotencyKey}:${row.id}`,

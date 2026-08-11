@@ -27,6 +27,18 @@ function unwrap(result: unknown) {
 			notice?: string;
 			skipped?: string[];
 			formError?: string;
+			preview?: {
+				decision: "accept" | "decline";
+				fingerprint: string;
+				template: { name: string };
+				recipients: Array<{
+					submissionId: string;
+					to: string;
+					subject: string;
+					html: string;
+					hasCalendarAttachment: boolean;
+				}>;
+			};
 		};
 		init: { headers: Record<string, string> };
 	};
@@ -130,6 +142,26 @@ async function seedSubmissionWithSpeaker(
 		role: "speaker",
 		isPrimary: true,
 	});
+}
+
+async function decisionPreview(
+	decision: "accept" | "decline",
+	submissionIds: string[],
+	context: typeof CONTEXT = CONTEXT,
+) {
+	const body = new URLSearchParams([["intent", `preview-${decision}`]]);
+	for (const id of submissionIds) body.append("submissionIds", id);
+	const result = unwrap(
+		await action({
+			context,
+			request: await requestAs("u_admin", body),
+			params: {},
+		} as unknown as Parameters<typeof action>[0]),
+	);
+	if (!result.data.preview) {
+		throw new Error(result.data.formError ?? "missing decision preview");
+	}
+	return result.data.preview;
 }
 
 describe("set-status intent", () => {
@@ -327,17 +359,103 @@ describe("bulk + send-decisions intents", () => {
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
 
+	it("previews exact selected recipients without mutating state", async () => {
+		const db = await seedWorld();
+		await seedSubmissionWithSpeaker("s1", "accept_queue", "marco@example.com");
+		await seedSubmissionWithSpeaker("s2", "draft", "ghost@example.com");
+
+		const preview = await decisionPreview("accept", ["s1", "s2"]);
+
+		expect(preview.template.name).toBe("Accept Sessions");
+		expect(preview.recipients).toEqual([
+			expect.objectContaining({
+				submissionId: "s1",
+				to: "marco@example.com",
+				subject: "Your session was accepted",
+				hasCalendarAttachment: false,
+			}),
+		]);
+		expect(preview.recipients[0]?.html).toContain("Talk s1");
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+		expect(await db.select().from(taskAssignments)).toHaveLength(0);
+		const rows = await db.select().from(submissions);
+		expect(new Map(rows.map((row) => [row.id, row.status]))).toEqual(
+			new Map([
+				["s1", "accept_queue"],
+				["s2", "draft"],
+			]),
+		);
+	});
+
+	it("rejects final send without a reviewed preview fingerprint", async () => {
+		const db = await seedWorld();
+		await seedSubmissionWithSpeaker("s1", "accept_queue", "marco@example.com");
+		const result = (await action({
+			context: CONTEXT,
+			request: await requestAs(
+				"u_admin",
+				new URLSearchParams([
+					["intent", "send-accept"],
+					["submissionIds", "s1"],
+					["idempotencyKey", "no-preview"],
+				]),
+			),
+			params: {},
+		} as unknown as Parameters<typeof action>[0])) as { formError?: string };
+		expect(result.formError).toMatch(/preview/i);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+		const [row] = await db
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, "s1"));
+		expect(row?.status).toBe("accept_queue");
+	});
+
+	it("rejects confirmation when the reviewed template changes", async () => {
+		const db = await seedWorld();
+		await seedSubmissionWithSpeaker("s1", "accept_queue", "marco@example.com");
+		const preview = await decisionPreview("accept", ["s1"]);
+		await db
+			.update(emailTemplates)
+			.set({ subject: "Changed after preview" })
+			.where(eq(emailTemplates.id, "et_accept"));
+		const result = unwrap(
+			await action({
+				context: CONTEXT,
+				request: await requestAs(
+					"u_admin",
+					new URLSearchParams([
+						["intent", "send-accept"],
+						["submissionIds", "s1"],
+						["idempotencyKey", "stale-preview"],
+						["previewFingerprint", preview.fingerprint],
+					]),
+				),
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
+		expect(result.data.formError).toMatch(/changed after preview/i);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+		const [row] = await db
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, "s1"));
+		expect(row?.status).toBe("accept_queue");
+	});
+
 	it("send-accept emails each selected row, finalizes it, and provisions — replay-safe", async () => {
 		const db = await seedWorld();
 		await seedSubmissionWithSpeaker("s1", "accept_queue", "marco@example.com");
 		await seedSubmissionWithSpeaker("s2", "accept_queue", "dana@example.com");
 		await seedSubmissionWithSpeaker("s3", "draft", "ghost@example.com");
+		const preview = await decisionPreview("accept", ["s1", "s2", "s3"]);
 		const body = new URLSearchParams([
 			["intent", "send-accept"],
 			["submissionIds", "s1"],
 			["submissionIds", "s2"],
 			["submissionIds", "s3"],
 			["idempotencyKey", "form-key-1"],
+			["previewFingerprint", preview.fingerprint],
 		]);
 		const result = unwrap(
 			await action({
@@ -385,6 +503,7 @@ describe("bulk + send-decisions intents", () => {
 	it("send-decline finalizes to declined with the decline template", async () => {
 		const db = await seedWorld();
 		await seedSubmissionWithSpeaker("s1", "decline_queue", "tom@example.com");
+		const preview = await decisionPreview("decline", ["s1"]);
 		const result = unwrap(
 			await action({
 				context: CONTEXT,
@@ -394,6 +513,7 @@ describe("bulk + send-decisions intents", () => {
 						["intent", "send-decline"],
 						["submissionIds", "s1"],
 						["idempotencyKey", "form-key-2"],
+						["previewFingerprint", preview.fingerprint],
 					]),
 				),
 				params: {},
@@ -413,7 +533,7 @@ describe("bulk + send-decisions intents", () => {
 		expect(await db.select().from(taskAssignments)).toHaveLength(0);
 	});
 
-	it("send-accept refuses rows from another event without emailing them", async () => {
+	it("decision preview refuses rows from another event without emailing them", async () => {
 		const db = await seedWorld();
 		await seedSubmissionWithSpeaker(
 			"foreign",
@@ -427,9 +547,8 @@ describe("bulk + send-decisions intents", () => {
 				request: await requestAs(
 					"u_admin",
 					new URLSearchParams([
-						["intent", "send-accept"],
+						["intent", "preview-accept"],
 						["submissionIds", "foreign"],
-						["idempotencyKey", "form-key-3"],
 					]),
 				),
 				params: {},
@@ -444,11 +563,10 @@ describe("bulk + send-decisions intents", () => {
 		expect(row?.status).toBe("accept_queue");
 	});
 
-	it("caps a decision send at 100 recipients with a batching message", async () => {
+	it("caps a decision preview at 100 recipients with a batching message", async () => {
 		const db = await seedWorld();
 		const body = new URLSearchParams([
-			["intent", "send-accept"],
-			["idempotencyKey", "form-key-4"],
+			["intent", "preview-accept"],
 			...Array.from(
 				{ length: 101 },
 				(_, i) => ["submissionIds", `s${i}`] as [string, string],
@@ -463,7 +581,7 @@ describe("bulk + send-decisions intents", () => {
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
 
-	it("a missing template is reported as fixable product state, not a generic failure", async () => {
+	it("a missing preview template is reported as fixable product state", async () => {
 		const db = await seedWorld();
 		await db.delete(emailTemplates).where(eq(emailTemplates.id, "et_accept"));
 		await seedSubmissionWithSpeaker("s1", "accept_queue", "a@example.com");
@@ -473,9 +591,8 @@ describe("bulk + send-decisions intents", () => {
 				request: await requestAs(
 					"u_admin",
 					new URLSearchParams([
-						["intent", "send-accept"],
+						["intent", "preview-accept"],
 						["submissionIds", "s1"],
-						["idempotencyKey", "form-key-5"],
 					]),
 				),
 				params: {},
@@ -524,10 +641,12 @@ describe("send-decisions against the real provider adapter", () => {
 			RESEND_API_KEY: "re_test",
 			EMAIL_FROM: "OpenRostrum <noreply@test.example>",
 		} as unknown as Env;
+		const prodContext = { cloudflare: { env: prodEnv, ctx: {} } };
+		const preview = await decisionPreview("accept", ["s1", "s2"], prodContext);
 
 		const result = unwrap(
 			await action({
-				context: { cloudflare: { env: prodEnv, ctx: {} } },
+				context: prodContext,
 				request: await requestAs(
 					"u_admin",
 					new URLSearchParams([
@@ -535,6 +654,7 @@ describe("send-decisions against the real provider adapter", () => {
 						["submissionIds", "s1"],
 						["submissionIds", "s2"],
 						["idempotencyKey", "form-key-6"],
+						["previewFingerprint", preview.fingerprint],
 					]),
 				),
 				params: {},

@@ -268,9 +268,10 @@ export default function EmailTemplateEditor({
 								invalid={Boolean(fieldErrors?.replyTo?.[0])}
 							/>
 						</Field>
-						<Field label="Body" error={fieldErrors?.bodyHtml?.[0]}>
+						<Field label="Body" error={fieldErrors?.bodyHtml?.[0]} composite>
 							<RichText
 								name="bodyHtml"
+								ariaLabel="Body"
 								size="lg"
 								defaultValue={template.bodyHtml}
 								invalid={Boolean(fieldErrors?.bodyHtml?.[0])}

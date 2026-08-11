@@ -142,18 +142,20 @@ scenarios:
       - "EXPERIENCE: the status flip returns instantly and the portal reflects tasks on next load — the spine runs as one transition, not a wizard the admin babysits."
 
   - id: RV-S5
-    name: One-click "accept + send + finalize" does all of RV-S3 + RV-S4 in a single action
+    name: Preview-confirm "accept + send + finalize" does all of RV-S3 + RV-S4 in one confirmed workflow
     persona: admin
     steps: |
       1. In the Accept Queue tab, locate "Realtime Collab on Durable Objects" (Ines Moreau).
-      2. Trigger the one-click "accept + send + finalize" action on it. Note time T.
-      3. Verify in one pass: status pill reads Accepted (final, not queued); outbox has exactly 1 row ≥ T to ines.moreau@example.com with the Accept template's subject and a parseable .ics attachment; speaker record exists; the session sits in the Agenda Unscheduled panel; hotel + flight tasks are assigned.
-      4. Double-click probe: fire the same action again immediately (double-click / replay the request) → outbox still 1 row, still one session record, no duplicate tasks.
-      5. Incognito: Ines's portal shows Accepted plus her 2 onboarding tasks.
+      2. Open "Preview accept emails + finalize" → verify the in-app dialog shows exactly ines.moreau@example.com, the current Accept template, its rendered subject/body, and the calendar attachment state. Cancel once; status, tasks, and outbox remain unchanged.
+      3. Reopen the preview and confirm "Send 1 acceptance email and finalize". Note time T.
+      4. Verify in one pass: status pill reads Accepted (final, not queued); outbox has exactly 1 row ≥ T to ines.moreau@example.com with the previewed subject/body and a parseable .ics attachment; speaker record exists; the session sits in the Agenda Unscheduled panel; hotel + flight tasks are assigned.
+      5. Double-click/replay probe: replay the confirmed request with its preview fingerprint and idempotency key → outbox still 1 row, still one session record, no duplicate tasks.
+      6. Incognito: Ines's portal shows Accepted plus her 2 onboarding tasks.
     success_signals:
-      - "One admin action yields all four outcomes — final status, 1 templated email with .ics, provisioned spine, assigned tasks — each independently verified (screenshot + SQL + outbox + .ics parse)."
+      - "Preview and Cancel create zero outbox/status/task writes; the exact recipient and rendered template are visible before confirmation."
+      - "One confirmed workflow yields all four outcomes — final status, 1 templated email with .ics, provisioned spine, assigned tasks — each independently verified (screenshot + SQL + outbox + .ics parse)."
       - "Replay/double-click leaves exactly 1 outbox row and no duplicate artifacts."
-      - "EXPERIENCE: single click with visible confirmation (updated pill/toast), no page reload, no multi-screen ceremony — the improvement over Sessionboard's 3-step loop is demonstrable side-by-side with RV-S3."
+      - "EXPERIENCE: an in-app preview plus one explicit confirmation completes without a page reload or multi-screen ceremony, while preventing accidental dispatch."
 
   - id: RV-S6
     name: Reviewer provisioning + track routing — My Reviews shows only overlapping tracks, decisions tally for the admin

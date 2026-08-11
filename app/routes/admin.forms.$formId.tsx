@@ -1504,7 +1504,7 @@ function RichText({
 	defaultValue: string;
 }) {
 	return (
-		<Field label={label}>
+		<Field label={label} composite>
 			<RichTextInput
 				name={name}
 				form="builder-form"
