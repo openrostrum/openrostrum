@@ -280,7 +280,7 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 					<Th>Versions</Th>
 					<Th>Review</Th>
 					<Th>Size</Th>
-					<Th>Uploaded</Th>
+					<Th>Upload date</Th>
 				</THead>
 				<TBody>
 					{rows.map((f) => (

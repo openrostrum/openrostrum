@@ -1,6 +1,5 @@
 import type { BadgeTone } from "~/ui";
 
-/** One home for task-assignment status presentation — both task routes render it. */
 export const TASK_STATUS_TONE: Record<string, BadgeTone> = {
 	incomplete: "warning",
 	pending_feedback: "info",

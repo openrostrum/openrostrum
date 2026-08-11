@@ -135,7 +135,6 @@ async function withTimeout<T>(
 	}
 }
 
-/** Salvage the JSON object from a reply that may wrap it in fences or prose. */
 function parseVerdict(raw: string): z.infer<typeof Verdict> | null {
 	const start = raw.indexOf("{");
 	const end = raw.lastIndexOf("}");

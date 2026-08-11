@@ -8,7 +8,6 @@ export interface Turnstile {
 	verify(token: string, remoteIp?: string): Promise<boolean>;
 }
 
-/** Local/dev/test: no-op pass (no external call). */
 export function createLocalTurnstile(): Turnstile {
 	return {
 		async verify() {
@@ -20,7 +19,6 @@ export function createLocalTurnstile(): Turnstile {
 const SITEVERIFY_URL =
 	"https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-/** Prod: Cloudflare Turnstile siteverify with the configured secret. */
 export function createCloudflareTurnstile(env: Env): Turnstile {
 	const secret = env.TURNSTILE_SECRET;
 	if (!secret) {

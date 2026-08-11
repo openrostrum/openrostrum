@@ -48,20 +48,9 @@ export default defineConfig(async () => {
 			}),
 		],
 		test: {
-			// Nested git worktrees under .claude/ run their own suites — never
-			// from the parent (same rule as eslint's .claude/** ignore).
+			// Nested git worktrees under .claude/ run their own suites, never the parent's.
 			exclude: [...configDefaults.exclude, ".claude/**"],
 			setupFiles: ["./test/setup.ts"],
-			deps: {
-				optimizer: {
-					ssr: {
-						enabled: true,
-						// `ics` pulls CJS deps (yup → property-expr) that workerd's
-						// ESM shim can't import raw; pre-bundling restores interop.
-						include: ["ics"],
-					},
-				},
-			},
 		},
 	};
 });

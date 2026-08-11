@@ -141,6 +141,179 @@ describe("admin file upload", () => {
 	});
 });
 
+describe("cross-path deliverable identity", () => {
+	it("adopts a matching direct session upload when the portal adds version 2", async () => {
+		const db = await seedFilesWorld();
+		await upload(
+			uploadForm(
+				{ name: "slides.pdf", content: "admin v1" },
+				{ submissionId: "s1" },
+			),
+		);
+
+		const portal = await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/portal-v2",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+
+		expect(portal.version).toBe(2);
+		const rows = await db
+			.select({
+				version: files.version,
+				taskAssignmentId: files.taskAssignmentId,
+				contactId: files.contactId,
+			})
+			.from(files)
+			.orderBy(asc(files.version));
+		expect(rows).toEqual([
+			{
+				version: 1,
+				taskAssignmentId: null,
+				contactId: null,
+			},
+			{
+				version: 2,
+				taskAssignmentId: "ta_priya_slides",
+				contactId: "c_priya",
+			},
+		]);
+	});
+
+	it("continues one matching portal deliverable when admin uploads version 2", async () => {
+		const db = await seedFilesWorld();
+		await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/portal-v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+
+		await upload(
+			uploadForm(
+				{ name: "slides.pdf", content: "admin v2" },
+				{ submissionId: "s1" },
+			),
+		);
+
+		const rows = await db
+			.select({
+				version: files.version,
+				taskAssignmentId: files.taskAssignmentId,
+				reviewStatus: files.reviewStatus,
+			})
+			.from(files)
+			.orderBy(asc(files.version));
+		expect(rows).toEqual([
+			{
+				version: 1,
+				taskAssignmentId: "ta_priya_slides",
+				reviewStatus: "pending",
+			},
+			{
+				version: 2,
+				taskAssignmentId: null,
+				reviewStatus: "none",
+			},
+		]);
+	});
+
+	it("continues the canonical sequence when a later task upload is renamed", async () => {
+		const db = await seedFilesWorld();
+		await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/task-slides-v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+		await upload(
+			uploadForm(
+				{ name: "slides.pdf", content: "admin v2" },
+				{ submissionId: "s1" },
+			),
+		);
+
+		const renamed = await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/task-deck-v3",
+			fileName: "deck.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+
+		expect(renamed.version).toBe(3);
+		expect(
+			(
+				await db
+					.select({ version: files.version })
+					.from(files)
+					.orderBy(asc(files.version))
+			).map((row) => row.version),
+		).toEqual([1, 2, 3]);
+	});
+
+	it("does not reopen an approved task when admin uploads a session file", async () => {
+		const db = await seedFilesWorld();
+		await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/approved-v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+		const completedAt = new Date("2026-08-05T12:00:00Z");
+		await db
+			.update(taskAssignments)
+			.set({ status: "complete", completedAt })
+			.where(eq(taskAssignments.id, "ta_priya_slides"));
+
+		await upload(
+			uploadForm(
+				{ name: "slides.pdf", content: "admin replacement" },
+				{ submissionId: "s1" },
+			),
+		);
+
+		const [assignment] = await db
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.id, "ta_priya_slides"));
+		expect(assignment?.status).toBe("complete");
+		expect(assignment?.completedAt).toEqual(completedAt);
+		const adminVersion = (
+			await db.select().from(files).where(eq(files.reviewStatus, "none"))
+		)[0];
+		expect(adminVersion).toMatchObject({
+			version: 2,
+			taskAssignmentId: null,
+		});
+	});
+});
+
 describe("task upload chain (shared with the portal loop)", () => {
 	it("versions per assignment and moves an admin-shared flag to the re-upload", async () => {
 		const db = await seedFilesWorld();

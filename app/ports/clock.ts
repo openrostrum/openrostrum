@@ -10,7 +10,6 @@ export const systemClock: Clock = {
 	now: () => new Date(),
 };
 
-/** Test/deterministic clock fixed at `instant`. */
 export function fixedClock(instant: Date): Clock {
 	return { now: () => instant };
 }

@@ -7,7 +7,6 @@ import { cn } from "~/ui/cn";
  * composed wherever one exists, so a re-skin stays a token/app-ui edit.
  */
 
-/** Panel with a heading row — the portal's card composition unit. */
 export function Card({
 	title,
 	count,
@@ -108,7 +107,6 @@ export function Notice({
 	);
 }
 
-/** Label:value pairs for detail metadata. */
 export function MetaGrid({
 	items,
 }: {
@@ -130,7 +128,6 @@ export function MetaGrid({
 	);
 }
 
-/** Portal page footer strip (logged-in-as line). */
 export function FooterNote({ children }: { children: ReactNode }) {
 	return (
 		<div className="flex flex-wrap items-center gap-1 py-4 text-[12px] text-fg-muted">
@@ -139,7 +136,6 @@ export function FooterNote({ children }: { children: ReactNode }) {
 	);
 }
 
-/** Local pill toggle (client state, not navigation). */
 export function PillToggle({
 	label,
 	active,

@@ -91,7 +91,6 @@ function substitute(
 	);
 }
 
-/** How a template's category reads as a send kind, everywhere it is shown. */
 export function templateKindLabel(category: string | null): string {
 	if (category === "lifecycle") return "Transactional";
 	if (category === "custom") return "Announcement";
@@ -109,7 +108,6 @@ export function renderBody(template: string, ctx: MergeContext): string {
 	return substitute(template, ctx, TEMPLATE_MERGE_TAGS, "blank", escapeHtml);
 }
 
-// ─── Compose pipeline — contact-scoped campaign vocabulary ─────────────────
 // Organizer-composed bulk mail (admin.contacts_.compose) knows the recipient
 // CONTACT, never a submission, so it publishes its own smaller tag list.
 

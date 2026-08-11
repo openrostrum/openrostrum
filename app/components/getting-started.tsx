@@ -78,11 +78,6 @@ function StepMarker({
 	);
 }
 
-/**
- * First-run checklist for an event still in setup. Step states arrive fully
- * derived (app/domain/getting-started.ts); this card only renders them and
- * hosts the dismiss form, which posts back to the dashboard's own action.
- */
 export function GettingStartedCard({
 	state,
 	cfpUrl,

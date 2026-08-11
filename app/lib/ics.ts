@@ -94,8 +94,6 @@ export function buildIcs(options: {
 	return `${lines.map(fold).join("\r\n")}\r\n`;
 }
 
-/* ------------------------------------------------------- sent-invite reads --- */
-
 export type ParsedIcsEvent = {
 	uid: string;
 	start: Date;

@@ -54,7 +54,6 @@ export async function handleClipboardFeedback(
 	}
 }
 
-/** The shared copy-to-clipboard button — compose this one, never another one-off. */
 export function CopyButton({
 	value,
 	label = "Copy",

@@ -62,7 +62,6 @@ export interface SyncRunOptions {
 }
 
 export interface SyncDeps {
-	/** Injected in tests; defaults to the env-configured base. */
 	base?: AirtableBase;
 }
 
@@ -89,13 +88,11 @@ export type SyncRunResult =
 
 type DecisionTarget = (typeof DECISION_STATUS)[number];
 
-/* ------------------------------------------------------------- sync state --- */
-
-// Run state lives in reserved tableName='$sync' rows (design doc, Decision
-// 5): it must survive across ticks/isolates, and every reconciliation select
-// filters tableName to SYNCED_TABLES so these rows never enter a plan. The
-// webhook high-water mark has its OWN row: its writer (the route) does not
-// hold the run lock, so it must never share a blob with the runner's state.
+// Reserved tableName='$sync' rows survive across ticks/isolates; every
+// reconciliation select filters tableName to SYNCED_TABLES so these rows never
+// enter a plan. The webhook high-water mark has its OWN row: its writer (the
+// route) does not hold the run lock, so it must never share a blob with the
+// runner's state.
 const STATE_TABLE = "$sync";
 const STATE_RECORD = "state";
 const LOCK_RECORD = "lock";
@@ -245,8 +242,6 @@ const REMOTE_DELETED_MARKER = "$remoteDeleted";
 // pause and alert instead of mass-archiving.
 const BREAKER_THRESHOLD = 0.2;
 
-/* ------------------------------------------------------------ local loads --- */
-
 interface LoadedTable {
 	projections: LocalProjection[];
 	/** Raw rows, needed by the workflow appliers. */
@@ -394,8 +389,6 @@ async function splitRefusedLinks(
 	};
 }
 
-/* -------------------------------------------------------------- run entry --- */
-
 export async function runAirtableSync(
 	env: Env,
 	opts: SyncRunOptions,
@@ -450,8 +443,6 @@ export async function runAirtableSync(
 		await releaseRunLock(db);
 	}
 }
-
-/* ---------------------------------------------------------------- the tick --- */
 
 interface TableWork {
 	table: SyncedTableName;
@@ -636,8 +627,6 @@ async function reconcileAll(
 	});
 	return { status: "ok", tables };
 }
-
-/* ------------------------------------------------------------ apply phase --- */
 
 async function applyTable(
 	db: Db,

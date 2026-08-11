@@ -1,9 +1,5 @@
 import { Checkbox } from "~/ui";
 
-/**
- * Checkbox list bound to one form field name — composes the ~/ui Checkbox
- * (app/components composes primitives, it never defines skins).
- */
 export function CheckboxGroup({
 	name,
 	options,

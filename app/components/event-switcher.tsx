@@ -9,7 +9,6 @@ export type SwitcherEvent = {
 	id: string;
 	name: string;
 	type: string;
-	/** Rendered date range, or null when the event has no dates yet. */
 	dates: string | null;
 	isCurrent: boolean;
 };

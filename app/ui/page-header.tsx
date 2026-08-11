@@ -14,10 +14,8 @@ export function PageHeader({
 	tone = "default",
 }: {
 	title: string;
-	/** Mono chip next to the title, e.g. "128 total". */
 	count?: string;
 	subtitle?: ReactNode;
-	/** Right-aligned slot, typically the page's primary Button. */
 	actions?: ReactNode;
 	tone?: keyof typeof TITLE_TONES;
 }) {

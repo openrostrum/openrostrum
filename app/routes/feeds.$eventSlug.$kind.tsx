@@ -44,6 +44,22 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 	const kind = params.kind.slice(0, dot);
 	const format = params.kind.slice(dot + 1);
 
+	const event = await getEventBySlug(db, params.eventSlug);
+	if (!event) return notFound("Event not found");
+
+	// An embed id narrows the feed to that embed's configured filters.
+	let config: EmbedConfig | null = null;
+	let embedType: string | null = null;
+	const embedPublicId = url.searchParams.get("embed");
+	if (embedPublicId) {
+		const embed = await db.query.embeds.findFirst({
+			where: (e, { and: andOp, eq: eqOp }) =>
+				andOp(eqOp(e.publicId, embedPublicId), eqOp(e.eventId, event.id)),
+		});
+		if (!embed || !embed.enabled) return notFound("Embed not found");
+		config = embed.config ?? null;
+		embedType = embed.type;
+	}
 	if (kind === "widget") {
 		if (format !== "js") return notFound("Unknown feed format");
 		return new Response(widgetLoaderScript(url.origin), {
@@ -54,19 +70,11 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 		});
 	}
 
-	const event = await getEventBySlug(db, params.eventSlug);
-	if (!event) return notFound("Event not found");
-
-	// An embed id narrows the feed to that embed's configured filters.
-	let config: EmbedConfig | null = null;
-	const embedPublicId = url.searchParams.get("embed");
-	if (embedPublicId) {
-		const embed = await db.query.embeds.findFirst({
-			where: (e, { and: andOp, eq: eqOp }) =>
-				andOp(eqOp(e.publicId, embedPublicId), eqOp(e.eventId, event.id)),
-		});
-		if (!embed || !embed.enabled) return notFound("Embed not found");
-		config = embed.config ?? null;
+	if (
+		(embedType === "agenda" || embedType === "itinerary") &&
+		!event.agendaPublishedAt
+	) {
+		return notFound("Agenda not published");
 	}
 
 	const programEvent = toProgramEvent(event);

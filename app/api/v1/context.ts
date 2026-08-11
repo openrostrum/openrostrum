@@ -52,8 +52,6 @@ export function parseBody<T>(schema: z.ZodType<T>, value: unknown): T {
 	return parsed.data;
 }
 
-/* --------------------------------------------- shared search-body schemas --- */
-
 export const dateRangeSchema = z.object({
 	before: z.coerce.date().optional(),
 	after: z.coerce.date().optional(),

@@ -171,7 +171,6 @@ export interface SubmissionListLoaded {
 	notPublicCount: number;
 }
 
-/** No-event admins get the designed empty state, not a payload of fake zeros. */
 export type SubmissionListData = { eventName: null } | SubmissionListLoaded;
 
 export interface ListActionData {

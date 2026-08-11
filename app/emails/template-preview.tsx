@@ -8,7 +8,6 @@ import { Panel } from "~/ui";
 import { EmailPreview } from "./email-preview";
 import { PanelHeading } from "./text";
 
-/** Live preview + merge-field reference for the template editor. */
 export function TemplatePreview({
 	subject,
 	bodyHtml,

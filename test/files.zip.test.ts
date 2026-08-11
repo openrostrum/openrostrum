@@ -50,6 +50,7 @@ async function seedExportWorld() {
 	await Promise.all([
 		put("z/slides1", "slides v1"),
 		put("z/slides2", "slides v2 FINAL"),
+		put("z/slides-duplicate", "duplicate direct v1"),
 		put("z/handout", "handout v1"),
 		put("z/talkb", "talk b deck"),
 		put("z/headshot", "png bytes"),
@@ -79,6 +80,16 @@ async function seedExportWorld() {
 			kind: "slides",
 			sizeBytes: 15,
 			version: 2,
+		},
+		{
+			id: "f_slides_direct_alias",
+			eventId: "e1",
+			submissionId: "s1",
+			r2Key: "z/slides-duplicate",
+			fileName: "slides.pdf",
+			kind: "slides",
+			sizeBytes: 19,
+			version: 1,
 		},
 		{
 			id: "f_handout",
@@ -158,6 +169,13 @@ describe("bulk ZIP export", () => {
 		await seedExportWorld();
 		const entries = await exportZip("?fileIds=f_slides_v1");
 		expect(entries.map((e) => e.path)).toEqual(["Talk A/slides.pdf"]);
+		expect(new TextDecoder().decode(entries[0]?.data)).toBe("slides v2 FINAL");
+	});
+
+	it("a selection naming a shadowed direct alias resolves to the canonical latest version", async () => {
+		await seedExportWorld();
+		const entries = await exportZip("?fileIds=f_slides_direct_alias");
+		expect(entries.map((entry) => entry.path)).toEqual(["Talk A/slides.pdf"]);
 		expect(new TextDecoder().decode(entries[0]?.data)).toBe("slides v2 FINAL");
 	});
 

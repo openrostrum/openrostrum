@@ -3,12 +3,6 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { ButtonLink, EmptyState, PageHeader, Panel, Tab, Tabs } from "~/ui";
 import type { Route } from "./+types/admin.settings";
 
-/**
- * Settings shell: header + section tabs. The pages live in children —
- * admin.settings._index.tsx (event details + images) and
- * admin.settings.library.tsx — each with its own self-authenticating
- * loader/action.
- */
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	// Self-authenticate — never rely on the admin.tsx layout loader.
