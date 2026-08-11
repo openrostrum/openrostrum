@@ -247,7 +247,7 @@ export default function PortalsAdmin({
 
 	if (!eventName) {
 		return (
-			<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
+			<div className="mx-auto flex max-w-6xl flex-col gap-6 px-8 py-6">
 				<PageHeader
 					title="Portals"
 					subtitle="Create an event first — its speaker portal is provisioned with it."
@@ -257,7 +257,7 @@ export default function PortalsAdmin({
 	}
 
 	return (
-		<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
+		<div className="mx-auto flex max-w-6xl flex-col gap-6 px-8 py-6">
 			<PageHeader
 				title="Portals"
 				count={String(portals.length)}
@@ -273,7 +273,7 @@ export default function PortalsAdmin({
 
 			{previewing && (
 				<Panel>
-					<div className="flex flex-wrap items-center gap-3">
+					<div className="flex flex-wrap items-center gap-4">
 						<StatusBadge tone="warning">Preview active</StatusBadge>
 						<span className="flex-1">
 							You are currently previewing the portal as{" "}
@@ -323,8 +323,8 @@ export default function PortalsAdmin({
 						title="View portal as"
 						subtitle="Open the portal exactly as a speaker sees it — read-only, with all actions disabled."
 					/>
-					<div className="flex flex-wrap items-end gap-3">
-						<Form method="get" className="flex flex-wrap items-end gap-3">
+					<div className="flex flex-wrap items-end gap-4">
+						<Form method="get" className="flex flex-wrap items-end gap-4">
 							<SearchInput
 								name="q"
 								placeholder="Search speakers by name, email, or company…"
@@ -416,7 +416,14 @@ export default function PortalsAdmin({
 											}
 										/>
 									) : (
-										"No contacts match your search."
+										<EmptyState
+											icon="search"
+											title="No contacts match"
+											body="Try another name, email, company, or title, or clear the search to see every contact."
+											action={
+												<TextLink to="/admin/portals">Clear search</TextLink>
+											}
+										/>
 									)}
 								</EmptyRow>
 							)}
@@ -437,7 +444,7 @@ export default function PortalsAdmin({
 export function ErrorBoundary() {
 	// Generic message only — the raw error can carry SQL/row values.
 	return (
-		<div className="mx-auto max-w-6xl px-7 py-6">
+		<div className="mx-auto max-w-6xl px-8 py-6">
 			<PageHeader
 				title="Failed to load portals"
 				tone="danger"

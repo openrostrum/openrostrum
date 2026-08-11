@@ -24,8 +24,6 @@ import {
 	unwrap,
 } from "./tasks-fixtures";
 
-// The TK-S4 fixture: "AV Requirements" with a required dropdown Microphone
-// [Handheld/Lavalier/Podium] and a free-text Display notes field.
 const AV_FIELDS = [
 	{
 		name: "Microphone",
@@ -92,7 +90,7 @@ async function makeForeignAdmin(): Promise<string> {
 }
 
 describe("portal-form builder — create", () => {
-	it("creates a form whose stored schema matches the seed shape exactly (TK-S4)", async () => {
+	it("creates a form whose stored schema matches the required field contract", async () => {
 		const db = await seedTasksBaseline();
 		const result = (await post({
 			intent: "save-form",
@@ -118,7 +116,7 @@ describe("portal-form builder — create", () => {
 		expect(row?.schema).toEqual(AV_FIELDS);
 	});
 
-	it("the created form is offered to the task creator and a task can reference it (TK-S4)", async () => {
+	it("offers the created form to task definitions and persists the reference", async () => {
 		const db = await seedTasksBaseline();
 		await post({
 			intent: "save-form",

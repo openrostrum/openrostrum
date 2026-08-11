@@ -451,7 +451,7 @@ function FormEditor({
 
 	return (
 		<Panel>
-			<Form method="post" className="flex flex-col gap-4">
+			<Form method="post" className="flex flex-col gap-[13px]">
 				<PageHeader
 					title={editing ? `Edit “${editing.name}”` : "New portal form"}
 					subtitle={
@@ -468,7 +468,7 @@ function FormEditor({
 					value={serializeDrafts(drafts)}
 				/>
 
-				<div className="flex flex-wrap items-end gap-3">
+				<div className="flex flex-wrap items-end gap-4">
 					<Field label="Form name (internal)" error={errors?.name?.[0]}>
 						<Input
 							name="name"
@@ -498,8 +498,8 @@ function FormEditor({
 					</Field>
 				</div>
 
-				<div className="flex flex-wrap gap-5">
-					<div className="flex min-w-72 flex-1 flex-col gap-3">
+				<div className="flex flex-wrap gap-6">
+					<div className="flex min-w-72 flex-1 flex-col gap-[13px]">
 						<strong>Fields</strong>
 						{errors?.fields?.[0] && <ErrorText>{errors.fields[0]}</ErrorText>}
 						{drafts.map((f, i) => (
@@ -607,7 +607,7 @@ function FormEditor({
 						</div>
 					</div>
 
-					<div className="flex w-80 max-w-full flex-col gap-3">
+					<div className="flex w-80 max-w-full flex-col gap-4">
 						<strong>Speaker preview</strong>
 						{preview.length > 0 ? (
 							<Panel>
@@ -621,7 +621,7 @@ function FormEditor({
 					</div>
 				</div>
 
-				<div className="flex flex-col gap-3">
+				<div className="flex flex-col gap-[13px]">
 					<Checkbox
 						label="Send the speaker a confirmation email on submission"
 						name="sendConfirmationEmail"
@@ -643,7 +643,7 @@ function FormEditor({
 				</div>
 
 				{formError && <ErrorText>{formError}</ErrorText>}
-				<div className="flex items-center gap-3">
+				<div className="flex items-center gap-4">
 					<Button type="submit" icon={editing ? undefined : "plus"}>
 						{editing ? "Save changes" : "Create portal form"}
 					</Button>
@@ -667,7 +667,7 @@ export default function PortalFormsAdmin({
 
 	if (!eventName) {
 		return (
-			<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
+			<div className="mx-auto flex max-w-6xl flex-col gap-6 px-8 py-6">
 				<PageHeader
 					title="Portal forms"
 					subtitle="Create an event first — portal forms belong to an event."
@@ -677,7 +677,7 @@ export default function PortalFormsAdmin({
 	}
 
 	return (
-		<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
+		<div className="mx-auto flex max-w-6xl flex-col gap-6 px-8 py-6">
 			<PageHeader
 				title="Portal forms"
 				count={String(forms.length)}
@@ -722,18 +722,10 @@ export default function PortalFormsAdmin({
 							<Td>{f.title || "—"}</Td>
 							<Td>{TARGET_LABELS[f.targetType]}</Td>
 							<Td kind="mono">{f.schema.length}</Td>
-							<Td kind="mono">
-								{f.usedByTasks > 0 ? (
-									<TextLink to="/admin/tasks?view=definitions">
-										{f.usedByTasks}
-									</TextLink>
-								) : (
-									"0"
-								)}
-							</Td>
+							<Td kind="mono">{f.usedByTasks}</Td>
 							<Td kind="mono">{formatDateUTC(f.createdAt)}</Td>
 							<Td>
-								<div className="flex items-center gap-3">
+								<div className="flex items-center gap-4">
 									<TextLink to={`/admin/portal-forms?edit=${f.id}`}>
 										Edit
 									</TextLink>
@@ -769,7 +761,7 @@ export default function PortalFormsAdmin({
 export function ErrorBoundary() {
 	// Generic message only — the raw error can carry SQL/row values.
 	return (
-		<div className="mx-auto max-w-6xl px-7 py-6">
+		<div className="mx-auto max-w-6xl px-8 py-6">
 			<PageHeader
 				title="Failed to load portal forms"
 				tone="danger"

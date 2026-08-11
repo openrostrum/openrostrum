@@ -19,7 +19,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const user = await requireUser(env, request);
 	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
-	const [submissionRows, taskRows] = await timings.time("db", () =>
+	const [submissionResult, taskRows] = await timings.time("db", () =>
 		Promise.all([listPortalSubmissions(env, ctx), listPortalTasks(env, ctx)]),
 	);
 	return data(
@@ -36,8 +36,10 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					}
 				: null,
 			userEmail: user.email,
-			submissionCount: submissionRows.length,
-			submissions: submissionRows.slice(0, 5).map((s) => ({
+			submissionCount: submissionResult.truncated
+				? `${submissionResult.rows.length}+`
+				: String(submissionResult.rows.length),
+			submissions: submissionResult.rows.slice(0, 5).map((s) => ({
 				id: s.id,
 				title: s.title,
 				status: s.status,

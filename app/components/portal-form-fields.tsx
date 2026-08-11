@@ -1,7 +1,5 @@
-import { Checkbox, Field, Input, Select, Textarea } from "~/ui";
+import { Checkbox, ErrorText, Field, Input, Select, Textarea } from "~/ui";
 
-/** The field types this renderer draws — the builder offers exactly these.
- * Anything else (legacy rows) falls back to a plain text input below. */
 export const PORTAL_FIELD_TYPES = [
 	"text",
 	"textarea",
@@ -31,7 +29,6 @@ export type PortalFormFieldDef = {
 	options?: string[];
 };
 
-/** Renders a portal form's schema-declared fields (hotel/flight forms etc.). */
 export function PortalFormFields({
 	schema,
 	defaults = {},
@@ -42,7 +39,7 @@ export function PortalFormFields({
 	errors?: Record<string, string>;
 }) {
 	return (
-		<div className="flex flex-col gap-3">
+		<div className="flex flex-col gap-[13px]">
 			{schema.map((field) => {
 				const label = field.required ? `${field.name} *` : field.name;
 				const defaultValue = String(defaults[field.name] ?? "");
@@ -74,18 +71,19 @@ export function PortalFormFields({
 				}
 				if (field.type === "checkbox") {
 					return (
-						<div key={field.name} className="flex flex-col gap-1">
+						<div key={field.name} className="flex flex-col gap-2">
 							<Checkbox
 								name={`answer:${field.name}`}
 								value="Yes"
 								defaultChecked={defaultValue === "Yes"}
 								label={label}
 							/>
-							{error && (
-								<span className="text-[11.5px] text-danger">{error}</span>
-							)}
+							{error && <ErrorText>{error}</ErrorText>}
 						</div>
 					);
+				}
+				if (!PORTAL_FIELD_TYPES.includes(field.type as PortalFieldType)) {
+					throw new Error(`Unsupported portal field type: ${field.type}`);
 				}
 				const inputType =
 					field.type === "date"

@@ -92,19 +92,9 @@ export type PortalContext = {
 };
 
 /**
- * The portal identity chain: URL slug → event → portal (scoped to that event)
- * → the caller's contact via `contacts.userId + contacts.eventId`. Cross-tenant
- * denial is inherited from this join — a foreign event/portal 404s before any
- * data query, and every downstream read anchors on the resolved contact.
- * A contact created before the user existed (co-speaker added by someone else)
- * is linked here by normalized-email match, once, at first portal entry.
- *
- * Admin preview ("View portal as"): when the preview cookie names a contact
- * AND the session user is an admin of this event's org, the context resolves
- * to that contact in read-only mode — every route funnels through here, so
- * refusing non-GET requests at this chokepoint blocks all portal mutations
- * during preview, including hand-crafted POSTs. Anyone else's preview cookie
- * is inert (authority comes from the session, never the cookie).
+ * Resolves URL, event, portal, and effective contact as one tenancy chain.
+ * Preview keeps organizer authority while projecting the selected contact;
+ * rejecting non-GET requests here blocks every nested mutation before effects.
  */
 export async function getPortalContext(
 	env: Env,
@@ -197,6 +187,13 @@ export type PortalSubmissionRow = {
 	} | null;
 };
 
+const PORTAL_SUBMISSION_LIMIT = 100;
+
+type PortalSubmissionList = {
+	rows: PortalSubmissionRow[];
+	truncated: boolean;
+};
+
 /**
  * My Sessions = submissions I'm a PARTICIPANT on ∪ submissions I SUBMITTED
  * (a draft saved before the participant step has no participants row, and a
@@ -206,7 +203,7 @@ export type PortalSubmissionRow = {
 export async function listPortalSubmissions(
 	env: Env,
 	ctx: PortalContext,
-): Promise<PortalSubmissionRow[]> {
+): Promise<PortalSubmissionList> {
 	const db = getDb(env);
 	const byId = new Map<string, PortalSubmissionRow>();
 
@@ -227,7 +224,8 @@ export async function listPortalSubmissions(
 					eq(submissions.eventId, ctx.event.id),
 				),
 			)
-			.orderBy(desc(submissions.createdAt));
+			.orderBy(desc(submissions.createdAt))
+			.limit(PORTAL_SUBMISSION_LIMIT + 1);
 		for (const row of own) {
 			byId.set(row.id, {
 				id: row.id,
@@ -260,7 +258,8 @@ export async function listPortalSubmissions(
 					eq(submissions.eventId, ctx.event.id),
 				),
 			)
-			.orderBy(desc(submissions.createdAt));
+			.orderBy(desc(submissions.createdAt))
+			.limit(PORTAL_SUBMISSION_LIMIT + 1);
 		for (const row of linked) {
 			byId.set(row.id, {
 				id: row.id,
@@ -279,7 +278,11 @@ export async function listPortalSubmissions(
 		}
 	}
 
-	return [...byId.values()].sort((a, b) => b.createdAt - a.createdAt);
+	const rows = [...byId.values()].sort((a, b) => b.createdAt - a.createdAt);
+	return {
+		rows: rows.slice(0, PORTAL_SUBMISSION_LIMIT),
+		truncated: rows.length > PORTAL_SUBMISSION_LIMIT,
+	};
 }
 
 /**

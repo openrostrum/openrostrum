@@ -46,10 +46,10 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 	const { base, portal, eventName, user, preview } = loaderData;
 	const { pathname } = useLocation();
 	return (
-		<div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-5 sm:px-7">
+		<div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-6 sm:px-8">
 			{preview && (
 				<Panel>
-					<div className="flex flex-wrap items-center gap-3">
+					<div className="flex flex-wrap items-center gap-4">
 						<StatusBadge tone="warning">Preview</StatusBadge>
 						<span className="flex-1">
 							Previewing this portal as <strong>{preview.contactName}</strong> —
@@ -65,7 +65,7 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 				</Panel>
 			)}
 			<header className="flex flex-col gap-4">
-				<div className="flex flex-wrap items-center justify-between gap-3">
+				<div className="flex flex-wrap items-center justify-between gap-4">
 					<PortalBrand
 						name={portal.name}
 						eventName={eventName}
@@ -92,17 +92,15 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 					</Tabs>
 				</div>
 			</header>
-			<main className="flex-1 py-5">
-				{/* Native fieldset[disabled] turns off EVERY nested control in every
-				    child view at once — the UI honors "actions are disabled" without
-				    each portal page knowing about preview (the server chokepoint
-				    still refuses hand-crafted POSTs). min-w-0 cancels the fieldset
-				    min-content default that would break narrow layouts. */}
+			<main className="flex-1 py-6">
+				{/* fieldset[disabled] disables all child controls without coupling each page
+				    to preview mode; the server chokepoint still blocks crafted POSTs.
+				    min-w-0 cancels fieldset's min-content default on narrow layouts. */}
 				<fieldset disabled={preview !== null} className="min-w-0">
 					<Outlet />
 				</fieldset>
 			</main>
-			<footer className="flex flex-wrap items-center justify-between gap-3">
+			<footer className="flex flex-wrap items-center justify-between gap-4">
 				<FooterNote>
 					<span>
 						You are logged in as {user.name ?? user.email} ({user.email}).
@@ -128,7 +126,7 @@ export function ErrorBoundary() {
 	const previewBlocked = isRouteErrorResponse(error) && error.status === 403;
 	// Generic copy only — a denial page must carry zero foreign data.
 	return (
-		<div className="mx-auto max-w-4xl px-7 py-16">
+		<div className="mx-auto max-w-4xl px-8 py-16">
 			<PageHeader
 				title={
 					previewBlocked
