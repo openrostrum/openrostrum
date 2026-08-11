@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
-import { participants, submissions } from "../app/db/schema";
+import { contacts, participants, submissions } from "../app/db/schema";
 import { action as detailAction } from "../app/routes/portals.$eventSlug.$portalId.submissions_.$submissionId";
 import {
 	authedRequest,
@@ -34,6 +34,10 @@ async function seedPanel(status: "accepted" | "pending") {
 		"R",
 	);
 	await makeContact("c_dana", "e1", "dana@example.com", "u_dana", "Dana", "O");
+	await db
+		.update(contacts)
+		.set({ status: "invited" })
+		.where(eq(contacts.eventId, "e1"));
 	await db.insert(submissions).values({
 		id: "s_panel",
 		eventId: "e1",
@@ -64,9 +68,25 @@ async function acceptance(id: string) {
 	return row?.acceptance;
 }
 
+async function contactStatus(id: string) {
+	const db = getDb(env);
+	const [row] = await db
+		.select({ status: contacts.status })
+		.from(contacts)
+		.where(eq(contacts.id, id));
+	return row?.status;
+}
+
 describe("per-participant acceptance", () => {
 	it("keeps two co-speakers' confirmations independent: one confirms, one withdraws", async () => {
 		await seedPanel("accepted");
+		await getDb(env).insert(participants).values({
+			id: "p_priya_moderator",
+			submissionId: "s_panel",
+			contactId: "c_priya",
+			role: "moderator",
+			position: 2,
+		});
 
 		const confirm = unwrap<{ ok?: boolean }>(
 			await detailAction({
@@ -93,7 +113,10 @@ describe("per-participant acceptance", () => {
 		expect(withdraw.ok).toBe(true);
 
 		expect(await acceptance("p_priya")).toBe("accepted");
+		expect(await acceptance("p_priya_moderator")).toBe("accepted");
 		expect(await acceptance("p_dana")).toBe("declined");
+		expect(await contactStatus("c_priya")).toBe("confirmed");
+		expect(await contactStatus("c_dana")).toBe("invited");
 	});
 
 	it("refuses confirmation on a session that is not Accepted (queue/pending stay untouchable)", async () => {

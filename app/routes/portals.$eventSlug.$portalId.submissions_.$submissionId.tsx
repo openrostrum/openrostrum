@@ -440,18 +440,32 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		const contactId = ctx.contact.id;
 		const acceptance =
 			intent === "confirm-participation" ? "accepted" : "declined";
+		const participantUpdate = db
+			.update(participants)
+			.set({ acceptanceStatus: acceptance })
+			.where(
+				and(
+					eq(participants.submissionId, submission.id),
+					eq(participants.contactId, contactId),
+					ne(participants.role, "secondary"),
+				),
+			);
 		try {
 			await timings.time("db", () =>
-				db
-					.update(participants)
-					.set({ acceptanceStatus: acceptance })
-					.where(
-						and(
-							eq(participants.submissionId, submission.id),
-							eq(participants.contactId, contactId),
-							ne(participants.role, "secondary"),
-						),
-					),
+				acceptance === "accepted"
+					? db.batch([
+							participantUpdate,
+							db
+								.update(contacts)
+								.set({ status: "confirmed" })
+								.where(
+									and(
+										eq(contacts.id, contactId),
+										eq(contacts.eventId, ctx.event.id),
+									),
+								),
+						])
+					: db.batch([participantUpdate]),
 			);
 		} catch (error) {
 			track("portal.participation_change_failed", {
@@ -461,6 +475,14 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			});
 			return fail({
 				formError: "Could not update your participation — please try again.",
+			});
+		}
+		if (acceptance === "accepted" && ctx.contact.status !== "confirmed") {
+			track("contact.status_changed", {
+				contactId,
+				eventId: ctx.event.id,
+				from: ctx.contact.status,
+				to: "confirmed",
 			});
 		}
 		track("portal.participation_changed", {
