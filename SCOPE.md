@@ -169,7 +169,7 @@ This is the literal sequence judges will replay from the walkthrough. Each step 
 | Marketing module (transcriptions, captions, content repurposing, media library) | Same — out of Program scope |
 | CMS beyond embeds; Site/microsite builder; Invoices; Awards; Digital Posters | Never mentioned as needed |
 | AI agents (Reviewer/Scheduler/Coordinator), "Find or ask" AI search | "I don't care about the AI workflow thing" — verbatim |
-| Contact merge tooling (Sessionboard's Unique Contact Settings / CRM merge) | KNOWN GAP, accepted: `unique(eventId, email)` blocks exact-email duplicates, but the same human under two emails becomes two portal identities with divergent tasks. No merge tooling for the hackathon; revisit post-submission. |
+| ~~Contact merge tooling (Sessionboard's Unique Contact Settings / CRM merge)~~ | **IN — owner override 2026-08-11 (“we're going for the 100%”):** duplicate contacts can be compared, a primary selected, all relationships atomically re-pointed, and the retired identity retained in an audit trail. |
 | Reports / Studio / History modules | Not in any requirement — but per-session content **revision history + restore is P1 #18** (eval-kit CNT-11); only the org-wide modules stay out |
 | Multi-language forms | "We only care about English" — verbatim |
 | Metrics/aggregation stack (Analytics Engine, per-worktree Prometheus-style telemetry) | Structured `track()` events (`docs/observability.md`) are the substrate and answer every question we have a consumer for; aggregation machinery without production traffic is speculative infrastructure. Re-scope when there is real traffic to aggregate. |

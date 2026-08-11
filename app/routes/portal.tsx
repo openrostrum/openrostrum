@@ -1,7 +1,13 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { redirect } from "react-router";
 import { getDb } from "~/db";
-import { contacts, events, portals, submissions } from "~/db/schema";
+import {
+	contactIdentityAliases,
+	contacts,
+	events,
+	portals,
+	submissions,
+} from "~/db/schema";
 import { normalizeEmail, requireUser } from "~/lib/auth";
 import { FullPageEmptyState } from "~/components/full-page-empty-state";
 import type { Route } from "./+types/portal";
@@ -31,8 +37,28 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				.where(eq(contacts.email, normalizeEmail(user.email)))
 				.orderBy(desc(contacts.createdAt))
 				.limit(1);
-	const submitted =
+	const aliased =
 		linked.length || byEmail.length
+			? []
+			: await db
+					.select({ eventId: contacts.eventId, createdAt: contacts.createdAt })
+					.from(contactIdentityAliases)
+					.innerJoin(
+						events,
+						eq(events.organizationId, contactIdentityAliases.organizationId),
+					)
+					.innerJoin(
+						contacts,
+						and(
+							eq(contacts.eventId, events.id),
+							sql`lower(${contacts.email}) = ${contactIdentityAliases.survivorEmail}`,
+						),
+					)
+					.where(eq(contactIdentityAliases.sourceUserId, user.id))
+					.orderBy(desc(contacts.createdAt))
+					.limit(1);
+	const submitted =
+		linked.length || byEmail.length || aliased.length
 			? []
 			: await db
 					.select({ eventId: submissions.eventId })
@@ -42,7 +68,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					.limit(1);
 
 	const eventId =
-		linked[0]?.eventId ?? byEmail[0]?.eventId ?? submitted[0]?.eventId;
+		linked[0]?.eventId ??
+		byEmail[0]?.eventId ??
+		aliased[0]?.eventId ??
+		submitted[0]?.eventId;
 	if (!eventId) return {};
 
 	const [row] = await db
