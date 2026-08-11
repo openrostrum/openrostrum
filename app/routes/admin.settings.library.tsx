@@ -3,6 +3,7 @@ import {
 	asc,
 	count,
 	eq,
+	isNull,
 	max,
 	notExists,
 	or,
@@ -372,9 +373,12 @@ const TAXONOMIES = {
 
 /** Fields the active event may see and manage: its own + its org's org-wide. */
 function fieldScopeGuard(eventId: string, organizationId: string) {
-	return or(
-		eq(fields.eventId, eventId),
-		eq(fields.organizationId, organizationId),
+	return and(
+		eq(fields.recordType, "session"),
+		or(
+			eq(fields.eventId, eventId),
+			and(eq(fields.organizationId, organizationId), isNull(fields.eventId)),
+		),
 	);
 }
 

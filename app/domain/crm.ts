@@ -19,6 +19,7 @@ import {
 	pipelineCards,
 	pipelineStageChanges,
 } from "~/db/schema";
+import { normalizeEmail } from "~/lib/auth";
 import type { CrmContactStatus, DirectoryFilters } from "~/lib/crm-filters";
 import { isUniqueViolation } from "~/lib/errors";
 import type { PipelineStage } from "~/lib/pipeline";
@@ -234,6 +235,50 @@ export async function queryDirectoryPage(
 		...new Set(rows.map((r) => normalizedPersonName(r.firstName, r.lastName))),
 	]);
 	return composePeople(rows, emails, duplicates);
+}
+
+export type DirectoryRecipient = Pick<
+	typeof contacts.$inferSelect,
+	| "id"
+	| "firstName"
+	| "lastName"
+	| "email"
+	| "jobTitle"
+	| "companyName"
+	| "status"
+>;
+
+/** One current profile row per requested organization person, in request order. */
+export async function resolveDirectoryRecipients(
+	db: Db,
+	orgId: string,
+	rawEmails: string[],
+): Promise<DirectoryRecipient[]> {
+	const emails = [
+		...new Set(rawEmails.map(normalizeEmail).filter((email) => email !== "")),
+	].slice(0, 100);
+	if (emails.length === 0) return [];
+	const rows = await db
+		.select({
+			id: contacts.id,
+			firstName: contacts.firstName,
+			lastName: contacts.lastName,
+			email: contacts.email,
+			normalizedEmail: personEmail,
+			jobTitle: contacts.jobTitle,
+			companyName: contacts.companyName,
+			status: contacts.status,
+		})
+		.from(contacts)
+		.innerJoin(events, eq(events.id, contacts.eventId))
+		.where(and(eq(events.organizationId, orgId), inArray(personEmail, emails)))
+		.orderBy(desc(contacts.createdAt), desc(contacts.id));
+	const newestByEmail = new Map<string, DirectoryRecipient>();
+	for (const { normalizedEmail, ...row } of rows) {
+		if (!newestByEmail.has(normalizedEmail))
+			newestByEmail.set(normalizedEmail, row);
+	}
+	return emails.flatMap((email) => newestByEmail.get(email) ?? []);
 }
 
 const SAME_NAME_SHOWN = 10;

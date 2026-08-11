@@ -73,6 +73,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | CRM sourcing pipeline | `admin.crm.pipeline.tsx` | `/admin/crm/pipeline` (kanban board + enroll + move; CRM-07) | 3 | done |
 | CRM pipeline card detail | `admin.crm.pipeline_.$cardId.tsx` (trailing `_`: renders beside the board, not nested in it) | `/admin/crm/pipeline/:cardId` (notes + stage history + assign-to-event; CRM-08) | 3 | done |
 | CRM saved segments | `admin.crm.segments.tsx` | `/admin/crm/segments` (dynamic segments over directory filters; CRM-09) | 3 | done |
+| CRM person fields | `admin.crm.fields.tsx` | `/admin/crm/fields` (organization-wide person field definitions; CRM-04) | 3 | done |
 
 If you need a route not listed here, add the row on the integration branch first
 (so no one else claims the same file), then build it in your worktree.

@@ -2,7 +2,7 @@
   "version": "6",
   "dialect": "sqlite",
   "id": "ac3ed7b8-a149-4e0d-b0b4-c6edcaf34717",
-  "prevId": "c5c942ab-066b-4652-96c0-70bee816cbe2",
+  "prevId": "23fc8bbf-dd86-4250-8e53-76956edaafcc",
   "tables": {
     "ai_reviews": {
       "name": "ai_reviews",
@@ -343,6 +343,117 @@
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "contact_answers": {
+      "name": "contact_answers",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "field_id": {
+          "name": "field_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "contact_answers_org_email_idx": {
+          "name": "contact_answers_org_email_idx",
+          "columns": [
+            "organization_id",
+            "email"
+          ],
+          "isUnique": false
+        },
+        "contact_answers_field_idx": {
+          "name": "contact_answers_field_idx",
+          "columns": [
+            "field_id"
+          ],
+          "isUnique": false
+        },
+        "contact_answers_org_email_field_uq": {
+          "name": "contact_answers_org_email_field_uq",
+          "columns": [
+            "organization_id",
+            "email",
+            "field_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "contact_answers_organization_id_organizations_id_fk": {
+          "name": "contact_answers_organization_id_organizations_id_fk",
+          "tableFrom": "contact_answers",
+          "tableTo": "organizations",
+          "columnsFrom": [
+            "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "contact_answers_field_id_fields_id_fk": {
+          "name": "contact_answers_field_id_fields_id_fk",
+          "tableFrom": "contact_answers",
+          "tableTo": "fields",
+          "columnsFrom": [
+            "field_id"
           ],
           "columnsTo": [
             "id"
@@ -2138,6 +2249,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "record_type": {
+          "name": "record_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'session'"
+        },
         "type": {
           "name": "type",
           "type": "text",
@@ -2186,6 +2305,14 @@
         "fields_org_idx": {
           "name": "fields_org_idx",
           "columns": [
+            "organization_id"
+          ],
+          "isUnique": false
+        },
+        "fields_record_type_org_idx": {
+          "name": "fields_record_type_org_idx",
+          "columns": [
+            "record_type",
             "organization_id"
           ],
           "isUnique": false
