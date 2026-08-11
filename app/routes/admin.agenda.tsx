@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	data,
 	Form,
@@ -18,6 +18,7 @@ import {
 	FilterChip,
 	InfoBar,
 	InfoBarActionRow,
+	PublishAgendaDialog,
 	SectionLabel,
 	Strong,
 	ToggleChips,
@@ -26,8 +27,8 @@ import {
 	type AgendaSession,
 	autoPlace,
 	buildConflictRows,
-	classifyAgendaSessions,
 	type Conflict,
+	classifyAgendaSessions,
 	conflictSentence,
 	conflictsById,
 	DEFAULT_DURATION_MINS,
@@ -40,8 +41,8 @@ import {
 	isSessionVisible,
 	matchesSessionFilters,
 	resolveEventDays,
-	sessionDurationMins,
 	SLOT_MINS,
+	sessionDurationMins,
 	utcToWall,
 	wallToUtc,
 } from "~/agenda/lib";
@@ -77,8 +78,8 @@ import {
 	TBody,
 	Td,
 	TextLink,
-	Th,
 	THead,
+	Th,
 	Tr,
 } from "~/ui";
 import type { Route } from "./+types/admin.agenda";
@@ -152,6 +153,7 @@ function toAgendaSession(
 		title: s.title,
 		status: s.status,
 		schedulable: schedulable.includes(s.status),
+		publiclyVisible: isPubliclyVisible(s),
 		startsAt: s.startsAt ? s.startsAt.getTime() : null,
 		endsAt: s.endsAt ? s.endsAt.getTime() : null,
 		roomId: s.roomId,
@@ -818,6 +820,8 @@ export default function Agenda({
 	// Search stays local state (not a URL param): a param write per keystroke
 	// would spam history with navigations for a filter nobody deep-links.
 	const [q, setQ] = useState("");
+	const [publishOpen, setPublishOpen] = useState(false);
+	const [publishAttempted, setPublishAttempted] = useState(false);
 	const { submitMutation, mutationError } = useMutationQueue();
 
 	const event = loaderData.event;
@@ -831,7 +835,28 @@ export default function Agenda({
 		() => (event ? detectConflicts(sessions, loaderData.rooms) : []),
 		[event, sessions, loaderData.rooms],
 	);
+	const publicConflicts = useMemo(
+		() => (event ? detectConflicts(sessions, loaderData.rooms, "public") : []),
+		[event, sessions, loaderData.rooms],
+	);
 	const byId = useMemo(() => conflictsById(conflicts), [conflicts]);
+	const { rows: conflictRows, total: conflictTotal } = useMemo(
+		() => buildConflictRows(conflicts),
+		[conflicts],
+	);
+	const { rows: publicConflictRows, total: publicConflictTotal } = useMemo(
+		() => buildConflictRows(publicConflicts),
+		[publicConflicts],
+	);
+	const closePublish = useCallback(() => setPublishOpen(false), []);
+	const openPublish = useCallback(() => {
+		setPublishAttempted(false);
+		setPublishOpen(true);
+	}, []);
+	const startUnpublish = useCallback(() => {
+		setPublishAttempted(false);
+		setPublishOpen(false);
+	}, []);
 
 	if (!event) {
 		return (
@@ -888,11 +913,19 @@ export default function Agenda({
 		fd.set("submissionId", sessionId);
 		submitMutation(fd);
 	};
+	const onPublish = () => {
+		setPublishAttempted(true);
+		const fd = new FormData();
+		fd.set("intent", "publish");
+		void publishFetcher.submit(fd, { method: "post" });
+	};
 
 	const visibleRooms = loaderData.rooms.filter((r) => r.visible);
 	const statusOptions = loaderData.statusOptions;
-	const { rows: conflictRows, total: conflictTotal } =
-		buildConflictRows(conflicts);
+	const publishErrorOutsideDialog =
+		!publishOpen && !publishAttempted
+			? publishFetcher.data?.formError
+			: undefined;
 
 	const showsBoard = view === "day" || view === "week" || view === "track";
 	const showsDayStrip = view === "day" || view === "track";
@@ -913,26 +946,36 @@ export default function Agenda({
 								View public schedule
 							</TextLink>
 						)}
-						<publishFetcher.Form method="post">
+						{event.publishedAt ? (
+							<publishFetcher.Form method="post">
+								<Button
+									type="submit"
+									variant="ghost"
+									name="intent"
+									value="unpublish"
+									disabled={busy}
+									onClick={startUnpublish}
+								>
+									Unpublish
+								</Button>
+							</publishFetcher.Form>
+						) : (
 							<Button
-								type="submit"
+								type="button"
 								variant="ghost"
-								name="intent"
-								value={event.publishedAt ? "unpublish" : "publish"}
-								disabled={publishFetcher.state !== "idle"}
+								disabled={busy}
+								onClick={openPublish}
 							>
-								{event.publishedAt ? "Unpublish" : "Publish agenda"}
+								Publish agenda
 							</Button>
-						</publishFetcher.Form>
+						)}
 						<placeFetcher.Form method="post">
 							<Button
 								type="submit"
 								icon="star"
 								name="intent"
 								value="autoplace"
-								disabled={
-									placeFetcher.state !== "idle" || unscheduledCount === 0
-								}
+								disabled={busy || unscheduledCount === 0}
 							>
 								{placeFetcher.state === "idle"
 									? "Auto-place remaining"
@@ -1033,12 +1076,12 @@ export default function Agenda({
 				)}
 			{(mutationError ??
 				placeFetcher.data?.formError ??
-				publishFetcher.data?.formError ??
+				publishErrorOutsideDialog ??
 				updatesFetcher.data?.formError) && (
 				<ErrorText>
 					{mutationError ??
 						placeFetcher.data?.formError ??
-						publishFetcher.data?.formError ??
+						publishErrorOutsideDialog ??
 						updatesFetcher.data?.formError}
 				</ErrorText>
 			)}
@@ -1208,33 +1251,48 @@ export default function Agenda({
 			{view === "conflicts" && (
 				<Table>
 					<THead>
-						<Th>Session</Th>
+						<Th>Sessions</Th>
 						<Th>Conflict</Th>
 						<Th />
 					</THead>
 					<TBody>
-						{conflictRows.map((row) => (
-							<Tr
-								key={`${row.conflict.aId}|${row.conflict.bId}|${row.conflict.kind}|${row.conflict.personName ?? ""}|${row.sideId}`}
-							>
+						{conflictRows.map((conflict) => (
+							<Tr key={`${conflict.aId}|${conflict.bId}`}>
 								<Td kind="strong">
 									<span className="inline-flex items-center gap-2">
 										<ConflictClock label="Scheduling conflict" />
-										{row.sideTitle}
+										<span>{conflict.aTitle}</span>
+										<span aria-hidden="true">↔</span>
+										<span>{conflict.bTitle}</span>
 									</span>
 								</Td>
-								<Td>{conflictSentence(row.conflict, row.sideId, timezone)}</Td>
 								<Td>
-									<TextLink to={`/admin/submissions/${row.sideId}`}>
-										Open
-									</TextLink>
+									{conflict.reasons
+										.map((reason) =>
+											conflictSentence(
+												{ ...conflict, ...reason },
+												conflict.aId,
+												timezone,
+											),
+										)
+										.join(" ")}
+								</Td>
+								<Td>
+									<div className="flex flex-col items-start gap-1">
+										<TextLink to={`/admin/submissions/${conflict.aId}`}>
+											Open first
+										</TextLink>
+										<TextLink to={`/admin/submissions/${conflict.bId}`}>
+											Open second
+										</TextLink>
+									</div>
 								</Td>
 							</Tr>
 						))}
 						{conflictTotal > conflictRows.length && (
 							<EmptyRow colSpan={3}>
 								Showing the first {conflictRows.length} of {conflictTotal}{" "}
-								conflict rows — resolve these and the rest surface here.
+								logical conflicts — resolve these and the rest surface here.
 							</EmptyRow>
 						)}
 						{conflictRows.length === 0 && (
@@ -1362,6 +1420,19 @@ export default function Agenda({
 						</div>
 					</Form>
 				</Panel>
+			)}
+			{publishOpen && event.publishedAt == null && (
+				<PublishAgendaDialog
+					conflicts={publicConflictRows}
+					total={publicConflictTotal}
+					timezone={timezone}
+					submitting={busy}
+					error={
+						publishAttempted ? (publishFetcher.data?.formError ?? null) : null
+					}
+					onCancel={closePublish}
+					onPublish={onPublish}
+				/>
 			)}
 		</div>
 	);

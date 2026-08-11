@@ -1,8 +1,8 @@
 import {
 	type CollisionDetection,
 	DndContext,
-	DragOverlay,
 	type DragEndEvent,
+	DragOverlay,
 	type DragStartEvent,
 	KeyboardSensor,
 	PointerSensor,
@@ -13,12 +13,14 @@ import {
 	useSensor,
 	useSensors,
 } from "@dnd-kit/core";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
 	Button,
 	Chip,
 	EmptyState,
+	ErrorText,
+	Panel,
 	Select,
 	StatusBadge,
 	SUBMISSION_STATUS_TONE,
@@ -27,19 +29,20 @@ import { cn } from "~/ui/cn";
 import {
 	type AgendaRoom,
 	type AgendaSession,
-	classifyAgendaSessions,
 	type Conflict,
+	classifyAgendaSessions,
 	conflictSentence,
 	formatDayLabel,
 	formatMinutes,
 	formatRangeMs,
 	hasCompletePlacement,
+	type LogicalConflict,
 	layoutLanes,
 	matchesSessionFilters,
 	pickFreeRoom,
 	type SessionFilters,
-	sessionDurationMins,
 	SLOT_MINS,
+	sessionDurationMins,
 	utcToWall,
 	wallToUtc,
 } from "./lib";
@@ -128,6 +131,163 @@ export function InfoBarActionRow({ children }: { children: ReactNode }) {
 
 export function Strong({ children }: { children: ReactNode }) {
 	return <span className="font-semibold text-fg">{children}</span>;
+}
+
+const PUBLISH_CONFLICT_PREVIEW_LIMIT = 8;
+
+export function PublishAgendaDialog({
+	conflicts,
+	total,
+	timezone,
+	submitting,
+	error,
+	onCancel,
+	onPublish,
+}: {
+	conflicts: readonly LogicalConflict[];
+	total: number;
+	timezone: string;
+	submitting: boolean;
+	error: string | null;
+	onCancel: () => void;
+	onPublish: () => void;
+}) {
+	const dialogRef = useRef<HTMLDivElement>(null);
+	const submittingRef = useRef(submitting);
+	useEffect(() => {
+		submittingRef.current = submitting;
+	}, [submitting]);
+
+	useEffect(() => {
+		const previous =
+			document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+		const focusable = () =>
+			Array.from(
+				dialogRef.current?.querySelectorAll<HTMLElement>(
+					'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+				) ?? [],
+			);
+		focusable()[0]?.focus();
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape" && !submittingRef.current) {
+				event.preventDefault();
+				onCancel();
+				return;
+			}
+			if (event.key !== "Tab") return;
+			const candidates = focusable();
+			if (candidates.length === 0) {
+				event.preventDefault();
+				return;
+			}
+			const first = candidates[0];
+			const last = candidates[candidates.length - 1];
+			const active = document.activeElement;
+			if (!dialogRef.current?.contains(active)) {
+				event.preventDefault();
+				first?.focus();
+			} else if (event.shiftKey && active === first) {
+				event.preventDefault();
+				last?.focus();
+			} else if (!event.shiftKey && active === last) {
+				event.preventDefault();
+				first?.focus();
+			}
+		};
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("keydown", onKey);
+			previous?.focus();
+		};
+	}, [onCancel]);
+
+	const preview = conflicts.slice(0, PUBLISH_CONFLICT_PREVIEW_LIMIT);
+	const remaining = total - preview.length;
+	const hasConflicts = total > 0;
+	return (
+		<div
+			ref={dialogRef}
+			role="alertdialog"
+			aria-modal="true"
+			aria-labelledby="publish-agenda-title"
+			aria-describedby="publish-agenda-description"
+			className="fixed inset-0 z-50 flex items-center justify-center p-6"
+		>
+			<div className="w-full max-w-2xl">
+				<Panel>
+					<div className="flex flex-col gap-4">
+						<div className="flex flex-col gap-2">
+							<Strong>
+								<span id="publish-agenda-title">
+									{hasConflicts
+										? `Publish with ${total} unresolved ${total === 1 ? "conflict" : "conflicts"}?`
+										: "Publish agenda?"}
+								</span>
+							</Strong>
+							<p id="publish-agenda-description">
+								{hasConflicts
+									? "Attendees will see these overlapping sessions. Publishing does not resolve them, but you can publish anyway and fix the schedule afterward."
+									: "The approved agenda becomes available on the public schedule immediately."}
+							</p>
+						</div>
+						{preview.length > 0 && (
+							<div
+								role="list"
+								className="flex max-h-72 flex-col gap-3 overflow-y-auto"
+							>
+								{preview.map((conflict) => (
+									<div
+										key={`${conflict.aId}|${conflict.bId}`}
+										role="listitem"
+										className="flex flex-col gap-1"
+									>
+										<span>
+											<Strong>{conflict.aTitle}</Strong> ↔{" "}
+											<Strong>{conflict.bTitle}</Strong>
+										</span>
+										<span>
+											{conflict.reasons
+												.map((reason) =>
+													conflictSentence(
+														{ ...conflict, ...reason },
+														conflict.aId,
+														timezone,
+													),
+												)
+												.join(" ")}
+										</span>
+									</div>
+								))}
+								{remaining > 0 && (
+									<p>And {remaining} more in the Conflicts tab.</p>
+								)}
+							</div>
+						)}
+						{error && <ErrorText>{error}</ErrorText>}
+						<div className="flex justify-end gap-2">
+							<Button
+								type="button"
+								variant="ghost"
+								disabled={submitting}
+								onClick={onCancel}
+							>
+								Cancel
+							</Button>
+							<Button type="button" disabled={submitting} onClick={onPublish}>
+								{submitting
+									? "Publishing…"
+									: hasConflicts
+										? "Publish anyway"
+										: "Publish agenda"}
+							</Button>
+						</div>
+					</div>
+				</Panel>
+			</div>
+		</div>
+	);
 }
 
 /** Group heading for form sections that must NOT be a wrapping <label>
@@ -652,10 +812,17 @@ function GridColumn({
 			),
 		[blocks],
 	);
+	const peakLaneCount = Math.max(
+		1,
+		...[...lanes.values()].map((lane) => lane.laneCount),
+	);
 	const slots: number[] = [];
 	for (let m = dayStartMin; m < dayEndMin; m += SLOT_MINS) slots.push(m);
 	return (
-		<div className="min-w-[148px] flex-1 border-l border-hair">
+		<div
+			className="min-w-[148px] flex-1 border-l border-hair"
+			style={{ minWidth: Math.max(148, peakLaneCount * 140) }}
+		>
 			<div className="sticky top-0 z-10 h-[34px] truncate border-b border-hair bg-thead px-2 text-[11px] font-semibold uppercase leading-[34px] tracking-[0.06em] text-fg-muted">
 				{header}
 			</div>

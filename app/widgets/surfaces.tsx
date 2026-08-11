@@ -1,5 +1,14 @@
 import { useState } from "react";
 import { Link } from "react-router";
+import type {
+	AgendaSurfaceData,
+	HideableField,
+	ItinerarySurfaceData,
+	PublicSession,
+	PublicSpeakerProfile,
+	SessionsSurfaceData,
+	SpeakerDirectoryData,
+} from "~/lib/program-types";
 import {
 	Button,
 	ButtonLink,
@@ -9,10 +18,11 @@ import {
 	Tabs,
 	TextLink,
 } from "~/ui";
+import { cn } from "~/ui/cn";
 import {
 	DetailPanel,
-	makeHref,
 	MetaRow,
+	makeHref,
 	Pagination,
 	PhotoTile,
 	ResultCount,
@@ -24,16 +34,6 @@ import {
 import { FilterBar } from "./filter-bar";
 import { useMySchedule } from "./my-schedule";
 import { SessionCard, SpeakerRow } from "./session-card";
-import { cn } from "~/ui/cn";
-import type {
-	AgendaSurfaceData,
-	HideableField,
-	ItinerarySurfaceData,
-	PublicSession,
-	PublicSpeakerProfile,
-	SessionsSurfaceData,
-	SpeakerDirectoryData,
-} from "~/lib/program-types";
 
 /**
  * The five public program surfaces. Each is URL-driven (search, filters,
@@ -317,6 +317,11 @@ function SessionDetail({
 					{show("room") && (
 						<MetaRow label="Room">{session.room ?? "To be announced"}</MetaRow>
 					)}
+					{show("track") && session.tracks.length > 0 && (
+						<MetaRow label="Track">
+							{session.tracks.map((track) => track.name).join(", ")}
+						</MetaRow>
+					)}
 					{show("format") && session.format && (
 						<MetaRow label="Format">{session.format}</MetaRow>
 					)}
@@ -436,7 +441,16 @@ export function AgendaSurface({
 					{data.rooms.map((room) => (
 						<div
 							key={room.id}
+							role="group"
+							aria-label={room.name}
 							className="min-w-[200px] flex-1 border-l border-hair"
+							style={{
+								minWidth: Math.max(
+									200,
+									Math.max(1, ...room.blocks.map((block) => block.laneCount)) *
+										160,
+								),
+							}}
 						>
 							<div className="flex h-9 items-center justify-center border-b border-hair px-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
 								{room.name}
@@ -457,6 +471,7 @@ export function AgendaSurface({
 									// instead of clipping text mid-line (short talks share a
 									// slot with long ones — see layoutLanes).
 									const minutes = block.displayEndMin - block.startMin;
+									const visibleTrack = show("track") ? block.track : null;
 									return (
 										<Link
 											key={block.sessionId}
@@ -489,15 +504,15 @@ export function AgendaSurface({
 											>
 												{block.title}
 											</span>
-											{minutes >= 45 &&
-												(show("track") && block.track ? (
-													<Chip color={block.track.color}>
-														{block.track.name}
-													</Chip>
-												) : (
-													show("format") &&
-													block.format && <TagPill>{block.format}</TagPill>
-												))}
+											{visibleTrack ? (
+												<Chip color={visibleTrack.color}>
+													{visibleTrack.name}
+												</Chip>
+											) : (
+												minutes >= 45 &&
+												show("format") &&
+												block.format && <TagPill>{block.format}</TagPill>
+											)}
 										</Link>
 									);
 								})}

@@ -99,7 +99,7 @@ This is the literal sequence judges will replay from the walkthrough. Each step 
 - **COMMITTED (swyx named it twice — was bonus, must not slip):** compose + send an email to the speaker (request changes / attach feedback) when recording the decision. Textarea on the decision UI + the existing EmailSender port; exceeds Sessionboard parity.
 
 **6. Agenda builder (req 5, thin).**
-- Accepted sessions appear as unscheduled (right-side Scheduled/Unscheduled panel); drag onto a day×room grid; **conflict detection**: Sessionboard checks **speaker double-booking + same-room/time overlap only** (verified — NO track collisions; the brief's "across rooms and tracks" means track-collision is a *build-beyond* extra). Conflict marker = red clock icon; Conflicts tab lists reciprocal rows with Open→editor.
+- Accepted sessions appear as unscheduled (right-side Scheduled/Unscheduled panel); drag onto a day×room grid; **conflict detection**: Sessionboard checks **speaker double-booking + same-room/time overlap only** (verified — NO track collisions; the brief's "across rooms and tracks" means track-collision is a *build-beyond* extra). Conflict marker = red clock icon; Conflicts tab lists one row per logical clash with both sessions and Open→editor paths.
 - Agenda Settings: Day Start/End time, which statuses are schedulable, **per-format Default Duration (auto-fills end time)**, Room Visibility.
 - Views: List + Day/Rooms grid in P0; Week/Month/Track in P1. (List defaults to Accepted-only.)
 - Dashboard-style alert: "N accepted sessions still need a time slot."

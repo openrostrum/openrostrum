@@ -1,12 +1,12 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { useEffect, useMemo, useState } from "react";
 import { Form, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { events, organizationMembers, organizations, users } from "~/db/schema";
 import { provisionEventDefaults } from "~/domain/provisionEvent";
-import { getUser, homePathForRole } from "~/lib/auth";
-import { errorMessage } from "~/lib/errors";
+import { requireAdmin } from "~/lib/auth";
+import { errorChainIncludes, errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
@@ -64,6 +64,12 @@ const OnboardingForm = z
 		message: "End date must be on or after the start date",
 	});
 
+const SetupIds = z.object({
+	setupOrganizationId: z.string().uuid(),
+	setupEventId: z.string().uuid(),
+});
+type SetupIds = z.infer<typeof SetupIds>;
+
 /** Raw submitted values, echoed back so a full-document error response
  * (no-JS fallback) re-renders the form filled in instead of wiped. */
 type EchoValues = Record<
@@ -80,32 +86,62 @@ type ActionResult = {
 	fieldErrors?: Partial<Record<keyof EchoValues, string[]>>;
 	formError?: string;
 	values?: EchoValues;
+	setupIds?: SetupIds;
 };
 
+async function getOnboardingState(env: Env, userId: string) {
+	const db = getDb(env);
+	const [event] = await db
+		.select({
+			eventId: events.id,
+			organizationId: organizationMembers.organizationId,
+		})
+		.from(organizationMembers)
+		.innerJoin(
+			events,
+			eq(events.organizationId, organizationMembers.organizationId),
+		)
+		.where(eq(organizationMembers.userId, userId))
+		.limit(1);
+	if (event) return { complete: true as const, ...event };
+
+	const [organization] = await db
+		.select({ id: organizations.id })
+		.from(organizationMembers)
+		.innerJoin(
+			organizations,
+			eq(organizations.id, organizationMembers.organizationId),
+		)
+		.where(eq(organizationMembers.userId, userId))
+		.limit(1);
+	return {
+		complete: false as const,
+		eventId: null,
+		organizationId: organization?.id ?? null,
+	};
+}
+
 /**
- * Only authenticated, membership-less organizers onboard: members already
- * have an organization (they go to the app), other roles have their own
- * surfaces, and anonymous visitors start at /signup.
+ * Only authenticated organizers without an event onboard. A membership-only
+ * state is incomplete and resumes against that same organization.
  */
 async function checkOnboardingAccess(
 	env: Env,
-	user: Awaited<ReturnType<typeof getUser>>,
-): Promise<NonNullable<Awaited<ReturnType<typeof getUser>>>> {
-	if (!user) throw redirect("/signup");
-	if (user.role !== "admin") throw redirect(homePathForRole(user.role));
-	const [membership] = await getDb(env)
-		.select({ id: organizationMembers.id })
-		.from(organizationMembers)
-		.where(eq(organizationMembers.userId, user.id))
-		.limit(1);
-	if (membership) throw redirect("/admin");
-	return user;
+	user: Awaited<ReturnType<typeof requireAdmin>>,
+) {
+	const state = await getOnboardingState(env, user.id);
+	if (state.complete) throw redirect("/admin");
+	return { organizationId: state.organizationId };
 }
 
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
-	await checkOnboardingAccess(env, await getUser(env, request));
-	return null;
+	const user = await requireAdmin(env, request);
+	await checkOnboardingAccess(env, user);
+	return {
+		setupOrganizationId: crypto.randomUUID(),
+		setupEventId: crypto.randomUUID(),
+	};
 }
 
 export async function action({
@@ -113,9 +149,11 @@ export async function action({
 	request,
 }: Route.ActionArgs): Promise<ActionResult | Response> {
 	const env = context.cloudflare.env;
-	// Self-authenticate; the membership check doubles as the double-submit
-	// guard — a replayed POST after the first success just lands in /admin.
-	const user = await checkOnboardingAccess(env, await getUser(env, request));
+	// Self-authenticate; completed replays redirect, while a membership-only
+	// state resumes against that same organization.
+	const user = await requireAdmin(env, request);
+	const { organizationId: existingOrganizationId } =
+		await checkOnboardingAccess(env, user);
 
 	const form = await request.formData();
 	const values: EchoValues = {
@@ -126,20 +164,71 @@ export async function action({
 		endsAt: String(form.get("endsAt") ?? ""),
 		timezone: String(form.get("timezone") ?? ""),
 	};
+	const setupResult = SetupIds.safeParse({
+		setupOrganizationId: form.get("setupOrganizationId"),
+		setupEventId: form.get("setupEventId"),
+	});
+	if (!setupResult.success) {
+		return {
+			formError: "This setup form expired — refresh and try again.",
+			values,
+		};
+	}
+	const setupIds = setupResult.data;
 	const parsed = OnboardingForm.safeParse(values);
 	if (!parsed.success) {
-		return { fieldErrors: z.flattenError(parsed.error).fieldErrors, values };
+		return {
+			fieldErrors: z.flattenError(parsed.error).fieldErrors,
+			values,
+			setupIds,
+		};
 	}
 
 	const db = getDb(env);
-	const organizationId = crypto.randomUUID();
-	const eventId = crypto.randomUUID();
+	const organizationId = existingOrganizationId ?? setupIds.setupOrganizationId;
+	const eventId = setupIds.setupEventId;
+	// Date-only picks preserve the selected calendar day in the event zone:
+	// starts open at local midnight and ends close at local 23:59.
+	const startsAt = zonedInputToDate(
+		`${parsed.data.startsAt}T00:00`,
+		parsed.data.timezone,
+	);
+	const endsAt = zonedInputToDate(
+		`${parsed.data.endsAt}T23:59`,
+		parsed.data.timezone,
+	);
 	const timings = createTimings();
 	try {
-		// One atomic batch: an org must never exist without its founding member,
-		// nor an event without its default email templates and portal.
-		await timings.time("db", () =>
-			db.batch([
+		await timings.time("db", async () => {
+			const eventStatements = [
+				db.insert(events).values({
+					id: eventId,
+					organizationId,
+					name: parsed.data.eventName,
+					slug: parsed.data.slug,
+					timezone: parsed.data.timezone,
+					startsAt,
+					endsAt,
+				}),
+				...provisionEventDefaults(db, eventId),
+				db
+					.update(users)
+					.set({ activeEventId: eventId })
+					.where(eq(users.id, user.id)),
+			] as const;
+
+			if (existingOrganizationId) {
+				await db.batch([
+					db
+						.update(organizations)
+						.set({ name: parsed.data.organizationName })
+						.where(eq(organizations.id, organizationId)),
+					...eventStatements,
+				]);
+				return;
+			}
+
+			await db.batch([
 				db
 					.insert(organizations)
 					.values({ id: organizationId, name: parsed.data.organizationName }),
@@ -147,31 +236,53 @@ export async function action({
 					organizationId,
 					userId: user.id,
 				}),
-				db.insert(events).values({
-					id: eventId,
-					organizationId,
-					name: parsed.data.eventName,
-					slug: parsed.data.slug,
-					timezone: parsed.data.timezone,
-					// Date-only picks preserve the selected calendar day in the event zone:
-					// starts open at local midnight and ends close at local 23:59.
-					startsAt: zonedInputToDate(
-						`${parsed.data.startsAt}T00:00`,
-						parsed.data.timezone,
-					),
-					endsAt: zonedInputToDate(
-						`${parsed.data.endsAt}T23:59`,
-						parsed.data.timezone,
-					),
-				}),
-				...provisionEventDefaults(db, eventId),
-				db
-					.update(users)
-					.set({ activeEventId: eventId })
-					.where(eq(users.id, user.id)),
-			]),
-		);
+				...eventStatements,
+			]);
+		});
 	} catch (error) {
+		// Only the two IDs echoed by this setup form can identify a losing replay;
+		// unrelated batch failures must remain visible as failures.
+		const replayConflict =
+			errorChainIncludes(error, "UNIQUE constraint failed: organizations.id") ||
+			errorChainIncludes(error, "UNIQUE constraint failed: events.id");
+		const [completedReplay] = replayConflict
+			? await db
+					.select({
+						organizationName: organizations.name,
+						eventName: events.name,
+						slug: events.slug,
+						timezone: events.timezone,
+						startsAt: events.startsAt,
+						endsAt: events.endsAt,
+					})
+					.from(organizationMembers)
+					.innerJoin(
+						organizations,
+						eq(organizations.id, organizationMembers.organizationId),
+					)
+					.innerJoin(events, eq(events.organizationId, organizations.id))
+					.where(
+						and(
+							eq(organizationMembers.userId, user.id),
+							eq(organizations.id, organizationId),
+							eq(events.id, eventId),
+						),
+					)
+					.limit(1)
+			: [];
+		const replayMatches =
+			completedReplay?.organizationName === parsed.data.organizationName &&
+			completedReplay.eventName === parsed.data.eventName &&
+			completedReplay.slug === parsed.data.slug &&
+			completedReplay.timezone === parsed.data.timezone &&
+			completedReplay.startsAt?.getTime() === startsAt.getTime() &&
+			completedReplay.endsAt?.getTime() === endsAt.getTime();
+		if (replayMatches) {
+			track("onboarding.replayed", { userId: user.id });
+			return redirect("/admin", {
+				headers: { "Server-Timing": timings.header() },
+			});
+		}
 		// Event slugs are one global namespace — a taken slug is a normal
 		// user-facing outcome, not a server error.
 		if (isSlugTakenError(error)) {
@@ -180,6 +291,7 @@ export async function action({
 					slug: [SLUG_TAKEN_MESSAGE],
 				},
 				values,
+				setupIds,
 			};
 		}
 		track("onboarding.failed", {
@@ -189,6 +301,7 @@ export async function action({
 		return {
 			formError: "Could not create your organization — please try again.",
 			values,
+			setupIds,
 		};
 	}
 
@@ -207,8 +320,12 @@ function slugify(value: string): string {
 
 const FALLBACK_TIMEZONE = "America/Los_Angeles";
 
-export default function Onboarding({ actionData }: Route.ComponentProps) {
+export default function Onboarding({
+	loaderData,
+	actionData,
+}: Route.ComponentProps) {
 	const busy = useBusy();
+	const setupIds = actionData?.setupIds ?? loaderData;
 	const timeZones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);
 	const echoed = actionData?.values;
 	// The slug tracks the event name until it is edited by hand (SSR renders
@@ -242,6 +359,18 @@ export default function Onboarding({ actionData }: Route.ComponentProps) {
 			/>
 			<Panel>
 				<Form method="post" className="flex flex-col gap-[13px]">
+					<Input
+						type="hidden"
+						name="setupOrganizationId"
+						value={setupIds.setupOrganizationId}
+						readOnly
+					/>
+					<Input
+						type="hidden"
+						name="setupEventId"
+						value={setupIds.setupEventId}
+						readOnly
+					/>
 					<Field
 						label="Organization name"
 						error={actionData?.fieldErrors?.organizationName?.[0]}

@@ -180,6 +180,7 @@ type LoaderData = {
 		title: string;
 		status: string;
 		schedulable: boolean;
+		publiclyVisible: boolean;
 		startsAt: number | null;
 		endsAt: number | null;
 		roomId: string | null;

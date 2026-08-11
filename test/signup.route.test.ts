@@ -1,10 +1,17 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+	createMemoryRouter,
+	RouterProvider,
+	type ActionFunction,
+} from "react-router";
+import { describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import { events, organizations, submissions, users } from "../app/db/schema";
 import { hashPassword, verifyPassword } from "../app/lib/auth";
 import { loader as submissionsLoader } from "../app/routes/admin.submissions";
-import { action } from "../app/routes/signup";
+import Signup, { action } from "../app/routes/signup";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
@@ -23,7 +30,64 @@ function act(body: Record<string, string>) {
 	} as unknown as Parameters<typeof action>[0]);
 }
 
+function renderSignup(
+	actionData?: Parameters<typeof Signup>[0]["actionData"],
+	routeAction?: ActionFunction,
+) {
+	const router = createMemoryRouter(
+		[
+			{
+				path: "/signup",
+				element: createElement(Signup, {
+					loaderData: { turnstileSiteKey: null },
+					actionData,
+				} as Parameters<typeof Signup>[0]),
+				action: routeAction,
+			},
+		],
+		{ initialEntries: ["/signup"] },
+	);
+	return {
+		router,
+		html: () => renderToStaticMarkup(createElement(RouterProvider, { router })),
+	};
+}
+
 describe("signup route", () => {
+	it("shows an explicit pending state while account creation is in flight", async () => {
+		let finishAction: (() => void) | undefined;
+		const pendingAction = new Promise<Response>((resolve) => {
+			finishAction = () => resolve(new Response(null, { status: 204 }));
+		});
+		const { router, html } = renderSignup(undefined, () => pendingAction);
+
+		const navigation = router.navigate("/signup", {
+			formMethod: "post",
+			formData: new FormData(),
+		});
+		await vi.waitFor(() => {
+			expect(router.state.navigation.state).toBe("submitting");
+		});
+
+		const pendingHtml = html();
+		expect(pendingHtml).toContain("disabled");
+		expect(pendingHtml).toContain('aria-busy="true"');
+
+		finishAction?.();
+		await navigation;
+	});
+
+	it("announces the duplicate-email outcome as a specific inline error", () => {
+		const { html } = renderSignup({
+			existingAccount: true,
+			values: { name: "Ada Again", email: "ada@example.com" },
+		});
+
+		const duplicateHtml = html();
+		expect(duplicateHtml).toContain('role="alert"');
+		expect(duplicateHtml).toContain('href="/login"');
+	});
+
 	it("creates an admin account, normalizes the email, and redirects to onboarding", async () => {
 		const res = (await act({
 			name: "Ada Lovelace",

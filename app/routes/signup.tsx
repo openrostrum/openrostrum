@@ -186,14 +186,16 @@ export default function Signup({
 					siteKey={loaderData.turnstileSiteKey}
 					resetSignal={actionData}
 				/>
-				<Button type="submit" disabled={busy}>
-					Create account
+				<Button type="submit" disabled={busy} aria-busy={busy}>
+					{busy ? "Creating account…" : "Create account"}
 				</Button>
 				{actionData?.existingAccount && (
-					<AuthNote>
-						You already have an account —{" "}
-						<TextLink to="/login">sign in</TextLink> instead.
-					</AuthNote>
+					<div role="alert">
+						<ErrorText>
+							You already have an account —{" "}
+							<TextLink to="/login">sign in</TextLink> instead.
+						</ErrorText>
+					</div>
 				)}
 				{actionData?.formError && (
 					<div role="alert">
