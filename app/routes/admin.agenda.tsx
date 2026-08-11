@@ -34,6 +34,7 @@ import {
 	formatDayLabel,
 	formatMinutes,
 	formatRangeMs,
+	hasCompletePlacement,
 	isSessionVisible,
 	matchesSessionFilters,
 	resolveEventDays,
@@ -147,7 +148,7 @@ function toAgendaSession(
 		id: s.id,
 		title: s.title,
 		status: s.status,
-		schedulable: s.startsAt != null || schedulable.includes(s.status),
+		schedulable: schedulable.includes(s.status),
 		startsAt: s.startsAt ? s.startsAt.getTime() : null,
 		endsAt: s.endsAt ? s.endsAt.getTime() : null,
 		roomId: s.roomId,
@@ -201,7 +202,10 @@ async function loadSessions(
 		where: (s, { and: andW, eq: eqW, inArray, isNotNull, isNull, or }) =>
 			andW(
 				eqW(s.eventId, eventId),
-				or(inArray(s.status, statuses), isNotNull(s.startsAt)),
+				or(
+					inArray(s.status, statuses),
+					andW(isNotNull(s.startsAt), isNotNull(s.endsAt)),
+				),
 				isNull(s.parentId),
 			),
 		with: {
@@ -231,6 +235,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			tracks: [],
 			formats: [],
 			sessions: [],
+			statusOptions: [],
 		});
 	}
 	const db = getDb(env);
@@ -264,11 +269,18 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		);
 
 	const sessions = sessionRows.map((s) => toAgendaSession(s, schedulable));
+	const statusOptions = [
+		...new Set<string>([
+			...schedulable,
+			"draft",
+			...sessions.map((s) => s.status),
+		]),
+	];
 	const days = daysFor(event, sessions);
-	// What the published page will withhold: rows sitting on this grid that the
-	// public projection rejects (status ≠ accepted, or content not approved).
+	// What the published page will withhold: complete placements on this grid
+	// that the public projection rejects (status ≠ accepted, or unapproved).
 	const hiddenFromPublic = sessionRows.filter(
-		(s) => s.startsAt != null && !isPubliclyVisible(s),
+		(s) => hasCompletePlacement(s) && !isPubliclyVisible(s),
 	).length;
 
 	return data(
@@ -304,6 +316,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				defaultDurationMins: f.defaultDurationMins,
 			})),
 			sessions,
+			statusOptions,
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -864,7 +877,7 @@ export default function Agenda({
 	};
 
 	const visibleRooms = loaderData.rooms.filter((r) => r.visible);
-	const statusOptions = [...new Set([...event.schedulableStatuses, "draft"])];
+	const statusOptions = loaderData.statusOptions;
 	const { rows: conflictRows, total: conflictTotal } =
 		buildConflictRows(conflicts);
 

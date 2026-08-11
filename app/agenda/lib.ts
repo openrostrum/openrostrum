@@ -86,12 +86,26 @@ export type SessionFilters = {
 	showDrafts: boolean;
 };
 
-/** Drafts ride along only when their toggle is on; everything else must be schedulable. */
+type PlacementTimes = {
+	startsAt: unknown | null;
+	endsAt: unknown | null;
+};
+
+/** A scheduled block is valid only when both ends of its interval exist. */
+export function hasCompletePlacement(s: PlacementTimes): boolean {
+	return s.startsAt != null && s.endsAt != null;
+}
+
+/**
+ * Drafts always obey their display toggle. Other complete placements remain
+ * visible after status-policy changes, without becoming schedulable again.
+ */
 export function isSessionVisible(
-	s: AgendaSession,
+	s: Pick<AgendaSession, "schedulable" | "status" | "startsAt" | "endsAt">,
 	showDrafts: boolean,
 ): boolean {
-	return s.schedulable || (showDrafts && s.status === "draft");
+	if (s.status === "draft") return showDrafts;
+	return s.schedulable || hasCompletePlacement(s);
 }
 
 /**

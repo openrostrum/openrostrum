@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { detectConflicts } from "../app/agenda/lib";
+import { detectConflicts, isSessionVisible } from "../app/agenda/lib";
 import { getDb } from "../app/db";
 import {
 	contacts,
@@ -170,12 +170,18 @@ type LoaderData = {
 	} | null;
 	sessions: {
 		id: string;
+		title: string;
 		status: string;
 		schedulable: boolean;
 		startsAt: number | null;
+		endsAt: number | null;
 		roomId: string | null;
-		speakers: { contactId: string }[];
+		formatName: string | null;
+		durationMins: number;
+		tracks: { id: string; name: string; color: string }[];
+		speakers: { contactId: string; name: string }[];
 	}[];
+	statusOptions: string[];
 	rooms: { id: string; name: string; capacity: number | null }[];
 };
 
@@ -396,10 +402,7 @@ describe("end-to-end conflict surface", () => {
 			startMinutes: "615", // 10:15–11:00 AM — same room, overlapping
 		});
 		const data = await callLoader();
-		const conflicts = detectConflicts(
-			data.sessions as unknown as Parameters<typeof detectConflicts>[0],
-			data.rooms,
-		);
+		const conflicts = detectConflicts(data.sessions, data.rooms);
 		expect(conflicts).toHaveLength(1);
 		expect(conflicts[0]?.kind).toBe("room");
 		expect(conflicts[0]?.roomName).toBe("Main Hall");
@@ -415,12 +418,7 @@ describe("auto-place", () => {
 		expect(result.unplaced).toBe(0);
 		const data = await callLoader();
 		expect(data.sessions.every((s) => s.startsAt != null)).toBe(true);
-		expect(
-			detectConflicts(
-				data.sessions as unknown as Parameters<typeof detectConflicts>[0],
-				data.rooms,
-			),
-		).toEqual([]);
+		expect(detectConflicts(data.sessions, data.rooms)).toEqual([]);
 		// Negative fixtures stay untouched.
 		const pending = await db.query.submissions.findFirst({
 			where: (s, { eq }) => eq(s.id, "s_pending"),
@@ -429,20 +427,53 @@ describe("auto-place", () => {
 	});
 });
 
-describe("published-but-hidden affordance", () => {
-	it("keeps a scheduled row visible after its status is removed from the unscheduled tray", async () => {
+describe("retained schedule visibility", () => {
+	it("excludes incomplete removed-status placements", async () => {
 		const db = await seedBaseline();
+		const startsAt = utc(2026, 10, 12, 16, 30);
+		const endsAt = utc(2026, 10, 12, 17);
+		await db.insert(submissions).values([
+			{
+				id: "s_queue_start_only",
+				eventId: "e1",
+				title: "Incomplete Start-only Queue Session",
+				status: "accept_queue",
+				startsAt,
+				roomId: "room_main",
+				formatId: "fmt_talk",
+			},
+			{
+				id: "s_queue_end_only",
+				eventId: "e1",
+				title: "Incomplete End-only Queue Session",
+				status: "accept_queue",
+				endsAt,
+				roomId: "room_main",
+				formatId: "fmt_talk",
+			},
+		]);
+
+		const data = await callLoader();
+
+		expect(
+			data.sessions.filter((s) =>
+				["s_queue_start_only", "s_queue_end_only"].includes(s.id),
+			),
+		).toEqual([]);
+	});
+
+	it("keeps complete removed-status placements visible, non-schedulable, and conflict-silent", async () => {
+		const db = await seedBaseline();
+		const startsAt = utc(2026, 10, 12, 16, 30);
+		const endsAt = utc(2026, 10, 12, 17);
 		await db
-			.update(events)
-			.set({ schedulableStatuses: ["accepted", "accept_queue"] })
-			.where(eq(events.id, "e1"));
-		await callAction({
-			intent: "schedule",
-			submissionId: "s_queue",
-			roomId: "room_main",
-			day: "2026-10-12",
-			startMinutes: "570",
-		});
+			.update(submissions)
+			.set({ startsAt, endsAt, roomId: "room_main" })
+			.where(eq(submissions.id, "s_queue"));
+		await db
+			.update(submissions)
+			.set({ startsAt, endsAt, roomId: "room_main" })
+			.where(eq(submissions.id, "s_live"));
 		await db.insert(submissions).values({
 			id: "s_queue_unscheduled",
 			eventId: "e1",
@@ -450,30 +481,81 @@ describe("published-but-hidden affordance", () => {
 			status: "accept_queue",
 			formatId: "fmt_talk",
 		});
-		await db
-			.update(events)
-			.set({ schedulableStatuses: ["accepted"], agendaPublishedAt: new Date() })
-			.where(eq(events.id, "e1"));
 
 		const data = await callLoader();
+		const retained = data.sessions.find((s) => s.id === "s_queue");
+		if (!retained) throw new Error("Expected retained queue session");
 
-		expect(data.sessions.find((s) => s.id === "s_queue")).toMatchObject({
+		expect(retained).toMatchObject({
 			status: "accept_queue",
-			schedulable: true,
-			startsAt: utc(2026, 10, 12, 16, 30).getTime(),
+			schedulable: false,
+			startsAt: startsAt.getTime(),
+			endsAt: endsAt.getTime(),
 			roomId: "room_main",
 		});
+		expect(isSessionVisible(retained, false)).toBe(true);
 		expect(
 			data.sessions.find((s) => s.id === "s_queue_unscheduled"),
 		).toBeUndefined();
-		expect(data.event?.hiddenFromPublic).toBe(1);
+		expect(detectConflicts(data.sessions, data.rooms)).toEqual([]);
 	});
 
+	it("keeps placed drafts behind the Drafts toggle", async () => {
+		const db = await seedBaseline();
+		await db.insert(submissions).values({
+			id: "s_draft_placed",
+			eventId: "e1",
+			title: "Placed Draft",
+			status: "draft",
+			startsAt: utc(2026, 10, 12, 16, 30),
+			endsAt: utc(2026, 10, 12, 17),
+			roomId: "room_main",
+			formatId: "fmt_talk",
+		});
+
+		const data = await callLoader();
+		const draft = data.sessions.find((s) => s.id === "s_draft_placed");
+		if (!draft) throw new Error("Expected placed draft session");
+
+		expect(draft.schedulable).toBe(false);
+		expect(isSessionVisible(draft, false)).toBe(false);
+		expect(isSessionVisible(draft, true)).toBe(true);
+	});
+
+	it("offers retained row statuses in the Status filter", async () => {
+		const db = await seedBaseline();
+		await db
+			.update(submissions)
+			.set({
+				startsAt: utc(2026, 10, 12, 16, 30),
+				endsAt: utc(2026, 10, 12, 17),
+				roomId: "room_main",
+			})
+			.where(eq(submissions.id, "s_queue"));
+
+		const data = await callLoader();
+
+		expect(data.statusOptions).toEqual(
+			expect.arrayContaining(["accepted", "accept_queue", "draft"]),
+		);
+	});
+});
+
+describe("published-but-hidden affordance", () => {
 	it("counts scheduled rows the public schedule withholds, per the public projection rule", async () => {
 		const db = await seedBaseline();
 		await db
 			.update(events)
 			.set({ schedulableStatuses: ["accepted", "accept_queue"] });
+		await db.insert(submissions).values({
+			id: "s_accepted_start_only",
+			eventId: "e1",
+			title: "Incomplete Accepted Session",
+			status: "accepted",
+			startsAt: utc(2026, 10, 12, 18),
+			roomId: "room_main",
+			formatId: "fmt_talk",
+		});
 		// s_keynote: accepted but content unapproved; s_queue: content approved
 		// later but status never accepted — both must stay off the public page.
 		await callAction({
