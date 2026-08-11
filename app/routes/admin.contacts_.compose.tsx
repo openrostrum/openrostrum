@@ -7,10 +7,19 @@ import {
 	resolveRecipients,
 } from "~/domain/contacts";
 import {
+	resolveDirectoryRecipients,
+	type DirectoryRecipient,
+} from "~/domain/crm";
+import {
 	assertAnnouncementsConfigured,
 	sendAnnouncement,
 } from "~/lib/announcements";
-import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
+import {
+	getActiveEvent,
+	normalizeEmail,
+	requireAdmin,
+	resolveActiveOrg,
+} from "~/lib/auth";
 import {
 	CAMPAIGN_MERGE_TAGS,
 	type MergeValues,
@@ -64,20 +73,39 @@ const Composition = z.object({
 	body: z.string().min(1, "Write a message body"),
 });
 
-function selectionFromParams(params: URLSearchParams): RecipientSelection {
+type ComposerSelection = RecipientSelection & {
+	directoryEmails?: string[];
+};
+
+function selectionFromParams(params: URLSearchParams): ComposerSelection {
 	const ids = (params.get("ids") ?? "")
 		.split(",")
 		.map((s) => s.trim())
 		.filter(Boolean);
 	const statusParam = params.get("status");
+	const directoryParam = params.get("directoryEmails");
+	const directoryEmails =
+		directoryParam === null
+			? undefined
+			: [
+					...new Set(
+						directoryParam.split(",").map(normalizeEmail).filter(Boolean),
+					),
+				].slice(0, MAX_RECIPIENTS);
 	return {
 		ids: ids.length > 0 ? ids : undefined,
 		q: params.get("q"),
 		status: isContactStatus(statusParam) ? statusParam : null,
+		directoryEmails,
 	};
 }
 
-function describeSelection(selection: RecipientSelection): string {
+function describeSelection(selection: ComposerSelection): string {
+	if (selection.directoryEmails !== undefined) {
+		return selection.directoryEmails.length === 1
+			? "1 person selected from the organization directory"
+			: `${selection.directoryEmails.length} people selected from the organization directory`;
+	}
 	if (selection.ids?.length) {
 		return selection.ids.length === 1
 			? "Hand-picked contact"
@@ -114,6 +142,20 @@ function buildMergeValues(
 	};
 }
 
+async function resolveComposerRecipients(
+	db: ReturnType<typeof getDb>,
+	eventId: string,
+	orgId: string | null,
+	selection: ComposerSelection,
+): Promise<DirectoryRecipient[]> {
+	if (selection.directoryEmails !== undefined) {
+		return orgId
+			? resolveDirectoryRecipients(db, orgId, selection.directoryEmails)
+			: [];
+	}
+	return resolveRecipients(db, eventId, selection);
+}
+
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
@@ -125,7 +167,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	if (!event) {
 		return data({
 			recipients: [],
-			selection: {} as RecipientSelection,
+			selection: {} as ComposerSelection,
 			selectionLabel: "No event is configured yet",
 			template: null as typeof WELCOME_TEMPLATE | null,
 			sendKey: crypto.randomUUID(),
@@ -136,8 +178,12 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const timings = createTimings();
 	const url = new URL(request.url);
 	const selection = selectionFromParams(url.searchParams);
+	const org =
+		selection.directoryEmails !== undefined
+			? await timings.time("org", () => resolveActiveOrg(env, user))
+			: null;
 	const recipients = await timings.time("db", () =>
-		resolveRecipients(db, event.id, selection),
+		resolveComposerRecipients(db, event.id, org?.id ?? null, selection),
 	);
 	return data(
 		{
@@ -182,9 +228,21 @@ export async function action({ context, request }: Route.ActionArgs) {
 			ids: String(form.get("ids") ?? ""),
 			q: String(form.get("q") ?? ""),
 			status: String(form.get("status") ?? ""),
+			...(form.has("directoryEmails")
+				? { directoryEmails: String(form.get("directoryEmails") ?? "") }
+				: {}),
 		}),
 	);
-	const recipients = await resolveRecipients(db, event.id, selection);
+	const org =
+		selection.directoryEmails !== undefined
+			? await resolveActiveOrg(env, user)
+			: null;
+	const recipients = await resolveComposerRecipients(
+		db,
+		event.id,
+		org?.id ?? null,
+		selection,
+	);
 	const echo = {
 		subject: String(form.get("subject") ?? ""),
 		body: String(form.get("body") ?? ""),
@@ -372,6 +430,16 @@ export default function ComposeBulkEmail({
 }: Route.ComponentProps) {
 	const busy = useBusy();
 	const { recipients, selection, selectionLabel, template } = loaderData;
+	const fromDirectory = selection.directoryEmails !== undefined;
+	const backTo = fromDirectory ? "/admin/crm/directory" : "/admin/contacts";
+	const backLabel = fromDirectory ? "Back to directory" : "{backLabel}";
+	const recipientNoun = fromDirectory
+		? recipients.length === 1
+			? "person"
+			: "people"
+		: recipients.length === 1
+			? "speaker"
+			: "speakers";
 	const state = actionData;
 	// A re-render after preview/validation/partial-failure keeps the POSTed
 	// sendKey (retry stays idempotent); a fresh visit mints a fresh one.
@@ -385,8 +453,8 @@ export default function ComposeBulkEmail({
 					count={`${state.sent} delivered`}
 					subtitle={`"${state.subject}" — every send is logged to the email history.`}
 					actions={
-						<ButtonLink to="/admin/contacts" variant="ghost">
-							Back to speakers
+						<ButtonLink to={backTo} variant="ghost">
+							{backLabel}
 						</ButtonLink>
 					}
 				/>
@@ -442,8 +510,8 @@ export default function ComposeBulkEmail({
 				count={`${recipients.length} recipients`}
 				subtitle={selectionLabel}
 				actions={
-					<ButtonLink to="/admin/contacts" variant="ghost">
-						Back to speakers
+					<ButtonLink to={backTo} variant="ghost">
+						{backLabel}
 					</ButtonLink>
 				}
 			/>
@@ -455,7 +523,7 @@ export default function ComposeBulkEmail({
 						title="No recipients match"
 						body="Pick speakers from the roster (or widen the filter), then come back to compose."
 						action={
-							<ButtonLink to="/admin/contacts" variant="ghost">
+							<ButtonLink to={backTo} variant="ghost">
 								Open the roster
 							</ButtonLink>
 						}
@@ -485,12 +553,23 @@ export default function ComposeBulkEmail({
 						<Form method="post" className="flex flex-col gap-3">
 							{/* Snapshot the RESOLVED set: "Send to N speakers" targets exactly
 							    the names listed above, even if the roster changes mid-compose. */}
-							<Input
-								type="hidden"
-								name="ids"
-								value={recipients.map((r) => r.id).join(",")}
-								readOnly
-							/>
+							{selection.directoryEmails !== undefined ? (
+								<Input
+									type="hidden"
+									name="directoryEmails"
+									value={recipients
+										.map((recipient) => normalizeEmail(recipient.email))
+										.join(",")}
+									readOnly
+								/>
+							) : (
+								<Input
+									type="hidden"
+									name="ids"
+									value={recipients.map((recipient) => recipient.id).join(",")}
+									readOnly
+								/>
+							)}
 							<Input type="hidden" name="sendKey" value={sendKey} readOnly />
 							<Field label="Subject" error={state?.fieldErrors?.subject?.[0]}>
 								<Input
@@ -516,6 +595,12 @@ export default function ComposeBulkEmail({
 									Starting from scratch?{" "}
 									<ButtonLink
 										to={`?${new URLSearchParams({
+											...(selection.directoryEmails !== undefined
+												? {
+														directoryEmails:
+															selection.directoryEmails.join(","),
+													}
+												: {}),
 											...(selection.ids?.length
 												? { ids: selection.ids.join(",") }
 												: {}),
@@ -555,8 +640,7 @@ export default function ComposeBulkEmail({
 									icon="mail"
 									disabled={busy || !sendKey}
 								>
-									Send to {recipients.length}{" "}
-									{recipients.length === 1 ? "speaker" : "speakers"}
+									Send to {recipients.length} {recipientNoun}
 								</Button>
 								{state?.formError && <ErrorText>{state.formError}</ErrorText>}
 							</div>
