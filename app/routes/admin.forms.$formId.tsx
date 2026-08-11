@@ -297,7 +297,19 @@ function fieldScopePredicate(eventId: string, organizationId: string) {
 async function loadPlacements(db: Db, formId: string) {
 	const placements = await db.query.formFields.findMany({
 		where: eq(formFields.formId, formId),
-		with: { field: true },
+		with: {
+			field: {
+				columns: {
+					id: true,
+					organizationId: true,
+					name: true,
+					recordType: true,
+					type: true,
+					maxLength: true,
+					options: true,
+				},
+			},
+		},
 		orderBy: [asc(formFields.position), asc(formFields.createdAt)],
 	});
 	return placements.filter(
