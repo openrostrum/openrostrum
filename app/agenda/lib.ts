@@ -13,8 +13,10 @@ export type AgendaSession = {
 	id: string;
 	title: string;
 	status: string;
-	/** status ∈ the event's schedulable set — gates dragging AND conflicts. */
+	/** status ∈ the event's schedulable set — gates dragging and admin conflicts. */
 	schedulable: boolean;
+	/** Accepted and content-approved — the attendee-facing agenda projection. */
+	publiclyVisible: boolean;
 	startsAt: number | null; // epoch ms
 	endsAt: number | null;
 	roomId: string | null;
@@ -343,20 +345,27 @@ export type Conflict = {
 	overlapEndMs: number;
 };
 
+export type ConflictScope = "schedulable" | "public";
+
 /**
  * The two Sessionboard conflict classes, nothing more: same-room time overlap
  * and a person booked into two overlapping sessions (any rooms). Track
  * collisions are deliberately not detected. Overlap is STRICT — a session
- * ending exactly when the next starts is not a conflict. Only schedulable
- * rows can conflict (a withdrawn-but-still-timed row stays silent).
+ * ending exactly when the next starts is not a conflict. Admin detection uses
+ * schedulable rows; publish detection uses only attendee-visible rows.
  */
 export function detectConflicts(
 	sessions: readonly AgendaSession[],
 	rooms: readonly AgendaRoom[],
+	scope: ConflictScope = "schedulable",
 ): Conflict[] {
 	const roomName = new Map(rooms.map((r) => [r.id, r.name]));
 	const rows = sessions
-		.filter(isSchedulablePlacement)
+		.filter(
+			(s): s is CompleteAgendaSession =>
+				hasCompletePlacement(s) &&
+				(scope === "public" ? s.publiclyVisible : s.schedulable),
+		)
 		.sort((a, b) => a.startsAt - b.startsAt);
 	const out: Conflict[] = [];
 	for (let i = 0; i < rows.length; i += 1) {
@@ -381,8 +390,16 @@ export function detectConflicts(
 					roomName: roomName.get(a.roomId) ?? "the same room",
 				});
 			}
+			const bSpeakerIds = new Set(
+				b.speakers.map((speaker) => speaker.contactId),
+			);
+			const seenSpeakerIds = new Set<string>();
 			for (const person of a.speakers) {
-				if (b.speakers.some((s) => s.contactId === person.contactId)) {
+				if (
+					bSpeakerIds.has(person.contactId) &&
+					!seenSpeakerIds.has(person.contactId)
+				) {
+					seenSpeakerIds.add(person.contactId);
 					out.push({ ...base, kind: "speaker", personName: person.name });
 				}
 			}
@@ -391,34 +408,88 @@ export function detectConflicts(
 	return out;
 }
 
-export type ConflictRow = {
-	sideId: string;
-	sideTitle: string;
-	conflict: Conflict;
+export type ConflictReason =
+	| { kind: "room"; roomName: string }
+	| { kind: "speaker"; personName: string };
+
+export type LogicalConflict = {
+	aId: string;
+	aTitle: string;
+	bId: string;
+	bTitle: string;
+	overlapStartMs: number;
+	overlapEndMs: number;
+	reasons: ConflictReason[];
 };
 
 export const MAX_CONFLICT_ROWS = 100;
 
 /**
- * The Conflicts tab's rows: both sides of every conflict, earliest overlap
- * first — CAPPED. Two rows per conflict grows quadratically as overlaps stack,
- * and rendering them all once blew the Worker CPU budget at real scale;
- * `total` keeps the tab count and the truncation note honest.
+ * One row per session pair, earliest overlap first — CAPPED. Room and speaker
+ * reasons are retained on the pair while duplicate participant roles collapse.
  */
 export function buildConflictRows(conflicts: readonly Conflict[]): {
-	rows: ConflictRow[];
+	rows: LogicalConflict[];
 	total: number;
 } {
-	const all = conflicts
-		.flatMap((c) => [
-			{ sideId: c.aId, sideTitle: c.aTitle, conflict: c },
-			{ sideId: c.bId, sideTitle: c.bTitle, conflict: c },
-		])
-		.sort(
-			(a, b) =>
-				a.conflict.overlapStartMs - b.conflict.overlapStartMs ||
-				a.sideTitle.localeCompare(b.sideTitle),
-		);
+	const byPair = new Map<string, LogicalConflict>();
+	for (const conflict of conflicts) {
+		const forward = conflict.aId.localeCompare(conflict.bId) <= 0;
+		const aId = forward ? conflict.aId : conflict.bId;
+		const bId = forward ? conflict.bId : conflict.aId;
+		const key = JSON.stringify([aId, bId]);
+		let logical = byPair.get(key);
+		if (!logical) {
+			logical = {
+				aId,
+				aTitle: forward ? conflict.aTitle : conflict.bTitle,
+				bId,
+				bTitle: forward ? conflict.bTitle : conflict.aTitle,
+				overlapStartMs: conflict.overlapStartMs,
+				overlapEndMs: conflict.overlapEndMs,
+				reasons: [],
+			};
+			byPair.set(key, logical);
+		}
+		const reason: ConflictReason =
+			conflict.kind === "room"
+				? { kind: "room", roomName: conflict.roomName ?? "the same room" }
+				: {
+						kind: "speaker",
+						personName: conflict.personName ?? "The same person",
+					};
+		const reasonKey =
+			reason.kind === "room"
+				? `room:${reason.roomName}`
+				: `speaker:${reason.personName}`;
+		if (
+			!logical.reasons.some((current) => {
+				const currentKey =
+					current.kind === "room"
+						? `room:${current.roomName}`
+						: `speaker:${current.personName}`;
+				return currentKey === reasonKey;
+			})
+		) {
+			logical.reasons.push(reason);
+		}
+	}
+
+	const all = [...byPair.values()];
+	for (const conflict of all) {
+		conflict.reasons.sort((a, b) => {
+			if (a.kind !== b.kind) return a.kind === "room" ? -1 : 1;
+			const aLabel = a.kind === "room" ? a.roomName : a.personName;
+			const bLabel = b.kind === "room" ? b.roomName : b.personName;
+			return aLabel.localeCompare(bLabel);
+		});
+	}
+	all.sort(
+		(a, b) =>
+			a.overlapStartMs - b.overlapStartMs ||
+			a.aTitle.localeCompare(b.aTitle) ||
+			a.bTitle.localeCompare(b.bTitle),
+	);
 	return { rows: all.slice(0, MAX_CONFLICT_ROWS), total: all.length };
 }
 
