@@ -167,6 +167,7 @@ type LoaderData = {
 		publishedAt: number | null;
 		hiddenFromPublic: number;
 		staleSpeakers: number;
+		scheduleScanTruncated: boolean;
 	} | null;
 	sessions: {
 		id: string;
@@ -670,6 +671,71 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		expect((await callLoader()).event?.staleSpeakers).toBe(0);
 		const repeat = await callAction({ intent: "schedule-updates" });
 		expect(repeat.updates).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+	});
+
+	it("finds an affected session's old invite behind 1001 newer unrelated invites", async () => {
+		const db = await invitedBaseline();
+		const scheduled = await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		expect(scheduled.ok).toBe(true);
+
+		const unrelated = await env.DB.prepare(`
+			WITH RECURSIVE invite_noise(n) AS (
+				SELECT 1
+				UNION ALL
+				SELECT n + 1 FROM invite_noise WHERE n < 1001
+			)
+			INSERT INTO email_outbox (
+				id, event_id, "to", subject, html, ics_attachment,
+				status, created_at, sent_at
+			)
+			SELECT
+				'noise-' || n,
+				'e1',
+				'noise@test.co',
+				'Unrelated invite',
+				'<p>unrelated</p>',
+				'BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:submission-unrelated-' || n || '@openrostrum
+DTSTART:20261012T150000Z
+DTEND:20261012T160000Z
+SEQUENCE:0
+END:VEVENT
+END:VCALENDAR
+',
+				'sent',
+				CAST(strftime('%s', 'now') AS INTEGER) + n,
+				CAST(strftime('%s', 'now') AS INTEGER) + n
+			FROM invite_noise
+		`).run();
+		expect(unrelated.meta.changes).toBe(1001);
+
+		const data = await callLoader();
+		expect(data.event).toMatchObject({
+			staleSpeakers: 1,
+			scheduleScanTruncated: false,
+		});
+
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0, remaining: 0 });
+		const { row, vevent } = await latestUpdateInvite(
+			db,
+			"schedule-update:s_keynote@1",
+		);
+		expect(row?.to).toBe("marco@test.co");
+		expect(vevent).toMatchObject({
+			uid: "submission-s_keynote@openrostrum",
+			sequence: 1,
+			start: utc(2026, 10, 12, 16, 30),
+			end: utc(2026, 10, 12, 17, 15),
+			location: "Main Hall",
+		});
 	});
 
 	it("SEQUENCE increases monotonically across successive moves", async () => {

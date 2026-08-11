@@ -955,7 +955,7 @@ export default function Agenda({
 							unsent schedule updates — their calendars still show the last
 							invite they were emailed.
 							{event.scheduleScanTruncated &&
-								" (Detection window exceeded — some changes may not be counted yet; sending advances the window.)"}
+								" (Matching invite history exceeded the check limit, so these counts may be incomplete.)"}
 						</span>
 						<updatesFetcher.Form method="post">
 							<Button
@@ -975,8 +975,8 @@ export default function Agenda({
 			)}
 			{event.staleSpeakers === 0 && event.scheduleScanTruncated && (
 				<InfoBar>
-					Schedule-change detection scanned its window of recent invites and
-					found none stale — older invites beyond the window are not checked.
+					Matching invite history exceeded the check limit, so schedule-update
+					counts may be incomplete.
 				</InfoBar>
 			)}
 			{updatesFetcher.data?.updates && updatesFetcher.state === "idle" && (

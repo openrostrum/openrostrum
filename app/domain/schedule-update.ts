@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Db } from "~/db";
 import { emailOutbox, type events, rooms, submissions } from "~/db/schema";
 import {
@@ -47,9 +47,6 @@ export type ScheduleChangeSet = {
 
 const EMPTY: ScheduleChangeSet = { changes: [], speakers: 0, truncated: false };
 
-/** Newest rows first + max-SEQUENCE-per-UID keeps truncation safe: a UID whose
- * invites all fell outside the window reads as never-invited (skipped), never
- * as a spurious change — and `truncated` lets the UI say so. */
 const LEDGER_SCAN_LIMIT = 1000;
 
 /**
@@ -83,28 +80,38 @@ export async function computeScheduleChanges(
 	// Narrowed to the ics column (html is the heavy one) and capped. A "failed"
 	// attempt never reached a calendar so it must not advance the ledger;
 	// "bounced" counts — re-sending to a bouncing address would loop.
-	const ledgerRows = await db
-		.select({ ics: emailOutbox.icsAttachment })
-		.from(emailOutbox)
-		.where(
-			and(
-				eq(emailOutbox.eventId, event.id),
-				isNotNull(emailOutbox.icsAttachment),
-				inArray(emailOutbox.status, ["sent", "bounced"]),
-			),
-		)
-		.orderBy(desc(emailOutbox.createdAt))
-		.limit(LEDGER_SCAN_LIMIT);
-	const truncated = ledgerRows.length === LEDGER_SCAN_LIMIT;
-	if (ledgerRows.length === 0) return { ...EMPTY, truncated };
+	const ledgerRows = await db.all<{ ics: string | null }>(sql`
+		SELECT ${emailOutbox.icsAttachment} AS ics
+		FROM ${emailOutbox}
+		WHERE ${emailOutbox.eventId} = ${event.id}
+			AND ${emailOutbox.icsAttachment} IS NOT NULL
+			AND ${emailOutbox.status} IN ('sent', 'bounced')
+			AND EXISTS (
+				SELECT 1
+				FROM ${submissions}
+				WHERE ${submissions.eventId} = ${event.id}
+					AND ${submissions.status} = 'accepted'
+					AND ${submissions.notifiedAt} IS NOT NULL
+					AND ${submissions.parentId} IS NULL
+					AND instr(
+						${emailOutbox.icsAttachment},
+						'submission-' || ${submissions.id} || '@openrostrum'
+					) > 0
+			)
+		ORDER BY ${emailOutbox.createdAt} DESC
+		LIMIT ${LEDGER_SCAN_LIMIT + 1}
+	`);
+	const truncated = ledgerRows.length > LEDGER_SCAN_LIMIT;
+	const scannedRows = ledgerRows.slice(0, LEDGER_SCAN_LIMIT);
+	if (scannedRows.length === 0) return { ...EMPTY, truncated };
 	const lastSent = new Map<
 		string,
 		{ start: Date; end: Date; location: string | null; sequence: number }
 	>();
-	for (const row of ledgerRows) {
+	for (const row of scannedRows) {
 		for (const ev of parseIcsAttachment(row.ics ?? "")) {
 			const prior = lastSent.get(ev.uid);
-			if (!prior || ev.sequence >= prior.sequence) lastSent.set(ev.uid, ev);
+			if (!prior || ev.sequence > prior.sequence) lastSent.set(ev.uid, ev);
 		}
 	}
 
