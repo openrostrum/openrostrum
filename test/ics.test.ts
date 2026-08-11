@@ -96,6 +96,24 @@ describe("parseIcsAttachment (the outbox ledger reader)", () => {
 		]);
 	});
 
+	it("atomically unescapes literal backslash-n alongside newlines and punctuation", () => {
+		const location = "Hall \\n Annex\nFloor 2; A, B";
+		const ics = buildIcs({
+			calendarName: "T",
+			events: [
+				{
+					uid: "submission-escapes@openrostrum",
+					start: new Date("2027-05-12T16:30:00Z"),
+					end: new Date("2027-05-12T17:00:00Z"),
+					title: "Talk",
+					location,
+				},
+			],
+		});
+
+		expect(parseIcsAttachment(ics)[0]?.location).toBe(location);
+	});
+
 	it("reads the npm-ics payloads historic accept emails attached", () => {
 		// Captured VERBATIM from the npm-ics output the accept spine attached
 		// before this serializer replaced it — what prod outbox rows hold (note

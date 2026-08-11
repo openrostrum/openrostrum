@@ -55,6 +55,7 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { isPubliclyVisible } from "~/lib/program";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	Chip,
@@ -474,6 +475,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 					andW(eqW(s.id, submissionId), eqW(s.eventId, event.id)),
 			});
 			if (!sub) return fail("Session not found.");
+			if (!schedulable.includes(sub.status)) {
+				return fail(
+					`“${sub.title}” is not schedulable (${sub.status.replace("_", " ")}) — only schedulable statuses can be removed from the agenda (see Settings).`,
+				);
+			}
 			await timings.time("db-write", () =>
 				db
 					.update(submissions)
@@ -804,6 +810,7 @@ export default function Agenda({
 }: Route.ComponentProps) {
 	const [searchParams, setSearchParams] = useSearchParams();
 	const navigation = useNavigation();
+	const busy = useBusy();
 	const placeFetcher = useFetcher<ActionResult>();
 	const publishFetcher = useFetcher<ActionResult>();
 	const updatesFetcher = useFetcher<ActionResult>();
@@ -968,7 +975,7 @@ export default function Agenda({
 								variant="ghost"
 								name="intent"
 								value="schedule-updates"
-								disabled={updatesFetcher.state !== "idle"}
+								disabled={busy}
 							>
 								{updatesFetcher.state === "idle"
 									? "Send schedule updates"

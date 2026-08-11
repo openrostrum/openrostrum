@@ -102,13 +102,13 @@ describe("onboarding route", () => {
 		expect(event?.name).toBe("Devcon 2027");
 		expect(event?.slug).toBe("devcon-2027");
 		expect(event?.timezone).toBe("Europe/Paris");
-		// Date-only picks store midnight IN THE EVENT'S ZONE (Paris = UTC+2 in
-		// June) — UTC midnight would shift the event's day math by one day.
+		// Date-only starts use local midnight; ends use local 23:59 so the
+		// selected final calendar day remains part of the event.
 		expect(event?.startsAt?.getTime()).toBe(
 			Date.parse("2027-06-10T00:00:00+02:00"),
 		);
 		expect(event?.endsAt?.getTime()).toBe(
-			Date.parse("2027-06-12T00:00:00+02:00"),
+			Date.parse("2027-06-12T23:59:00+02:00"),
 		);
 
 		const templates = await db.select().from(emailTemplates);

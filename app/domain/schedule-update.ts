@@ -19,6 +19,8 @@ import {
 	inviteRecipients,
 	type SubmissionInvite,
 } from "~/domain/accept";
+import { sha256Hex } from "~/lib/api-token";
+import { normalizeEmail } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatScheduleRange } from "~/lib/format-date";
 import { escapeHtml } from "~/lib/html";
@@ -41,12 +43,14 @@ export type ScheduleChange = {
 	/** False = the session lost its slot; the invite is the event-wide hold. */
 	scheduled: boolean;
 	invite: SubmissionInvite;
-	/** Last sent SEQUENCE + 1 — what the update email must carry. */
+	/** Next delivered revision; zero when no calendar attachment has landed yet. */
 	nextSequence: number;
 	/** Primary speaker (submitter fallback) — null when nobody is emailable. */
 	to: string | null;
 	/** True when the last delivered invite went to a different address. */
 	recipientChanged: boolean;
+	/** Latest matching bounce, included in retry identity without advancing SEQUENCE. */
+	retryAfterBounceId: string | null;
 };
 
 export type ScheduleChangeSet = {
@@ -111,37 +115,52 @@ async function structuredLedgerRows(
 		.limit(LEDGER_SCAN_LIMIT + 1);
 }
 
-function referencedSubmissionIds(
+type ParsedLedgerRow = LedgerRow & {
+	invites: ParsedIcsEvent[];
+	acceptanceSubmissionId: string | null;
+	associatedSubmissionIds: Set<string>;
+};
+
+function acceptanceSubmissionId(
 	dedupeKey: string | null,
 	candidateIds: ReadonlySet<string>,
-): string[] {
-	if (!dedupeKey) return [];
-	if (dedupeKey.startsWith("decision:accept:")) {
-		const submissionId = dedupeKey.slice(dedupeKey.lastIndexOf(":") + 1);
-		return candidateIds.has(submissionId) ? [submissionId] : [];
-	}
-	if (!dedupeKey.startsWith("schedule-update:")) return [];
-	const revisions = dedupeKey
-		.slice("schedule-update:".length)
-		.split(":to:", 1)[0];
-	return (revisions ?? "").split(",").flatMap((revision) => {
-		const separator = revision.lastIndexOf("@");
-		if (separator < 1) return [];
-		const submissionId = revision.slice(0, separator);
-		return candidateIds.has(submissionId) ? [submissionId] : [];
+): string | null {
+	if (!dedupeKey?.startsWith("decision:accept:")) return null;
+	const submissionId = dedupeKey.slice(dedupeKey.lastIndexOf(":") + 1);
+	return candidateIds.has(submissionId) ? submissionId : null;
+}
+
+function parseLedgerRows(
+	rows: readonly LedgerRow[],
+	candidateIds: ReadonlySet<string>,
+	candidateByUid: ReadonlyMap<string, string>,
+): ParsedLedgerRow[] {
+	return rows.map((row) => {
+		// Parse once per attachment. All later association and baseline work consumes
+		// this projection rather than reparsing multi-VEVENT payloads per candidate.
+		const invites = parseIcsAttachment(row.ics ?? "");
+		const acceptedId = acceptanceSubmissionId(row.dedupeKey, candidateIds);
+		const associatedSubmissionIds = new Set<string>();
+		if (acceptedId) associatedSubmissionIds.add(acceptedId);
+		for (const invite of invites) {
+			const submissionId = candidateByUid.get(invite.uid);
+			if (submissionId) associatedSubmissionIds.add(submissionId);
+		}
+		return {
+			...row,
+			invites,
+			acceptanceSubmissionId: acceptedId,
+			associatedSubmissionIds,
+		};
 	});
 }
 
 function inviteHistoryBySubmission(
-	rows: readonly LedgerRow[],
-	candidateIds: ReadonlySet<string>,
-): Map<string, LedgerRow[]> {
-	const history = new Map<string, LedgerRow[]>();
+	rows: readonly ParsedLedgerRow[],
+): Map<string, ParsedLedgerRow[]> {
+	const history = new Map<string, ParsedLedgerRow[]>();
 	for (const row of rows) {
-		for (const submissionId of referencedSubmissionIds(
-			row.dedupeKey,
-			candidateIds,
-		)) {
+		for (const submissionId of row.associatedSubmissionIds) {
 			const prior = history.get(submissionId) ?? [];
 			prior.push(row);
 			history.set(submissionId, prior);
@@ -151,25 +170,20 @@ function inviteHistoryBySubmission(
 }
 
 function inviteBaselines(
-	rows: Iterable<LedgerRow>,
+	rows: readonly ParsedLedgerRow[],
 	candidateByUid: ReadonlyMap<string, string>,
 ): Map<string, InviteBaseline> {
-	const ordered = [...rows].sort((a, b) => {
-		const delivered =
-			(a.sentAt ?? a.createdAt).getTime() - (b.sentAt ?? b.createdAt).getTime();
-		if (delivered !== 0) return delivered;
-		const created = a.createdAt.getTime() - b.createdAt.getTime();
-		return created !== 0 ? created : a.id.localeCompare(b.id);
-	});
 	const baselines = new Map<string, InviteBaseline>();
-	for (const row of ordered) {
+	for (const row of rows) {
 		// A bounce proves an attempt, not delivery to a calendar. It must not consume
-		// a SEQUENCE that a corrected recipient still needs to receive.
+		// a SEQUENCE that a corrected or recovered recipient still needs to receive.
 		if (row.status !== "sent") continue;
-		for (const invite of parseIcsAttachment(row.ics ?? "")) {
+		for (const invite of row.invites) {
 			const submissionId = candidateByUid.get(invite.uid);
 			if (!submissionId) continue;
 			const prior = baselines.get(submissionId);
+			// Rows arrive in delivery order, so equal revisions deliberately keep the
+			// earliest delivered snapshot; only a higher SEQUENCE can replace it.
 			if (!prior || invite.sequence > prior.sequence) {
 				baselines.set(submissionId, { ...invite, to: row.to });
 			}
@@ -221,20 +235,24 @@ export async function computeScheduleChanges(
 	if (ledger.length > LEDGER_SCAN_LIMIT) {
 		return { ...EMPTY, truncated: true };
 	}
-	const historyBySubmission = inviteHistoryBySubmission(ledger, candidateIds);
-	const lastSent = inviteBaselines(ledger, candidateByUid);
+	const parsedLedger = parseLedgerRows(ledger, candidateIds, candidateByUid);
+	const historyBySubmission = inviteHistoryBySubmission(parsedLedger);
+	const lastSent = inviteBaselines(parsedLedger, candidateByUid);
+	const trackedCandidates = new Set<string>();
 	for (const candidate of candidates) {
 		const history = historyBySubmission.get(candidate.id);
-		if (!history) return { ...EMPTY, truncated: true };
+		// notifiedAt is shared by several notification paths. Only structured
+		// acceptance history or an exact stable VEVENT UID proves calendar history.
+		if (!history) continue;
+		trackedCandidates.add(candidate.id);
 		const expectedUid = icsUidForSubmission(candidate.id);
 		if (
 			history.some(
 				(row) =>
+					row.acceptanceSubmissionId === candidate.id &&
 					row.status === "sent" &&
 					row.ics !== null &&
-					!parseIcsAttachment(row.ics).some(
-						(invite) => invite.uid === expectedUid,
-					),
+					!row.invites.some((invite) => invite.uid === expectedUid),
 			)
 		) {
 			return { ...EMPTY, truncated: true };
@@ -259,8 +277,9 @@ export async function computeScheduleChanges(
 
 	const changes: ScheduleChange[] = [];
 	for (const row of candidates) {
+		if (!trackedCandidates.has(row.id)) continue;
+		const history = historyBySubmission.get(row.id) ?? [];
 		const last = lastSent.get(row.id);
-		if (!last) continue;
 		const invite = inviteForSubmission(
 			row,
 			event,
@@ -269,26 +288,36 @@ export async function computeScheduleChanges(
 		if (!invite) continue;
 		const to = recipientById.get(row.id) ?? null;
 		const inviteUnchanged =
+			last !== undefined &&
 			last.start.getTime() === invite.start.getTime() &&
 			last.end.getTime() === invite.end.getTime() &&
 			(last.location ?? null) === (invite.location ?? null);
 		const recipientUnchanged =
-			to !== null && last.to.trim().toLowerCase() === to.trim().toLowerCase();
+			last !== undefined &&
+			to !== null &&
+			normalizeEmail(last.to) === normalizeEmail(to);
 		if (inviteUnchanged && recipientUnchanged) continue;
+		let retryAfterBounceId: string | null = null;
+		for (const ledgerRow of history) {
+			if (ledgerRow.status === "bounced") retryAfterBounceId = ledgerRow.id;
+		}
 		changes.push({
 			submissionId: row.id,
 			submissionTitle: row.title,
 			scheduled: Boolean(row.startsAt && row.endsAt),
 			invite,
-			nextSequence: last.sequence + 1,
+			nextSequence: last ? last.sequence + 1 : 0,
 			to,
-			recipientChanged: !recipientUnchanged,
+			recipientChanged: last !== undefined && !recipientUnchanged,
+			retryAfterBounceId,
 		});
 	}
 	if (changes.length === 0) return EMPTY;
 
 	const speakers = new Set(
-		changes.flatMap((change) => (change.to === null ? [] : [change.to])),
+		changes.flatMap((change) =>
+			change.to === null ? [] : [normalizeEmail(change.to)],
+		),
 	).size;
 	return { changes, speakers, truncated: false };
 }
@@ -339,13 +368,9 @@ function updateEmailHtml(
 }
 
 /**
- * One update email PER SPEAKER (an afternoon of drag-and-drop must never fire
- * an email per move — nor one per session): all of a recipient's changed
- * sessions ride in one message whose .ics carries one VEVENT per session,
- * same UID + SEQUENCE+1 each. The dedupe key encodes every (submission,
- * revision) in the email, plus a changed recipient when needed, so a
- * double-click can't re-send while an address correction after a bounce remains
- * sendable. First EMAIL_BATCH_LIMIT speakers per call.
+ * One message per normalized recipient, with all changed VEVENTs attached.
+ * A hashed semantic-state key keeps clicks idempotent; relevant bounce row IDs
+ * salt retries. Each call sends at most EMAIL_BATCH_LIMIT recipients.
  */
 export async function sendScheduleUpdates(
 	db: Db,
@@ -359,27 +384,31 @@ export async function sendScheduleUpdates(
 		failed: 0,
 		remaining: 0,
 	};
-	const byRecipient = new Map<string, ScheduleChange[]>();
-	for (const change of changes) {
+	type RecipientGroup = { to: string; items: ScheduleChange[] };
+	const byRecipient = new Map<string, RecipientGroup>();
+	for (const change of [...changes].sort((a, b) =>
+		a.submissionId.localeCompare(b.submissionId),
+	)) {
 		if (change.to === null) {
 			// No speaker or submitter email — surfaced as a failure, not skipped
 			// silently; the row stays flagged for a later retry.
 			result.failed += 1;
 			continue;
 		}
-		const list = byRecipient.get(change.to) ?? [];
-		list.push(change);
-		byRecipient.set(change.to, list);
+		const identity = normalizeEmail(change.to);
+		const group = byRecipient.get(identity);
+		if (group) group.items.push(change);
+		else byRecipient.set(identity, { to: change.to, items: [change] });
 	}
 	const recipients = [...byRecipient.keys()].sort();
 	const batch = recipients.slice(0, EMAIL_BATCH_LIMIT);
 	result.remaining = recipients.length - batch.length;
 
 	const sender = getEmailSender(env);
-	for (const to of batch) {
-		const items = (byRecipient.get(to) ?? []).sort((a, b) =>
-			a.submissionId.localeCompare(b.submissionId),
-		);
+	for (const recipient of batch) {
+		const group = byRecipient.get(recipient);
+		if (!group) continue;
+		const { to, items } = group;
 		const first = items[0];
 		if (!first) continue;
 		const ics = icsForInvites(
@@ -390,12 +419,20 @@ export async function sendScheduleUpdates(
 				sequence: c.nextSequence,
 			})),
 		);
-		const revisionKey = items
-			.map((c) => `${c.submissionId}@${c.nextSequence}`)
-			.join(",");
-		const recipientKey = items.some((item) => item.recipientChanged)
-			? `:to:${encodeURIComponent(to.trim().toLowerCase())}`
-			: "";
+		const state = JSON.stringify({
+			eventId: event.id,
+			recipient,
+			revisions: items.map((item) => ({
+				submissionId: item.submissionId,
+				sequence: item.nextSequence,
+				start: item.invite.start.toISOString(),
+				end: item.invite.end.toISOString(),
+				location: item.invite.location,
+				title: item.invite.title,
+				retryAfterBounceId: item.retryAfterBounceId,
+			})),
+		});
+		const dedupeKey = `schedule-update:${await sha256Hex(state)}`;
 		try {
 			const sent = await sender.send({
 				to,
@@ -405,7 +442,7 @@ export async function sendScheduleUpdates(
 						: `Schedule updates: ${items.length} of your sessions — ${event.name}`,
 				html: updateEmailHtml(items, event),
 				ics,
-				dedupeKey: `schedule-update:${revisionKey}${recipientKey}`,
+				dedupeKey,
 				eventId: event.id,
 				kind: "transactional",
 			});

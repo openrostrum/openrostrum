@@ -105,11 +105,27 @@ export type ParsedIcsEvent = {
 };
 
 function unescapeText(value: string): string {
-	return value
-		.replace(/\\n/gi, "\n")
-		.replace(/\\,/g, ",")
-		.replace(/\\;/g, ";")
-		.replace(/\\\\/g, "\\");
+	let result = "";
+	for (let index = 0; index < value.length; index += 1) {
+		const char = value[index];
+		if (char !== "\\") {
+			result += char;
+			continue;
+		}
+		const escaped = value[index + 1];
+		if (escaped === undefined) {
+			result += "\\";
+			continue;
+		}
+		if (escaped === "n" || escaped === "N") result += "\n";
+		else if (escaped === "\\" || escaped === "," || escaped === ";") {
+			result += escaped;
+		} else {
+			result += `\\${escaped}`;
+		}
+		index += 1;
+	}
+	return result;
 }
 
 function parseStamp(value: string): Date | null {

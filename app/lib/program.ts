@@ -2,6 +2,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import type { Db } from "~/db";
 import { contacts, events, participants, submissions } from "~/db/schema";
 import { currentHeadshotsSql } from "~/domain/files";
+import { resolveTimezone } from "~/lib/event-time";
 import type {
 	AgendaBlock,
 	AgendaSurfaceData,
@@ -126,7 +127,7 @@ function minutesToLabel(min: number): string {
 function eventDateRange(event: EventRow): string | null {
 	if (!event.startsAt) return null;
 	const fmt = new Intl.DateTimeFormat("en-US", {
-		timeZone: event.timezone,
+		timeZone: resolveTimezone(event.timezone),
 		month: "long",
 		day: "numeric",
 		year: "numeric",
@@ -250,7 +251,7 @@ export async function loadPublicSessions(
 	);
 	const photoByContact = await latestHeadshots(db, event.id, contactIds);
 
-	const tz = event.timezone;
+	const tz = resolveTimezone(event.timezone);
 	const sessions = rows.map((r): PublicSession => {
 		const scheduled = r.startsAt !== null && r.endsAt !== null;
 		const start = r.startsAt;

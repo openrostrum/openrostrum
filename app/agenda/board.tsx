@@ -686,7 +686,7 @@ function GridColumn({
 							dimmed={!matchesSessionFilters(b.session, filters)}
 							subtitle={b.subtitle}
 							draggable={draggable && b.session.schedulable}
-							onUnschedule={onUnschedule}
+							onUnschedule={b.session.schedulable ? onUnschedule : undefined}
 						/>
 					);
 				})}

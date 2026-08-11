@@ -77,6 +77,21 @@ describe("public sessions surface", () => {
 		expect(serialized).not.toMatch(/mobilePhone|homePhone|passwordHash/);
 	});
 
+	it("falls back to UTC formatting when an imported event timezone is malformed", async () => {
+		await seedProgram();
+		await getDb(env).update(events).set({ timezone: "Not/AZone" });
+
+		const { data } = unwrap<SessionsData>(
+			await call(sessionsLoader, "http://localhost/sessions/devflow"),
+		);
+
+		expect(data.event.timezone).toBe("Not/AZone");
+		expect(data.event.dateRange).toBe("May 12 – 14, 2027");
+		expect(
+			data.surface.sessions.find((session) => session.id === "s1")?.timeRange,
+		).toBe("4:30 PM – 5:00 PM");
+	});
+
 	it("search matches titles AND speaker names; facets filter", async () => {
 		await seedProgram();
 		const byTitle = unwrap<SessionsData>(
