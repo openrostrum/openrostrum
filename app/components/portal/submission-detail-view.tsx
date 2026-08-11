@@ -142,9 +142,9 @@ export function SubmissionDetailView({
 				</div>
 			</Card>
 
-			{myParticipations.some((participation) => participation.confirmable) && (
-				<Card title="Your participation">
-					<div className="flex flex-col gap-3">
+			<Card title="Your participation">
+				{myParticipations.some((participation) => participation.confirmable) ? (
+					<div className="flex flex-col gap-4">
 						{myParticipations.map((participation) => (
 							<ParticipationControls
 								key={participation.id}
@@ -153,8 +153,14 @@ export function SubmissionDetailView({
 							/>
 						))}
 					</div>
-				</Card>
-			)}
+				) : (
+					<EmptyState
+						icon="users"
+						title="No participation to confirm"
+						body="There is nothing for you to confirm for this submission."
+					/>
+				)}
+			</Card>
 
 			<Card title="Participants">
 				{participants.length === 0 ? (

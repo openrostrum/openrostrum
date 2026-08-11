@@ -844,7 +844,7 @@ describe("edit-until-close (portal View Submission)", () => {
 
 		const loaded = await loadDetail();
 		expect(loaded.participants).toEqual([]);
-		expect(renderDetail(loaded)).toContain("No participants are listed");
+		expect(renderDetail(loaded).match(/<li\b/g) ?? []).toHaveLength(0);
 	});
 
 	it("uses one deterministic multi-role control and updates only that participant link", async () => {

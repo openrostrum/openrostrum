@@ -482,7 +482,6 @@ describe("bulk assignment", () => {
 
 	it("a multi-talk speaker gets one submission-task assignment per accepted talk — and replays add nothing", async () => {
 		const db = await seedTasksBaseline();
-		// Priya picks up a second accepted talk.
 		await db.insert(submissions).values({
 			id: "s4",
 			eventId: "e1",
