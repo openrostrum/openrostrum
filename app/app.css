@@ -71,6 +71,11 @@
 	--radius-card: 10px;
 	--radius-shell: 12px;
 
+	--motion-duration-feedback: 120ms;
+	--motion-duration-enter: 180ms;
+	--ease-gallery-responsive: cubic-bezier(0.2, 0, 0, 1);
+	--ease-gallery-settle: cubic-bezier(0.16, 1, 0.3, 1);
+
 	--shadow-card:
 		0 0 0 1px light-dark(rgba(23, 38, 36, 0.1), #252b2a),
 		0 1px 2px light-dark(rgba(16, 32, 30, 0.04), rgba(0, 0, 0, 0.2)),
