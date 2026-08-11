@@ -18,9 +18,9 @@ import { Link } from "react-router";
 import {
 	Button,
 	Chip,
+	DialogSurface,
 	EmptyState,
 	ErrorText,
-	Panel,
 	Select,
 	StatusBadge,
 	SUBMISSION_STATUS_TONE,
@@ -207,86 +207,79 @@ export function PublishAgendaDialog({
 	const remaining = total - preview.length;
 	const hasConflicts = total > 0;
 	return (
-		<div
-			ref={dialogRef}
+		<DialogSurface
 			role="alertdialog"
-			aria-modal="true"
-			aria-labelledby="publish-agenda-title"
-			aria-describedby="publish-agenda-description"
-			className="fixed inset-0 z-50 flex items-center justify-center p-6"
+			size="md"
+			labelledBy="publish-agenda-title"
+			describedBy="publish-agenda-description"
+			panelRef={dialogRef}
 		>
-			<div className="w-full max-w-2xl">
-				<Panel>
-					<div className="flex flex-col gap-4">
-						<div className="flex flex-col gap-2">
-							<Strong>
-								<span id="publish-agenda-title">
-									{hasConflicts
-										? `Publish with ${total} unresolved ${total === 1 ? "conflict" : "conflicts"}?`
-										: "Publish agenda?"}
-								</span>
-							</Strong>
-							<p id="publish-agenda-description">
-								{hasConflicts
-									? "Attendees will see these overlapping sessions. Publishing does not resolve them, but you can publish anyway and fix the schedule afterward."
-									: "The approved agenda becomes available on the public schedule immediately."}
-							</p>
-						</div>
-						{preview.length > 0 && (
+			<div className="flex flex-col gap-4">
+				<div className="flex flex-col gap-2">
+					<Strong>
+						<span id="publish-agenda-title">
+							{hasConflicts
+								? `Publish with ${total} unresolved ${total === 1 ? "conflict" : "conflicts"}?`
+								: "Publish agenda?"}
+						</span>
+					</Strong>
+					<p id="publish-agenda-description">
+						{hasConflicts
+							? "Attendees will see these overlapping sessions. Publishing does not resolve them, but you can publish anyway and fix the schedule afterward."
+							: "The approved agenda becomes available on the public schedule immediately."}
+					</p>
+				</div>
+				{preview.length > 0 && (
+					<div
+						role="list"
+						className="flex max-h-72 flex-col gap-3 overflow-y-auto"
+					>
+						{preview.map((conflict) => (
 							<div
-								role="list"
-								className="flex max-h-72 flex-col gap-3 overflow-y-auto"
+								key={`${conflict.aId}|${conflict.bId}`}
+								role="listitem"
+								className="flex flex-col gap-1"
 							>
-								{preview.map((conflict) => (
-									<div
-										key={`${conflict.aId}|${conflict.bId}`}
-										role="listitem"
-										className="flex flex-col gap-1"
-									>
-										<span>
-											<Strong>{conflict.aTitle}</Strong> ↔{" "}
-											<Strong>{conflict.bTitle}</Strong>
-										</span>
-										<span>
-											{conflict.reasons
-												.map((reason) =>
-													conflictSentence(
-														{ ...conflict, ...reason },
-														conflict.aId,
-														timezone,
-													),
-												)
-												.join(" ")}
-										</span>
-									</div>
-								))}
-								{remaining > 0 && (
-									<p>And {remaining} more in the Conflicts tab.</p>
-								)}
+								<span>
+									<Strong>{conflict.aTitle}</Strong> ↔{" "}
+									<Strong>{conflict.bTitle}</Strong>
+								</span>
+								<span>
+									{conflict.reasons
+										.map((reason) =>
+											conflictSentence(
+												{ ...conflict, ...reason },
+												conflict.aId,
+												timezone,
+											),
+										)
+										.join(" ")}
+								</span>
 							</div>
-						)}
-						{error && <ErrorText>{error}</ErrorText>}
-						<div className="flex justify-end gap-2">
-							<Button
-								type="button"
-								variant="ghost"
-								disabled={submitting}
-								onClick={onCancel}
-							>
-								Cancel
-							</Button>
-							<Button type="button" disabled={submitting} onClick={onPublish}>
-								{submitting
-									? "Publishing…"
-									: hasConflicts
-										? "Publish anyway"
-										: "Publish agenda"}
-							</Button>
-						</div>
+						))}
+						{remaining > 0 && <p>And {remaining} more in the Conflicts tab.</p>}
 					</div>
-				</Panel>
+				)}
+				{error && <ErrorText>{error}</ErrorText>}
+				<div className="flex justify-end gap-2">
+					<Button
+						type="button"
+						variant="ghost"
+						disabled={submitting}
+						onClick={onCancel}
+					>
+						Cancel
+					</Button>
+					<Button type="button" disabled={submitting} onClick={onPublish}>
+						{submitting
+							? "Publishing…"
+							: hasConflicts
+								? "Publish anyway"
+								: "Publish agenda"}
+					</Button>
+				</div>
 			</div>
-		</div>
+		</DialogSurface>
 	);
 }
 

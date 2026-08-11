@@ -7,7 +7,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { Link } from "react-router";
-import { Wordmark } from "~/ui";
+import { DialogSurface, Wordmark } from "~/ui";
 import { cn } from "~/ui/cn";
 
 /**
@@ -395,13 +395,8 @@ export function ConfirmDialog({
 	}, [open, onCancel]);
 	if (!open) return null;
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-fg/25 p-4">
-			<div
-				role="alertdialog"
-				aria-modal="true"
-				aria-label={title}
-				className="flex w-full max-w-[380px] flex-col gap-3 rounded-card bg-surface p-5 shadow-card"
-			>
+		<DialogSurface role="alertdialog" size="sm" ariaLabel={title}>
+			<div className="flex flex-col gap-3">
 				<h2 className="font-display text-[16px] font-semibold text-fg">
 					{title}
 				</h2>
@@ -420,7 +415,7 @@ export function ConfirmDialog({
 					{confirm}
 				</div>
 			</div>
-		</div>
+		</DialogSurface>
 	);
 }
 
