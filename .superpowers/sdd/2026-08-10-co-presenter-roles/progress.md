@@ -5,3 +5,4 @@ Task 2: complete (commits 80e7b95..2293808; initial review findings repaired, fo
 Task 3: complete (focused 82/82 and full 853/853 green; CFP role-aware persistence, post-commit participant notifications, and form policy delivered)
 Task 4: complete (focused 28/28 and full 867/867 green; portal role policy, add/change/remove invariants, invitations, and deterministic multi-role participation delivered)
 Task 5: complete (focused 91/91 and full 879/879 green; organizer role-aware attachment/editing, invitation policy, and accept speaker-link regression delivered)
+Task 6: complete (376/376 numbered steps re-walked across scenarios 02/03/04/05/06/08/09; exact final role, notification, access, portal, organizer, acceptance, and agenda artifacts mapped)
