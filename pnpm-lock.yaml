@@ -44,9 +44,6 @@ importers:
       hono:
         specifier: ^4.13.1
         version: 4.13.1
-      ics:
-        specifier: ^3.12.0
-        version: 3.12.0
       isbot:
         specifier: 5.1.32
         version: 5.1.32
@@ -3422,9 +3419,6 @@ packages:
     resolution: {integrity: sha512-n6l5uca7/y5joxZ3LUePhzmBFUJ+U2YWzhMa8XUTecSeSlQiZdF5XAd/Q3/WUl0VsXgUwWi8I7CNIwdI5WN1SQ==}
     engines: {node: '>=20.10'}
 
-  ics@3.12.0:
-    resolution: {integrity: sha512-BBPiZ/TbUyZrxui7SHKGOa/n2HUxaW9ucn7cw47NW9OSKe5tItYxIdN7Uczti5nKURmfwVvYi2aLigCJGH1+cA==}
-
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
     engines: {node: '>= 4'}
@@ -4206,9 +4200,6 @@ packages:
 
   run-parallel@1.2.0:
     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
-
-  runes2@1.1.4:
-    resolution: {integrity: sha512-LNPnEDPOOU4ehF71m5JoQyzT2yxwD6ZreFJ7MxZUAoMKNMY1XrAo60H1CUoX5ncSm0rIuKlqn9JZNRrRkNou2g==}
 
   safe-array-concat@1.1.4:
     resolution: {integrity: sha512-wtZlHyOje6OZTGqAoaDKxFkgRtkF9CnHAVnCHKfuj200wAgL+bSJhdsCD2l0Qx/2ekEXjPWcyKkfGb5CPboslg==}
@@ -7754,12 +7745,6 @@ snapshots:
 
   html-tags@5.1.0: {}
 
-  ics@3.12.0:
-    dependencies:
-      nanoid: 3.3.18
-      runes2: 1.1.4
-      yup: 1.7.1
-
   ignore@5.3.2: {}
 
   ignore@7.0.6: {}
@@ -8359,7 +8344,8 @@ snapshots:
       object-assign: 4.1.1
       react-is: 16.13.1
 
-  property-expr@2.0.6: {}
+  property-expr@2.0.6:
+    optional: true
 
   prosemirror-changeset@2.4.1:
     dependencies:
@@ -8546,8 +8532,6 @@ snapshots:
   run-parallel@1.2.0:
     dependencies:
       queue-microtask: 1.2.3
-
-  runes2@1.1.4: {}
 
   safe-array-concat@1.1.4:
     dependencies:
@@ -8925,7 +8909,8 @@ snapshots:
 
   tapable@2.3.3: {}
 
-  tiny-case@1.0.3: {}
+  tiny-case@1.0.3:
+    optional: true
 
   tinybench@2.9.0: {}
 
@@ -8942,7 +8927,8 @@ snapshots:
     dependencies:
       is-number: 7.0.0
 
-  toposort@2.0.2: {}
+  toposort@2.0.2:
+    optional: true
 
   ts-api-utils@2.5.0(typescript@5.9.3):
     dependencies:
@@ -8964,7 +8950,8 @@ snapshots:
     dependencies:
       prelude-ls: 1.2.1
 
-  type-fest@2.19.0: {}
+  type-fest@2.19.0:
+    optional: true
 
   typed-array-buffer@1.0.3:
     dependencies:
@@ -9314,6 +9301,7 @@ snapshots:
       tiny-case: 1.0.3
       toposort: 2.0.2
       type-fest: 2.19.0
+    optional: true
 
   zod-validation-error@4.0.2(zod@4.4.3):
     dependencies:
