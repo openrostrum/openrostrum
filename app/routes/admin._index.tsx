@@ -30,7 +30,7 @@ import {
 	resolveTimezone,
 	zonedHour,
 } from "~/lib/event-time";
-import { formatDateLine, formatDateUTC, formatInTz } from "~/lib/format";
+import { formatDateLine, formatInTz } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import {
 	ButtonLink,
@@ -290,8 +290,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		{
 			event: {
 				name: event.name,
-				startDate: event.startsAt ? formatDateUTC(event.startsAt) : null,
-				endDate: event.endsAt ? formatDateUTC(event.endsAt) : null,
+				startDate: event.startsAt
+					? formatInTz(event.startsAt, tz, "date")
+					: null,
+				endDate: event.endsAt ? formatInTz(event.endsAt, tz, "date") : null,
 			},
 			greeting: greet(now, tz, firstName),
 			dateLine: formatDateLine(now, tz),

@@ -1,12 +1,8 @@
 /**
- * Event-calendar day math. `events.startsAt`/`endsAt` hold CALENDAR DATES
- * encoded as UTC midnight (the onboarding-form convention), so the countdown
- * reads them back as UTC dates. Everything else (`forms.closeAt`, createdAt
- * stamps) is a real instant and must be read in the EVENT's timezone — the
- * calendar day a form stops accepting is its close instant's event-local
- * date, not its UTC date. "Today" is always the event-local date; mixing in
- * the server's local zone would shift day math around midnight. Rendering
- * helpers live in `format.ts` — this module only does zone-aware arithmetic.
+ * Event-calendar day math. Every stored instant (`events.startsAt/endsAt`,
+ * `forms.closeAt`, createdAt stamps) is a UTC epoch whose wall-clock meaning
+ * lives in the EVENT's timezone — so day math and "today" always resolve to
+ * event-local dates, never UTC's. Rendering helpers live in `format.ts`.
  */
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -75,11 +71,11 @@ export function eventCountdown(
 ): EventCountdown {
 	if (!startsAt) return { phase: "unset" };
 	const today = zonedCalendarDate(now, timeZone);
-	const start = zonedCalendarDate(startsAt, "UTC");
+	const start = zonedCalendarDate(startsAt, timeZone);
 	// A missing/inverted end date degrades to a one-day event, never a crash.
 	const end = Math.max(
 		start,
-		endsAt ? zonedCalendarDate(endsAt, "UTC") : start,
+		endsAt ? zonedCalendarDate(endsAt, timeZone) : start,
 	);
 	if (today < start) {
 		return { phase: "upcoming", days: Math.round((start - today) / DAY_MS) };
