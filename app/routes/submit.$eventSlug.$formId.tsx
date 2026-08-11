@@ -18,8 +18,9 @@ import {
 	StepRail,
 	WizardChrome,
 } from "~/cfp/ui";
-import { stepPath, submitBasePath, type WizardCtx } from "~/cfp/wizard";
+import { stepPath, type WizardCtx } from "~/cfp/wizard";
 import { getDb } from "~/db";
+import { submitPath } from "~/domain/forms";
 import { getUser } from "~/lib/auth";
 import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
@@ -127,7 +128,7 @@ export default function SubmitLayout({ loaderData }: Route.ComponentProps) {
 	const reset = useCallback(() => setState(null), []);
 	const ctx: WizardCtx = { state, setState, reset };
 
-	const base = submitBasePath(event.slug, form.publicId);
+	const base = submitPath(event.slug, form.publicId);
 	const step = currentStepId(location.pathname);
 	const hasSid = new URLSearchParams(location.search).has("sid");
 	const onSuccess = step === "success";

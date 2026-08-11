@@ -32,6 +32,7 @@ import {
 } from "~/lib/evaluation";
 import { Pager } from "~/lib/pager";
 import { createTimings } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -353,9 +354,10 @@ function lockInfo(row: {
 }
 
 export default function Reviews({ loaderData }: Route.ComponentProps) {
+	const busy = useBusy();
 	return (
 		<div className="flex min-h-screen">
-			<Sidebar user={loaderData.user}>
+			<Sidebar user={loaderData.user} logoutDisabled={busy}>
 				<SidebarSection label="Review">
 					<SideNavLink to="/reviews" icon="star">
 						My Reviews

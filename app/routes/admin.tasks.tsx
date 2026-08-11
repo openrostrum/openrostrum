@@ -41,6 +41,7 @@ import {
 	TASK_STATUS_TONE,
 } from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { getEmailSender } from "~/ports/email";
 import {
 	Button,
@@ -961,6 +962,7 @@ export default function TasksDashboard({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const {
 		view,
 		filters,
@@ -1016,7 +1018,7 @@ export default function TasksDashboard({
 								>
 									Cancel
 								</Button>
-								<Button type="submit" icon="mail">
+								<Button type="submit" icon="mail" disabled={busy}>
 									Email {stats.remindableSpeakers} speaker
 									{stats.remindableSpeakers === 1 ? "" : "s"}
 								</Button>
@@ -1398,7 +1400,11 @@ export default function TasksDashboard({
 									<option value="no">No</option>
 								</Select>
 							</Field>
-							<Button type="submit" icon={editTask ? undefined : "plus"}>
+							<Button
+								type="submit"
+								icon={editTask ? undefined : "plus"}
+								disabled={busy}
+							>
 								{editTask ? "Save changes" : "Add task"}
 							</Button>
 							{editTask && (
@@ -1451,7 +1457,7 @@ export default function TasksDashboard({
 							<Button
 								type="submit"
 								variant="ghost"
-								disabled={taskOptions.length === 0}
+								disabled={busy || taskOptions.length === 0}
 							>
 								Assign
 							</Button>
@@ -1534,7 +1540,9 @@ export default function TasksDashboard({
 												>
 													Cancel
 												</Button>
-												<Button type="submit">Delete</Button>
+												<Button type="submit" disabled={busy}>
+													Delete
+												</Button>
 											</Form>
 										) : (
 											<div className="flex items-center gap-3">

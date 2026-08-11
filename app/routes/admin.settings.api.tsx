@@ -1,6 +1,7 @@
 import { and, asc, desc, eq } from "drizzle-orm";
-import { data, Form, useNavigation } from "react-router";
+import { data, Form } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
 import { apiTokens, events } from "~/db/schema";
 import { bytesToHex, sha256Hex } from "~/lib/api-token";
@@ -9,6 +10,7 @@ import { errorMessage } from "~/lib/errors";
 import { formatDateUTC } from "~/lib/format";
 import { resolveOrg } from "~/lib/org.server";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ConfirmButton,
@@ -26,7 +28,6 @@ import {
 	THead,
 	Tr,
 } from "~/ui";
-import { CopyFieldButton } from "~/widgets";
 import type { Route } from "./+types/admin.settings.api";
 
 const CreateToken = z.object({
@@ -208,8 +209,7 @@ export default function ApiTokens({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const navigation = useNavigation();
-	const busy = navigation.state !== "idle";
+	const busy = useBusy();
 
 	if (!loaderData.org) {
 		return (
@@ -265,7 +265,13 @@ export default function ApiTokens({
 								aria-label="New API token"
 								onFocus={(e) => e.currentTarget.select()}
 							/>
-							<CopyFieldButton value={created.raw} />
+							<CopyButton
+								value={created.raw}
+								copiedLabel="Copied"
+								failedLabel={null}
+								resetAfterMs={1600}
+								icon={null}
+							/>
 						</div>
 					</div>
 				</Panel>
@@ -334,6 +340,7 @@ export default function ApiTokens({
 											confirmLabel="Yes, revoke token"
 											name="revoke"
 											value={t.id}
+											disabled={busy}
 										/>
 									</Form>
 								</Td>

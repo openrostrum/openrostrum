@@ -10,6 +10,7 @@ import { FooterNote } from "~/components/portal/bits";
 import { ThemeToggle } from "~/components/theme-toggle";
 import { getPortalContext, portalPath } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
+import { useBusy } from "~/lib/use-busy";
 import { Button, Input, PageHeader, Panel, StatusBadge, Tab, Tabs } from "~/ui";
 import type { Route } from "./+types/portals.$eventSlug.$portalId";
 
@@ -45,6 +46,7 @@ const TABS = [
 export default function PortalShell({ loaderData }: Route.ComponentProps) {
 	const { base, portal, eventName, user, preview } = loaderData;
 	const { pathname } = useLocation();
+	const busy = useBusy();
 	return (
 		<div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-6 sm:px-8">
 			{preview && (
@@ -57,7 +59,7 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 						</span>
 						<Form method="post" action="/admin/portals">
 							<Input type="hidden" name="intent" value="exit-preview" />
-							<Button type="submit" variant="ghost">
+							<Button type="submit" variant="ghost" disabled={busy}>
 								Exit preview
 							</Button>
 						</Form>
@@ -73,7 +75,7 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 						logoUrl={portal.hasLogo ? `${base}/logo` : null}
 					/>
 					<Form method="post" action="/logout">
-						<Button type="submit" variant="ghost" icon="logout">
+						<Button type="submit" variant="ghost" icon="logout" disabled={busy}>
 							Log out
 						</Button>
 					</Form>
@@ -107,7 +109,7 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 					</span>
 					<span>Not you?</span>
 					<Form method="post" action="/logout">
-						<Button type="submit" variant="ghost">
+						<Button type="submit" variant="ghost" disabled={busy}>
 							Log out
 						</Button>
 					</Form>

@@ -18,9 +18,10 @@ import {
 	PageTitle,
 	SuccessMark,
 } from "~/cfp/ui";
-import { submitBasePath, type WizardCtx } from "~/cfp/wizard";
+import type { WizardCtx } from "~/cfp/wizard";
 import { getDb } from "~/db";
 import { submissions } from "~/db/schema";
+import { submitPath } from "~/domain/forms";
 import { getUser } from "~/lib/auth";
 import { systemClock } from "~/ports/clock";
 import { Panel, TextLink } from "~/ui";
@@ -28,7 +29,7 @@ import type { Route } from "./+types/submit.$eventSlug.$formId.step.success";
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
-	const base = submitBasePath(params.eventSlug, params.formId);
+	const base = submitPath(params.eventSlug, params.formId);
 	const url = new URL(request.url);
 	const user = await getUser(env, request);
 	if (!user) throw redirect(`${base}/step/account${url.search}`);

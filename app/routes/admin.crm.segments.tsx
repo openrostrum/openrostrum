@@ -11,6 +11,7 @@ import {
 } from "~/lib/crm-filters";
 import { formatDateUTC } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	ButtonLink,
 	ConfirmButton,
@@ -144,6 +145,7 @@ export default function CrmSegments({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const { segments, total } = loaderData;
 	const formError =
 		actionData && "formError" in actionData ? actionData.formError : undefined;
@@ -208,6 +210,7 @@ export default function CrmSegments({
 											confirmLabel="Delete segment"
 											name="intent"
 											value="delete"
+											disabled={busy}
 										/>
 									</Form>
 								</div>

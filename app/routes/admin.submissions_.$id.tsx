@@ -1564,7 +1564,6 @@ export default function SubmissionDetail({
 					<AttachParticipants
 						contacts={contactRows}
 						contactsTruncated={contactsTruncated}
-						busy={busy}
 						feedback={feedback}
 					/>
 
@@ -1644,7 +1643,7 @@ export default function SubmissionDetail({
 									key={s.status}
 									name="status"
 									defaultValue={s.status}
-									disabled={isDraft}
+									disabled={isDraft || busy}
 								>
 									{(s.status === "withdrawn" || isDraft) && (
 										<option value={s.status} disabled>
@@ -1724,6 +1723,7 @@ export default function SubmissionDetail({
 									key={s.contentStatus}
 									name="contentStatus"
 									defaultValue={s.contentStatus}
+									disabled={busy}
 								>
 									{CONTENT_STATUS_OPTIONS.map((cs) => (
 										<option key={cs} value={cs}>
@@ -1755,6 +1755,7 @@ export default function SubmissionDetail({
 									key={s.customStatusId ?? "none"}
 									name="customStatusId"
 									defaultValue={s.customStatusId ?? ""}
+									disabled={busy}
 								>
 									<option value="">None</option>
 									{library.customStatuses.map((cs) => (
@@ -1790,6 +1791,7 @@ export default function SubmissionDetail({
 									key={s.formatId ?? "none"}
 									name="formatId"
 									defaultValue={s.formatId ?? ""}
+									disabled={busy}
 								>
 									<option value="">None</option>
 									{library.formats.map((f) => (
@@ -1804,6 +1806,7 @@ export default function SubmissionDetail({
 									key={s.levelId ?? "none"}
 									name="levelId"
 									defaultValue={s.levelId ?? ""}
+									disabled={busy}
 								>
 									<option value="">None</option>
 									{library.levels.map((l) => (
@@ -1818,6 +1821,7 @@ export default function SubmissionDetail({
 									key={s.language}
 									name="language"
 									defaultValue={s.language}
+									disabled={busy}
 								>
 									{languageOptions.map((l) => (
 										<option key={l} value={l}>
@@ -1835,6 +1839,7 @@ export default function SubmissionDetail({
 											name="trackIds"
 											value={t.id}
 											defaultChecked={s.trackIds.includes(t.id)}
+											disabled={busy}
 										/>
 										<Chip color={t.color}>{t.name}</Chip>
 									</label>
@@ -1852,6 +1857,7 @@ export default function SubmissionDetail({
 											name="tagIds"
 											value={t.id}
 											defaultChecked={s.tagIds.includes(t.id)}
+											disabled={busy}
 										/>
 										<Chip color={t.color}>{t.name}</Chip>
 									</label>
@@ -1887,6 +1893,7 @@ export default function SubmissionDetail({
 								<div>
 									<Button
 										variant="ghost"
+										disabled={busy}
 										onClick={() => setConfirmingDelete(true)}
 									>
 										Delete submission…
@@ -1932,14 +1939,13 @@ export default function SubmissionDetail({
 function AttachParticipants({
 	contacts: contactRows,
 	contactsTruncated,
-	busy,
 	feedback,
 }: {
 	contacts: Array<{ id: string; name: string; email: string }>;
 	contactsTruncated: boolean;
-	busy: boolean;
 	feedback: ActionData | undefined;
 }) {
+	const busy = useBusy();
 	const [filter, setFilter] = useState("");
 	const needle = filter.trim().toLowerCase();
 	const visible = needle

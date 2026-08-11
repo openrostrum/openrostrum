@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react";
-import { Avatar, Button, ButtonLink, Icon } from "~/ui";
+import { Avatar, ButtonLink, Icon } from "~/ui";
 import { cn } from "~/ui/cn";
 
 export function makeHref(
@@ -231,24 +231,5 @@ export function StarButton({
 		>
 			<Icon name="star" size={16} />
 		</button>
-	);
-}
-
-/** Copies a value and confirms inline — snippets must cost one click, not a drag-select. */
-export function CopyFieldButton({ value }: { value: string }) {
-	const [copied, setCopied] = useState(false);
-	return (
-		<Button
-			type="button"
-			variant="ghost"
-			onClick={() => {
-				void navigator.clipboard.writeText(value).then(() => {
-					setCopied(true);
-					setTimeout(() => setCopied(false), 1600);
-				});
-			}}
-		>
-			{copied ? "Copied" : "Copy"}
-		</Button>
 	);
 }

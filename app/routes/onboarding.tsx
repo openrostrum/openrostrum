@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { useEffect, useMemo, useState } from "react";
-import { Form, redirect, useNavigation } from "react-router";
+import { Form, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { events, organizationMembers, organizations, users } from "~/db/schema";
@@ -8,6 +8,7 @@ import { provisionEventDefaults } from "~/domain/provisionEvent";
 import { getUser, homePathForRole } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	isSlugTakenError,
 	SLUG_TAKEN_MESSAGE,
@@ -207,7 +208,7 @@ function slugify(value: string): string {
 const FALLBACK_TIMEZONE = "America/Los_Angeles";
 
 export default function Onboarding({ actionData }: Route.ComponentProps) {
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	const timeZones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);
 	const echoed = actionData?.values;
 	// The slug tracks the event name until it is edited by hand (SSR renders

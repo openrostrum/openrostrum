@@ -49,12 +49,12 @@ import {
 import {
 	newWizardState,
 	stepPath,
-	submitBasePath,
 	type WizardCtx,
 	wizardPayload,
 } from "~/cfp/wizard";
 import { getDb } from "~/db";
 import { submissions } from "~/db/schema";
+import { submitPath } from "~/domain/forms";
 import { getUser, requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
@@ -78,7 +78,7 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const url = new URL(request.url);
-	const base = submitBasePath(params.eventSlug, params.formId);
+	const base = submitPath(params.eventSlug, params.formId);
 	const user = await getUser(env, request);
 	if (!user) {
 		throw redirect(`${base}/step/account${url.search}`);
@@ -368,7 +368,7 @@ export default function SessionStep({
 	const busy = useBusy();
 	const [errors, setErrors] = useState<Record<string, string>>({});
 
-	const base = submitBasePath(params.eventSlug, params.formId);
+	const base = submitPath(params.eventSlug, params.formId);
 	const { mode, definition, initial, selfContact, readOnly } = loaderData;
 	const startNew = searchParams.has("new");
 

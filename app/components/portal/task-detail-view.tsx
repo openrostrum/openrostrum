@@ -41,17 +41,16 @@ function CommentThread({
 	fileId,
 	initialCommentKey,
 	comments,
-	busy,
 	actionData,
 }: {
 	action: string;
 	fileId: string;
 	initialCommentKey: string;
 	comments: CommentView[];
-	busy: boolean;
 	actionData: TaskDetailActionData | undefined;
 }) {
 	const fetcher = useFetcher<TaskDetailActionData>();
+	const busy = useBusy();
 	const posting = fetcher.state !== "idle";
 	const [draft, setDraft] = useState({
 		key: initialCommentKey,
@@ -207,12 +206,18 @@ export function TaskDetailView({
 									name="intent"
 									value="uncomplete"
 									variant="ghost"
+									disabled={busy}
 								>
 									Mark as incomplete
 								</Button>
 							</>
 						) : (
-							<Button type="submit" name="intent" value="complete">
+							<Button
+								type="submit"
+								name="intent"
+								value="complete"
+								disabled={busy}
+							>
 								Mark as Complete
 							</Button>
 						)}
@@ -244,7 +249,12 @@ export function TaskDetailView({
 								errors={answerErrors}
 							/>
 							<div className="flex items-center gap-3">
-								<Button type="submit" name="intent" value="submit-form">
+								<Button
+									type="submit"
+									name="intent"
+									value="submit-form"
+									disabled={busy}
+								>
 									Submit
 								</Button>
 								{actionData?.intent === "submit-form" &&
@@ -274,7 +284,7 @@ export function TaskDetailView({
 									required
 								/>
 								<div className="flex items-center gap-3">
-									<Button type="submit" icon="export">
+									<Button type="submit" icon="export" disabled={busy}>
 										{data.fileRequest.files.length > 0
 											? "Upload new version"
 											: "Upload file"}
@@ -335,7 +345,6 @@ export function TaskDetailView({
 											fileId={f.id}
 											initialCommentKey={f.commentKey}
 											comments={f.comments}
-											busy={busy}
 											actionData={actionData}
 										/>
 									</div>

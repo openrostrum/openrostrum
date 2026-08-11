@@ -117,14 +117,23 @@ Three fresh cold judges reviewed the intent plus complete `git diff origin/main.
 - Governance raised the normal integration-owner-only schema/migration rule.
 - Simplicity raised three findings: duplicated route transitions, a broad notification service input, and repeated busy ConfirmButton markup.
 
-No implementation change was adopted. Every finding was technically discarded with verified context: the route trust/policy boundaries differ; post-commit errors cannot truthfully turn a persisted mutation into a failed submission and are tracked plus surfaced; notification provenance includes pre-insert state; shared UI is outside the lane; and the user explicitly authorized migration slot 0009 plus guarded schema paths. The complete line-by-line log is `judge-dispositions-laneP.md`. The user-imposed one-round maximum was honored.
+Five findings were technically discarded with verified context: the route trust/policy boundaries differ; post-commit errors cannot truthfully turn a persisted mutation into a failed submission and are tracked plus surfaced; notification provenance includes pre-insert state; and the user explicitly authorized migration slot 0009 plus guarded schema paths. The sixth finding was adopted through the required append-only merge after convergence sweep #78 independently added the shared `ConfirmButton.disabled` primitive; the lane's local busy branches now use it. The complete line-by-line log is `judge-dispositions-laneP.md`. The user-imposed one-round maximum was honored, so the merged result was verified rather than re-judged.
 
 ## Final verification
 
+After PR creation exposed a one-commit base advance, `origin/main` convergence sweep #78 was merged append-only. Conflict resolution preserved all role behavior, adopted main's shared submit-path and disabled-confirmation primitives, and passed the focused role regression:
+
+```text
+Test Files  8 passed (8)
+Tests       176 passed (176)
+```
+
+The final full gate then passed:
+
 ```text
 pnpm verify
-Test Files  107 passed (107)
-Tests       1021 passed (1021)
+Test Files  108 passed (108)
+Tests       1028 passed (1028)
 ```
 
 Map validation, generated Worker/route types, TypeScript, ESLint, CSS lint, and the complete workerd real-D1 suite passed. Output contained only the repository's existing Drizzle sourcemap and binary-body `.text()` warnings.

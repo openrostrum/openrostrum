@@ -38,11 +38,11 @@ import { InfoNotice, LeadText, PageTitle } from "~/cfp/ui";
 import {
 	selfParticipant,
 	stepPath,
-	submitBasePath,
 	type WizardCtx,
 	wizardPayload,
 } from "~/cfp/wizard";
 import { getDb } from "~/db";
+import { submitPath } from "~/domain/forms";
 import { notifyParticipantAdded } from "~/domain/participant-notifications";
 import { getUser, requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
@@ -59,7 +59,7 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
-	const base = submitBasePath(params.eventSlug, params.formId);
+	const base = submitPath(params.eventSlug, params.formId);
 	const url = new URL(request.url);
 	const user = await getUser(env, request);
 	if (!user) throw redirect(`${base}/step/account${url.search}`);
@@ -88,7 +88,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	if (!bundle) throw data("Form not found", { status: 404 });
 	const { form, event } = bundle;
 	const db = getDb(env);
-	const base = submitBasePath(params.eventSlug, params.formId);
+	const base = submitPath(params.eventSlug, params.formId);
 
 	if (isFormClosed(form, systemClock.now())) {
 		track("cfp.submit_blocked_closed", { formId: form.id });
@@ -324,7 +324,7 @@ export default function ReviewStep({
 	// Also true while a draft-save fetcher from an earlier step is still in
 	// flight — submitting then would race the save's sid echo and fork state.
 	const busy = useBusy();
-	const base = submitBasePath(params.eventSlug, params.formId);
+	const base = submitPath(params.eventSlug, params.formId);
 	const state = ctx.state;
 	const result = actionData as SubmitResult | undefined;
 

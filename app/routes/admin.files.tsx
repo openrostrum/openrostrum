@@ -17,6 +17,7 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { resolveTimezone } from "~/lib/event-time";
 import { formatBytes, formatInTz } from "~/lib/format";
 import { createTimings } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	EmptyRow,
@@ -129,6 +130,7 @@ function isReviewStatus(
 }
 
 export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
+	const busy = useBusy();
 	const {
 		rows,
 		total,
@@ -200,11 +202,11 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 					</Field>
 					<Field label="Portal downloads">
 						<span className="flex items-center gap-2 py-2">
-							<Input type="checkbox" name="sharedToPortal" />
+							<Input type="checkbox" name="sharedToPortal" disabled={busy} />
 							Share with speakers
 						</span>
 					</Field>
-					<Button type="submit" icon="plus">
+					<Button type="submit" icon="plus" disabled={busy}>
 						Upload
 					</Button>
 					{uploadError && <ErrorText>{uploadError}</ErrorText>}

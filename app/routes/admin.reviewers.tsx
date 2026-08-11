@@ -3,6 +3,7 @@ import { and, count, eq, inArray, notInArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Form, data, redirect } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
 import {
 	evaluationPlans,
@@ -486,7 +487,6 @@ export default function Reviewers({
 		userId: string;
 		mode: "tracks" | "assign" | "remove";
 	} | null>(null);
-	const [copiedId, setCopiedId] = useState<string | null>(null);
 	const selectedReviewer = reviewers.find((r) => r.id === selected?.userId);
 	const result = actionData ?? undefined;
 
@@ -603,16 +603,14 @@ export default function Reviewers({
 											aria-label={`Invite link for ${r.name ?? r.email}`}
 											onFocus={(e) => e.currentTarget.select()}
 										/>
-										<Button
-											type="button"
-											variant="ghost"
-											onClick={() => {
-												void navigator.clipboard.writeText(r.inviteLink ?? "");
-												setCopiedId(r.id);
-											}}
-										>
-											{copiedId === r.id ? "Copied" : "Copy"}
-										</Button>
+										<CopyButton
+											value={r.inviteLink}
+											copiedLabel="Copied"
+											failedLabel={null}
+											resetAfterMs={null}
+											icon={null}
+											optimistic
+										/>
 									</div>
 								) : (
 									"—"

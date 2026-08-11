@@ -3,11 +3,13 @@ import { createInsertSchema } from "drizzle-zod";
 import { useState } from "react";
 import { data, Form, redirect } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
 import { embeds } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	EmptyRow,
@@ -26,7 +28,6 @@ import {
 	THead,
 	Tr,
 } from "~/ui";
-import { CopyFieldButton } from "~/widgets";
 import { EMBED_TYPE_LABELS } from "~/lib/program-types";
 import type { Route } from "./+types/admin.embeds";
 
@@ -162,6 +163,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 }
 
 function DeleteButton({ id, name }: { id: string; name: string }) {
+	const busy = useBusy();
 	const [armed, setArmed] = useState(false);
 	if (!armed) {
 		return (
@@ -177,6 +179,7 @@ function DeleteButton({ id, name }: { id: string; name: string }) {
 					type="submit"
 					name="intent"
 					value="delete"
+					disabled={busy}
 					aria-label={`Confirm deleting ${name}`}
 				>
 					Confirm delete
@@ -193,6 +196,7 @@ export default function AdminEmbeds({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const { embeds: rows, origin } = loaderData;
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-5 px-7 py-6">
@@ -220,7 +224,13 @@ export default function AdminEmbeds({
 							))}
 						</Select>
 					</Field>
-					<Button type="submit" name="intent" value="create" icon="plus">
+					<Button
+						type="submit"
+						name="intent"
+						value="create"
+						icon="plus"
+						disabled={busy}
+					>
 						Add embed
 					</Button>
 					{actionData?.formError && (
@@ -254,7 +264,13 @@ export default function AdminEmbeds({
 								<Td kind="mono">
 									<span className="inline-flex items-center gap-2">
 										{`/embed/${row.publicId.slice(0, 8)}…`}
-										<CopyFieldButton value={shareUrl} />
+										<CopyButton
+											value={shareUrl}
+											copiedLabel="Copied"
+											failedLabel={null}
+											resetAfterMs={1600}
+											icon={null}
+										/>
 									</span>
 								</Td>
 								<Td>
@@ -264,6 +280,7 @@ export default function AdminEmbeds({
 												type="submit"
 												name="intent"
 												value="toggle"
+												disabled={busy}
 												variant="ghost"
 											>
 												{row.enabled ? "Disable" : "Enable"}

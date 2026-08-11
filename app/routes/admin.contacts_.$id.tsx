@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
-import { useState } from "react";
 import { data, Form, isRouteErrorResponse, redirect } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { type Db, getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import {
@@ -38,6 +38,7 @@ import { firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { normalizeXUrl } from "~/lib/social";
 import { TASK_STATUS_LABEL, TASK_STATUS_TONE } from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { getEmailSender } from "~/ports/email";
 import {
 	Button,
@@ -451,6 +452,7 @@ export default function ContactRecord({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const {
 		contact,
 		sessions,
@@ -464,7 +466,6 @@ export default function ContactRecord({
 		headshotUrl: headshotSrc,
 	} = loaderData;
 	const name = `${contact.firstName} ${contact.lastName}`.trim();
-	const [copied, setCopied] = useState(false);
 	const fieldErrors = actionData?.fieldErrors;
 
 	return (
@@ -494,12 +495,14 @@ export default function ContactRecord({
 								value="invite"
 								variant="ghost"
 								icon="star"
+								disabled={busy || !inviteKey}
 							>
 								Send portal invite
 							</Button>
 						</Form>
 						<Form method="post">
 							<ConfirmButton
+								disabled={busy}
 								label="Delete"
 								prompt={`Delete ${name}? Their session roles and task assignments go too; sessions are kept. This cannot be undone.`}
 								confirmLabel="Delete contact"
@@ -551,16 +554,15 @@ export default function ContactRecord({
 									/>
 								</Field>
 							</div>
-							<Button
-								type="button"
-								variant="ghost"
-								onClick={() => {
-									void navigator.clipboard.writeText(inviteUrl);
-									setCopied(true);
-								}}
-							>
-								{copied ? "Copied" : "Copy link"}
-							</Button>
+							<CopyButton
+								value={inviteUrl}
+								label="Copy link"
+								copiedLabel="Copied"
+								failedLabel={null}
+								resetAfterMs={null}
+								icon={null}
+								optimistic
+							/>
 						</div>
 					)}
 				</div>
@@ -587,6 +589,7 @@ export default function ContactRecord({
 								value="headshot"
 								variant="ghost"
 								icon="export"
+								disabled={busy}
 							>
 								{headshotSrc ? "Replace headshot" : "Upload headshot"}
 							</Button>
@@ -689,7 +692,7 @@ export default function ContactRecord({
 						/>
 					</Field>
 					<div className="flex items-center gap-3">
-						<Button type="submit" name="intent" value="update">
+						<Button type="submit" name="intent" value="update" disabled={busy}>
 							Save changes
 						</Button>
 						{saved === "1" && <span>Saved.</span>}

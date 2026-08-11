@@ -218,19 +218,14 @@ export function SubmissionDetailView({
 															name="participantId"
 															value={p.id}
 														/>
-														{busy ? (
-															<Button type="button" variant="ghost" disabled>
-																Remove
-															</Button>
-														) : (
-															<ConfirmButton
-																label="Remove"
-																prompt={`Remove ${p.name} from this submission?`}
-																confirmLabel="Yes, remove"
-																name="intent"
-																value="remove-participant"
-															/>
-														)}
+														<ConfirmButton
+															disabled={busy}
+															label="Remove"
+															prompt={`Remove ${p.name} from this submission?`}
+															confirmLabel="Yes, remove"
+															name="intent"
+															value="remove-participant"
+														/>
 													</Form>
 												</>
 											)}
@@ -429,25 +424,20 @@ export function SubmissionDetailView({
 							personally, use your participation controls above.
 						</Muted>
 						<Form method="post" className="flex flex-wrap items-center gap-2">
-							{busy ? (
-								<Button type="button" variant="ghost" disabled>
-									Withdraw submission
-								</Button>
-							) : (
-								<ConfirmButton
-									label="Withdraw submission"
-									prompt="Withdraw this submission for everyone on it?"
-									confirmLabel="Yes, withdraw it"
-									name="intent"
-									value="withdraw-submission"
-								>
-									<Input
-										name="reason"
-										placeholder="Reason (optional)"
-										maxLength={500}
-									/>
-								</ConfirmButton>
-							)}
+							<ConfirmButton
+								disabled={busy}
+								label="Withdraw submission"
+								prompt="Withdraw this submission for everyone on it?"
+								confirmLabel="Yes, withdraw it"
+								name="intent"
+								value="withdraw-submission"
+							>
+								<Input
+									name="reason"
+									placeholder="Reason (optional)"
+									maxLength={500}
+								/>
+							</ConfirmButton>
 							{actionData?.intent === "withdraw-submission" &&
 								actionData.formError && (
 									<ErrorText>{actionData.formError}</ErrorText>

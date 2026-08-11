@@ -1,11 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { data, Form, redirect } from "react-router";
 import { z } from "zod";
+import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
 import { embeds } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -18,7 +20,6 @@ import {
 	StatusBadge,
 	TextLink,
 } from "~/ui";
-import { CopyFieldButton } from "~/widgets";
 import {
 	EMBED_HIDEABLE_FIELDS,
 	EMBED_TYPE_LABELS,
@@ -175,7 +176,13 @@ function SnippetRow({ label, value }: { label: string; value: string }) {
 					/>
 				</Field>
 			</div>
-			<CopyFieldButton value={value} />
+			<CopyButton
+				value={value}
+				copiedLabel="Copied"
+				failedLabel={null}
+				resetAfterMs={1600}
+				icon={null}
+			/>
 		</div>
 	);
 }
@@ -184,6 +191,7 @@ export default function AdminEmbedEditor({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const { embed, eventSlug, tracks, formats, origin } = loaderData;
 	const config = embed.config;
 	const shareUrl = `${origin}/embed/${embed.publicId}`;
@@ -297,7 +305,9 @@ export default function AdminEmbedEditor({
 						<p>Cmd/Ctrl-click to select multiple values or clear one.</p>
 
 						<div className="flex items-center gap-3">
-							<Button type="submit">Save embed</Button>
+							<Button type="submit" disabled={busy}>
+								Save embed
+							</Button>
 							{actionData?.formError && (
 								<ErrorText>{actionData.formError}</ErrorText>
 							)}

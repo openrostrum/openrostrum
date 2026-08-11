@@ -33,6 +33,7 @@ import {
 } from "~/lib/evaluation";
 import { escapeHtmlText, stripHtml } from "~/lib/html";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { getEmailSender } from "~/ports/email";
 import {
 	Button,
@@ -787,6 +788,7 @@ function Scorecard({
 	card: CardData;
 	actionData: CardActionData;
 }) {
+	const busy = useBusy();
 	const [abstaining, setAbstaining] = useState(false);
 	const mine = actionData?.evaluationId === card.id ? actionData : undefined;
 	const locked = !card.writable;
@@ -882,7 +884,7 @@ function Scorecard({
 						))}
 						{!locked && (
 							<div className="flex items-center gap-3">
-								<Button type="submit">
+								<Button type="submit" disabled={busy || locked}>
 									{card.status === "completed"
 										? "Update review"
 										: "Save review"}
@@ -908,7 +910,11 @@ function Scorecard({
 						<Field label="Reason (optional — shared with the organizer)">
 							<Input name="reason" size={32} />
 						</Field>
-						<Button type="submit" onClick={() => setAbstaining(false)}>
+						<Button
+							type="submit"
+							disabled={busy || locked}
+							onClick={() => setAbstaining(false)}
+						>
 							Confirm abstain
 						</Button>
 						<Button
@@ -924,7 +930,7 @@ function Scorecard({
 					<Form method="post">
 						<Input type="hidden" name="intent" value="resume" />
 						<Input type="hidden" name="evaluationId" value={card.id} />
-						<Button type="submit" variant="ghost">
+						<Button type="submit" variant="ghost" disabled={busy || locked}>
 							Undo — resume this review
 						</Button>
 					</Form>
@@ -941,6 +947,7 @@ function DecisionPanel({
 	decision: { decision: string; comment: string | null } | null;
 	actionData: CardActionData;
 }) {
+	const busy = useBusy();
 	const mine = actionData?.intent === "decide" ? actionData : undefined;
 	return (
 		<Panel>
@@ -978,7 +985,9 @@ function DecisionPanel({
 						<Input name="feedback" size={40} />
 					</Field>
 					<div className="flex items-center gap-3">
-						<Button type="submit">Save decision</Button>
+						<Button type="submit" disabled={busy}>
+							Save decision
+						</Button>
 					</div>
 				</Form>
 			</div>

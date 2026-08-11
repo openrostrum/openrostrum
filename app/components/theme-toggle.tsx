@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useFetcher, useRouteLoaderData } from "react-router";
 import { parseTheme, THEMES, type Theme } from "~/lib/theme";
+import { useBusy } from "~/lib/use-busy";
 import { useDismiss } from "~/lib/use-dismiss";
 import { Icon, type IconName } from "~/ui";
 import { cn } from "~/ui/cn";
@@ -30,6 +31,7 @@ export function ThemeToggle() {
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const fetcher = useFetcher();
+	const busy = useBusy();
 	const data = useRouteLoaderData<typeof rootLoader>("root");
 	const theme =
 		parseTheme(fetcher.formData?.get("theme")) ?? data?.theme ?? "system";
@@ -61,6 +63,7 @@ export function ThemeToggle() {
 							type="submit"
 							name="theme"
 							value={option}
+							disabled={busy}
 							aria-current={option === theme || undefined}
 							onClick={() => setOpen(false)}
 							className={cn(

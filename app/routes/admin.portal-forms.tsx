@@ -15,6 +15,7 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatDateUTC } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { RichText } from "~/ui/rich-text-lazy";
 import {
 	Button,
@@ -431,6 +432,7 @@ function FormEditor({
 	const [confirmEmail, setConfirmEmail] = useState(
 		editing?.sendConfirmationEmail ?? false,
 	);
+	const busy = useBusy();
 
 	const patch = (key: number, changes: Partial<DraftField>) =>
 		setDrafts((list) =>
@@ -644,7 +646,11 @@ function FormEditor({
 
 				{formError && <ErrorText>{formError}</ErrorText>}
 				<div className="flex items-center gap-4">
-					<Button type="submit" icon={editing ? undefined : "plus"}>
+					<Button
+						type="submit"
+						icon={editing ? undefined : "plus"}
+						disabled={busy}
+					>
 						{editing ? "Save changes" : "Create portal form"}
 					</Button>
 					{editing && (
@@ -664,6 +670,7 @@ export default function PortalFormsAdmin({
 }: Route.ComponentProps) {
 	const { eventName, forms, editId, createdName } = loaderData;
 	const editing = forms.find((f) => f.id === editId) ?? null;
+	const busy = useBusy();
 
 	if (!eventName) {
 		return (
@@ -737,6 +744,7 @@ export default function PortalFormsAdmin({
 											confirmLabel="Delete form"
 											name="intent"
 											value="delete-form"
+											disabled={busy}
 										/>
 									</Form>
 								</div>

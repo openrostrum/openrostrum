@@ -55,10 +55,6 @@ export function wizardPayload(
 	);
 }
 
-export function submitBasePath(eventSlug: string, formId: string): string {
-	return `/submit/${eventSlug}/${formId}`;
-}
-
 export function stepPath(
 	base: string,
 	step: "account" | "session" | "participant" | "review" | "success",

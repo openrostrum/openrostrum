@@ -1,6 +1,7 @@
 import { and, asc, count, eq } from "drizzle-orm";
 import { useRef, useState } from "react";
 import { data, Form, redirect, useSubmit } from "react-router";
+import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
 import { contactFilter } from "~/domain/contacts";
 import { contacts, portals } from "~/db/schema";
@@ -14,6 +15,7 @@ import {
 } from "~/lib/portal-preview";
 import { portalUrl } from "~/lib/portal-url";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	EmptyRow,
@@ -208,7 +210,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 }
 
 function CopyLink({ url }: { url: string }) {
-	const [copied, setCopied] = useState(false);
 	return (
 		<div className="flex items-center gap-2">
 			<div className="w-full max-w-xs">
@@ -219,16 +220,14 @@ function CopyLink({ url }: { url: string }) {
 					onFocus={(e) => e.currentTarget.select()}
 				/>
 			</div>
-			<Button
-				type="button"
-				variant="ghost"
-				onClick={() => {
-					void navigator.clipboard.writeText(url);
-					setCopied(true);
-				}}
-			>
-				{copied ? "Copied" : "Copy"}
-			</Button>
+			<CopyButton
+				value={url}
+				copiedLabel="Copied"
+				failedLabel={null}
+				resetAfterMs={null}
+				icon={null}
+				optimistic
+			/>
 		</div>
 	);
 }
@@ -244,6 +243,7 @@ export default function PortalsAdmin({
 	);
 	const submit = useSubmit();
 	const searchDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
+	const busy = useBusy();
 
 	if (!eventName) {
 		return (
@@ -281,7 +281,7 @@ export default function PortalsAdmin({
 						</span>
 						<Form method="post">
 							<Input type="hidden" name="intent" value="exit-preview" />
-							<Button type="submit" variant="ghost">
+							<Button type="submit" variant="ghost" disabled={busy}>
 								Exit preview
 							</Button>
 						</Form>
@@ -396,7 +396,7 @@ export default function PortalsAdmin({
 												type="submit"
 												variant="ghost"
 												icon="eye"
-												disabled={portals.length === 0}
+												disabled={portals.length === 0 || busy}
 											>
 												Preview
 											</Button>
