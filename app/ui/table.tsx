@@ -39,7 +39,7 @@ export function Tr({ selected, interactive, children, ...props }: TrProps) {
 		<tr
 			{...props}
 			className={cn(
-				"transition-colors duration-100 hover:bg-row-hover",
+				"transition-colors duration-150 ease-out hover:bg-row-hover",
 				interactive && "cursor-pointer",
 				// Selection = wash + ONE 2px petrol rule on the leading edge only
 				// (a per-cell shadow leaks ticks at every column boundary).
