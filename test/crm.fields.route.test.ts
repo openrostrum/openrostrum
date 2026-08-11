@@ -32,21 +32,23 @@ async function runAction(userId: string, body: URLSearchParams) {
 describe("CRM person field definitions", () => {
 	it("creates an organization-scoped contact field visible only to that organization", async () => {
 		await seedCrmBaseline();
-		await runAction(
-			"u_admin1",
-			new URLSearchParams({
-				intent: "create",
-				name: "Dietary requirements",
-				type: "text",
-				description: "Preferences shared across events",
-			}),
-		);
+		const create = new URLSearchParams({
+			intent: "create",
+			createKey: "11111111-2222-4333-8444-555555555555",
+			name: "Dietary requirements",
+			type: "text",
+			description: "Preferences shared across events",
+		});
+		await runAction("u_admin1", create);
+		await runAction("u_admin1", create);
 
 		const db = getDb(env);
-		const [created] = await db
+		const createdRows = await db
 			.select()
 			.from(fields)
 			.where(eq(fields.name, "Dietary requirements"));
+		expect(createdRows).toHaveLength(1);
+		const [created] = createdRows;
 		expect(created).toMatchObject({
 			organizationId: "org1",
 			eventId: null,

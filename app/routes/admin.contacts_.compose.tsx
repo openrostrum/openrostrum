@@ -432,7 +432,7 @@ export default function ComposeBulkEmail({
 	const { recipients, selection, selectionLabel, template } = loaderData;
 	const fromDirectory = selection.directoryEmails !== undefined;
 	const backTo = fromDirectory ? "/admin/crm/directory" : "/admin/contacts";
-	const backLabel = fromDirectory ? "Back to directory" : "{backLabel}";
+	const backLabel = fromDirectory ? "Back to directory" : "Back to speakers";
 	const recipientNoun = fromDirectory
 		? recipients.length === 1
 			? "person"

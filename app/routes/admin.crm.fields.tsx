@@ -42,6 +42,7 @@ function optionsFrom(value: FormDataEntryValue | null): string[] | null {
 
 const CreateDefinition = z
 	.object({
+		createKey: z.uuid(),
 		name: Name,
 		type: z.enum(CRM_FIELD_TYPES),
 		description: Description,
@@ -97,7 +98,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		queryContactFieldDefinitions(db, org.id),
 	);
 	return data(
-		{ fields: fieldRows },
+		{ fields: fieldRows, createKey: crypto.randomUUID() },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
@@ -114,6 +115,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 	try {
 		if (intent === "create") {
 			const parsed = CreateDefinition.safeParse({
+				createKey: form.get("createKey"),
 				name: form.get("name"),
 				type: form.get("type"),
 				description: form.get("description") ?? "",
@@ -125,11 +127,12 @@ export async function action({ context, request }: Route.ActionArgs) {
 					{ headers: { "Server-Timing": timings.header() } },
 				);
 			}
+			const { createKey, ...definition } = parsed.data;
 			const result = await timings.time("db", () =>
-				createContactField(db, org.id, parsed.data),
+				createContactField(db, org.id, { id: createKey, ...definition }),
 			);
 			if (!result.ok) return { formError: result.reason };
-			track("crm.field_created", { orgId: org.id, type: parsed.data.type });
+			track("crm.field_created", { orgId: org.id, type: definition.type });
 			return data<ActionResult>(
 				{ notice: "Person field created." },
 				{ headers: { "Server-Timing": timings.header() } },
@@ -196,6 +199,12 @@ export default function CrmFields({
 		<div className="flex flex-col gap-5">
 			<Panel>
 				<Form method="post" className="flex flex-col gap-3">
+					<Input
+						type="hidden"
+						name="createKey"
+						value={loaderData.createKey}
+						readOnly
+					/>
 					<div className="grid grid-cols-1 gap-3 md:grid-cols-2">
 						<Field label="Field name" error={fieldErrors?.name?.[0]}>
 							<Input name="name" invalid={Boolean(fieldErrors?.name?.[0])} />

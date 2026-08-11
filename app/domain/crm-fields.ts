@@ -25,6 +25,7 @@ type DefinitionInput = {
 };
 
 export type CreateContactFieldInput = DefinitionInput & {
+	id: string;
 	type: CrmFieldType;
 };
 
@@ -86,6 +87,12 @@ export async function createContactField(
 	orgId: string,
 	input: CreateContactFieldInput,
 ): Promise<MutationResult> {
+	const [existing] = await db
+		.select({ id: fields.id })
+		.from(fields)
+		.where(and(eq(fields.id, input.id), fieldScope(orgId)))
+		.limit(1);
+	if (existing) return { ok: true };
 	const [total] = await db
 		.select({ n: count() })
 		.from(fields)
@@ -96,16 +103,29 @@ export async function createContactField(
 			reason: `An organization can define up to ${MAX_CRM_FIELDS} person fields.`,
 		};
 	}
-	await db.insert(fields).values({
-		organizationId: orgId,
-		eventId: null,
-		recordType: "contact",
-		name: input.name,
-		type: input.type,
-		description: input.description,
-		options: input.type === "dropdown" ? input.options : null,
-	});
-	return { ok: true };
+	const inserted = await db
+		.insert(fields)
+		.values({
+			id: input.id,
+			organizationId: orgId,
+			eventId: null,
+			recordType: "contact",
+			name: input.name,
+			type: input.type,
+			description: input.description,
+			options: input.type === "dropdown" ? input.options : null,
+		})
+		.onConflictDoNothing()
+		.returning({ id: fields.id });
+	if (inserted.length > 0) return { ok: true };
+	const [raceWinner] = await db
+		.select({ id: fields.id })
+		.from(fields)
+		.where(and(eq(fields.id, input.id), fieldScope(orgId)))
+		.limit(1);
+	return raceWinner
+		? { ok: true }
+		: { ok: false, reason: "Could not create this person field." };
 }
 
 export async function updateContactField(
