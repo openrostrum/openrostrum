@@ -767,6 +767,102 @@ function keynoteIcs(options: {
 }
 
 describe("schedule-update emails (stale speaker calendars)", () => {
+	it("calendar invite ledger schema preserves revisions and scan cursors", async () => {
+		const [
+			revisionColumnsResult,
+			revisionIndexesResult,
+			revisionForeignKeysResult,
+			cursorColumnsResult,
+			cursorForeignKeysResult,
+		] = await Promise.all([
+			env.DB.prepare(
+				"SELECT name FROM pragma_table_info('calendar_invite_revisions') ORDER BY cid",
+			).all<{ name: string }>(),
+			env.DB.prepare(
+				"SELECT name FROM pragma_index_list('calendar_invite_revisions')",
+			).all<{ name: string }>(),
+			env.DB.prepare(
+				`SELECT "from" AS child_column, "table" AS parent_table,
+					"to" AS parent_column, on_delete
+				FROM pragma_foreign_key_list('calendar_invite_revisions')`,
+			).all<{
+				child_column: string;
+				parent_table: string;
+				parent_column: string;
+				on_delete: string;
+			}>(),
+			env.DB.prepare(
+				"SELECT name FROM pragma_table_info('calendar_invite_ledger_cursors') ORDER BY cid",
+			).all<{ name: string }>(),
+			env.DB.prepare(
+				`SELECT "from" AS child_column, "table" AS parent_table,
+					"to" AS parent_column, on_delete
+				FROM pragma_foreign_key_list('calendar_invite_ledger_cursors')`,
+			).all<{
+				child_column: string;
+				parent_table: string;
+				parent_column: string;
+				on_delete: string;
+			}>(),
+		]);
+		const columnNames = revisionColumnsResult.results.map((row) => row.name);
+		const indexNames = revisionIndexesResult.results.map((row) => row.name);
+		const cursorColumns = cursorColumnsResult.results.map((row) => row.name);
+
+		expect(columnNames).toEqual([
+			"id",
+			"submission_id",
+			"sequence",
+			"state_hash",
+			"recipient",
+			"starts_at",
+			"ends_at",
+			"location",
+			"title",
+			"outbox_id",
+			"invalid",
+			"created_at",
+		]);
+		expect(indexNames).toEqual(
+			expect.arrayContaining([
+				"calendar_invite_revisions_submission_sequence_uq",
+				"calendar_invite_revisions_submission_state_uq",
+				"calendar_invite_revisions_outbox_idx",
+			]),
+		);
+		expect(revisionForeignKeysResult.results).toEqual(
+			expect.arrayContaining([
+				{
+					child_column: "submission_id",
+					parent_table: "submissions",
+					parent_column: "id",
+					on_delete: "CASCADE",
+				},
+				{
+					child_column: "outbox_id",
+					parent_table: "email_outbox",
+					parent_column: "id",
+					on_delete: "SET NULL",
+				},
+			]),
+		);
+		expect(cursorColumns).toEqual([
+			"event_id",
+			"last_outbox_rowid",
+			"updated_at",
+		]);
+		expect(cursorForeignKeysResult.results).toEqual(
+			expect.arrayContaining([
+				{
+					child_column: "event_id",
+					parent_table: "events",
+					parent_column: "id",
+					on_delete: "CASCADE",
+				},
+			]),
+		);
+	});
+
 	it("resolves recipients beyond D1's 100-bound-parameter limit", async () => {
 		const db = await seedBaseline();
 		const inserted = await env.DB.prepare(`
