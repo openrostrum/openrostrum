@@ -1,8 +1,8 @@
+import { PARTICIPANT_ROLE_LABELS } from "~/db/constants";
 import {
 	isFieldVisible,
 	isInputField,
 	splitMultiValue,
-	ROLE_LABELS,
 	type WizardField,
 	type WizardParticipant,
 	type WizardValues,
@@ -86,7 +86,7 @@ export function ParticipantsSummary({
 						{p.self ? " (you)" : ""}
 					</span>
 					<MutedText>
-						{ROLE_LABELS[p.role]} · {p.email}
+						{PARTICIPANT_ROLE_LABELS[p.role]} · {p.email}
 						{p.mobilePhone ? ` · ${p.mobilePhone}` : ""}
 					</MutedText>
 				</li>

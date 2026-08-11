@@ -16,7 +16,6 @@ import {
 	participantExtraFields,
 	participantRequirements,
 	type ParticipantRole,
-	ROLE_LABELS,
 	roleCountLabel,
 	validateParticipants,
 	validateSection,
@@ -44,6 +43,7 @@ import {
 	type WizardCtx,
 	wizardPayload,
 } from "~/cfp/wizard";
+import { PARTICIPANT_ROLE_LABELS } from "~/db/constants";
 import { getDb } from "~/db";
 import { getUser } from "~/lib/auth";
 import { useBusy } from "~/lib/use-busy";
@@ -258,10 +258,10 @@ export default function ParticipantStep({
 								<SectionHeading
 									title={
 										p.self
-											? `${ROLE_LABELS[p.role]} — you`
+											? `${PARTICIPANT_ROLE_LABELS[p.role]} — you`
 											: p.firstName || p.lastName
-												? `${ROLE_LABELS[p.role]} — ${`${p.firstName} ${p.lastName}`.trim()}`
-												: ROLE_LABELS[p.role]
+												? `${PARTICIPANT_ROLE_LABELS[p.role]} — ${`${p.firstName} ${p.lastName}`.trim()}`
+												: PARTICIPANT_ROLE_LABELS[p.role]
 									}
 								/>
 								{!p.self && (
@@ -362,7 +362,7 @@ export default function ParticipantStep({
 								icon="plus"
 								onClick={() => addRow(role)}
 							>
-								Add {ROLE_LABELS[role]}
+								Add {PARTICIPANT_ROLE_LABELS[role]}
 							</Button>
 						))}
 						{addableRoles.length === 0 && (

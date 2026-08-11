@@ -12,6 +12,7 @@ import {
 	AnchorButton,
 	CenteredStack,
 	HtmlContent,
+	InfoNotice,
 	LeadText,
 	MutedText,
 	PageTitle,
@@ -69,6 +70,7 @@ export default function SuccessStep({ loaderData }: Route.ComponentProps) {
 	const ctx = useOutletContext<WizardCtx>();
 	const [searchParams] = useSearchParams();
 	const updated = searchParams.has("updated");
+	const notificationWarning = searchParams.has("notificationWarning");
 	const { successHtml, autoRedirect, portalPath, base, title } = loaderData;
 
 	// The wizard is complete — clear its state so "submit another" starts clean.
@@ -113,6 +115,12 @@ export default function SuccessStep({ loaderData }: Route.ComponentProps) {
 							will notify you about your status.
 						</LeadText>
 					</>
+				)}
+				{notificationWarning && (
+					<InfoNotice>
+						Your submission was saved, but one or more participant emails could
+						not be sent. The event team can see the failure in Email history.
+					</InfoNotice>
 				)}
 				{!updated && (
 					<MutedText>

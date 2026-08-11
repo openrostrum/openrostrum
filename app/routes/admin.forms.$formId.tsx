@@ -58,6 +58,7 @@ import {
 } from "~/lib/forms";
 import { loadRuleOptions, sanitizeRichText } from "~/lib/forms.server";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { PaginationBar } from "./admin.forms";
 import {
 	Button,
@@ -159,6 +160,7 @@ const SaveForm = insertFormSchema
 		sessionSectionHtml: true,
 		participantSectionTitle: true,
 		participantSectionHtml: true,
+		notifyExistingContacts: true,
 		roleSpeakerMin: true,
 		roleSpeakerMax: true,
 		allowChairperson: true,
@@ -192,6 +194,7 @@ const SaveForm = insertFormSchema
 		sessionSectionHtml: z.string().max(20000),
 		participantSectionTitle: z.string().trim().max(255),
 		participantSectionHtml: z.string().max(20000),
+		notifyExistingContacts: boolish,
 		roleSpeakerMin: z.coerce.number().int().min(0).max(50),
 		roleSpeakerMax: optionalInt(1, 50),
 		allowChairperson: boolish,
@@ -306,7 +309,39 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 
 	const [form] = await timings.time("db", () =>
 		db
-			.select()
+			.select({
+				id: forms.id,
+				publicId: forms.publicId,
+				type: forms.type,
+				status: forms.status,
+				internalName: forms.internalName,
+				externalTitle: forms.externalTitle,
+				pageHeading: forms.pageHeading,
+				welcomeHtml: forms.welcomeHtml,
+				showWelcome: forms.showWelcome,
+				participantsStep: forms.participantsStep,
+				sessionSectionTitle: forms.sessionSectionTitle,
+				sessionSectionHtml: forms.sessionSectionHtml,
+				participantSectionTitle: forms.participantSectionTitle,
+				participantSectionHtml: forms.participantSectionHtml,
+				notifyExistingContacts: forms.notifyExistingContacts,
+				roleSpeakerMin: forms.roleSpeakerMin,
+				roleSpeakerMax: forms.roleSpeakerMax,
+				allowChairperson: forms.allowChairperson,
+				roleChairpersonMin: forms.roleChairpersonMin,
+				roleChairpersonMax: forms.roleChairpersonMax,
+				allowModerator: forms.allowModerator,
+				roleModeratorMin: forms.roleModeratorMin,
+				roleModeratorMax: forms.roleModeratorMax,
+				closeAt: forms.closeAt,
+				sendReminders: forms.sendReminders,
+				submissionLimit: forms.submissionLimit,
+				allowMultipleDrafts: forms.allowMultipleDrafts,
+				autoRedirect: forms.autoRedirect,
+				successHtml: forms.successHtml,
+				sendConfirmationEmail: forms.sendConfirmationEmail,
+				config: forms.config,
+			})
 			.from(forms)
 			.where(and(eq(forms.id, params.formId), eq(forms.eventId, event.id)))
 			.limit(1),
@@ -454,6 +489,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				sessionSectionHtml: form.sessionSectionHtml ?? "",
 				participantSectionTitle: form.participantSectionTitle ?? "",
 				participantSectionHtml: form.participantSectionHtml ?? "",
+				notifyExistingContacts: form.notifyExistingContacts,
 				roleSpeakerMin: form.roleSpeakerMin,
 				roleSpeakerMax: form.roleSpeakerMax,
 				allowChairperson: form.allowChairperson,
@@ -590,6 +626,7 @@ async function handleSaveForm(
 			sessionSectionHtml: sessionSectionHtml || null,
 			participantSectionTitle: d.participantSectionTitle || null,
 			participantSectionHtml: participantSectionHtml || null,
+			notifyExistingContacts: d.notifyExistingContacts,
 			roleSpeakerMin: d.roleSpeakerMin,
 			roleSpeakerMax: d.roleSpeakerMax,
 			allowChairperson: d.allowChairperson,
@@ -1269,6 +1306,7 @@ const FIELD_STEP: Record<string, StepId> = {
 	sessionSectionHtml: "session",
 	participantSectionTitle: "participant",
 	participantSectionHtml: "participant",
+	notifyExistingContacts: "participant",
 	roleSpeakerMin: "participant",
 	roleSpeakerMax: "participant",
 	roleChairpersonMin: "participant",
@@ -2396,6 +2434,7 @@ function Builder({
 	const [step, setStep] = useState<StepId>("setup");
 	const [formType, setFormType] = useState(d.form.type);
 	const navigation = useNavigation();
+	const busy = useBusy();
 	const savingForm =
 		navigation.state !== "idle" &&
 		navigation.formData?.get("intent") === "save-form";
@@ -2452,7 +2491,7 @@ function Builder({
 						{d.form.status !== "open" && (
 							<Form method="post">
 								<Input type="hidden" name="intent" value="publish" readOnly />
-								<Button type="submit" variant="ghost">
+								<Button type="submit" variant="ghost" disabled={busy}>
 									Publish
 								</Button>
 							</Form>
@@ -2460,7 +2499,7 @@ function Builder({
 						{actionData?.ok === "save-form" && !savingForm && (
 							<span aria-live="polite">Saved</span>
 						)}
-						<Button form="builder-form" type="submit" disabled={savingForm}>
+						<Button form="builder-form" type="submit" disabled={busy}>
 							{savingForm ? "Saving…" : "Save"}
 						</Button>
 					</>
@@ -2512,7 +2551,9 @@ function Builder({
 								value="initialize-builtins"
 								readOnly
 							/>
-							<Button type="submit">Set up built-in questions</Button>
+							<Button type="submit" disabled={busy}>
+								Set up built-in questions
+							</Button>
 						</Form>
 					</div>
 				</Panel>
@@ -2713,6 +2754,16 @@ function Builder({
 								initialLibrary={d.libraryFields}
 							/>
 							<RoleConfig form={d.form} errors={errors} />
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<strong>Unique contact settings</strong>
+									<OnOffSelect
+										label="Notify existing contacts when they are added to a submission."
+										name="notifyExistingContacts"
+										defaultOn={d.form.notifyExistingContacts}
+									/>
+								</div>
+							</Panel>
 						</div>
 					</div>
 
@@ -2855,7 +2906,7 @@ function Builder({
 							</Button>
 						)}
 						<div className="ml-auto">
-							<Button form="builder-form" type="submit" disabled={savingForm}>
+							<Button form="builder-form" type="submit" disabled={busy}>
 								{savingForm ? "Saving…" : "Save"}
 							</Button>
 						</div>
