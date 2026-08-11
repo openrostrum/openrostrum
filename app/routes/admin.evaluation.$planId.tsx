@@ -1246,7 +1246,6 @@ function RoundsTab({
 								intent="update-round"
 								round={round}
 								actionData={actionData}
-								busy={busy}
 							/>
 						)}
 						<Table>
@@ -1322,7 +1321,6 @@ function RoundsTab({
 										(q) => q.id === editingQuestion,
 									)}
 									actionData={actionData}
-									busy={busy}
 									onDone={() => setEditingQuestion(null)}
 								/>
 							)}
@@ -1330,7 +1328,6 @@ function RoundsTab({
 							intent="add-question"
 							roundId={round.id}
 							actionData={actionData}
-							busy={busy}
 						/>
 						<div className="flex flex-wrap items-end gap-3">
 							<Field label="Reviewer pool for this round">
@@ -1389,7 +1386,7 @@ function RoundsTab({
 				</Panel>
 			))}
 			<Panel>
-				<RoundForm intent="add-round" actionData={actionData} busy={busy} />
+				<RoundForm intent="add-round" actionData={actionData} />
 			</Panel>
 		</>
 	);
@@ -1399,7 +1396,6 @@ function RoundForm({
 	intent,
 	round,
 	actionData,
-	busy,
 }: {
 	intent: "add-round" | "update-round";
 	round?: RoundView;
@@ -1407,8 +1403,8 @@ function RoundForm({
 		intent?: string;
 		fieldErrors?: Record<string, string[] | undefined>;
 	};
-	busy: boolean;
 }) {
+	const busy = useBusy();
 	const errors =
 		actionData?.intent === intent ? actionData.fieldErrors : undefined;
 	return (
@@ -1459,7 +1455,6 @@ function QuestionForm({
 	question,
 	actionData,
 	onDone,
-	busy,
 }: {
 	intent: "add-question" | "update-question";
 	roundId: string;
@@ -1470,8 +1465,8 @@ function QuestionForm({
 		fieldErrors?: Record<string, string[] | undefined>;
 	};
 	onDone?: () => void;
-	busy: boolean;
 }) {
+	const busy = useBusy();
 	const errors =
 		actionData?.intent === intent && actionData.roundId === roundId
 			? actionData.fieldErrors

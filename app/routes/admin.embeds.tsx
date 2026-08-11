@@ -162,15 +162,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 	return redirect("/admin/embeds");
 }
 
-function DeleteButton({
-	id,
-	name,
-	busy,
-}: {
-	id: string;
-	name: string;
-	busy: boolean;
-}) {
+function DeleteButton({ id, name }: { id: string; name: string }) {
+	const busy = useBusy();
 	const [armed, setArmed] = useState(false);
 	if (!armed) {
 		return (
@@ -293,7 +286,7 @@ export default function AdminEmbeds({
 												{row.enabled ? "Disable" : "Enable"}
 											</Button>
 										</Form>
-										<DeleteButton id={row.id} name={row.name} busy={busy} />
+										<DeleteButton id={row.id} name={row.name} />
 									</span>
 								</Td>
 							</Tr>
