@@ -1,7 +1,9 @@
 import {
+	createContext,
 	type ComponentPropsWithoutRef,
 	type ElementType,
 	type ReactNode,
+	useContext,
 	useEffect,
 	useRef,
 	useState,
@@ -22,27 +24,45 @@ const ENTER = cn(
 	"motion-reduce:transition-none",
 );
 
-let lastInputWasKeyboard = false;
+type InputModality = "keyboard" | "pointer";
+type InputModalityRef = { current: InputModality };
 
-if (typeof document !== "undefined") {
-	document.addEventListener(
-		"pointerdown",
-		() => {
-			lastInputWasKeyboard = false;
-		},
-		true,
-	);
-	document.addEventListener(
-		"keydown",
-		() => {
-			lastInputWasKeyboard = true;
-		},
-		true,
+const InputModalityContext = createContext<InputModalityRef | null>(null);
+
+export function allowsEntryMotion(input: InputModality) {
+	return input === "pointer";
+}
+
+export function MotionInputBoundary({ children }: { children: ReactNode }) {
+	const input = useRef<InputModality>("pointer");
+
+	useEffect(() => {
+		const onPointerDown = () => {
+			input.current = "pointer";
+		};
+		const onKeyDown = () => {
+			input.current = "keyboard";
+		};
+		document.addEventListener("pointerdown", onPointerDown, true);
+		document.addEventListener("keydown", onKeyDown, true);
+		return () => {
+			document.removeEventListener("pointerdown", onPointerDown, true);
+			document.removeEventListener("keydown", onKeyDown, true);
+		};
+	}, []);
+
+	return (
+		<InputModalityContext.Provider value={input}>
+			{children}
+		</InputModalityContext.Provider>
 	);
 }
 
 function useEntryMotion() {
-	const [animate] = useState(() => !lastInputWasKeyboard);
+	const input = useContext(InputModalityContext);
+	const [animate] = useState(() =>
+		allowsEntryMotion(input?.current ?? "pointer"),
+	);
 	return animate;
 }
 
