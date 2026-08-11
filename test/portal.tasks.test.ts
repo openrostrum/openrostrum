@@ -104,7 +104,12 @@ async function seedTasks() {
 	});
 	await db.insert(taskAssignments).values([
 		{ id: "ta_announce", taskId: "t_announce", contactId: "c_priya" },
-		{ id: "ta_hotel", taskId: "t_hotel", contactId: "c_priya" },
+		{
+			id: "ta_hotel",
+			taskId: "t_hotel",
+			contactId: "c_priya",
+			dueAt: new Date("2026-09-30T00:00:00Z"),
+		},
 		{
 			id: "ta_slides",
 			taskId: "t_slides",
@@ -140,6 +145,18 @@ describe("portal tasks", () => {
 			} as unknown as LoaderArgs),
 		);
 		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("projects an assignment due date into the speaker task detail", async () => {
+		await seedTasks();
+		const loaded = unwrap<{ due: string | null }>(
+			await taskLoader({
+				context: CONTEXT,
+				request: await authedRequest("u_priya", `${BASE}/tasks/ta_hotel`),
+				params: params("ta_hotel"),
+			} as unknown as LoaderArgs),
+		);
+		expect(loaded.due).toBe("Sep 30, 2026");
 	});
 
 	it("marks a simple task complete (and back to incomplete)", async () => {

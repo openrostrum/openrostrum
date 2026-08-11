@@ -3,7 +3,11 @@ import { data, Form } from "react-router";
 import { z } from "zod";
 import { type Db, getDb } from "~/db";
 import { contacts } from "~/db/schema";
-import { isContactStatus, splitFullName } from "~/domain/contacts";
+import {
+	isContactStatus,
+	probableContactDuplicateKey,
+	splitFullName,
+} from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { parseCsv } from "~/lib/csv";
 import { errorMessage } from "~/lib/errors";
@@ -133,6 +137,13 @@ interface RowResult {
 	reason: string;
 }
 
+interface ProbableDuplicate {
+	row: number;
+	name: string;
+	email: string;
+	existingEmail: string;
+}
+
 type ActionResult =
 	| { step: "upload"; formError: string }
 	| {
@@ -143,6 +154,12 @@ type ActionResult =
 			csvB64: string;
 			guesses: Record<ImportFieldKey, number | null>;
 			formError?: string;
+	  }
+	| {
+			step: "review";
+			csvB64: string;
+			mapping: Record<ImportFieldKey, number | null>;
+			probableDuplicates: ProbableDuplicate[];
 	  }
 	| {
 			step: "done";
@@ -178,6 +195,9 @@ export async function action({
 	const db = getDb(env);
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "upload");
+	const policyValue = String(form.get("duplicatePolicy") ?? "");
+	const duplicatePolicy =
+		policyValue === "skip" || policyValue === "create" ? policyValue : null;
 
 	if (intent === "upload") {
 		const file = form.get("file");
@@ -277,8 +297,29 @@ export async function action({
 		db.select().from(contacts).where(eq(contacts.eventId, event.id)),
 	);
 	const byEmail = new Map(existing.map((c) => [normalizeEmail(c.email), c]));
+	const byProbableKey = new Map<string, Set<string>>();
+	const addProbableIdentity = (key: string | null, email: string) => {
+		if (!key) return;
+		const emails = byProbableKey.get(key) ?? new Set<string>();
+		emails.add(email);
+		byProbableKey.set(key, emails);
+	};
+	const removeProbableIdentity = (key: string | null, email: string) => {
+		if (!key) return;
+		const emails = byProbableKey.get(key);
+		if (!emails) return;
+		emails.delete(email);
+		if (emails.size === 0) byProbableKey.delete(key);
+	};
+	for (const contact of existing) {
+		addProbableIdentity(
+			probableContactDuplicateKey(contact),
+			normalizeEmail(contact.email),
+		);
+	}
 
 	const results: RowResult[] = [];
+	const probableDuplicates: ProbableDuplicate[] = [];
 	const seen = new Map<string, number>();
 	type BatchStatement = Parameters<Db["batch"]>[0][number];
 	const writes: Array<{ rowIndex: number; statement: BatchStatement }> = [];
@@ -345,6 +386,19 @@ export async function action({
 			if (lastName && lastName !== match.lastName) changes.lastName = lastName;
 			if (status && status !== match.status) changes.status = status;
 			const hasChanges = Object.keys(changes).length > 0;
+			const previousProbableKey = probableContactDuplicateKey(match);
+			const nextProbableKey = probableContactDuplicateKey({
+				firstName: changes.firstName ?? match.firstName,
+				lastName: changes.lastName ?? match.lastName,
+				companyName:
+					changes.companyName !== undefined
+						? changes.companyName
+						: match.companyName,
+			});
+			if (previousProbableKey !== nextProbableKey) {
+				removeProbableIdentity(previousProbableKey, email);
+				addProbableIdentity(nextProbableKey, email);
+			}
 			if (hasChanges) {
 				writes.push({
 					rowIndex: results.length,
@@ -368,6 +422,33 @@ export async function action({
 			results.push({ ...base, outcome: "skipped", reason: "Missing a name" });
 			continue;
 		}
+
+		const probableKey = probableContactDuplicateKey({
+			firstName,
+			lastName,
+			companyName: values.companyName,
+		});
+		const probableMatch = probableKey
+			? byProbableKey.get(probableKey)?.values().next().value
+			: undefined;
+		if (probableMatch) {
+			probableDuplicates.push({
+				...base,
+				email,
+				existingEmail: probableMatch,
+			});
+			if (duplicatePolicy === "skip") {
+				results.push({
+					...base,
+					outcome: "skipped",
+					reason: `Probable duplicate — same normalized name and company as ${probableMatch}`,
+				});
+				continue;
+			}
+			if (duplicatePolicy === null) continue;
+		}
+		addProbableIdentity(probableKey, email);
+
 		writes.push({
 			rowIndex: results.length,
 			statement: db.insert(contacts).values({
@@ -382,8 +463,19 @@ export async function action({
 		results.push({
 			...base,
 			outcome: "added",
-			reason: `New contact${statusNote}`,
+			reason: probableMatch
+				? `Created after duplicate warning${statusNote}`
+				: `New contact${statusNote}`,
 		});
+	}
+
+	if (probableDuplicates.length > 0 && duplicatePolicy === null) {
+		return {
+			step: "review",
+			csvB64,
+			mapping,
+			probableDuplicates,
+		};
 	}
 
 	let formError: string | undefined;
@@ -547,6 +639,85 @@ export default function ImportContacts({ actionData }: Route.ComponentProps) {
 											{value.length > 40 ? `${value.slice(0, 40)}…` : value}
 										</Td>
 									))}
+								</Tr>
+							))}
+						</TBody>
+					</Table>
+				</Form>
+			)}
+
+			{state?.step === "review" && (
+				<Form method="post" className="flex flex-col gap-5">
+					<Input type="hidden" name="intent" value="import" readOnly />
+					<Input type="hidden" name="csvB64" value={state.csvB64} readOnly />
+					{IMPORT_FIELDS.map((field) => {
+						const index = state.mapping[field.key];
+						return index === null || index === undefined ? null : (
+							<Input
+								key={field.key}
+								type="hidden"
+								name={`map_${field.key}`}
+								value={String(index)}
+								readOnly
+							/>
+						);
+					})}
+					<Panel>
+						<div className="flex flex-col gap-3">
+							<div>
+								<strong>Review probable duplicates</strong>
+								<p>
+									These rows have the same normalized name and company as an
+									existing speaker, but a different email. They will never be
+									auto-merged.
+								</p>
+							</div>
+							<div className="flex items-center gap-3">
+								<Button
+									type="submit"
+									name="duplicatePolicy"
+									value="skip"
+									disabled={busy}
+								>
+									{busy ? "Importing…" : "Import safe rows"}
+								</Button>
+								<Button
+									type="submit"
+									name="duplicatePolicy"
+									value="create"
+									variant="ghost"
+									disabled={busy}
+								>
+									Create probable duplicates anyway
+								</Button>
+								<ButtonLink to="/admin/contacts/import" variant="ghost">
+									Start over
+								</ButtonLink>
+							</div>
+						</div>
+					</Panel>
+
+					<Table>
+						<THead>
+							<Th>Row</Th>
+							<Th>Imported contact</Th>
+							<Th>Existing contact</Th>
+							<Th>Signal</Th>
+						</THead>
+						<TBody>
+							{state.probableDuplicates.map((duplicate) => (
+								<Tr key={duplicate.row}>
+									<Td kind="mono">{duplicate.row}</Td>
+									<Td>
+										<div className="flex flex-col">
+											<strong>{duplicate.name}</strong>
+											<span>{duplicate.email}</span>
+										</div>
+									</Td>
+									<Td kind="mono">{duplicate.existingEmail}</Td>
+									<Td>
+										<StatusBadge tone="caution">possible duplicate</StatusBadge>
+									</Td>
 								</Tr>
 							))}
 						</TBody>

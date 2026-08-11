@@ -57,7 +57,7 @@ const EXPECTED_TASKS = [
 		isFileRequest: false,
 		isOnboardingDefault: true,
 		required: true,
-		dueInDays: null,
+		dueInDays: 21,
 	},
 	{
 		name: "Hotel & Travel Reservations",
@@ -67,7 +67,7 @@ const EXPECTED_TASKS = [
 		isFileRequest: false,
 		isOnboardingDefault: true,
 		required: true,
-		dueInDays: null,
+		dueInDays: 14,
 	},
 	{
 		name: "Presentation Upload",
@@ -77,7 +77,7 @@ const EXPECTED_TASKS = [
 		isFileRequest: true,
 		isOnboardingDefault: true,
 		required: false,
-		dueInDays: null,
+		dueInDays: 30,
 	},
 ];
 
@@ -243,6 +243,7 @@ describe("seed ↔ provisionEventDefaults lockstep", () => {
 			isPrimary: true,
 		});
 
+		const before = Date.now();
 		const results = await transitionSubmissions(db, [row], "accepted");
 		expect(results[0]?.ok).toBe(true);
 
@@ -252,6 +253,7 @@ describe("seed ↔ provisionEventDefaults lockstep", () => {
 				name: tasks.name,
 				submissionId: taskAssignments.submissionId,
 				status: taskAssignments.status,
+				dueAt: taskAssignments.dueAt,
 			})
 			.from(taskAssignments)
 			.innerJoin(tasks, eq(tasks.id, taskAssignments.taskId))
@@ -261,6 +263,19 @@ describe("seed ↔ provisionEventDefaults lockstep", () => {
 			EXPECTED_TASKS.map((task) => task.name),
 		);
 		expect(minted.every((m) => m.status === "incomplete")).toBe(true);
+		const dueDays = new Map([
+			["Hotel & Travel Reservations", 14],
+			["Flight Reimbursement", 21],
+			["Presentation Upload", 30],
+		]);
+		for (const assignment of minted) {
+			const days = dueDays.get(assignment.name);
+			expect(days).toBeDefined();
+			const dueAt = assignment.dueAt?.getTime() ?? 0;
+			expect(
+				Math.abs(dueAt - (before + (days ?? 0) * 86_400_000)),
+			).toBeLessThan(2_000);
+		}
 		expect(
 			minted.filter((m) => m.type === "submission").map((m) => m.submissionId),
 		).toEqual([row.id]);

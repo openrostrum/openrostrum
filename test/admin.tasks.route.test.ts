@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
+	contacts,
 	emailOutbox,
 	emailSuppressions,
 	events,
@@ -392,9 +393,95 @@ describe("bulk assignment", () => {
 		expect(rows.map((r) => r.submissionId).sort()).toEqual(["s1", "s2"]);
 	});
 
+	it("assigns accepted-session work to every speaker role and excludes non-speaker roles", async () => {
+		const db = await seedTasksBaseline();
+		await db.insert(contacts).values([
+			{
+				id: "c_co_speaker",
+				eventId: "e1",
+				email: "co-speaker@example.com",
+				firstName: "Co",
+				lastName: "Speaker",
+			},
+			{
+				id: "c_moderator",
+				eventId: "e1",
+				email: "moderator@example.com",
+				firstName: "Mo",
+				lastName: "Derator",
+			},
+		]);
+		await db.insert(participants).values([
+			{
+				id: "p_co_speaker",
+				submissionId: "s1",
+				contactId: "c_co_speaker",
+				role: "speaker",
+				position: 1,
+			},
+			{
+				id: "p_moderator",
+				submissionId: "s1",
+				contactId: "c_moderator",
+				role: "moderator",
+				position: 2,
+			},
+		]);
+
+		await assign("t_slides");
+		await assign("t_flight");
+
+		const allAssignments = await db.select().from(taskAssignments);
+		const slides = allAssignments.filter((row) => row.taskId === "t_slides");
+		expect(slides.map((row) => row.contactId).sort()).toEqual([
+			"c_bob",
+			"c_co_speaker",
+			"c_priya",
+		]);
+		const flights = allAssignments.filter((row) => row.taskId === "t_flight");
+		expect(flights.map((row) => row.contactId).sort()).toEqual([
+			"c_bob",
+			"c_co_speaker",
+			"c_priya",
+		]);
+		expect(allAssignments.some((row) => row.contactId === "c_moderator")).toBe(
+			false,
+		);
+	});
+
+	it("assigns large accepted-speaker audiences across bounded D1 insert chunks", async () => {
+		const db = await seedTasksBaseline();
+		for (let i = 0; i < 23; i += 1) {
+			const contactId = `c_scale_${i}`;
+			await db.insert(contacts).values({
+				id: contactId,
+				eventId: "e1",
+				email: `scale-${i}@example.com`,
+				firstName: "Scale",
+				lastName: String(i),
+			});
+			await db.insert(participants).values({
+				id: `p_scale_${i}`,
+				submissionId: "s1",
+				contactId,
+				role: "speaker",
+				position: i + 2,
+			});
+		}
+
+		const result = await assign("t_flight");
+
+		expect(result.formError).toBeUndefined();
+		expect(
+			await db
+				.select()
+				.from(taskAssignments)
+				.where(eq(taskAssignments.taskId, "t_flight")),
+		).toHaveLength(25);
+	});
+
 	it("a multi-talk speaker gets one submission-task assignment per accepted talk — and replays add nothing", async () => {
 		const db = await seedTasksBaseline();
-		// Priya picks up a second accepted talk.
 		await db.insert(submissions).values({
 			id: "s4",
 			eventId: "e1",

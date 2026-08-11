@@ -70,6 +70,9 @@ import {
 import type { Route } from "./+types/admin.tasks";
 
 const PAGE_SIZE = 25;
+// Each assignment binds id, task/contact/submission, status, due date, and
+// createdAt; ten rows stay below D1's 100-parameter statement cap.
+const TASK_ASSIGNMENT_INSERT_CHUNK = 10;
 
 // Server-side only (references schema enums); the component receives it via
 // loader data so drizzle + the schema never reach the client bundle.
@@ -713,8 +716,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 
 		let candidates: Array<{ contactId: string; submissionId: string | null }>;
 		if (task.type === "submission") {
-			// Submission tasks target each accepted submission's primary speaker;
-			// contactId is ALWAYS set so the per-speaker dashboard sees the row.
+			// contactId is always set so the per-speaker dashboard sees the row.
 			candidates = await db
 				.select({
 					contactId: participants.contactId,
@@ -727,7 +729,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 						eq(submissions.eventId, event.id),
 						eq(submissions.status, "accepted"),
 						eq(participants.role, "speaker"),
-						eq(participants.isPrimary, true),
 					),
 				);
 		} else {
@@ -740,6 +741,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 					.where(
 						and(
 							eq(participants.contactId, contacts.id),
+							eq(participants.role, "speaker"),
 							eq(submissions.status, "accepted"),
 						),
 					),
@@ -787,11 +789,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 		let added = 0;
 		try {
 			await timings.time("db", async () => {
-				for (let i = 0; i < unique.length; i += 50) {
+				for (let i = 0; i < unique.length; i += TASK_ASSIGNMENT_INSERT_CHUNK) {
 					const inserted = await db
 						.insert(taskAssignments)
 						.values(
-							unique.slice(i, i + 50).map((c) => ({
+							unique.slice(i, i + TASK_ASSIGNMENT_INSERT_CHUNK).map((c) => ({
 								taskId: task.id,
 								contactId: c.contactId,
 								submissionId: c.submissionId,
@@ -1436,7 +1438,7 @@ export default function TasksDashboard({
 							<Field label="To">
 								{assignTaskType === "submission" ? (
 									<Select name="target" disabled>
-										<option>Accepted submissions&apos; primary speakers</option>
+										<option>Speakers on accepted submissions</option>
 									</Select>
 								) : (
 									<Select name="target" defaultValue="accepted">

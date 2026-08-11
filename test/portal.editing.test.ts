@@ -844,10 +844,10 @@ describe("edit-until-close (portal View Submission)", () => {
 
 		const loaded = await loadDetail();
 		expect(loaded.participants).toEqual([]);
-		expect(renderDetail(loaded)).toContain("No participants are listed");
+		expect(renderDetail(loaded).match(/<li\b/g) ?? []).toHaveLength(0);
 	});
 
-	it("uses one deterministic multi-role participation control and updates every non-secondary role link", async () => {
+	it("uses one deterministic multi-role control and updates only that participant link", async () => {
 		await seedEditableSubmission(FUTURE, { allowModerator: true });
 		const db = getDb(env);
 		await db.batch([
@@ -878,8 +878,19 @@ describe("edit-until-close (portal View Submission)", () => {
 		]);
 
 		const detail = await loadDetail();
-		expect(detail.myParticipation?.id).toBe("p_moderator");
-		expect(detail.myParticipation?.raw).toBe("declined");
+		const held = (
+			detail as typeof detail & {
+				myParticipations?: Array<{ id: string; raw: string }>;
+			}
+		).myParticipations;
+		expect(held?.map((participation) => participation.id)).toEqual([
+			"p_moderator",
+			"p_me",
+		]);
+		expect(held?.map((participation) => participation.raw)).toEqual([
+			"declined",
+			"pending",
+		]);
 		const list = unwrap<{
 			submissions: Array<{
 				id: string;
@@ -903,6 +914,31 @@ describe("edit-until-close (portal View Submission)", () => {
 			params: detailParams,
 		} as unknown as ActionArgs);
 		expect(actionBody<{ ok?: boolean }>(response).ok).toBe(true);
+
+		const afterModerator = await db
+			.select({
+				role: participants.role,
+				status: participants.acceptanceStatus,
+			})
+			.from(participants)
+			.where(eq(participants.contactId, "c_priya"));
+		expect(afterModerator.sort((a, b) => a.role.localeCompare(b.role))).toEqual(
+			[
+				{ role: "moderator", status: "accepted" },
+				{ role: "secondary", status: "declined" },
+				{ role: "speaker", status: "pending" },
+			],
+		);
+
+		const speakerResponse = await detailAction({
+			context: CONTEXT,
+			request: await updateRequest({
+				intent: "confirm-participation",
+				participantId: "p_me",
+			}),
+			params: detailParams,
+		} as unknown as ActionArgs);
+		expect(actionBody<{ ok?: boolean }>(speakerResponse).ok).toBe(true);
 
 		const acceptance = await db
 			.select({
@@ -933,7 +969,7 @@ describe("edit-until-close (portal View Submission)", () => {
 		]);
 
 		const detail = await loadDetail();
-		expect(detail.myParticipation).toBeNull();
+		expect(detail.myParticipations).toEqual([]);
 		const list = unwrap<{
 			submissions: Array<{ participation: unknown }>;
 		}>(

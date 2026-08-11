@@ -270,6 +270,70 @@ describe("accept auto-provisioning", () => {
 		expect(await d.select().from(emailOutbox)).toHaveLength(0);
 	});
 
+	it("anchors newly minted replay assignments to the original acceptance time", async () => {
+		const d = await seedBase();
+		await seedOnboardingTasks();
+		const acceptedAt = new Date("2026-01-15T12:00:00.000Z");
+		const row = await insertSubmission({
+			status: "accepted",
+			statusChangedAt: acceptedAt,
+		});
+		await addSpeaker(row.id, "c_late", "late@example.com");
+
+		await transitionSubmissions(d, [row], "accepted");
+
+		const [hotel] = await d
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.taskId, "task_hotel"));
+		expect(hotel?.dueAt).toEqual(
+			new Date(acceptedAt.getTime() + 14 * 86_400_000),
+		);
+	});
+
+	it("provisions a hundred-speaker panel within D1 statement parameter limits", async () => {
+		const d = await seedBase();
+		await d.insert(tasks).values({
+			id: "task_scale",
+			eventId: "e1",
+			name: "Scale onboarding",
+			type: "contact",
+			isOnboardingDefault: true,
+		});
+		const row = await insertSubmission({ status: "pending" });
+		const people = Array.from({ length: 101 }, (_, index) => ({
+			contact: {
+				id: `c_scale_${index}`,
+				eventId: "e1",
+				email: `scale-${index}@example.com`,
+				firstName: "Scale",
+				lastName: String(index),
+			},
+			participant: {
+				id: `p_scale_${index}`,
+				submissionId: row.id,
+				contactId: `c_scale_${index}`,
+				role: "speaker" as const,
+				position: index,
+			},
+		}));
+		for (let index = 0; index < people.length; index += 10) {
+			const chunk = people.slice(index, index + 10);
+			await d.insert(contacts).values(chunk.map((person) => person.contact));
+			await d
+				.insert(participants)
+				.values(chunk.map((person) => person.participant));
+		}
+
+		await transitionSubmissions(d, [row], "accepted");
+
+		expect(await d.select().from(taskAssignments)).toHaveLength(101);
+		const statuses = await d.select({ status: contacts.status }).from(contacts);
+		expect(statuses.every((contact) => contact.status === "invited")).toBe(
+			true,
+		);
+	});
+
 	it("provisions every speaker role link once and never provisions the same contacts' non-speaker links", async () => {
 		const d = await seedBase();
 		await d.insert(tasks).values({
@@ -311,6 +375,36 @@ describe("accept auto-provisioning", () => {
 		expect(
 			assignments.map((assignment) => assignment.contactId).sort(),
 		).toEqual(["c_ada", "c_bo"]);
+	});
+
+	it("advances accepted speaker contacts from pending to invited without demoting confirmed contacts", async () => {
+		const d = await seedBase();
+		const row = await insertSubmission({ status: "pending" });
+		await addSpeaker(row.id, "c_pending", "pending@example.com", {
+			isPrimary: true,
+		});
+		await addSpeaker(row.id, "c_confirmed", "confirmed@example.com");
+		await d
+			.update(contacts)
+			.set({ status: "confirmed" })
+			.where(eq(contacts.id, "c_confirmed"));
+
+		await transitionSubmissions(d, [row], "accepted");
+
+		const speakerContacts = await d
+			.select({ id: contacts.id, status: contacts.status })
+			.from(contacts);
+		const byId = new Map(
+			speakerContacts.map((contact) => [contact.id, contact]),
+		);
+		expect(byId.get("c_pending")?.status).toBe("invited");
+		expect(byId.get("c_confirmed")?.status).toBe("confirmed");
+		const participation = await d
+			.select({ acceptance: participants.acceptanceStatus })
+			.from(participants);
+		expect(participation.every((item) => item.acceptance === "pending")).toBe(
+			true,
+		);
 	});
 
 	it("never demotes already-approved content on re-accept", async () => {

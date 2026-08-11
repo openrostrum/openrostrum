@@ -1,5 +1,8 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -10,7 +13,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { action } from "../app/routes/admin.contacts_.import";
+import ImportContacts, { action } from "../app/routes/admin.contacts_.import";
 
 async function adminRequest(url: string, init?: RequestInit): Promise<Request> {
 	const db = getDb(env);
@@ -45,6 +48,19 @@ function run(request: Request) {
 		request,
 		params: {},
 	} as unknown as Parameters<typeof action>[0]);
+}
+
+function renderImport(actionData: unknown): string {
+	const Import = ImportContacts as unknown as ComponentType<{
+		actionData?: unknown;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/",
+			Component: () => createElement(Import, { actionData }),
+		},
+	]);
+	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
 }
 
 function importBody(csv: string, mapping: Record<string, string>): FormData {
@@ -318,6 +334,298 @@ describe("CSV import", () => {
 			.where(eq(contacts.id, "c_sam"));
 		expect(sam?.firstName).toBe("Sam");
 		expect(sam?.lastName).toBe("Speaker");
+	});
+
+	it("reviews normalized name+company matches with a different email before writing", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{
+				method: "POST",
+				body: importBody(
+					[
+						"First,Last,Email,Company",
+						'" priya ",RAMAN,priya.alt@example.com,"  LATTICEWORK   SYSTEMS  "',
+					].join("\n"),
+					{
+						email: "2",
+						firstName: "0",
+						lastName: "1",
+						companyName: "3",
+					},
+				),
+			},
+		);
+		await seedEvent();
+		await db.insert(contacts).values({
+			id: "c_priya",
+			eventId: "e1",
+			email: "priya@example.com",
+			firstName: "Priya",
+			lastName: "Raman",
+			companyName: "Latticework Systems",
+		});
+
+		const result = (await run(request)) as {
+			step: string;
+			probableDuplicates?: Array<{
+				row: number;
+				email: string;
+				existingEmail: string;
+			}>;
+		};
+
+		expect(result.step).toBe("review");
+		expect(result.probableDuplicates).toEqual([
+			{
+				row: 2,
+				name: "priya RAMAN",
+				email: "priya.alt@example.com",
+				existingEmail: "priya@example.com",
+			},
+		]);
+		expect(await db.select().from(contacts)).toHaveLength(1);
+	});
+
+	it("reviews same-file name+company matches with different emails before any row is written", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{
+				method: "POST",
+				body: importBody(
+					[
+						"First,Last,Email,Company",
+						"Sam,Speaker,sam@example.com,Agentic Labs",
+						" sam ,SPEAKER,sam.alt@example.com,  Agentic   Labs ",
+					].join("\n"),
+					{
+						email: "2",
+						firstName: "0",
+						lastName: "1",
+						companyName: "3",
+					},
+				),
+			},
+		);
+		await seedEvent();
+
+		const result = (await run(request)) as {
+			step: string;
+			probableDuplicates?: Array<{ row: number; existingEmail: string }>;
+		};
+
+		expect(result.step).toBe("review");
+		expect(result.probableDuplicates).toEqual([
+			expect.objectContaining({ row: 3, existingEmail: "sam@example.com" }),
+		]);
+		expect(await db.select().from(contacts)).toHaveLength(0);
+	});
+
+	it("reviews a later alias against identity changes planned by an exact-email merge", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{
+				method: "POST",
+				body: importBody(
+					[
+						"First,Last,Email,Company",
+						"Priya,Raman,old@example.com,Latticework Systems",
+						"Priya,Raman,alias@example.com,Latticework Systems",
+					].join("\n"),
+					{
+						email: "2",
+						firstName: "0",
+						lastName: "1",
+						companyName: "3",
+					},
+				),
+			},
+		);
+		await seedEvent();
+		await db.insert(contacts).values({
+			id: "c_old",
+			eventId: "e1",
+			email: "old@example.com",
+			firstName: "Old",
+			lastName: "Identity",
+			companyName: "Old Company",
+		});
+
+		const result = (await run(request)) as {
+			step: string;
+			probableDuplicates?: Array<{ row: number; existingEmail: string }>;
+		};
+
+		expect(result.step).toBe("review");
+		expect(result.probableDuplicates).toEqual([
+			expect.objectContaining({ row: 3, existingEmail: "old@example.com" }),
+		]);
+		expect(await db.select().from(contacts)).toEqual([
+			expect.objectContaining({
+				email: "old@example.com",
+				firstName: "Old",
+				companyName: "Old Company",
+			}),
+		]);
+	});
+
+	it("adds the same normalized name at a different company without warning", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{
+				method: "POST",
+				body: importBody(
+					"First,Last,Email,Company\nPriya,Raman,priya.alt@example.com,Other Company",
+					{
+						email: "2",
+						firstName: "0",
+						lastName: "1",
+						companyName: "3",
+					},
+				),
+			},
+		);
+		await seedEvent();
+		await db.insert(contacts).values({
+			id: "c_priya",
+			eventId: "e1",
+			email: "priya@example.com",
+			firstName: "Priya",
+			lastName: "Raman",
+			companyName: "Latticework Systems",
+		});
+
+		const result = (
+			(await run(request)) as unknown as {
+				data: { step: string; added: number; merged: number };
+			}
+		).data;
+
+		expect(result).toMatchObject({ step: "done", added: 1, merged: 0 });
+		expect(await db.select().from(contacts)).toHaveLength(2);
+	});
+
+	it("renders probable duplicate review with safe and explicit override actions", () => {
+		const html = renderImport({
+			step: "review",
+			csvB64: "csv-payload",
+			mapping: {
+				email: 2,
+				firstName: 0,
+				lastName: 1,
+				companyName: 3,
+			},
+			probableDuplicates: [
+				{
+					row: 2,
+					name: "Priya Raman",
+					email: "priya.alt@example.com",
+					existingEmail: "priya@example.com",
+				},
+			],
+		});
+
+		expect(html).toContain("priya.alt@example.com");
+		expect(html).toContain("priya@example.com");
+		expect(html).toMatch(/<button[^>]*value="skip"[^>]*name="duplicatePolicy"/);
+		expect(html).toMatch(
+			/<button[^>]*value="create"[^>]*name="duplicatePolicy"/,
+		);
+		expect(html).toContain('name="csvB64" value="csv-payload"');
+		expect(html).toContain('name="map_email" value="2"');
+	});
+
+	it("skips probable duplicates when the organizer chooses the safe import", async () => {
+		const db = getDb(env);
+		const body = importBody(
+			"First,Last,Email,Company\nPriya,Raman,priya.alt@example.com,Latticework Systems",
+			{
+				email: "2",
+				firstName: "0",
+				lastName: "1",
+				companyName: "3",
+			},
+		);
+		body.set("duplicatePolicy", "skip");
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{ method: "POST", body },
+		);
+		await seedEvent();
+		await db.insert(contacts).values({
+			id: "c_priya",
+			eventId: "e1",
+			email: "priya@example.com",
+			firstName: "Priya",
+			lastName: "Raman",
+			companyName: "Latticework Systems",
+		});
+
+		const result = (
+			(await run(request)) as unknown as {
+				data: {
+					step: string;
+					added: number;
+					skipped: number;
+					results: Array<{ row: number; outcome: string }>;
+				};
+			}
+		).data;
+
+		expect(result.step).toBe("done");
+		expect(result.added).toBe(0);
+		expect(result.skipped).toBe(1);
+		expect(result.results).toEqual([
+			expect.objectContaining({ row: 2, outcome: "skipped" }),
+		]);
+		expect(await db.select().from(contacts)).toHaveLength(1);
+	});
+
+	it("creates a probable duplicate only after the organizer explicitly overrides the warning", async () => {
+		const db = getDb(env);
+		const body = importBody(
+			"First,Last,Email,Company,Bio\nPriya,Raman,priya.alt@example.com,Latticework Systems,Imported bio",
+			{
+				email: "2",
+				firstName: "0",
+				lastName: "1",
+				companyName: "3",
+				bio: "4",
+			},
+		);
+		body.set("duplicatePolicy", "create");
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{ method: "POST", body },
+		);
+		await seedEvent();
+		await db.insert(contacts).values({
+			id: "c_priya",
+			eventId: "e1",
+			email: "priya@example.com",
+			firstName: "Priya",
+			lastName: "Raman",
+			companyName: "Latticework Systems",
+			bio: "Original bio",
+		});
+
+		const result = (
+			(await run(request)) as unknown as {
+				data: { added: number; merged: number };
+			}
+		).data;
+
+		expect(result.added).toBe(1);
+		expect(result.merged).toBe(0);
+		const rows = await db.select().from(contacts);
+		expect(rows).toHaveLength(2);
+		expect(rows.find((row) => row.id === "c_priya")?.bio).toBe("Original bio");
+		expect(rows.find((row) => row.email === "priya.alt@example.com")?.bio).toBe(
+			"Imported bio",
+		);
 	});
 
 	it("re-importing the same file merges every row and adds nothing", async () => {

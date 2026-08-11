@@ -49,7 +49,7 @@ export function SubmissionDetailView({
 		room,
 		participants,
 		allowedParticipantRoles,
-		myParticipation,
+		myParticipations,
 		editWindow,
 		canWithdrawSubmission,
 		isWithdrawn,
@@ -142,14 +142,25 @@ export function SubmissionDetailView({
 				</div>
 			</Card>
 
-			{myParticipation?.confirmable && (
-				<Card title="Your participation">
-					<ParticipationControls
-						action={`${base}/submissions/${data.id}`}
-						participation={myParticipation}
+			<Card title="Your participation">
+				{myParticipations.some((participation) => participation.confirmable) ? (
+					<div className="flex flex-col gap-4">
+						{myParticipations.map((participation) => (
+							<ParticipationControls
+								key={participation.id}
+								action={`${base}/submissions/${data.id}`}
+								participation={participation}
+							/>
+						))}
+					</div>
+				) : (
+					<EmptyState
+						icon="users"
+						title="No participation to confirm"
+						body="Review the participant list below, or contact the event team if you expected a role."
 					/>
-				</Card>
-			)}
+				)}
+			</Card>
 
 			<Card title="Participants">
 				{participants.length === 0 ? (
