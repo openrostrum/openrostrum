@@ -3,6 +3,7 @@ import { data, Form, useOutlet } from "react-router";
 import { and, desc, eq, gt, isNull, like, lte, or, sql } from "drizzle-orm";
 import { getDb } from "~/db";
 import { forms, submissions } from "~/db/schema";
+import { adminFormPath } from "~/domain/forms";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { effectiveFormStatus, FORM_STATUS_TONE } from "~/lib/forms";
 import { createTimings } from "~/lib/track";
@@ -244,11 +245,11 @@ function FormActionsMenu({
 			<div className="absolute right-0 top-full z-30 mt-1 w-64">
 				<Panel>
 					<div className="flex flex-col items-stretch gap-1">
-						<ButtonLink variant="ghost" to={`/admin/forms/${form.id}`}>
+						<ButtonLink variant="ghost" to={adminFormPath(form.id)}>
 							Edit
 						</ButtonLink>
 						{form.rawStatus !== "open" && (
-							<Form method="post" action={`/admin/forms/${form.id}`}>
+							<Form method="post" action={adminFormPath(form.id)}>
 								<Input type="hidden" name="intent" value="publish" readOnly />
 								<Button variant="ghost" type="submit">
 									Open form
@@ -257,17 +258,17 @@ function FormActionsMenu({
 						)}
 						<ButtonLink
 							variant="ghost"
-							to={`/admin/forms/${form.id}?view=results`}
+							to={`${adminFormPath(form.id)}?view=results`}
 						>
 							View results
 						</ButtonLink>
 						<ButtonLink
 							variant="ghost"
-							to={`/admin/forms/${form.id}?view=drafts`}
+							to={`${adminFormPath(form.id)}?view=drafts`}
 						>
 							View draft submissions
 						</ButtonLink>
-						<Form method="post" action={`/admin/forms/${form.id}`}>
+						<Form method="post" action={adminFormPath(form.id)}>
 							<Input type="hidden" name="intent" value="duplicate" readOnly />
 							<Button variant="ghost" type="submit">
 								Duplicate
@@ -317,7 +318,7 @@ function DeleteFormDialog({
 							<Button variant="ghost" type="button" onClick={onCancel}>
 								Cancel
 							</Button>
-							<Form method="post" action={`/admin/forms/${form.id}`}>
+							<Form method="post" action={adminFormPath(form.id)}>
 								<Input type="hidden" name="intent" value="delete" readOnly />
 								<Button type="submit">Delete form</Button>
 							</Form>

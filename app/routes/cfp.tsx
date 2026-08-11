@@ -2,6 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { redirect } from "react-router";
 import { getDb } from "~/db";
 import { forms } from "~/db/schema";
+import { submitPath } from "~/domain/forms";
 import { getDefaultEvent } from "~/lib/program";
 import type { Route } from "./+types/cfp";
 
@@ -19,5 +20,5 @@ export async function loader({ context }: Route.LoaderArgs) {
 		.where(and(eq(forms.eventId, event.id), eq(forms.status, "open")))
 		.orderBy(asc(forms.createdAt))
 		.limit(1);
-	return redirect(form ? `/submit/${event.slug}/${form.publicId}` : "/");
+	return redirect(form ? submitPath(event.slug, form.publicId) : "/");
 }

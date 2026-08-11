@@ -4,8 +4,9 @@ import { data, Form, redirect, useRouteLoaderData } from "react-router";
 import { z } from "zod";
 import { isFormClosed, linkUserToContacts, loadPublicForm } from "~/cfp/server";
 import { Checkbox, MutedText, PageTitle, TurnstileWidget } from "~/cfp/ui";
-import { stepPath, submitBasePath } from "~/cfp/wizard";
+import { stepPath } from "~/cfp/wizard";
 import { getDb } from "~/db";
+import { submitPath } from "~/domain/forms";
 import { contacts, users } from "~/db/schema";
 import {
 	createSession,
@@ -69,7 +70,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const db = getDb(env);
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "");
-	const base = submitBasePath(params.eventSlug, params.formId);
+	const base = submitPath(params.eventSlug, params.formId);
 
 	if (intent === "logout") {
 		const clearCookie = await destroySession(env, request);
@@ -260,7 +261,7 @@ export default function AccountStep({
 	);
 	const busy = useBusy();
 	if (!layout) return null;
-	const base = submitBasePath(layout.event.slug, layout.form.publicId);
+	const base = submitPath(layout.event.slug, layout.form.publicId);
 	const result = actionData as ActionResult | undefined;
 	const branch = result?.branch ?? "email";
 

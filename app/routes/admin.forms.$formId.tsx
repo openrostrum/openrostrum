@@ -43,6 +43,7 @@ import {
 	users,
 	type QuestionRule,
 } from "~/db/schema";
+import { adminFormPath, submitPath } from "~/domain/forms";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
@@ -473,7 +474,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			closeDate: closeInputs.date,
 			closeTime: closeInputs.time,
 			timezone: event.timezone,
-			publicUrl: `${url.origin}/submit/${event.slug}/${form.publicId}`,
+			publicUrl: `${url.origin}${submitPath(event.slug, form.publicId)}`,
 			placements: placements.map((p) => ({
 				id: p.id,
 				section: p.section,
@@ -742,7 +743,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			),
 		]);
 		track("form.created", { formId: id, eventId: event.id });
-		throw redirect(`/admin/forms/${id}`);
+		throw redirect(adminFormPath(id));
 	}
 
 	// Row-level tenancy: the form must belong to the ACTIVE event.
@@ -1430,18 +1431,18 @@ function FormTabs({
 }) {
 	return (
 		<Tabs>
-			<Tab to={`/admin/forms/${formId}`} active={active === "builder"}>
+			<Tab to={adminFormPath(formId)} active={active === "builder"}>
 				Builder
 			</Tab>
 			<Tab
-				to={`/admin/forms/${formId}?view=results`}
+				to={`${adminFormPath(formId)}?view=results`}
 				active={active === "results"}
 				count={counts.submissions}
 			>
 				Results
 			</Tab>
 			<Tab
-				to={`/admin/forms/${formId}?view=drafts`}
+				to={`${adminFormPath(formId)}?view=drafts`}
 				active={active === "drafts"}
 				count={counts.drafts}
 			>
@@ -2339,7 +2340,7 @@ function SubmissionsView({ data: d }: { data: LoaderData }) {
 				page={d.viewPage}
 				pages={d.viewPages}
 				total={d.viewTotal}
-				hrefFor={(p) => `/admin/forms/${d.form.id}?view=${d.view}&page=${p}`}
+				hrefFor={(p) => `${adminFormPath(d.form.id)}?view=${d.view}&page=${p}`}
 			/>
 		</div>
 	);
@@ -2386,7 +2387,7 @@ function Builder({
 		if (target) setStep(target);
 	}
 
-	const formPath = `/admin/forms/${d.form.id}`;
+	const formPath = adminFormPath(d.form.id);
 	const steps: Array<{ id: StepId; label: string }> = [
 		{ id: "setup", label: "Submission Setup" },
 		{ id: "welcome", label: "Welcome Screen" },
