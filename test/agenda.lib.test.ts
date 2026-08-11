@@ -3,6 +3,7 @@ import {
 	type AgendaSession,
 	autoPlace,
 	buildConflictRows,
+	classifyAgendaSessions,
 	type Conflict,
 	conflictSentence,
 	detectConflicts,
@@ -42,6 +43,101 @@ const ROOMS = [
 	{ id: "room_main", name: "Main Hall", capacity: 500 },
 	{ id: "room_305", name: "Room 305", capacity: 60 },
 ];
+
+describe("agenda placement classification", () => {
+	it("classifies complete retained placements as scheduled", () => {
+		const retained = session({
+			id: "retained",
+			status: "accept_queue",
+			schedulable: false,
+			startsAt: 100,
+			endsAt: 200,
+		});
+		const partial = session({ id: "partial", startsAt: 100 });
+
+		const result = classifyAgendaSessions([retained, partial], false);
+
+		expect(result.scheduled.map((s) => s.id)).toEqual(["retained"]);
+	});
+
+	it("classifies start-only and end-only accepted rows as unscheduled and needing a slot", () => {
+		const startOnly = session({ id: "start-only", startsAt: 100 });
+		const endOnly = session({ id: "end-only", endsAt: 200 });
+		const empty = session({ id: "empty" });
+
+		const result = classifyAgendaSessions([startOnly, endOnly, empty], false);
+
+		expect(result.unscheduled.map((s) => s.id)).toEqual([
+			"start-only",
+			"end-only",
+			"empty",
+		]);
+		expect(result.needsSlot.map((s) => s.id)).toEqual([
+			"start-only",
+			"end-only",
+			"empty",
+		]);
+		expect(result.schedulableUnplaced.map((s) => s.id)).toEqual([
+			"start-only",
+			"end-only",
+			"empty",
+		]);
+	});
+
+	it("removes both complete and incomplete drafts from header counts when Drafts is off", () => {
+		const placedDraft = session({
+			id: "placed-draft",
+			status: "draft",
+			schedulable: false,
+			startsAt: 100,
+			endsAt: 200,
+		});
+		const partialDraft = session({
+			id: "partial-draft",
+			status: "draft",
+			startsAt: 100,
+		});
+
+		const hidden = classifyAgendaSessions([placedDraft, partialDraft], false);
+		const shown = classifyAgendaSessions([placedDraft, partialDraft], true);
+
+		expect(hidden.scheduled).toEqual([]);
+		expect(hidden.unscheduled).toEqual([]);
+		expect(shown.scheduled.map((s) => s.id)).toEqual(["placed-draft"]);
+		expect(shown.unscheduled.map((s) => s.id)).toEqual(["partial-draft"]);
+	});
+
+	it("keeps hidden schedulable drafts in week occupancy and excludes retained non-schedulable placements", () => {
+		const hiddenDraft = session({
+			id: "hidden-draft",
+			status: "draft",
+			roomId: "room_main",
+			startsAt: 100,
+			endsAt: 200,
+		});
+		const retained = session({
+			id: "retained",
+			status: "withdrawn",
+			schedulable: false,
+			roomId: "room_305",
+			startsAt: 100,
+			endsAt: 200,
+		});
+		const { schedulablePlaced } = classifyAgendaSessions(
+			[hiddenDraft, retained],
+			false,
+		);
+
+		expect(
+			pickFreeRoom(
+				[{ id: "room_main" }, { id: "room_305" }],
+				schedulablePlaced,
+				125,
+				175,
+			),
+		).toBe("room_305");
+	});
+});
 
 describe("wall-clock conversion", () => {
 	it("converts event-TZ wall clock to UTC across the DST boundary", () => {

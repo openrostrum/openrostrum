@@ -96,6 +96,49 @@ export function hasCompletePlacement(s: PlacementTimes): boolean {
 	return s.startsAt != null && s.endsAt != null;
 }
 
+type CompleteAgendaSession = AgendaSession & {
+	startsAt: number;
+	endsAt: number;
+};
+
+function isSchedulablePlacement(s: AgendaSession): s is CompleteAgendaSession {
+	return s.schedulable && hasCompletePlacement(s);
+}
+
+export type AgendaSessionClassification = {
+	scheduled: CompleteAgendaSession[];
+	unscheduled: AgendaSession[];
+	needsSlot: AgendaSession[];
+	schedulablePlaced: CompleteAgendaSession[];
+	schedulableUnplaced: AgendaSession[];
+};
+
+/**
+ * Visibility, placement completeness, and scheduling permission are separate:
+ * retained placements stay visible, but only schedulable rows occupy or move.
+ */
+export function classifyAgendaSessions(
+	sessions: readonly AgendaSession[],
+	showDrafts: boolean,
+): AgendaSessionClassification {
+	const complete = (s: AgendaSession): s is CompleteAgendaSession =>
+		hasCompletePlacement(s);
+	const visible = sessions.filter((s) => isSessionVisible(s, showDrafts));
+	return {
+		scheduled: visible.filter(complete),
+		unscheduled: visible.filter(
+			(s) => s.schedulable && !hasCompletePlacement(s),
+		),
+		needsSlot: sessions.filter(
+			(s) => s.status === "accepted" && !hasCompletePlacement(s),
+		),
+		schedulablePlaced: sessions.filter(isSchedulablePlacement),
+		schedulableUnplaced: sessions.filter(
+			(s) => s.schedulable && !hasCompletePlacement(s),
+		),
+	};
+}
+
 /**
  * Drafts always obey their display toggle. Other complete placements remain
  * visible after status-policy changes, without becoming schedulable again.
@@ -313,10 +356,7 @@ export function detectConflicts(
 ): Conflict[] {
 	const roomName = new Map(rooms.map((r) => [r.id, r.name]));
 	const rows = sessions
-		.filter(
-			(s): s is AgendaSession & { startsAt: number; endsAt: number } =>
-				s.schedulable && s.startsAt != null && s.endsAt != null,
-		)
+		.filter(isSchedulablePlacement)
 		.sort((a, b) => a.startsAt - b.startsAt);
 	const out: Conflict[] = [];
 	for (let i = 0; i < rows.length; i += 1) {

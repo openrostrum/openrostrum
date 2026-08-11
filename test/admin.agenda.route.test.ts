@@ -426,6 +426,60 @@ describe("auto-place", () => {
 		});
 		expect(pending?.startsAt).toBeNull();
 	});
+
+	it("auto-places a schedulable session whose stored placement is only partial", async () => {
+		const db = await seedBaseline();
+		await db
+			.update(submissions)
+			.set({ startsAt: utc(2026, 10, 12, 16, 30), endsAt: null })
+			.where(eq(submissions.id, "s_live"));
+
+		const result = await callAction({ intent: "autoplace" });
+		const row = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_live"),
+		});
+
+		expect(result.placed).toBe(3);
+		expect(row?.startsAt).toEqual(utc(2026, 10, 12, 15));
+		expect(row?.endsAt).toEqual(utc(2026, 10, 12, 15, 30));
+		expect(row?.roomId).toBe("room_305");
+	});
+
+	it("does not let a retained non-schedulable placement block auto-place occupancy", async () => {
+		const db = await seedBaseline();
+		await db
+			.update(events)
+			.set({
+				startsAt: utc(2026, 10, 12, 15),
+				endsAt: utc(2026, 10, 12, 15, 45),
+				agendaDayStartMin: 480,
+				agendaDayEndMin: 525,
+			})
+			.where(eq(events.id, "e1"));
+		await db
+			.update(rooms)
+			.set({ visible: false })
+			.where(eq(rooms.id, "room_305"));
+		await db
+			.update(submissions)
+			.set({
+				startsAt: utc(2026, 10, 12, 15),
+				endsAt: utc(2026, 10, 12, 15, 45),
+				roomId: "room_main",
+			})
+			.where(eq(submissions.id, "s_queue"));
+
+		const result = await callAction({ intent: "autoplace" });
+		const keynote = await db.query.submissions.findFirst({
+			where: (s, { eq }) => eq(s.id, "s_keynote"),
+		});
+
+		expect(result.placed).toBe(1);
+		expect(result.unplaced).toBe(2);
+		expect(keynote?.startsAt).toEqual(utc(2026, 10, 12, 15));
+		expect(keynote?.endsAt).toEqual(utc(2026, 10, 12, 15, 45));
+		expect(keynote?.roomId).toBe("room_main");
+	});
 });
 
 describe("retained schedule visibility", () => {

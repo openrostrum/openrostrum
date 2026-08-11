@@ -25,6 +25,7 @@ import {
 	type AgendaSession,
 	autoPlace,
 	buildConflictRows,
+	classifyAgendaSessions,
 	type Conflict,
 	conflictSentence,
 	conflictsById,
@@ -508,28 +509,28 @@ export async function action({ context, request }: Route.ActionArgs) {
 			}
 			const mapped = sessionRows.map((s) => toAgendaSession(s, schedulable));
 			const days = daysFor(event, mapped);
+			const { schedulablePlaced, schedulableUnplaced } = classifyAgendaSessions(
+				mapped,
+				false,
+			);
 			const { placements, unplacedIds } = autoPlace({
 				days,
 				timezone: event.timezone,
 				dayStartMin: event.agendaDayStartMin,
 				dayEndMin: event.agendaDayEndMin,
 				rooms: roomRows,
-				scheduled: mapped
-					.filter((s) => s.startsAt != null && s.endsAt != null)
-					.map((s) => ({
-						id: s.id,
-						startsAt: s.startsAt as number,
-						endsAt: s.endsAt as number,
-						roomId: s.roomId,
-						speakerIds: s.speakers.map((sp) => sp.contactId),
-					})),
-				unscheduled: mapped
-					.filter((s) => s.startsAt == null)
-					.map((s) => ({
-						id: s.id,
-						durationMins: s.durationMins,
-						speakerIds: s.speakers.map((sp) => sp.contactId),
-					})),
+				scheduled: schedulablePlaced.map((s) => ({
+					id: s.id,
+					startsAt: s.startsAt,
+					endsAt: s.endsAt,
+					roomId: s.roomId,
+					speakerIds: s.speakers.map((sp) => sp.contactId),
+				})),
+				unscheduled: schedulableUnplaced.map((s) => ({
+					id: s.id,
+					durationMins: s.durationMins,
+					speakerIds: s.speakers.map((sp) => sp.contactId),
+				})),
 			});
 			const now = new Date();
 			const writes = placements.map((p) =>
@@ -846,14 +847,10 @@ export default function Agenda({
 		showDrafts: searchParams.get("drafts") === "1",
 	};
 
-	const schedulableSessions = sessions.filter((s) => s.schedulable);
-	const scheduledCount = schedulableSessions.filter(
-		(s) => s.startsAt != null,
-	).length;
-	const unscheduledCount = schedulableSessions.length - scheduledCount;
-	const needsSlot = sessions.filter(
-		(s) => s.status === "accepted" && s.startsAt == null,
-	).length;
+	const classification = classifyAgendaSessions(sessions, filters.showDrafts);
+	const scheduledCount = classification.scheduled.length;
+	const unscheduledCount = classification.unscheduled.length;
+	const needsSlot = classification.needsSlot.length;
 
 	const onSchedule = (
 		sessionId: string,
