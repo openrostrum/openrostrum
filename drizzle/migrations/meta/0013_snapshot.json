@@ -1023,26 +1023,11 @@
         }
       },
       "indexes": {
-        "calendar_invite_revisions_submission_idx": {
-          "name": "calendar_invite_revisions_submission_idx",
-          "columns": [
-            "submission_id"
-          ],
-          "isUnique": false
-        },
         "calendar_invite_revisions_submission_sequence_uq": {
           "name": "calendar_invite_revisions_submission_sequence_uq",
           "columns": [
             "submission_id",
             "sequence"
-          ],
-          "isUnique": true
-        },
-        "calendar_invite_revisions_submission_state_uq": {
-          "name": "calendar_invite_revisions_submission_state_uq",
-          "columns": [
-            "submission_id",
-            "state_hash"
           ],
           "isUnique": true
         },

@@ -17,10 +17,6 @@ CREATE TABLE `calendar_invite_revisions` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `calendar_invite_revisions_submission_sequence_uq` ON `calendar_invite_revisions` (`submission_id`,`sequence`);
 --> statement-breakpoint
-CREATE UNIQUE INDEX `calendar_invite_revisions_submission_state_uq` ON `calendar_invite_revisions` (`submission_id`,`state_hash`);
---> statement-breakpoint
-CREATE INDEX `calendar_invite_revisions_submission_idx` ON `calendar_invite_revisions` (`submission_id`);
---> statement-breakpoint
 CREATE INDEX `calendar_invite_revisions_outbox_idx` ON `calendar_invite_revisions` (`outbox_id`);
 --> statement-breakpoint
 CREATE TABLE `calendar_invite_ledger_cursors` (

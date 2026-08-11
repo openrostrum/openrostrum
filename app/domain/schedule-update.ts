@@ -2,19 +2,28 @@ import {
 	and,
 	asc,
 	eq,
+	gt,
 	inArray,
 	isNotNull,
 	isNull,
 	like,
+	lte,
 	or,
 	sql,
 } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { Db } from "~/db";
-import { emailOutbox, type events, rooms, submissions } from "~/db/schema";
+import {
+	calendarInviteLedgerCursors,
+	calendarInviteRevisions,
+	emailOutbox,
+	type events,
+	rooms,
+	submissions,
+} from "~/db/schema";
 import {
 	EMAIL_BATCH_LIMIT,
 	icsForInvites,
-	icsUidForSubmission,
 	inviteForSubmission,
 	inviteRecipients,
 	type SubmissionInvite,
@@ -61,87 +70,68 @@ export type ScheduleChangeSet = {
 
 const EMPTY: ScheduleChangeSet = { changes: [], speakers: 0, truncated: false };
 
-const LEDGER_SCAN_LIMIT = 1000;
+const OUTBOX_NORMALIZE_PAGE = 100;
 const D1_QUERY_CHUNK = 80;
+const D1_BATCH_CHUNK = 50;
+const OUTBOX_ROWID = sql<number>`${emailOutbox}.rowid`;
 
-const LEDGER_COLUMNS = {
+const NORMALIZATION_COLUMNS = {
+	rowid: OUTBOX_ROWID,
 	id: emailOutbox.id,
 	dedupeKey: emailOutbox.dedupeKey,
 	to: emailOutbox.to,
 	ics: emailOutbox.icsAttachment,
-	status: emailOutbox.status,
 	createdAt: emailOutbox.createdAt,
-	sentAt: emailOutbox.sentAt,
 };
 
-type LedgerRow = {
+type NormalizationRow = {
+	rowid: number;
 	id: string;
 	dedupeKey: string | null;
 	to: string;
 	ics: string | null;
-	status: (typeof emailOutbox.$inferSelect)["status"];
 	createdAt: Date;
-	sentAt: Date | null;
 };
 
-type InviteBaseline = ParsedIcsEvent & { to: string };
-
-const deliveryOrder = () => [
-	asc(sql`coalesce(${emailOutbox.sentAt}, ${emailOutbox.createdAt})`),
-	asc(emailOutbox.createdAt),
-	asc(emailOutbox.id),
-];
-
-async function structuredLedgerRows(
-	db: Db,
-	eventId: string,
-): Promise<LedgerRow[]> {
-	return db
-		.select(LEDGER_COLUMNS)
-		.from(emailOutbox)
-		.where(
-			and(
-				eq(emailOutbox.eventId, eventId),
-				inArray(emailOutbox.status, ["sent", "bounced"]),
-				or(
-					like(emailOutbox.dedupeKey, "decision:accept:%"),
-					like(emailOutbox.dedupeKey, "schedule-update:%"),
-				),
-			),
-		)
-		.orderBy(...deliveryOrder())
-		.limit(LEDGER_SCAN_LIMIT + 1);
-}
-
-type ParsedLedgerRow = LedgerRow & {
+type ParsedNormalizationRow = NormalizationRow & {
 	invites: ParsedIcsEvent[];
 	acceptanceSubmissionId: string | null;
 	associatedSubmissionIds: Set<string>;
 };
 
-function acceptanceSubmissionId(
-	dedupeKey: string | null,
-	candidateIds: ReadonlySet<string>,
-): string | null {
+type InviteBaseline = {
+	start: Date;
+	end: Date;
+	location: string | null;
+	sequence: number;
+	to: string;
+};
+
+function acceptanceSubmissionId(dedupeKey: string | null): string | null {
 	if (!dedupeKey?.startsWith("decision:accept:")) return null;
 	const submissionId = dedupeKey.slice(dedupeKey.lastIndexOf(":") + 1);
-	return candidateIds.has(submissionId) ? submissionId : null;
+	return submissionId.length > 0 ? submissionId : null;
 }
 
-function parseLedgerRows(
-	rows: readonly LedgerRow[],
-	candidateIds: ReadonlySet<string>,
-	candidateByUid: ReadonlyMap<string, string>,
-): ParsedLedgerRow[] {
+function stableUidSubmissionId(uid: string): string | null {
+	const prefix = "submission-";
+	const suffix = "@openrostrum";
+	if (!uid.startsWith(prefix) || !uid.endsWith(suffix)) return null;
+	const submissionId = uid.slice(prefix.length, -suffix.length);
+	return submissionId.length > 0 ? submissionId : null;
+}
+
+function parseNormalizationRows(
+	rows: readonly NormalizationRow[],
+): ParsedNormalizationRow[] {
 	return rows.map((row) => {
-		// Parse once per attachment. All later association and baseline work consumes
-		// this projection rather than reparsing multi-VEVENT payloads per candidate.
+		// Parse exactly once even when one message contains several VEVENTs.
 		const invites = parseIcsAttachment(row.ics ?? "");
-		const acceptedId = acceptanceSubmissionId(row.dedupeKey, candidateIds);
+		const acceptedId = acceptanceSubmissionId(row.dedupeKey);
 		const associatedSubmissionIds = new Set<string>();
 		if (acceptedId) associatedSubmissionIds.add(acceptedId);
 		for (const invite of invites) {
-			const submissionId = candidateByUid.get(invite.uid);
+			const submissionId = stableUidSubmissionId(invite.uid);
 			if (submissionId) associatedSubmissionIds.add(submissionId);
 		}
 		return {
@@ -153,52 +143,288 @@ function parseLedgerRows(
 	});
 }
 
-function inviteHistoryBySubmission(
-	rows: readonly ParsedLedgerRow[],
-): Map<string, ParsedLedgerRow[]> {
-	const history = new Map<string, ParsedLedgerRow[]>();
-	for (const row of rows) {
-		for (const submissionId of row.associatedSubmissionIds) {
-			const prior = history.get(submissionId) ?? [];
-			prior.push(row);
-			history.set(submissionId, prior);
-		}
+async function eventSubmissionIds(
+	db: Db,
+	eventId: string,
+	ids: readonly string[],
+): Promise<Set<string>> {
+	const validIds = new Set<string>();
+	for (let offset = 0; offset < ids.length; offset += D1_QUERY_CHUNK) {
+		const rows = await db
+			.select({ id: submissions.id })
+			.from(submissions)
+			.where(
+				and(
+					eq(submissions.eventId, eventId),
+					inArray(submissions.id, ids.slice(offset, offset + D1_QUERY_CHUNK)),
+				),
+			);
+		for (const row of rows) validIds.add(row.id);
 	}
-	return history;
+	return validIds;
 }
 
-function inviteBaselines(
-	rows: readonly ParsedLedgerRow[],
-	candidateByUid: ReadonlyMap<string, string>,
-): Map<string, InviteBaseline> {
-	const baselines = new Map<string, InviteBaseline>();
-	for (const row of rows) {
-		// A bounce proves an attempt, not delivery to a calendar. It must not consume
-		// a SEQUENCE that a corrected or recovered recipient still needs to receive.
-		if (row.status !== "sent") continue;
-		for (const invite of row.invites) {
-			const submissionId = candidateByUid.get(invite.uid);
-			if (!submissionId) continue;
-			const prior = baselines.get(submissionId);
-			// Rows arrive in delivery order, so equal revisions deliberately keep the
-			// earliest delivered snapshot; only a higher SEQUENCE can replace it.
-			if (!prior || invite.sequence > prior.sequence) {
-				baselines.set(submissionId, { ...invite, to: row.to });
-			}
-		}
+async function normalizedInviteStateHash(
+	eventId: string,
+	submissionId: string,
+	to: string,
+	invite: ParsedIcsEvent,
+): Promise<string> {
+	return sha256Hex(
+		JSON.stringify({
+			eventId,
+			submissionId,
+			recipient: normalizeEmail(to),
+			start: invite.start.toISOString(),
+			end: invite.end.toISOString(),
+			location: invite.location ?? null,
+			title: null,
+		}),
+	);
+}
+
+async function runNormalizationWrites(
+	db: Db,
+	writes: readonly BatchItem<"sqlite">[],
+): Promise<void> {
+	for (let offset = 0; offset < writes.length; offset += D1_BATCH_CHUNK) {
+		const chunk = writes.slice(offset, offset + D1_BATCH_CHUNK);
+		const first = chunk[0];
+		if (!first) continue;
+		await db.batch([first, ...chunk.slice(1)]);
 	}
-	return baselines;
+}
+
+async function advanceNormalizationCursor(
+	db: Db,
+	eventId: string,
+	lastOutboxRowid: number,
+): Promise<void> {
+	await db
+		.insert(calendarInviteLedgerCursors)
+		.values({ eventId, lastOutboxRowid, updatedAt: new Date() })
+		.onConflictDoUpdate({
+			target: calendarInviteLedgerCursors.eventId,
+			set: {
+				lastOutboxRowid: sql<number>`max(${calendarInviteLedgerCursors.lastOutboxRowid}, ${lastOutboxRowid})`,
+				updatedAt: new Date(),
+			},
+		});
+}
+
+/**
+ * Project structured calendar history into durable revisions. A fixed high-water
+ * mark makes each run finite; rowid keyset pages bound every read without ever
+ * treating row count as a completeness limit.
+ */
+export async function normalizeCalendarInviteHistory(
+	db: Db,
+	eventId: string,
+): Promise<void> {
+	const [cursorRow] = await db
+		.select({ lastOutboxRowid: calendarInviteLedgerCursors.lastOutboxRowid })
+		.from(calendarInviteLedgerCursors)
+		.where(eq(calendarInviteLedgerCursors.eventId, eventId))
+		.limit(1);
+	const [highWaterRow] = await db
+		.select({ rowid: sql<number | null>`max(${OUTBOX_ROWID})` })
+		.from(emailOutbox)
+		.where(eq(emailOutbox.eventId, eventId));
+	const highWater = Number(highWaterRow?.rowid ?? 0);
+	let cursor = cursorRow?.lastOutboxRowid ?? 0;
+	if (cursor >= highWater) return;
+
+	while (cursor < highWater) {
+		const page = (await db
+			.select(NORMALIZATION_COLUMNS)
+			.from(emailOutbox)
+			.where(
+				and(
+					eq(emailOutbox.eventId, eventId),
+					gt(OUTBOX_ROWID, cursor),
+					lte(OUTBOX_ROWID, highWater),
+					or(
+						like(emailOutbox.dedupeKey, "decision:accept:%"),
+						like(emailOutbox.dedupeKey, "schedule-update:%"),
+					),
+				),
+			)
+			.orderBy(asc(OUTBOX_ROWID))
+			.limit(OUTBOX_NORMALIZE_PAGE)) as NormalizationRow[];
+		if (page.length === 0) {
+			await advanceNormalizationCursor(db, eventId, highWater);
+			return;
+		}
+
+		const parsedPage = parseNormalizationRows(page);
+		const associatedIds = [
+			...new Set(parsedPage.flatMap((row) => [...row.associatedSubmissionIds])),
+		];
+		const validSubmissionIds = await eventSubmissionIds(
+			db,
+			eventId,
+			associatedIds,
+		);
+		const writes: BatchItem<"sqlite">[] = [];
+
+		for (const row of parsedPage) {
+			for (const invite of row.invites) {
+				const submissionId = stableUidSubmissionId(invite.uid);
+				if (!submissionId || !validSubmissionIds.has(submissionId)) continue;
+				const stateHash = await normalizedInviteStateHash(
+					eventId,
+					submissionId,
+					row.to,
+					invite,
+				);
+				writes.push(
+					db
+						.insert(calendarInviteRevisions)
+						.values({
+							id: crypto.randomUUID(),
+							submissionId,
+							sequence: invite.sequence,
+							stateHash,
+							recipient: row.to,
+							startsAt: invite.start,
+							endsAt: invite.end,
+							location: invite.location ?? null,
+							title: null,
+							outboxId: row.id,
+							invalid: false,
+							createdAt: row.createdAt,
+						})
+						.onConflictDoUpdate({
+							target: [
+								calendarInviteRevisions.submissionId,
+								calendarInviteRevisions.sequence,
+							],
+							set: { outboxId: row.id },
+							setWhere: eq(calendarInviteRevisions.stateHash, stateHash),
+						}),
+				);
+			}
+
+			const acceptedId = row.acceptanceSubmissionId;
+			if (!acceptedId || !validSubmissionIds.has(acceptedId)) continue;
+			const hasExpectedInvite = row.invites.some(
+				(invite) => stableUidSubmissionId(invite.uid) === acceptedId,
+			);
+			if (hasExpectedInvite) continue;
+			const invalid = row.ics !== null;
+			const markerKind = invalid
+				? "invalid-acceptance-ics"
+				: "acceptance-without-ics";
+			const markerIdentity = await sha256Hex(
+				JSON.stringify({
+					markerKind,
+					outboxId: row.id,
+					submissionId: acceptedId,
+				}),
+			);
+			const stateHash = await sha256Hex(
+				JSON.stringify({
+					eventId,
+					submissionId: acceptedId,
+					recipient: normalizeEmail(row.to),
+					markerKind,
+				}),
+			);
+			writes.push(
+				db
+					.insert(calendarInviteRevisions)
+					.values({
+						id: `calendar-marker:${markerIdentity}`,
+						submissionId: acceptedId,
+						sequence: null,
+						stateHash,
+						recipient: row.to,
+						startsAt: null,
+						endsAt: null,
+						location: null,
+						title: null,
+						outboxId: row.id,
+						invalid,
+						createdAt: row.createdAt,
+					})
+					.onConflictDoNothing({ target: calendarInviteRevisions.id }),
+			);
+		}
+
+		await runNormalizationWrites(db, writes);
+		const lastRowid = page[page.length - 1]?.rowid ?? cursor;
+		const checkpoint =
+			page.length < OUTBOX_NORMALIZE_PAGE ? highWater : lastRowid;
+		await advanceNormalizationCursor(db, eventId, checkpoint);
+		cursor = checkpoint;
+	}
+}
+
+type RevisionProjection = {
+	submissionId: string;
+	sequence: number | null;
+	recipient: string;
+	startsAt: Date | null;
+	endsAt: Date | null;
+	location: string | null;
+	outboxId: string | null;
+	invalid: boolean;
+	outboxStatus: (typeof emailOutbox.$inferSelect)["status"] | null;
+	outboxRecipient: string | null;
+	outboxRowid: number | null;
+};
+
+async function revisionHistory(
+	db: Db,
+	submissionIds: readonly string[],
+): Promise<RevisionProjection[]> {
+	const revisions: RevisionProjection[] = [];
+	for (
+		let offset = 0;
+		offset < submissionIds.length;
+		offset += D1_QUERY_CHUNK
+	) {
+		revisions.push(
+			...(await db
+				.select({
+					submissionId: calendarInviteRevisions.submissionId,
+					sequence: calendarInviteRevisions.sequence,
+					recipient: calendarInviteRevisions.recipient,
+					startsAt: calendarInviteRevisions.startsAt,
+					endsAt: calendarInviteRevisions.endsAt,
+					location: calendarInviteRevisions.location,
+					outboxId: calendarInviteRevisions.outboxId,
+					invalid: calendarInviteRevisions.invalid,
+					outboxStatus: emailOutbox.status,
+					outboxRecipient: emailOutbox.to,
+					outboxRowid: sql<number | null>`${emailOutbox}.rowid`,
+				})
+				.from(calendarInviteRevisions)
+				.leftJoin(
+					emailOutbox,
+					eq(calendarInviteRevisions.outboxId, emailOutbox.id),
+				)
+				.where(
+					inArray(
+						calendarInviteRevisions.submissionId,
+						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
+					),
+				)),
+		);
+	}
+	return revisions;
 }
 
 /**
  * Every accepted, already-notified submission whose current slot differs from
- * the last invite in the outbox ledger, with its recipient resolved. Rows
+ * the last delivered normalized revision, with its recipient resolved. Rows
  * never notified are skipped — their decision email will carry the schedule.
  */
 export async function computeScheduleChanges(
 	db: Db,
 	event: EventRow,
 ): Promise<ScheduleChangeSet> {
+	await normalizeCalendarInviteHistory(db, event.id);
 	const candidates = await db
 		.select({
 			id: submissions.id,
@@ -218,45 +444,52 @@ export async function computeScheduleChanges(
 		);
 	if (candidates.length === 0) return EMPTY;
 
-	const recipientById = await inviteRecipients(
-		db,
-		candidates.map((candidate) => candidate.id),
-	);
-	const candidateByUid = new Map(
-		candidates.map((candidate) => [
-			icsUidForSubmission(candidate.id),
-			candidate.id,
-		]),
-	);
-	const candidateIds = new Set(candidates.map((candidate) => candidate.id));
-	const ledger = await structuredLedgerRows(db, event.id);
-	if (ledger.length > LEDGER_SCAN_LIMIT) {
-		return { ...EMPTY, truncated: true };
-	}
-	const parsedLedger = parseLedgerRows(ledger, candidateIds, candidateByUid);
-	const historyBySubmission = inviteHistoryBySubmission(parsedLedger);
-	const lastSent = inviteBaselines(parsedLedger, candidateByUid);
+	const candidateIds = candidates.map((candidate) => candidate.id);
+	const revisions = await revisionHistory(db, candidateIds);
 	const trackedCandidates = new Set<string>();
-	for (const candidate of candidates) {
-		const history = historyBySubmission.get(candidate.id);
-		// notifiedAt is shared by several notification paths. Only structured
-		// acceptance history or an exact stable VEVENT UID proves calendar history.
-		if (!history) continue;
-		trackedCandidates.add(candidate.id);
-		const expectedUid = icsUidForSubmission(candidate.id);
+	const lastSent = new Map<string, InviteBaseline>();
+	const latestBounce = new Map<string, { id: string; rowid: number }>();
+	let unsafe = false;
+	for (const revision of revisions) {
+		trackedCandidates.add(revision.submissionId);
+		if (revision.invalid && revision.outboxStatus === "sent") unsafe = true;
 		if (
-			history.some(
-				(row) =>
-					row.acceptanceSubmissionId === candidate.id &&
-					row.status === "sent" &&
-					row.ics !== null &&
-					!row.invites.some((invite) => invite.uid === expectedUid),
-			)
+			revision.outboxStatus === "sent" &&
+			!revision.invalid &&
+			revision.sequence !== null &&
+			revision.startsAt !== null &&
+			revision.endsAt !== null
 		) {
-			return { ...EMPTY, truncated: true };
+			const prior = lastSent.get(revision.submissionId);
+			// Sequence uniqueness preserves the first state projected at an equal
+			// revision. Only a strictly higher delivered sequence replaces it.
+			if (!prior || revision.sequence > prior.sequence) {
+				lastSent.set(revision.submissionId, {
+					start: revision.startsAt,
+					end: revision.endsAt,
+					location: revision.location,
+					sequence: revision.sequence,
+					to: revision.outboxRecipient ?? revision.recipient,
+				});
+			}
+		}
+		if (
+			revision.outboxStatus === "bounced" &&
+			revision.outboxId !== null &&
+			revision.outboxRowid !== null
+		) {
+			const prior = latestBounce.get(revision.submissionId);
+			if (!prior || revision.outboxRowid > prior.rowid) {
+				latestBounce.set(revision.submissionId, {
+					id: revision.outboxId,
+					rowid: revision.outboxRowid,
+				});
+			}
 		}
 	}
+	if (unsafe) return { ...EMPTY, truncated: true };
 
+	const recipientById = await inviteRecipients(db, candidateIds);
 	const roomIds = [
 		...new Set(candidates.map((c) => c.roomId).filter((v): v is string => !!v)),
 	];
@@ -276,7 +509,6 @@ export async function computeScheduleChanges(
 	const changes: ScheduleChange[] = [];
 	for (const row of candidates) {
 		if (!trackedCandidates.has(row.id)) continue;
-		const history = historyBySubmission.get(row.id) ?? [];
 		const last = lastSent.get(row.id);
 		const invite = inviteForSubmission(
 			row,
@@ -295,10 +527,6 @@ export async function computeScheduleChanges(
 			to !== null &&
 			normalizeEmail(last.to) === normalizeEmail(to);
 		if (inviteUnchanged && recipientUnchanged) continue;
-		let retryAfterBounceId: string | null = null;
-		for (const ledgerRow of history) {
-			if (ledgerRow.status === "bounced") retryAfterBounceId = ledgerRow.id;
-		}
 		changes.push({
 			submissionId: row.id,
 			submissionTitle: row.title,
@@ -306,7 +534,7 @@ export async function computeScheduleChanges(
 			invite,
 			nextSequence: last ? last.sequence + 1 : 0,
 			to,
-			retryAfterBounceId,
+			retryAfterBounceId: latestBounce.get(row.id)?.id ?? null,
 		});
 	}
 	if (changes.length === 0) return EMPTY;

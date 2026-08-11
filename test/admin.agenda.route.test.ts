@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { detectConflicts, isSessionVisible } from "../app/agenda/lib";
 import { getDb } from "../app/db";
 import {
+	calendarInviteRevisions,
 	contacts,
 	emailOutbox,
 	events,
@@ -823,12 +824,15 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			"invalid",
 			"created_at",
 		]);
-		expect(indexNames).toEqual(
-			expect.arrayContaining([
+		expect(
+			indexNames
+				.filter((name) => name.startsWith("calendar_invite_revisions_"))
+				.sort(),
+		).toEqual(
+			[
 				"calendar_invite_revisions_submission_sequence_uq",
-				"calendar_invite_revisions_submission_state_uq",
 				"calendar_invite_revisions_outbox_idx",
-			]),
+			].sort(),
 		);
 		expect(revisionForeignKeysResult.results).toEqual(
 			expect.arrayContaining([
@@ -1247,7 +1251,71 @@ END:VCALENDAR
 		});
 	});
 
-	it("does not infer or send a lower SEQUENCE when matching history exceeds the scan cap", async () => {
+	it("preserves A→B→A history and advances from the highest sequence", async () => {
+		const db = await invitedBaseline();
+		await db.insert(emailOutbox).values([
+			{
+				id: "history-keynote-b",
+				eventId: "e1",
+				dedupeKey: "schedule-update:s_keynote@1",
+				to: "marco@test.co",
+				subject: "Prior schedule update",
+				html: "<p>scheduled</p>",
+				icsAttachment: keynoteIcs({
+					start: utc(2026, 10, 12, 16, 30),
+					end: utc(2026, 10, 12, 17, 15),
+					location: "Main Hall",
+					sequence: 1,
+				}),
+				status: "sent",
+				createdAt: new Date("2026-08-10T20:02:00Z"),
+				sentAt: new Date("2026-08-10T20:03:00Z"),
+			},
+			{
+				id: "history-keynote-a-again",
+				eventId: "e1",
+				dedupeKey: "schedule-update:s_keynote@2",
+				to: "marco@test.co",
+				subject: "Prior schedule update",
+				html: "<p>save the date again</p>",
+				icsAttachment: keynoteIcs({
+					start: utc(2026, 10, 12, 15),
+					end: utc(2026, 10, 15, 1),
+					sequence: 2,
+				}),
+				status: "sent",
+				createdAt: new Date("2026-08-10T20:04:00Z"),
+				sentAt: new Date("2026-08-10T20:05:00Z"),
+			},
+		]);
+
+		expect((await callLoader()).event).toMatchObject({
+			staleSpeakers: 0,
+			scheduleScanTruncated: false,
+		});
+		const revisions = await db
+			.select()
+			.from(calendarInviteRevisions)
+			.where(eq(calendarInviteRevisions.submissionId, "s_keynote"));
+		const ordered = revisions.sort(
+			(a, b) => (a.sequence ?? -1) - (b.sequence ?? -1),
+		);
+		expect(ordered.map((revision) => revision.sequence)).toEqual([0, 1, 2]);
+		expect(ordered[0]?.stateHash).toBe(ordered[2]?.stateHash);
+
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_305",
+			day: "2026-10-13",
+			startMinutes: "840",
+		});
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
+		expect((await latestUpdateInvite(db)).vevent?.sequence).toBe(3);
+	});
+
+	it("normalizes every matching revision beyond 1,000 rows and advances above the true maximum", async () => {
 		const db = await invitedBaseline();
 		await callAction({
 			intent: "schedule",
@@ -1292,18 +1360,15 @@ END:VCALENDAR
 
 		const data = await callLoader();
 		expect(data.event).toMatchObject({
-			staleSpeakers: 0,
-			scheduleScanTruncated: true,
+			staleSpeakers: 1,
+			scheduleScanTruncated: false,
 		});
 		const result = await callAction({ intent: "schedule-updates" });
-		expect(result.ok).toBe(false);
-		expect(result.formError).toMatch(/history/i);
-		const [unsafeSend] = await db
-			.select({ id: emailOutbox.id })
-			.from(emailOutbox)
-			.where(eq(emailOutbox.dedupeKey, "schedule-update:s_keynote@1001"))
-			.limit(1);
-		expect(unsafeSend).toBeUndefined();
+		expect(result).toMatchObject({ ok: true });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
+		const { vevent } = await latestUpdateInvite(db);
+		expect(vevent?.sequence).toBe(5001);
+		expect((await callLoader()).event?.staleSpeakers).toBe(0);
 	});
 
 	it("sends from a browser-native form without a JavaScript-minted key", async () => {

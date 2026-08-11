@@ -1493,14 +1493,9 @@ export const calendarInviteRevisions = sqliteTable(
 		createdAt: createdAt(),
 	},
 	(t) => [
-		index("calendar_invite_revisions_submission_idx").on(t.submissionId),
 		unique("calendar_invite_revisions_submission_sequence_uq").on(
 			t.submissionId,
 			t.sequence,
-		),
-		unique("calendar_invite_revisions_submission_state_uq").on(
-			t.submissionId,
-			t.stateHash,
 		),
 		index("calendar_invite_revisions_outbox_idx").on(t.outboxId),
 	],
