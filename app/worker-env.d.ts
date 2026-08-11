@@ -14,6 +14,8 @@ declare namespace Cloudflare {
 		/** The webhook's id — set alongside the secret so the cron poll can refresh its 7-day expiry. */
 		AIRTABLE_WEBHOOK_ID?: string;
 		UNSUBSCRIBE_SECRET?: string;
+		/** AI-review primary provider (DeepSeek). Unset → Workers AI binding fallback. */
+		DEEPSEEK_API_KEY?: string;
 		/** Public origin (e.g. https://openrostrum.com) for links in cron-sent
 		 * emails, where no request URL exists to derive it from. */
 		APP_ORIGIN?: string;
