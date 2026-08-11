@@ -368,6 +368,7 @@ export default function CrmDirectory({
 							name="intent"
 							value="save-segment"
 							icon="star"
+							disabled={busy}
 						>
 							Save segment
 						</Button>

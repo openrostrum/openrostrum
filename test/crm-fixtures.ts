@@ -12,13 +12,8 @@ import { createSession, hashPassword } from "../app/lib/auth";
 export const CONTEXT = { cloudflare: { env, ctx: {} } };
 
 /**
- * Adversarial two-org baseline. org1 (u_admin1; DevFlow 2026 + AI Summit
- * 2026): Priya in BOTH events (second row mixed-case email — the union joins
- * on lower()), Marcus in one, and priya.alt = same NAME under a second email
- * (org1's duplicate pair). org2 (u_admin2; Rival Conf) deliberately reuses
- * Priya's exact EMAIL and Marcus's exact NAME so any cross-org leak in the
- * union, duplicate flag, or pipeline shows up as a wrong count; Zara exists
- * only in org2.
+ * Reused names, emails, and mixed-case addresses ensure union, duplicate, and
+ * tenancy leaks each change independently asserted counts.
  */
 export async function seedCrmBaseline() {
 	const db = getDb(env);

@@ -23,7 +23,7 @@ export function IdentityPanel({
 }) {
 	return (
 		<Panel>
-			<div className="flex flex-col gap-3">
+			<div className="flex flex-col gap-4">
 				<SectionHeading aside={aside}>{heading}</SectionHeading>
 				<p className="text-[13px] font-medium text-fg">{name}</p>
 				<p className="font-mono text-[12px] tabular-nums text-fg-muted">
