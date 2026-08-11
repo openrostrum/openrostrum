@@ -372,6 +372,39 @@ describe("notifyParticipantAdded", () => {
 		});
 	}
 
+	it("notifies an existing contact for an explicitly validated admin-manual submission", async () => {
+		const fixture = await seedSubmission();
+		const participant = await seedParticipant(fixture);
+		await db()
+			.update(submissions)
+			.set({ formId: null })
+			.where(eq(submissions.id, fixture.submissionId));
+		const input = {
+			...notificationInput(fixture, participant, true),
+			notificationContext: "admin-manual-submission" as const,
+		};
+
+		const result = await notifyParticipantAdded(db(), env, input);
+
+		expect(result).toEqual({ delivery: "sent" });
+		expect(await outboxFor(participant.email)).toHaveLength(1);
+	});
+
+	it("rejects admin-manual notification context for a form-sourced submission", async () => {
+		const fixture = await seedSubmission();
+		const participant = await seedParticipant(fixture);
+		const input = {
+			...notificationInput(fixture, participant, true),
+			notificationContext: "admin-manual-submission" as const,
+		};
+
+		await expect(notifyParticipantAdded(db(), env, input)).rejects.toThrow(
+			/admin-manual.*manual submission/i,
+		);
+		expect(await linkedUserId(participant.contactId)).toBeNull();
+		expect(await outboxFor(participant.email)).toEqual([]);
+	});
+
 	it("rejects a stale linked user whose normalized email differs from the contact", async () => {
 		const fixture = await seedSubmission();
 		const staleUserId = `stale-user-${crypto.randomUUID()}`;

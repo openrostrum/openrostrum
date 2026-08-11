@@ -252,6 +252,7 @@ export async function notifyParticipantAdded(
 		event: Pick<Event, "id" | "name" | "slug">;
 		submission: Pick<Submission, "id" | "title" | "formId" | "submitterId">;
 		origin: string;
+		notificationContext?: "admin-manual-submission";
 	},
 ): Promise<{
 	delivery: ParticipantNotificationDelivery;
@@ -315,6 +316,14 @@ export async function notifyParticipantAdded(
 		);
 	}
 
+	if (input.notificationContext === "admin-manual-submission") {
+		if (persisted.submissionFormId !== null) {
+			throw new Error(
+				"Admin-manual notification context requires a persisted manual submission",
+			);
+		}
+	}
+
 	const persistedIsSelf =
 		persisted.contactUserId !== null &&
 		persisted.contactUserId === persisted.submissionSubmitterId;
@@ -337,7 +346,10 @@ export async function notifyParticipantAdded(
 
 	let warning: string | undefined;
 	let deliverySuppressed = false;
-	if (input.added.wasExistingContact) {
+	if (
+		input.added.wasExistingContact &&
+		input.notificationContext !== "admin-manual-submission"
+	) {
 		if (
 			persisted.submissionFormId === null ||
 			persisted.sourceFormId !== persisted.submissionFormId

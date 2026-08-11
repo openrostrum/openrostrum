@@ -1,6 +1,9 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import { PARTICIPANT_ROLE as CLIENT_PARTICIPANT_ROLE } from "../app/db/constants";
 import {
@@ -10,9 +13,11 @@ import {
 	events,
 	fields,
 	files,
+	forms,
 	organizationMembers,
 	organizations,
 	participants,
+	passwordResets,
 	sessionStatuses,
 	submissionAnswers,
 	submissionRevisions,
@@ -24,14 +29,31 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { action, loader } from "../app/routes/admin.submissions_.$id";
+import SubmissionDetail, {
+	action,
+	loader,
+} from "../app/routes/admin.submissions_.$id";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
+
+function contextWith(overrides: Partial<Env>) {
+	return {
+		cloudflare: {
+			env: { ...env, ...overrides } as Env,
+			ctx: {},
+		},
+	};
+}
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
 
 function unwrap(result: unknown) {
 	return result as {
 		data: {
 			notice?: string;
+			warning?: string;
 			formError?: string;
 			fieldErrors?: Record<string, string[] | undefined>;
 		};
@@ -97,12 +119,30 @@ function callLoader(request: Request, id = "s1") {
 	} as unknown as Parameters<typeof loader>[0]);
 }
 
-function callAction(request: Request, id = "s1") {
+function callAction(
+	request: Request,
+	id = "s1",
+	context: typeof CONTEXT = CONTEXT,
+) {
 	return action({
-		context: CONTEXT,
+		context,
 		request,
 		params: { id },
 	} as unknown as Parameters<typeof action>[0]);
+}
+
+function renderDetail(loaderData: unknown): string {
+	const Detail = SubmissionDetail as unknown as ComponentType<{
+		loaderData: unknown;
+		actionData?: unknown;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/",
+			Component: () => createElement(Detail, { loaderData }),
+		},
+	]);
+	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
 }
 
 const is404 = (thrown: unknown) =>
@@ -710,6 +750,92 @@ describe("participant management", () => {
 		]);
 	});
 
+	it("treats contact and role as attachment identity and exact replay does not duplicate links or invitations", async () => {
+		const db = await seedBareSubmission();
+		const attach = async (role: "speaker" | "moderator") => {
+			const body = new URLSearchParams({ intent: "add-participants", role });
+			body.append("contactIds", "c1");
+			return callAction(await detailRequest(body));
+		};
+
+		await attach("speaker");
+		await attach("moderator");
+		const replay = unwrap(await attach("speaker"));
+
+		expect(replay.data.notice).toMatch(/already/i);
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		expect(rows).toHaveLength(2);
+		expect(rows.map((row) => row.role).sort()).toEqual([
+			"moderator",
+			"speaker",
+		]);
+		expect(rows.filter((row) => row.isPrimary).map((row) => row.role)).toEqual([
+			"speaker",
+		]);
+		const invitations = await db
+			.select()
+			.from(emailOutbox)
+			.where(eq(emailOutbox.to, "ada@x.co"));
+		expect(invitations).toHaveLength(2);
+		expect(new Set(invitations.map((mail) => mail.dedupeKey)).size).toBe(2);
+	});
+
+	it("notifies an existing contact on a manual submission by default", async () => {
+		const db = await seedBareSubmission();
+		const body = new URLSearchParams({
+			intent: "add-participants",
+			role: "speaker",
+		});
+		body.append("contactIds", "c1");
+
+		const result = unwrap(await callAction(await detailRequest(body)));
+
+		expect(result.data.warning).toBeUndefined();
+		const [mail] = await db
+			.select()
+			.from(emailOutbox)
+			.where(eq(emailOutbox.to, "ada@x.co"));
+		expect(mail?.html).toContain("/set-password/");
+	});
+
+	it("obeys the source form policy for existing contacts while still provisioning access", async () => {
+		const db = await seedBareSubmission();
+		await db.insert(forms).values({
+			id: "form_no_existing_mail",
+			eventId: "e1",
+			internalName: "Private participant updates",
+			notifyExistingContacts: false,
+		});
+		await db
+			.update(submissions)
+			.set({ formId: "form_no_existing_mail" })
+			.where(eq(submissions.id, "s1"));
+		const body = new URLSearchParams({
+			intent: "add-participants",
+			role: "speaker",
+		});
+		body.append("contactIds", "c1");
+
+		await callAction(await detailRequest(body));
+
+		expect(await db.select().from(participants)).toHaveLength(1);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+		const [contact] = await db
+			.select({ userId: contacts.userId })
+			.from(contacts)
+			.where(eq(contacts.id, "c1"));
+		expect(contact?.userId).toBeTruthy();
+		expect(
+			await db
+				.select()
+				.from(passwordResets)
+				.where(eq(passwordResets.userId, contact?.userId ?? "")),
+		).toHaveLength(1);
+	});
+
 	it("refuses a contact from another event without writing anything", async () => {
 		const db = await seedBareSubmission();
 		const body = new URLSearchParams({
@@ -747,30 +873,95 @@ describe("participant management", () => {
 		).toHaveLength(1);
 	});
 
-	it("creates + attaches a brand-new contact with a normalized email", async () => {
+	it("creates a new contact with usable access and dedupes an exact attachment replay", async () => {
 		const db = await seedBareSubmission();
-		const body = new URLSearchParams({
-			intent: "add-new-participant",
-			firstName: "Grace",
-			lastName: "Hopper",
-			email: "  Grace@Navy.mil ",
-			role: "speaker",
-		});
-		const result = unwrap(await callAction(await detailRequest(body)));
+		const createAndAttach = async () =>
+			callAction(
+				await detailRequest(
+					new URLSearchParams({
+						intent: "add-new-participant",
+						firstName: "Grace",
+						lastName: "Hopper",
+						email: "  Grace@Navy.mil ",
+						role: "speaker",
+					}),
+				),
+			);
 
+		const result = unwrap(await createAndAttach());
 		expect(result.data.notice).toContain("1 participant attached as speaker");
 		const [contact] = await db
 			.select()
 			.from(contacts)
 			.where(eq(contacts.email, "grace@navy.mil"));
 		expect(contact?.eventId).toBe("e1");
-		const rows = await db
+		expect(contact?.userId).toBeTruthy();
+		const [account] = await db
+			.select({ passwordHash: users.passwordHash })
+			.from(users)
+			.where(eq(users.id, contact?.userId ?? ""));
+		expect(account?.passwordHash).toMatch(/^invite-pending\$/);
+		const resets = await db
 			.select()
-			.from(participants)
-			.where(eq(participants.submissionId, "s1"));
-		expect(rows).toHaveLength(1);
-		expect(rows[0]?.contactId).toBe(contact?.id);
-		expect(rows[0]?.isPrimary).toBe(true);
+			.from(passwordResets)
+			.where(eq(passwordResets.userId, contact?.userId ?? ""));
+		expect(resets).toHaveLength(1);
+		const [invitation] = await db
+			.select()
+			.from(emailOutbox)
+			.where(eq(emailOutbox.to, "grace@navy.mil"));
+		expect(invitation?.html).toContain(`/set-password/${resets[0]?.token}`);
+
+		const replay = unwrap(await createAndAttach());
+		expect(replay.data.notice).toMatch(/already/i);
+		expect(
+			await db
+				.select()
+				.from(participants)
+				.where(eq(participants.submissionId, "s1")),
+		).toHaveLength(1);
+		expect(
+			await db
+				.select()
+				.from(emailOutbox)
+				.where(eq(emailOutbox.to, "grace@navy.mil")),
+		).toHaveLength(1);
+	});
+
+	it("keeps a confirmed attachment and returns the exact warning when the email provider fails", async () => {
+		const db = await seedBareSubmission();
+		const provider = vi.fn().mockResolvedValue(
+			new Response("provider unavailable", {
+				status: 503,
+				statusText: "Service Unavailable",
+			}),
+		);
+		vi.stubGlobal("fetch", provider);
+		const body = new URLSearchParams({
+			intent: "add-participants",
+			role: "speaker",
+		});
+		body.append("contactIds", "c1");
+
+		const result = unwrap(
+			await callAction(
+				await detailRequest(body),
+				"s1",
+				contextWith({
+					RESEND_API_KEY: "test-provider-key",
+					EMAIL_FROM: "OpenRostrum <onboarding@resend.dev>",
+				}),
+			),
+		);
+
+		expect(result.data.warning).toBe(
+			"Participant attached, but the invitation failed — see Email history and retry from the contact record",
+		);
+		expect(await db.select().from(participants)).toHaveLength(1);
+		const [failed] = await db.select().from(emailOutbox);
+		expect(failed?.status).toBe("failed");
+		expect(failed?.error).toContain("503");
+		expect(provider).toHaveBeenCalledTimes(1);
 	});
 
 	it("an email that already belongs to an event contact attaches THAT contact — no duplicate", async () => {
@@ -813,6 +1004,176 @@ describe("participant management", () => {
 
 		expect(result.data.fieldErrors?.email?.[0]).toBeTruthy();
 		expect(await db.select().from(participants)).toHaveLength(0);
+	});
+
+	it("changes the primary speaker role, preserves acceptance, and promotes the next ordered speaker", async () => {
+		const db = await seedBareSubmission();
+		await db.insert(participants).values([
+			{
+				id: "p1",
+				submissionId: "s1",
+				contactId: "c1",
+				role: "speaker",
+				isPrimary: true,
+				position: 0,
+				acceptanceStatus: "accepted",
+			},
+			{
+				id: "p2",
+				submissionId: "s1",
+				contactId: "c2",
+				role: "speaker",
+				position: 1,
+			},
+		]);
+
+		const result = unwrap(
+			await callAction(
+				await detailRequest(
+					new URLSearchParams({
+						intent: "set-participant-role",
+						participantId: "p1",
+						role: "moderator",
+					}),
+				),
+			),
+		);
+
+		expect(result.data.notice).toMatch(/moderator/i);
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		const byId = new Map(rows.map((row) => [row.id, row]));
+		expect(byId.get("p1")).toMatchObject({
+			role: "moderator",
+			isPrimary: false,
+			acceptanceStatus: "accepted",
+			position: 0,
+		});
+		expect(byId.get("p2")).toMatchObject({
+			role: "speaker",
+			isPrimary: true,
+			position: 1,
+		});
+	});
+
+	it("does not let a stale non-speaker primary displace the existing primary when its role becomes speaker", async () => {
+		const db = await seedBareSubmission();
+		await db.insert(participants).values([
+			{
+				id: "p_target",
+				submissionId: "s1",
+				contactId: "c2",
+				role: "moderator",
+				isPrimary: true,
+				position: 0,
+			},
+			{
+				id: "p_primary",
+				submissionId: "s1",
+				contactId: "c1",
+				role: "speaker",
+				isPrimary: true,
+				position: 1,
+			},
+		]);
+
+		await callAction(
+			await detailRequest(
+				new URLSearchParams({
+					intent: "set-participant-role",
+					participantId: "p_target",
+					role: "speaker",
+				}),
+			),
+		);
+
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		const byId = new Map(rows.map((row) => [row.id, row]));
+		expect(byId.get("p_primary")?.isPrimary).toBe(true);
+		expect(byId.get("p_target")).toMatchObject({
+			role: "speaker",
+			isPrimary: false,
+		});
+	});
+
+	it("rejects a role change that collides with the contact's existing target-role link", async () => {
+		const db = await seedBareSubmission();
+		await db.insert(participants).values([
+			{
+				id: "p_speaker",
+				submissionId: "s1",
+				contactId: "c1",
+				role: "speaker",
+				isPrimary: true,
+				position: 0,
+			},
+			{
+				id: "p_moderator",
+				submissionId: "s1",
+				contactId: "c1",
+				role: "moderator",
+				position: 1,
+			},
+		]);
+
+		const result = unwrap(
+			await callAction(
+				await detailRequest(
+					new URLSearchParams({
+						intent: "set-participant-role",
+						participantId: "p_speaker",
+						role: "moderator",
+					}),
+				),
+			),
+		);
+
+		expect(result.data.formError).toMatch(/already.*selected role/i);
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		const byId = new Map(rows.map((row) => [row.id, row]));
+		expect(byId.get("p_speaker")).toMatchObject({
+			role: "speaker",
+			isPrimary: true,
+		});
+		expect(byId.get("p_moderator")).toMatchObject({
+			role: "moderator",
+			isPrimary: false,
+		});
+	});
+
+	it("rejects non-canonical organizer role input without changing the participant", async () => {
+		const db = await seedBareSubmission();
+		await db.insert(participants).values({
+			id: "p1",
+			submissionId: "s1",
+			contactId: "c1",
+			role: "speaker",
+			isPrimary: true,
+		});
+
+		const result = unwrap(
+			await callAction(
+				await detailRequest(
+					new URLSearchParams({
+						intent: "set-participant-role",
+						participantId: "p1",
+						role: "co_presenter",
+					}),
+				),
+			),
+		);
+
+		expect(result.data.formError).toMatch(/valid participant role/i);
+		const [row] = await db.select().from(participants);
+		expect(row).toMatchObject({ role: "speaker", isPrimary: true });
 	});
 
 	// A submission with speakers must always keep exactly one primary: task
@@ -932,6 +1293,28 @@ describe("participant management", () => {
 				.from(participants)
 				.where(eq(participants.submissionId, "s1")),
 		).toHaveLength(0);
+	});
+
+	it("renders human role labels and an inline canonical role selector for each participant", async () => {
+		const db = await seedBareSubmission();
+		await db.insert(participants).values({
+			id: "p_secondary",
+			submissionId: "s1",
+			contactId: "c1",
+			role: "secondary",
+			position: 0,
+		});
+		const loaded = unwrap(await callLoader(await detailRequest())).data;
+
+		const html = renderDetail(loaded);
+
+		expect(html).toContain("Secondary contact");
+		expect(html).toContain(">Speaker<");
+		expect(html).toContain(">Chairperson<");
+		expect(html).toContain(">Moderator<");
+		expect(html).toContain('value="set-participant-role"');
+		expect(html).toContain('name="participantId" value="p_secondary"');
+		expect(html).toContain("Save role");
 	});
 });
 

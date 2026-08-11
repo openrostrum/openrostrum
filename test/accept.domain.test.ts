@@ -270,6 +270,49 @@ describe("accept auto-provisioning", () => {
 		expect(await d.select().from(emailOutbox)).toHaveLength(0);
 	});
 
+	it("provisions every speaker role link once and never provisions the same contacts' non-speaker links", async () => {
+		const d = await seedBase();
+		await d.insert(tasks).values({
+			id: "task_onboarding",
+			eventId: "e1",
+			name: "Speaker onboarding",
+			type: "contact",
+			isOnboardingDefault: true,
+		});
+		const row = await insertSubmission({ status: "pending" });
+		await addSpeaker(row.id, "c_ada", "ada@example.com", {
+			id: "p_ada_speaker",
+			isPrimary: true,
+			position: 0,
+		});
+		await d.insert(participants).values({
+			id: "p_ada_moderator",
+			submissionId: row.id,
+			contactId: "c_ada",
+			role: "moderator",
+			position: 1,
+		});
+		await addSpeaker(row.id, "c_bo", "bo@example.com", {
+			id: "p_bo_speaker",
+			position: 2,
+		});
+		await d.insert(participants).values({
+			id: "p_bo_chair",
+			submissionId: row.id,
+			contactId: "c_bo",
+			role: "chairperson",
+			position: 3,
+		});
+
+		await transitionSubmissions(d, [row], "accepted");
+
+		const assignments = await d.select().from(taskAssignments);
+		expect(assignments).toHaveLength(2);
+		expect(
+			assignments.map((assignment) => assignment.contactId).sort(),
+		).toEqual(["c_ada", "c_bo"]);
+	});
+
 	it("never demotes already-approved content on re-accept", async () => {
 		const d = await seedBase();
 		const row = await insertSubmission({

@@ -1,12 +1,10 @@
-import { and, asc, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
+import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { useState } from "react";
 import {
 	data,
 	Form,
 	isRouteErrorResponse,
 	redirect,
-	useNavigation,
 	useRouteError,
 } from "react-router";
 import { z } from "zod";
@@ -15,6 +13,8 @@ import {
 	CONTENT_STATUS,
 	DECISION_STATUS,
 	PARTICIPANT_ROLE,
+	PARTICIPANT_ROLE_LABELS,
+	type ParticipantRole,
 } from "~/db/constants";
 import type { Submission } from "~/db/schema";
 import {
@@ -34,12 +34,17 @@ import {
 	users,
 } from "~/db/schema";
 import { transitionSubmissions } from "~/domain/accept";
+import {
+	type AddedParticipant,
+	notifyParticipantAdded,
+} from "~/domain/participant-notifications";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
 import { CONTENT_STATUS_TONE, humanStatus } from "~/lib/submission-list";
 import { CONTACT_PICKER_CAP } from "~/lib/submission-list.server";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	Chip,
@@ -112,7 +117,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				customStatus: true,
 				submitter: { columns: { name: true, email: true } },
 				participants: {
-					with: { contact: true },
+					with: {
+						contact: {
+							columns: { firstName: true, lastName: true, email: true },
+						},
+					},
 					orderBy: (p, { asc: ascOp, desc: descOp }) => [
 						descOp(p.isPrimary),
 						ascOp(p.position),
@@ -330,8 +339,18 @@ function formatBytes(size: number | null): string {
 
 type ActionData = {
 	notice?: string;
+	warning?: string;
 	formError?: string;
 	fieldErrors?: Record<string, string[] | undefined>;
+};
+
+const PARTICIPANT_INVITATION_WARNING =
+	"Participant attached, but the invitation failed — see Email history and retry from the contact record";
+
+type ParticipantEvent = {
+	id: string;
+	name: string;
+	slug: string;
 };
 
 export async function action({ context, request, params }: Route.ActionArgs) {
@@ -372,9 +391,25 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					case "save-taxonomy":
 						return saveTaxonomy(db, row, event.id, form);
 					case "add-participants":
-						return addParticipants(db, row, event.id, form);
+						return addParticipants(
+							db,
+							env,
+							row,
+							event,
+							form,
+							new URL(request.url).origin,
+						);
 					case "add-new-participant":
-						return addNewParticipant(db, row, event.id, form);
+						return addNewParticipant(
+							db,
+							env,
+							row,
+							event,
+							form,
+							new URL(request.url).origin,
+						);
+					case "set-participant-role":
+						return setParticipantRole(db, row, form);
 					case "remove-participant":
 						return removeParticipant(db, row, form);
 					case "delete":
@@ -722,9 +757,11 @@ const AddParticipants = z.object({
  * becomes primary — decision emails address the primary speaker first. */
 async function addParticipants(
 	db: ReturnType<typeof getDb>,
+	env: Env,
 	row: Submission,
-	eventId: string,
+	event: ParticipantEvent,
 	form: FormData,
+	origin: string,
 ): Promise<ActionData> {
 	const parsed = AddParticipants.safeParse({
 		contactIds: [...new Set(form.getAll("contactIds").map(String))],
@@ -734,28 +771,45 @@ async function addParticipants(
 		return { formError: parsed.error.issues[0]?.message ?? "Invalid request." };
 	}
 	const owned = await db
-		.select({ id: contacts.id })
+		.select({ id: contacts.id, userId: contacts.userId })
 		.from(contacts)
 		.where(
 			and(
 				inArray(contacts.id, parsed.data.contactIds),
-				eq(contacts.eventId, eventId),
+				eq(contacts.eventId, event.id),
 			),
 		);
-	// A forged foreign contact id is refused, never written.
 	if (owned.length !== parsed.data.contactIds.length) {
 		return { formError: "Some selected contacts do not belong to this event." };
 	}
-	const { result } = await attachContacts(
+	const selfContactIds = new Set(
+		owned
+			.filter(
+				(contact) =>
+					row.submitterId !== null && contact.userId === row.submitterId,
+			)
+			.map((contact) => contact.id),
+	);
+	const attachment = await attachContacts(
 		db,
 		row,
-		eventId,
+		event.id,
 		parsed.data.contactIds,
 		{
 			role: parsed.data.role,
+			wasExistingContact: true,
+			selfContactIds,
 		},
 	);
-	return result;
+	const warning = await notifyAttachedParticipants(
+		db,
+		env,
+		row,
+		event,
+		origin,
+		attachment.addedParticipants,
+	);
+	return { ...attachment.result, warning };
 }
 
 const NewParticipant = z.object({
@@ -770,9 +824,11 @@ const NewParticipant = z.object({
  * that existing contact instead of failing on the duplicate. */
 async function addNewParticipant(
 	db: ReturnType<typeof getDb>,
+	env: Env,
 	row: Submission,
-	eventId: string,
+	event: ParticipantEvent,
 	form: FormData,
+	origin: string,
 ): Promise<ActionData> {
 	const parsed = NewParticipant.safeParse({
 		firstName: String(form.get("firstName") ?? "").trim(),
@@ -784,38 +840,129 @@ async function addNewParticipant(
 		return { fieldErrors: z.flattenError(parsed.error).fieldErrors };
 	}
 	const email = normalizeEmail(parsed.data.email);
-	const [existing] = await db
-		.select({ id: contacts.id })
+	let [contact] = await db
+		.select({ id: contacts.id, userId: contacts.userId })
 		.from(contacts)
-		.where(and(eq(contacts.eventId, eventId), eq(contacts.email, email)))
+		.where(and(eq(contacts.eventId, event.id), eq(contacts.email, email)))
 		.limit(1);
-	let contactId = existing?.id;
-	if (!contactId) {
-		contactId = crypto.randomUUID();
-		await db.insert(contacts).values({
-			id: contactId,
-			eventId,
-			email,
-			firstName: parsed.data.firstName,
-			lastName: parsed.data.lastName,
-		});
-		track("contact.created", { eventId, contactId, source: "submission" });
+	let wasExistingContact = Boolean(contact);
+	if (!contact) {
+		const [created] = await db
+			.insert(contacts)
+			.values({
+				id: crypto.randomUUID(),
+				eventId: event.id,
+				email,
+				firstName: parsed.data.firstName,
+				lastName: parsed.data.lastName,
+			})
+			.onConflictDoNothing()
+			.returning({ id: contacts.id, userId: contacts.userId });
+		contact = created;
+		if (!contact) {
+			[contact] = await db
+				.select({ id: contacts.id, userId: contacts.userId })
+				.from(contacts)
+				.where(and(eq(contacts.eventId, event.id), eq(contacts.email, email)))
+				.limit(1);
+			wasExistingContact = true;
+		}
+		if (!contact)
+			throw new Error("Contact creation race could not be resolved");
+		if (created) {
+			track("contact.created", {
+				eventId: event.id,
+				contactId: contact.id,
+				source: "submission",
+			});
+		}
 	}
-	const { result, added } = await attachContacts(
+	const attachment = await attachContacts(db, row, event.id, [contact.id], {
+		role: parsed.data.role,
+		wasExistingContact,
+		selfContactIds: new Set(
+			row.submitterId !== null && contact.userId === row.submitterId
+				? [contact.id]
+				: [],
+		),
+	});
+	const warning = await notifyAttachedParticipants(
 		db,
+		env,
 		row,
-		eventId,
-		[contactId],
-		{
-			role: parsed.data.role,
-		},
+		event,
+		origin,
+		attachment.addedParticipants,
 	);
-	if (existing && added > 0) {
+	if (wasExistingContact && attachment.addedParticipants.length > 0) {
 		return {
 			notice: `A contact with ${email} already exists — attached the existing contact.`,
+			warning,
 		};
 	}
-	return result;
+	return { ...attachment.result, warning };
+}
+
+type ParticipantRoleRow = {
+	id: string;
+	contactId: string;
+	role: ParticipantRole;
+	isPrimary: boolean;
+	position: number;
+};
+
+async function getParticipantRoleRows(
+	db: ReturnType<typeof getDb>,
+	submissionId: string,
+): Promise<ParticipantRoleRow[]> {
+	return db
+		.select({
+			id: participants.id,
+			contactId: participants.contactId,
+			role: participants.role,
+			isPrimary: participants.isPrimary,
+			position: participants.position,
+		})
+		.from(participants)
+		.where(eq(participants.submissionId, submissionId))
+		.orderBy(
+			asc(participants.position),
+			asc(participants.createdAt),
+			asc(participants.id),
+		);
+}
+
+async function repairParticipantPrimary(
+	db: ReturnType<typeof getDb>,
+	submissionId: string,
+): Promise<string | null> {
+	const rows = await getParticipantRoleRows(db, submissionId);
+	const primaryId =
+		rows.find(
+			(participant) => participant.role === "speaker" && participant.isPrimary,
+		)?.id ??
+		rows.find((participant) => participant.role === "speaker")?.id ??
+		null;
+	const updates = rows
+		.filter(
+			(participant) => participant.isPrimary !== (participant.id === primaryId),
+		)
+		.map((participant) =>
+			db
+				.update(participants)
+				.set({ isPrimary: participant.id === primaryId })
+				.where(
+					and(
+						eq(participants.id, participant.id),
+						eq(participants.submissionId, submissionId),
+					),
+				),
+		);
+	const firstUpdate = updates[0];
+	if (firstUpdate) {
+		await db.batch([firstUpdate, ...updates.slice(1)]);
+	}
+	return primaryId;
 }
 
 async function attachContacts(
@@ -823,59 +970,295 @@ async function attachContacts(
 	row: Submission,
 	eventId: string,
 	contactIds: string[],
-	opts: { role: (typeof PARTICIPANT_ROLE)[number] },
-): Promise<{ result: ActionData; added: number }> {
-	const current = await db
-		.select({
-			contactId: participants.contactId,
-			isPrimary: participants.isPrimary,
-		})
-		.from(participants)
-		.where(eq(participants.submissionId, row.id));
-	const attached = new Set(current.map((p) => p.contactId));
-	const fresh = contactIds.filter((id) => !attached.has(id));
+	opts: {
+		role: ParticipantRole;
+		wasExistingContact: boolean;
+		selfContactIds: Set<string>;
+	},
+): Promise<{ result: ActionData; addedParticipants: AddedParticipant[] }> {
+	const current = await getParticipantRoleRows(db, row.id);
+	const attached = new Set(
+		current.map(
+			(participant) => `${participant.contactId}:${participant.role}`,
+		),
+	);
+	const fresh = contactIds.filter(
+		(contactId) => !attached.has(`${contactId}:${opts.role}`),
+	);
 	if (fresh.length === 0) {
 		return {
 			result: {
-				notice: "Those contacts are already participants on this submission.",
+				notice:
+					"Those contacts are already participants with the selected role on this submission.",
 			},
-			added: 0,
+			addedParticipants: [],
 		};
 	}
-	// A submission with speakers must always have a primary — decision emails
-	// address it first and task provisioning targets it. The first speaker
-	// attached while none exists takes the slot.
-	let hasPrimary = current.some((p) => p.isPrimary);
-	await db
+	const nextPosition =
+		current.reduce(
+			(maximum, participant) => Math.max(maximum, participant.position),
+			-1,
+		) + 1;
+	const planned = fresh.map((contactId, index) => ({
+		participantId: crypto.randomUUID(),
+		contactId,
+		role: opts.role,
+		position: nextPosition + index,
+		wasExistingContact: opts.wasExistingContact,
+		isSelf: opts.selfContactIds.has(contactId),
+	}));
+	const existingPrimary = current.find(
+		(participant) => participant.role === "speaker" && participant.isPrimary,
+	);
+	const primaryId =
+		existingPrimary?.id ??
+		current.find((participant) => participant.role === "speaker")?.id ??
+		planned.find((participant) => participant.role === "speaker")
+			?.participantId ??
+		null;
+	const insertion = db
 		.insert(participants)
 		.values(
-			fresh.map((contactId, i) => {
-				const promote = !hasPrimary && opts.role === "speaker" && i === 0;
-				if (promote) hasPrimary = true;
-				return {
-					submissionId: row.id,
-					contactId,
-					role: opts.role,
-					isPrimary: promote,
-					position: current.length + i,
-				};
-			}),
+			planned.map((participant) => ({
+				id: participant.participantId,
+				submissionId: row.id,
+				contactId: participant.contactId,
+				role: participant.role,
+				isPrimary: participant.participantId === primaryId,
+				position: participant.position,
+			})),
 		)
-		// Race guard on unique(submission, contact): a double-submit replays
-		// cleanly instead of throwing.
-		.onConflictDoNothing();
-	track("submission.participant_added", {
-		submissionId: row.id,
-		eventId,
-		role: opts.role,
-		count: fresh.length,
-	});
-	const already = contactIds.length - fresh.length;
+		.onConflictDoNothing()
+		.returning({
+			id: participants.id,
+			contactId: participants.contactId,
+			role: participants.role,
+		});
+	const primaryUpdates = current
+		.filter(
+			(participant) => participant.isPrimary !== (participant.id === primaryId),
+		)
+		.map((participant) =>
+			db
+				.update(participants)
+				.set({ isPrimary: participant.id === primaryId })
+				.where(
+					and(
+						eq(participants.id, participant.id),
+						eq(participants.submissionId, row.id),
+					),
+				),
+		);
+	const [insertedRows] = await db.batch([insertion, ...primaryUpdates]);
+	const insertedIds = new Set(
+		insertedRows.map((participant) => participant.id),
+	);
+	const missing = planned.filter(
+		(participant) => !insertedIds.has(participant.participantId),
+	);
+	if (missing.length) {
+		const raced = await db
+			.select({ contactId: participants.contactId, role: participants.role })
+			.from(participants)
+			.where(
+				and(
+					eq(participants.submissionId, row.id),
+					eq(participants.role, opts.role),
+					inArray(
+						participants.contactId,
+						missing.map((participant) => participant.contactId),
+					),
+				),
+			);
+		const exactRaceKeys = new Set(
+			raced.map(
+				(participant) => `${participant.contactId}:${participant.role}`,
+			),
+		);
+		if (
+			missing.some(
+				(participant) =>
+					!exactRaceKeys.has(`${participant.contactId}:${participant.role}`),
+			)
+		) {
+			throw new Error("Participant attachment race could not be resolved");
+		}
+	}
+	await repairParticipantPrimary(db, row.id);
+	const addedParticipants = planned
+		.filter((participant) => insertedIds.has(participant.participantId))
+		.map(
+			(participant) =>
+				({
+					participantId: participant.participantId,
+					contactId: participant.contactId,
+					wasExistingContact: participant.wasExistingContact,
+					isSelf: participant.isSelf,
+					role: participant.role,
+				}) satisfies AddedParticipant,
+		);
+	if (addedParticipants.length) {
+		track("submission.participant_added", {
+			submissionId: row.id,
+			eventId,
+			role: opts.role,
+			count: addedParticipants.length,
+		});
+	}
+	const already = contactIds.length - addedParticipants.length;
 	return {
 		result: {
-			notice: `${fresh.length} participant${fresh.length === 1 ? "" : "s"} attached as ${opts.role}.${already ? ` ${already} already on this submission.` : ""}`,
+			notice: `${addedParticipants.length} participant${addedParticipants.length === 1 ? "" : "s"} attached as ${opts.role}.${already ? ` ${already} already on this submission with that role.` : ""}`,
 		},
-		added: fresh.length,
+		addedParticipants,
+	};
+}
+
+async function notifyAttachedParticipants(
+	db: ReturnType<typeof getDb>,
+	env: Env,
+	row: Submission,
+	event: ParticipantEvent,
+	origin: string,
+	addedParticipants: AddedParticipant[],
+): Promise<string | undefined> {
+	if (addedParticipants.length === 0) return undefined;
+	const deliveries = await Promise.allSettled(
+		addedParticipants.map((added) =>
+			notifyParticipantAdded(db, env, {
+				added,
+				event,
+				submission: {
+					id: row.id,
+					title: row.title,
+					formId: row.formId,
+					submitterId: row.submitterId,
+				},
+				origin,
+				...(row.formId === null
+					? ({
+							notificationContext: "admin-manual-submission",
+						} as const)
+					: {}),
+			}),
+		),
+	);
+	let warning: string | undefined;
+	for (const [index, delivery] of deliveries.entries()) {
+		if (delivery.status === "rejected") {
+			const added = addedParticipants[index];
+			track("submission.participant_notification_failed", {
+				eventId: event.id,
+				submissionId: row.id,
+				participantId: added?.participantId,
+				error: errorMessage(delivery.reason),
+			});
+			warning = PARTICIPANT_INVITATION_WARNING;
+		} else if (!warning && delivery.value.warning) {
+			warning = delivery.value.warning;
+		}
+	}
+	return warning;
+}
+
+const SetParticipantRole = z.object({
+	participantId: z.string().min(1),
+	role: z.enum(PARTICIPANT_ROLE),
+});
+
+async function setParticipantRole(
+	db: ReturnType<typeof getDb>,
+	row: Submission,
+	form: FormData,
+): Promise<ActionData> {
+	const parsed = SetParticipantRole.safeParse({
+		participantId: form.get("participantId"),
+		role: form.get("role"),
+	});
+	if (!parsed.success) {
+		return { formError: "Choose a valid participant role." };
+	}
+	const rows = await getParticipantRoleRows(db, row.id);
+	const target = rows.find(
+		(participant) => participant.id === parsed.data.participantId,
+	);
+	if (!target) {
+		return { formError: "That participant is not on this submission." };
+	}
+	if (target.role === parsed.data.role) {
+		return {
+			notice: `Participant role is already ${PARTICIPANT_ROLE_LABELS[target.role]}.`,
+		};
+	}
+	if (
+		rows.some(
+			(participant) =>
+				participant.id !== target.id &&
+				participant.contactId === target.contactId &&
+				participant.role === parsed.data.role,
+		)
+	) {
+		return {
+			formError: "This person is already listed with the selected role.",
+		};
+	}
+	const resultingSpeakers = rows.filter((participant) =>
+		participant.id === target.id
+			? parsed.data.role === "speaker"
+			: participant.role === "speaker",
+	);
+	let primaryId = resultingSpeakers.find(
+		(participant) =>
+			participant.isPrimary &&
+			(participant.id !== target.id || target.role === "speaker"),
+	)?.id;
+	if (
+		!primaryId &&
+		target.role !== "speaker" &&
+		parsed.data.role === "speaker"
+	) {
+		primaryId = target.id;
+	}
+	primaryId ??= resultingSpeakers[0]?.id;
+	const roleUpdate = db
+		.update(participants)
+		.set({
+			role: parsed.data.role,
+			isPrimary: target.id === primaryId,
+		})
+		.where(
+			and(
+				eq(participants.id, target.id),
+				eq(participants.submissionId, row.id),
+			),
+		);
+	const primaryUpdates = rows
+		.filter(
+			(participant) =>
+				participant.id !== target.id &&
+				participant.isPrimary !== (participant.id === primaryId),
+		)
+		.map((participant) =>
+			db
+				.update(participants)
+				.set({ isPrimary: participant.id === primaryId })
+				.where(
+					and(
+						eq(participants.id, participant.id),
+						eq(participants.submissionId, row.id),
+					),
+				),
+		);
+	await db.batch([roleUpdate, ...primaryUpdates]);
+	track("submission.participant_role_changed", {
+		eventId: row.eventId,
+		submissionId: row.id,
+		participantId: target.id,
+		fromRole: target.role,
+		toRole: parsed.data.role,
+	});
+	return {
+		notice: `Participant role changed to ${PARTICIPANT_ROLE_LABELS[parsed.data.role]}.`,
 	};
 }
 
@@ -886,54 +1269,48 @@ async function removeParticipant(
 ): Promise<ActionData> {
 	const participantId = String(form.get("participantId") ?? "");
 	if (!participantId) return { formError: "Pick a participant to remove." };
-	// Scoped to THIS submission — a foreign participant id is refused.
-	const [target] = await db
-		.select({ id: participants.id, isPrimary: participants.isPrimary })
-		.from(participants)
-		.where(
-			and(
-				eq(participants.id, participantId),
-				eq(participants.submissionId, row.id),
-			),
-		);
+	const rows = await getParticipantRoleRows(db, row.id);
+	const target = rows.find((participant) => participant.id === participantId);
 	if (!target) {
 		return { formError: "That participant is not on this submission." };
 	}
-	// Removing the primary must promote the next speaker: primary-less
-	// submissions silently drop out of task provisioning and lose their
-	// first-choice decision-email recipient. Delete + promotion commit as ONE
-	// batch — a failure between them must never strand a primary-less row.
-	let promoted: string | null = null;
-	const statements: BatchItem<"sqlite">[] = [
-		db.delete(participants).where(eq(participants.id, target.id)),
-	];
-	if (target.isPrimary) {
-		const [next] = await db
-			.select({ id: participants.id })
-			.from(participants)
-			.where(
-				and(
-					eq(participants.submissionId, row.id),
-					eq(participants.role, "speaker"),
-					ne(participants.id, target.id),
+	const remaining = rows.filter((participant) => participant.id !== target.id);
+	const remainingSpeakers = remaining.filter(
+		(participant) => participant.role === "speaker",
+	);
+	const primaryId =
+		remainingSpeakers.find((participant) => participant.isPrimary)?.id ??
+		remainingSpeakers[0]?.id ??
+		null;
+	const removal = db
+		.delete(participants)
+		.where(
+			and(
+				eq(participants.id, target.id),
+				eq(participants.submissionId, row.id),
+			),
+		);
+	const primaryUpdates = remaining
+		.filter(
+			(participant) => participant.isPrimary !== (participant.id === primaryId),
+		)
+		.map((participant) =>
+			db
+				.update(participants)
+				.set({ isPrimary: participant.id === primaryId })
+				.where(
+					and(
+						eq(participants.id, participant.id),
+						eq(participants.submissionId, row.id),
+					),
 				),
-			)
-			.orderBy(asc(participants.position), asc(participants.id))
-			.limit(1);
-		if (next) {
-			statements.push(
-				db
-					.update(participants)
-					.set({ isPrimary: true })
-					.where(eq(participants.id, next.id)),
-			);
-			promoted = next.id;
-		}
-	}
-	await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+		);
+	await db.batch([removal, ...primaryUpdates]);
+	const promoted = target.isPrimary && primaryId !== null ? primaryId : null;
 	track("submission.participant_removed", {
 		submissionId: row.id,
 		eventId: row.eventId,
+		participantId: target.id,
 		promoted,
 	});
 	return {
@@ -971,10 +1348,7 @@ export default function SubmissionDetail({
 		contactsTruncated,
 	} = loaderData;
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
-	// Every mutation here is a document POST — block the double-click that
-	// would replay it (duplicate revisions, double deletes) before the
-	// response lands.
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	const isDraft = s.status === "draft";
 	const feedback = (actionData ?? undefined) as ActionData | undefined;
 	const languageOptions = library.languages.includes(s.language)
@@ -1002,6 +1376,7 @@ export default function SubmissionDetail({
 			/>
 
 			{feedback?.notice && <p>{feedback.notice}</p>}
+			{feedback?.warning && <ErrorText>{feedback.warning}</ErrorText>}
 			{feedback?.formError && <ErrorText>{feedback.formError}</ErrorText>}
 
 			<div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[3fr_2fr]">
@@ -1113,7 +1488,40 @@ export default function SubmissionDetail({
 										{p.isPrimary ? " · primary" : ""}
 									</Td>
 									<Td>{p.email}</Td>
-									<Td>{p.role}</Td>
+									<Td>
+										<div className="flex flex-col gap-2">
+											<span>{PARTICIPANT_ROLE_LABELS[p.role]}</span>
+											<Form method="post" className="flex items-end gap-2">
+												<Input
+													type="hidden"
+													name="intent"
+													value="set-participant-role"
+													readOnly
+												/>
+												<Input
+													type="hidden"
+													name="participantId"
+													value={p.id}
+													readOnly
+												/>
+												<Select
+													name="role"
+													defaultValue={p.role}
+													aria-label={`Role for ${p.name}`}
+													disabled={busy}
+												>
+													{PARTICIPANT_ROLE.map((role) => (
+														<option key={role} value={role}>
+															{PARTICIPANT_ROLE_LABELS[role]}
+														</option>
+													))}
+												</Select>
+												<Button type="submit" variant="ghost" disabled={busy}>
+													Save role
+												</Button>
+											</Form>
+										</div>
+									</Td>
 									<Td>
 										<StatusBadge tone={ACCEPTANCE_TONE[p.acceptanceStatus]}>
 											{p.acceptanceStatus}
@@ -1554,10 +1962,10 @@ function AttachParticipants({
 					/>
 					<div className="flex flex-wrap items-end gap-3">
 						<Field label="Role">
-							<Select name="role" defaultValue="speaker">
+							<Select name="role" defaultValue="speaker" disabled={busy}>
 								{PARTICIPANT_ROLE.map((r) => (
 									<option key={r} value={r}>
-										{r}
+										{PARTICIPANT_ROLE_LABELS[r]}
 									</option>
 								))}
 							</Select>
@@ -1575,7 +1983,12 @@ function AttachParticipants({
 					<div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
 						{visible.map((c) => (
 							<label key={c.id} className="flex items-center gap-2">
-								<Input type="checkbox" name="contactIds" value={c.id} />
+								<Input
+									type="checkbox"
+									name="contactIds"
+									value={c.id}
+									disabled={busy}
+								/>
 								<span>
 									{c.name} · {c.email}
 								</span>
@@ -1630,10 +2043,10 @@ function AttachParticipants({
 						/>
 					</Field>
 					<Field label="Role">
-						<Select name="role" defaultValue="speaker">
+						<Select name="role" defaultValue="speaker" disabled={busy}>
 							{PARTICIPANT_ROLE.map((r) => (
 								<option key={r} value={r}>
-									{r}
+									{PARTICIPANT_ROLE_LABELS[r]}
 								</option>
 							))}
 						</Select>
