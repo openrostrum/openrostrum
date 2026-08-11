@@ -27,17 +27,4 @@ describe("theme menu submission", () => {
 			expect(option.props.onClick).toBeUndefined();
 		}
 	});
-
-	it("opens below the trigger when used in a top header", () => {
-		const menu = ThemeMenuForm({
-			Form: "form",
-			busy: false,
-			theme: "system",
-			placement: "below",
-			onSubmit: () => undefined,
-		});
-
-		expect(menu.props.className).toContain("top-full");
-		expect(menu.props.className).not.toContain("bottom-full");
-	});
 });

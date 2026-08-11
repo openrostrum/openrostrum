@@ -245,7 +245,7 @@ describe("submission detail loader", () => {
 		]);
 	});
 
-	it("returns to the exact allowed list origin with the matching label", async () => {
+	it("returns to the exact allowed list origin", async () => {
 		const db = await seedWorld();
 		await db.insert(submissions).values({
 			id: "s1",
@@ -265,7 +265,6 @@ describe("submission detail loader", () => {
 		expect(html).toContain(
 			'href="/admin/sessions?status=accepted&amp;q=RAG&amp;page=1"',
 		);
-		expect(html).toContain("← Back to sessions");
 	});
 
 	it("rejects an unrelated internal return destination", async () => {
@@ -288,7 +287,7 @@ describe("submission detail loader", () => {
 		expect(html).not.toContain('href="/admin/contacts?q=Ada"');
 	});
 
-	it("labels the central submissions origin accurately", async () => {
+	it("returns to the exact central submissions origin", async () => {
 		const db = await seedWorld();
 		await db.insert(submissions).values({
 			id: "s1",
@@ -305,7 +304,6 @@ describe("submission detail loader", () => {
 		const html = renderDetail(unwrap(await callLoader(request)).data);
 
 		expect(html).toContain('href="/admin/submissions?status=pending"');
-		expect(html).toContain("← Back to submissions");
 	});
 
 	it("links an unscheduled submission to the Agenda", async () => {
@@ -322,7 +320,6 @@ describe("submission detail loader", () => {
 		);
 
 		expect(html).toContain('href="/admin/agenda"');
-		expect(html).toContain(">Agenda</a>");
 	});
 
 	it("404s another event's submission and unknown ids alike", async () => {

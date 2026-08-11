@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	data,
 	Form,
@@ -842,15 +842,15 @@ export default function Agenda({
 		() => buildConflictRows(publicConflicts),
 		[publicConflicts],
 	);
-	const closePublish = useCallback(() => setPublishOpen(false), []);
-	const openPublish = useCallback(() => {
+	const closePublish = () => setPublishOpen(false);
+	const openPublish = () => {
 		setPublishAttempted(false);
 		setPublishOpen(true);
-	}, [setPublishAttempted]);
-	const startUnpublish = useCallback(() => {
+	};
+	const startUnpublish = () => {
 		setPublishAttempted(false);
 		setPublishOpen(false);
-	}, [setPublishAttempted]);
+	};
 
 	if (!event) {
 		return (
