@@ -22,6 +22,7 @@ One row per topic below, pointing to where the depth lives; an agent reads only 
 | Screens → reference screenshots | building UI | `docs/BUILD-SCREENS.md` |
 | Per-module behavior ("what happens when") | building a module | `docs/flows/` |
 | Design system — tokens, primitives, states, the petrol law | building any UI | `docs/rules/design-system.md` |
+| Motion audit — changed and deliberately static surface families | reviewing motion coverage | `docs/motion-audit.md` |
 | Judging-harness & cross-cutting — native-confirm ban, route aliases, empty states, suppression | building judged UI/flows | `docs/rules/harness.md` |
 | Data model — verified Sessionboard objects/fields/statuses (parity mandate) | modeling data, schema, Airtable | `docs/data-model.md` |
 | Runtime truth — events, timings, log queries | debugging runtime behavior | `docs/observability.md` |
