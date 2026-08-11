@@ -21,7 +21,6 @@ export const EVENT_TYPES = [
 	"Other",
 ] as const;
 
-/** Everything the details form posts, as raw input strings (echo shape). */
 export type EventDetailsValues = Record<
 	| "name"
 	| "slug"
@@ -114,10 +113,8 @@ export function EventDetailsFields({
 	errors,
 	autoSlug = false,
 }: {
-	/** Persisted or echoed-back values; null renders a blank create form. */
 	values: EventDetailsValues | null;
 	errors?: EventDetailsErrors;
-	/** Create mode: the slug tracks the name until edited by hand. */
 	autoSlug?: boolean;
 }) {
 	const timeZones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);

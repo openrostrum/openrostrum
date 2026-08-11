@@ -72,8 +72,6 @@ const PBKDF2_ITERATIONS = 100_000;
 
 type AppUser = typeof users.$inferSelect;
 
-/* -------------------------------------------------------------- passwords --- */
-
 function toBase64(bytes: Uint8Array): string {
 	let binary = "";
 	for (const b of bytes) binary += String.fromCharCode(b);
@@ -112,7 +110,6 @@ async function pbkdf2(
 	return new Uint8Array(bits);
 }
 
-/** Returns `pbkdf2$<iterations>$<saltB64>$<hashB64>`. */
 export async function hashPassword(password: string): Promise<string> {
 	const salt = crypto.getRandomValues(new Uint8Array(16));
 	const hash = await pbkdf2(password, salt, PBKDF2_ITERATIONS);
@@ -163,8 +160,6 @@ export async function verifyPasswordTimingEqual(
 	return stored != null && ok;
 }
 
-/* --------------------------------------------------------------- sessions --- */
-
 /** True over HTTPS (prod) — false on local `http://` dev, where `Secure` would
  * make the browser silently drop the cookie (Safari, LAN hosts). */
 export function isSecureRequest(request: Request): boolean {
@@ -195,7 +190,6 @@ export async function createSession(
 	);
 }
 
-/** Delete the current session (if any) and return a clearing `Set-Cookie`. */
 export async function destroySession(
 	env: Env,
 	request: Request,
@@ -207,7 +201,6 @@ export async function destroySession(
 	return serializeCookie(COOKIE, "", 0, isSecureRequest(request));
 }
 
-/** Resolve the logged-in user from the request cookie, or null. */
 export async function getUser(
 	env: Env,
 	request: Request,
@@ -250,7 +243,6 @@ export async function requireUser(
 	return user;
 }
 
-/** Require a logged-in user with one of `roles` (shared helper — don't reinvent). */
 export function requireRole(
 	env: Env,
 	request: Request,
@@ -259,7 +251,6 @@ export function requireRole(
 	return requireUser(env, request, roles);
 }
 
-/** Require a logged-in admin. */
 export function requireAdmin(env: Env, request: Request): Promise<AppUser> {
 	return requireUser(env, request, ["admin"]);
 }

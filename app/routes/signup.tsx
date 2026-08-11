@@ -37,7 +37,6 @@ const SignupForm = z.object({
 type ActionResult = {
 	fieldErrors?: Partial<Record<"name" | "email" | "password", string[]>>;
 	formError?: string;
-	/** Decided path: an email that already has an account steers to /login. */
 	existingAccount?: boolean;
 	/** Echoed (password excluded) so a full-document error response
 	 * (no-JS fallback) re-renders the form filled in instead of wiped. */

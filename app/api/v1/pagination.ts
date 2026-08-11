@@ -47,7 +47,6 @@ export function offsetOf({ page, pageSize }: PageParams): number {
 	return (page - 1) * pageSize;
 }
 
-/** Run the count + page queries together and unwrap the count. */
 export async function runPaged<T>(
 	countQuery: PromiseLike<{ n: number }[]>,
 	rowsQuery: PromiseLike<T[]>,

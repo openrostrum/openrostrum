@@ -61,8 +61,6 @@ export async function loadRuleOptions(
 	};
 }
 
-/* ------------------------------------------------------------- rich text --- */
-
 // What the shared editor produces; everything else is attack surface — the
 // public CFP pages render this HTML to anonymous visitors.
 const ALLOWED_TAGS = new Set([

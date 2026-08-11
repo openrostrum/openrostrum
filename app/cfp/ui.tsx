@@ -21,8 +21,6 @@ const CONTROL = cn(
 	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 );
 
-/* ---------------------------------------------------------------- inputs --- */
-
 type TextareaProps = Omit<
 	ComponentPropsWithoutRef<"textarea">,
 	"className" | "style"
@@ -74,8 +72,6 @@ export function CharCounter({ count, max }: { count: number; max: number }) {
 	);
 }
 
-/* --------------------------------------------------------------- rich text --- */
-
 const RichTextEditor = lazy(() => import("~/ui/rich-text"));
 
 export type RichTextProps = {
@@ -83,7 +79,6 @@ export type RichTextProps = {
 	onChange: (html: string) => void;
 	placeholder?: string;
 	invalid?: boolean;
-	/** Compact = fewer toolbar buttons (participant bios). */
 	compact?: boolean;
 	/** Accessible name for the editor (screen readers can't reach the visual label). */
 	ariaLabel?: string;
@@ -122,7 +117,6 @@ export function RichText(props: RichTextProps) {
 	);
 }
 
-/** Rendered rich-text content (submission descriptions, welcome messages). */
 export function HtmlContent({ html }: { html: string }) {
 	return (
 		<div
@@ -138,8 +132,6 @@ export function HtmlContent({ html }: { html: string }) {
 		/>
 	);
 }
-
-/* ----------------------------------------------------------------- chrome --- */
 
 export function WizardChrome({
 	eventName,
@@ -317,7 +309,6 @@ export function MutedText({ children }: { children: ReactNode }) {
 	return <span className="text-[12.5px] text-fg-muted">{children}</span>;
 }
 
-/** Emphasized single-line item title (draft rows, list entries). */
 export function RowTitle({ children }: { children: ReactNode }) {
 	return (
 		<span className="truncate text-[13.5px] font-medium text-fg">
@@ -349,7 +340,6 @@ export function FieldDivider() {
 	return <hr className="my-1 border-hair" />;
 }
 
-/** Centered column for celebratory/full-page moments (success step). */
 export function CenteredStack({ children }: { children: ReactNode }) {
 	return (
 		<div className="flex flex-col items-center gap-4 px-2 py-6 text-center">
@@ -365,8 +355,6 @@ export function SuccessMark() {
 		</div>
 	);
 }
-
-/* ---------------------------------------------------------------- dialogs --- */
 
 /**
  * In-app confirm — never a native confirm(): the judging harness (and any
@@ -466,7 +454,6 @@ export function AnchorButton({
 	);
 }
 
-/** A submit button that reads as an inline text link (e.g. "log out"). */
 export function LinkishButton({
 	children,
 	...props
@@ -481,8 +468,6 @@ export function LinkishButton({
 		</button>
 	);
 }
-
-/* -------------------------------------------------------------- turnstile --- */
 
 /**
  * Renders Cloudflare's managed challenge widget when a site key is configured;

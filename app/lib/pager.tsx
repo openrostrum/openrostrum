@@ -1,11 +1,6 @@
 import { ButtonLink, TableFooter } from "~/ui";
 import { REVIEW_PAGE_SIZE } from "./evaluation";
 
-/**
- * The one Previous / range / Next control for every paginated review-lane
- * table, so the page-size and range math live in a single place. Renders
- * nothing when everything fits on one page.
- */
 export function Pager({
 	page,
 	total,

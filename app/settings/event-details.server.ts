@@ -123,7 +123,6 @@ export function parseEventDetails(form: FormData): ParsedEventDetails {
 	};
 }
 
-/** Input-shaped strings for the persisted row (form defaultValues). */
 export function eventDetailsValues(
 	event: typeof events.$inferSelect,
 ): EventDetailsValues {
@@ -151,8 +150,6 @@ export function isSlugTakenError(error: unknown): boolean {
 
 export const SLUG_TAKEN_MESSAGE =
 	"That URL slug is already taken — pick another.";
-
-/* ------------------------------------------------- zoned datetime <-> UTC --- */
 
 function zoneParts(date: Date, timeZone: string): Record<string, string> {
 	const dtf = new Intl.DateTimeFormat("en-US", {

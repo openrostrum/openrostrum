@@ -74,7 +74,6 @@ export async function mintUnsubscribeToken(
 	return `${toBase64Url(message)}.${toBase64Url(new Uint8Array(sig))}`;
 }
 
-/** Returns the (normalized) address the token was minted for, or null. */
 export async function verifyUnsubscribeToken(
 	env: Env,
 	token: string,
