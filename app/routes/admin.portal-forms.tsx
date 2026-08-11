@@ -635,9 +635,11 @@ function FormEditor({
 						<Field
 							label="Confirmation message (optional — a default thank-you is sent if blank)"
 							error={errors?.confirmationHtml?.[0]}
+							composite
 						>
 							<RichText
 								name="confirmationHtml"
+								ariaLabel="Confirmation message"
 								defaultValue={editing?.confirmationHtml ?? ""}
 							/>
 						</Field>

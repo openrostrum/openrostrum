@@ -62,7 +62,7 @@ function FieldControl({
 		const chosen = new Set(splitMultiValue(value));
 		return (
 			<div className="flex flex-col gap-1">
-				<Field label={label} error={error}>
+				<Field label={label} error={error} composite>
 					<div className="flex flex-wrap gap-x-5 gap-y-2 py-1">
 						{(field.options ?? []).map((o) => (
 							<Checkbox
@@ -145,7 +145,7 @@ function FieldControl({
 
 	return (
 		<div className="flex flex-col gap-1">
-			<Field label={label} error={error}>
+			<Field label={label} error={error} composite={field.type === "wysiwyg"}>
 				{control}
 			</Field>
 			<div className="flex items-start justify-between gap-3">

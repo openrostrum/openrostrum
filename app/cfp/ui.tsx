@@ -307,7 +307,9 @@ export function LeadText({ children }: { children: ReactNode }) {
 
 export function FootNote({ children }: { children: ReactNode }) {
 	return (
-		<p className="px-4 text-center text-[12px] text-fg-muted">{children}</p>
+		<div className="px-4 text-center text-[12.5px] text-fg-muted">
+			{children}
+		</div>
 	);
 }
 

@@ -20,7 +20,9 @@ import {
 	users,
 } from "../app/db/schema";
 import {
+	StaleDecisionPreviewError,
 	canReceiveDecision,
+	previewDecisionEmails,
 	sendDecisionEmails,
 	transitionSubmissions,
 	withdrawSubmission,
@@ -147,6 +149,28 @@ async function seedDecisionTemplates() {
 				bodyHtml: "<p>Thank you for submitting.</p>",
 			},
 		]);
+}
+
+type PreviewedSendOptions = Omit<
+	Parameters<typeof sendDecisionEmails>[2],
+	"previewFingerprint"
+>;
+
+async function sendPreviewedDecisionEmails(
+	d: ReturnType<typeof db>,
+	sendEnv: Env,
+	opts: PreviewedSendOptions,
+) {
+	const preview = await previewDecisionEmails(d, sendEnv, {
+		event: opts.event,
+		rows: opts.rows,
+		decision: opts.decision,
+		origin: opts.origin,
+	});
+	return sendDecisionEmails(d, sendEnv, {
+		...opts,
+		previewFingerprint: preview.fingerprint,
+	});
 }
 
 describe("transition matrix", () => {
@@ -710,6 +734,119 @@ describe("withdrawal", () => {
 });
 
 describe("send decisions", () => {
+	it("previews exact rendered recipients without writing email or submission state", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Previewed Session",
+		});
+		const orphan = await insertSubmission({
+			status: "accept_queue",
+			title: "No Recipient",
+		});
+		await addSpeaker(row.id, "c_preview", "preview@example.com", {
+			isPrimary: true,
+		});
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		const preview = await previewDecisionEmails(d, env, {
+			event,
+			rows: [row, orphan],
+			decision: "accept",
+			origin: "https://openrostrum.example",
+		});
+		const replay = await previewDecisionEmails(d, env, {
+			event,
+			rows: [row, orphan],
+			decision: "accept",
+			origin: "https://openrostrum.example",
+		});
+
+		expect(preview.template.name).toBe("Accept Sessions");
+		expect(preview.recipients).toEqual([
+			expect.objectContaining({
+				submissionId: row.id,
+				title: "Previewed Session",
+				to: "preview@example.com",
+				subject: "Your session was accepted",
+				hasCalendarAttachment: true,
+			}),
+		]);
+		expect(preview.recipients[0]?.html).toContain("Previewed Session");
+		expect(preview.skipped).toEqual([
+			expect.objectContaining({
+				submissionId: orphan.id,
+				reason: expect.stringMatching(/no speaker or submitter/i),
+			}),
+		]);
+		expect(preview.fingerprint).toBe(replay.fingerprint);
+		expect(await d.select().from(emailOutbox)).toHaveLength(0);
+		const after = await d.select().from(submissions);
+		expect(after.every((submission) => submission.notifiedAt === null)).toBe(
+			true,
+		);
+		expect(
+			after.every((submission) => submission.status === "accept_queue"),
+		).toBe(true);
+	});
+
+	it("requires a reviewed preview fingerprint before any delivery", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const row = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(row.id, "c_preview", "preview@example.com");
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		await expect(
+			sendDecisionEmails(d, env, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "unreviewed-key",
+				previewFingerprint: "",
+			}),
+		).rejects.toThrow(/preview/i);
+		expect(await d.select().from(emailOutbox)).toHaveLength(0);
+	});
+
+	it("rejects a changed decision plan before any delivery", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const row = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(row.id, "c_preview", "preview@example.com");
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+		const preview = await previewDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+		});
+		await d
+			.update(emailTemplates)
+			.set({ subject: "Updated after preview" })
+			.where(eq(emailTemplates.id, "et_accept"));
+
+		await expect(
+			sendDecisionEmails(d, env, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "preview-key",
+				previewFingerprint: preview.fingerprint,
+			}),
+		).rejects.toBeInstanceOf(StaleDecisionPreviewError);
+		expect(await d.select().from(emailOutbox)).toHaveLength(0);
+		const [after] = await d
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, row.id));
+		expect(after?.notifiedAt).toBeNull();
+		expect(after?.status).toBe("accept_queue");
+	});
+
 	it("sends one templated accept email per submission with the right .ics, stamps notifiedAt", async () => {
 		const d = await seedBase();
 		await seedDecisionTemplates();
@@ -736,7 +873,7 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		const results = await sendDecisionEmails(d, env, {
+		const results = await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [scheduled, unscheduled],
 			decision: "accept",
@@ -813,7 +950,7 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		const results = await sendDecisionEmails(d, env, {
+		const results = await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "accept",
@@ -873,7 +1010,7 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		await sendDecisionEmails(d, env, {
+		await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "accept",
@@ -897,7 +1034,7 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		await sendDecisionEmails(d, env, {
+		await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "accept",
@@ -909,7 +1046,7 @@ describe("send decisions", () => {
 			.set({ notifiedAt: null })
 			.where(eq(submissions.id, row.id));
 
-		const retry = await sendDecisionEmails(d, env, {
+		const retry = await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "accept",
@@ -932,13 +1069,13 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		await sendDecisionEmails(d, env, {
+		await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "accept",
 			idempotencyKey: "key-A",
 		});
-		const replay = await sendDecisionEmails(d, env, {
+		const replay = await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "accept",
@@ -947,7 +1084,7 @@ describe("send decisions", () => {
 		expect(replay[0]?.deduped).toBe(true);
 		expect(await d.select().from(emailOutbox)).toHaveLength(1);
 
-		await sendDecisionEmails(d, env, {
+		await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "accept",
@@ -964,7 +1101,7 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		await sendDecisionEmails(d, env, {
+		await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "accept",
@@ -972,7 +1109,7 @@ describe("send decisions", () => {
 		});
 		// The admin clicked accept by mistake and corrects with decline WITHOUT
 		// touching the selection — the same form key must not swallow it.
-		const corrective = await sendDecisionEmails(d, env, {
+		const corrective = await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "decline",
@@ -997,7 +1134,7 @@ describe("send decisions", () => {
 			),
 		);
 		await expect(
-			sendDecisionEmails(d, env, {
+			sendPreviewedDecisionEmails(d, env, {
 				event,
 				rows,
 				decision: "accept",
@@ -1015,7 +1152,7 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		await sendDecisionEmails(d, env, {
+		await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "decline",
@@ -1037,7 +1174,7 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		await sendDecisionEmails(d, env, {
+		await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [row],
 			decision: "accept",
@@ -1063,7 +1200,7 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		const results = await sendDecisionEmails(d, env, {
+		const results = await sendPreviewedDecisionEmails(d, env, {
 			event,
 			rows: [speakerless, orphan],
 			decision: "accept",
@@ -1086,7 +1223,7 @@ describe("send decisions", () => {
 		if (!event) throw new Error("missing fixture");
 
 		await expect(
-			sendDecisionEmails(d, env, {
+			sendPreviewedDecisionEmails(d, env, {
 				event,
 				rows: [row],
 				decision: "accept",
