@@ -276,6 +276,25 @@ describe("dashboard aggregates", () => {
 			"f_closed",
 		]);
 	});
+
+	it("renders the event date range in the event timezone", async () => {
+		const db = await seedDashboard();
+		await db
+			.update(events)
+			.set({
+				timezone: "America/Los_Angeles",
+				startsAt: new Date("2026-10-12T15:00:00Z"),
+				endsAt: new Date("2026-10-15T01:00:00Z"),
+			})
+			.where(eq(events.id, "e1"));
+
+		const data = await runLoader(await authedRequest("http://localhost/admin"));
+
+		expect(data.event).toMatchObject({
+			startDate: "Oct 12, 2026",
+			endDate: "Oct 14, 2026",
+		});
+	});
 });
 
 describe("alert thresholds", () => {

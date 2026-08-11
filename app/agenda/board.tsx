@@ -27,12 +27,13 @@ import { cn } from "~/ui/cn";
 import {
 	type AgendaRoom,
 	type AgendaSession,
+	classifyAgendaSessions,
 	type Conflict,
 	conflictSentence,
 	formatDayLabel,
 	formatMinutes,
 	formatRangeMs,
-	isSessionVisible,
+	hasCompletePlacement,
 	layoutLanes,
 	matchesSessionFilters,
 	pickFreeRoom,
@@ -112,6 +113,14 @@ export function ConflictClock({ label }: { label: string }) {
 export function InfoBar({ children }: { children: ReactNode }) {
 	return (
 		<div className="rounded-card bg-chip px-4 py-[9px] text-[12.5px] text-fg-muted">
+			{children}
+		</div>
+	);
+}
+
+export function InfoBarActionRow({ children }: { children: ReactNode }) {
+	return (
+		<div className="flex flex-wrap items-center justify-between gap-2">
 			{children}
 		</div>
 	);
@@ -528,7 +537,7 @@ function TrayCard({
 					</StatusBadge>
 				</div>
 			)}
-			{place && session.schedulable && session.startsAt == null && (
+			{place && session.schedulable && !hasCompletePlacement(session) && (
 				<PlaceInline
 					session={session}
 					days={place.days}
@@ -685,7 +694,7 @@ function GridColumn({
 							dimmed={!matchesSessionFilters(b.session, filters)}
 							subtitle={b.subtitle}
 							draggable={draggable && b.session.schedulable}
-							onUnschedule={onUnschedule}
+							onUnschedule={b.session.schedulable ? onUnschedule : undefined}
 						/>
 					);
 				})}
@@ -781,27 +790,25 @@ export function AgendaBoard({
 	);
 	const [active, setActive] = useState<AgendaSession | null>(null);
 
-	const visible = useMemo(
-		() => sessions.filter((s) => isSessionVisible(s, filters.showDrafts)),
+	const classification = useMemo(
+		() => classifyAgendaSessions(sessions, filters.showDrafts),
 		[sessions, filters.showDrafts],
 	);
 	const placed = useMemo(
 		() =>
-			visible
-				.filter((s) => s.startsAt != null && s.endsAt != null)
-				.map((s) => ({
-					session: s,
-					wall: utcToWall(s.startsAt as number, timezone),
-					endWall: utcToWall(s.endsAt as number, timezone),
-				})),
-		[visible, timezone],
+			classification.scheduled.map((s) => ({
+				session: s,
+				wall: utcToWall(s.startsAt, timezone),
+				endWall: utcToWall(s.endsAt, timezone),
+			})),
+		[classification.scheduled, timezone],
 	);
 	const trayUnscheduled = useMemo(
 		() =>
-			visible
-				.filter((s) => s.startsAt == null && matchesSessionFilters(s, filters))
+			classification.unscheduled
+				.filter((s) => matchesSessionFilters(s, filters))
 				.sort((a, b) => a.title.localeCompare(b.title)),
-		[visible, filters],
+		[classification.unscheduled, filters],
 	);
 	const trayScheduled = useMemo(
 		() =>
@@ -846,10 +853,10 @@ export function AgendaBoard({
 		const startMs = wallToUtc(day, minutes, timezone);
 		return pickFreeRoom(
 			rooms,
-			placed.map((p) => ({
-				roomId: p.session.roomId,
-				startsAt: p.session.startsAt as number,
-				endsAt: p.session.endsAt as number,
+			classification.schedulablePlaced.map((s) => ({
+				roomId: s.roomId,
+				startsAt: s.startsAt,
+				endsAt: s.endsAt,
 			})),
 			startMs,
 			startMs + sessionDurationMins(session) * 60_000,
@@ -990,6 +997,7 @@ export function AgendaBoard({
 
 	return (
 		<DndContext
+			id="agenda-dnd"
 			sensors={sensors}
 			collisionDetection={pointerFirstCollision}
 			onDragStart={handleDragStart}

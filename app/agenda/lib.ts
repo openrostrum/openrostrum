@@ -86,12 +86,69 @@ export type SessionFilters = {
 	showDrafts: boolean;
 };
 
-/** Drafts ride along only when their toggle is on; everything else must be schedulable. */
+type PlacementTimes = {
+	startsAt: unknown | null;
+	endsAt: unknown | null;
+};
+
+/** A scheduled block is valid only when both ends of its interval exist. */
+export function hasCompletePlacement(s: PlacementTimes): boolean {
+	return s.startsAt != null && s.endsAt != null;
+}
+
+type CompleteAgendaSession = AgendaSession & {
+	startsAt: number;
+	endsAt: number;
+};
+
+function isSchedulablePlacement(s: AgendaSession): s is CompleteAgendaSession {
+	return s.schedulable && hasCompletePlacement(s);
+}
+
+export type AgendaSessionClassification = {
+	scheduled: CompleteAgendaSession[];
+	unscheduled: AgendaSession[];
+	needsSlot: AgendaSession[];
+	schedulablePlaced: CompleteAgendaSession[];
+	schedulableUnplaced: AgendaSession[];
+};
+
+/**
+ * Visibility, placement completeness, and scheduling permission are separate:
+ * retained placements stay visible, but only schedulable rows occupy or move.
+ */
+export function classifyAgendaSessions(
+	sessions: readonly AgendaSession[],
+	showDrafts: boolean,
+): AgendaSessionClassification {
+	const complete = (s: AgendaSession): s is CompleteAgendaSession =>
+		hasCompletePlacement(s);
+	const visible = sessions.filter((s) => isSessionVisible(s, showDrafts));
+	return {
+		scheduled: visible.filter(complete),
+		unscheduled: visible.filter(
+			(s) => s.schedulable && !hasCompletePlacement(s),
+		),
+		needsSlot: sessions.filter(
+			(s) => s.status === "accepted" && !hasCompletePlacement(s),
+		),
+		schedulablePlaced: sessions.filter(isSchedulablePlacement),
+		schedulableUnplaced: sessions.filter(
+			(s) => s.schedulable && !hasCompletePlacement(s),
+		),
+	};
+}
+
+/**
+ * Drafts always obey their display toggle. Other complete placements remain
+ * visible after status-policy changes, without becoming schedulable again.
+ */
 export function isSessionVisible(
-	s: AgendaSession,
+	s: Pick<AgendaSession, "schedulable" | "status" | "startsAt" | "endsAt">,
 	showDrafts: boolean,
 ): boolean {
-	return s.schedulable || (showDrafts && s.status === "draft");
+	if (s.status === "draft") return showDrafts;
+	return s.schedulable || hasCompletePlacement(s);
 }
 
 /**
@@ -183,31 +240,38 @@ export function wallToUtc(
 
 /* ------------------------------------------------------------ event days --- */
 
-function utcDay(ms: number): string {
-	return new Date(ms).toISOString().slice(0, 10);
+/** Next "YYYY-MM-DD" — pure calendar arithmetic on the day string, so DST
+ * (23/25-hour days) can never skip or duplicate a column. */
+function nextDay(day: string): string {
+	const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
+	return new Date(Date.UTC(y, m - 1, d) + 86_400_000)
+		.toISOString()
+		.slice(0, 10);
 }
 
 /**
- * The event's calendar days. Start/end are stored as date-at-UTC-midnight
- * epochs, so the day list reads the UTC date; each day is then treated as an
- * event-TZ calendar day by the grid. Capped so a bad date range can't render
- * an unbounded day strip.
+ * The event's calendar days, inclusive of both bounds' EVENT-TZ dates.
+ * Start/end are real instants (the settings form stores the organizer's
+ * wall-clock datetimes), so a 3-day event must yield 3 columns in its own
+ * timezone — reading UTC dates here shifted the strip by a day. Capped so a
+ * bad date range can't render an unbounded day strip.
  */
 export function eventDayList(
 	startMs: number | null,
 	endMs: number | null,
+	timeZone: string,
 	cap = 30,
 ): string[] {
 	if (startMs == null) return [];
+	const first = utcToWall(startMs, timeZone).day;
 	const last =
-		endMs != null && endMs >= startMs ? utcDay(endMs) : utcDay(startMs);
+		endMs != null && endMs >= startMs ? utcToWall(endMs, timeZone).day : first;
 	const days: string[] = [];
-	let cursor = startMs;
+	let cursor = first;
 	for (let i = 0; i < cap; i += 1) {
-		const day = utcDay(cursor);
-		days.push(day);
-		if (day === last) break;
-		cursor += 86_400_000;
+		days.push(cursor);
+		if (cursor >= last) break;
+		cursor = nextDay(cursor);
 	}
 	return days;
 }
@@ -223,7 +287,7 @@ export function resolveEventDays(
 	scheduledStartsMs: readonly number[],
 	timezone: string,
 ): string[] {
-	const fromEvent = eventDayList(startMs, endMs);
+	const fromEvent = eventDayList(startMs, endMs, timezone);
 	if (fromEvent.length > 0) return fromEvent;
 	const fromSessions = [
 		...new Set(scheduledStartsMs.map((ms) => utcToWall(ms, timezone).day)),
@@ -292,10 +356,7 @@ export function detectConflicts(
 ): Conflict[] {
 	const roomName = new Map(rooms.map((r) => [r.id, r.name]));
 	const rows = sessions
-		.filter(
-			(s): s is AgendaSession & { startsAt: number; endsAt: number } =>
-				s.schedulable && s.startsAt != null && s.endsAt != null,
-		)
+		.filter(isSchedulablePlacement)
 		.sort((a, b) => a.startsAt - b.startsAt);
 	const out: Conflict[] = [];
 	for (let i = 0; i < rows.length; i += 1) {
