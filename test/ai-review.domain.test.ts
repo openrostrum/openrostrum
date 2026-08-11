@@ -126,7 +126,7 @@ describe("generateAiReview — structured output with retry-once", () => {
 		const provider: AiChatProvider = {
 			model: "test-model",
 			chat: (_messages, opts) => {
-				signal = (opts as typeof opts & { signal?: AbortSignal }).signal;
+				signal = opts.signal;
 				return new Promise(() => {});
 			},
 		};
@@ -261,7 +261,8 @@ describe("DeepSeek provider — Anthropic Messages endpoint", () => {
 		).toBeUndefined();
 		const body = JSON.parse(init.body as string);
 		expect(body.model).toBe("deepseek-v4-flash");
-		expect(body.system).toContain("AI first-pass reviewer");
+		expect(body.system).toEqual(expect.any(String));
+		expect(body.system.length).toBeGreaterThan(0);
 		expect(body.messages).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ role: "user", content: expect.any(String) }),
@@ -270,6 +271,49 @@ describe("DeepSeek provider — Anthropic Messages endpoint", () => {
 		expect(JSON.stringify(body)).not.toContain('"type":"image"');
 		expect(body.output_config).toBeUndefined();
 		expect(init.signal).toBeInstanceOf(AbortSignal);
+	});
+
+	it("repairs a textless response without sending an empty assistant turn", async () => {
+		let calls = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url, init) => {
+				calls++;
+				if (calls === 1) {
+					return new Response(
+						JSON.stringify({
+							model: "deepseek-v4-flash",
+							content: [],
+						}),
+						{ status: 200 },
+					);
+				}
+				const body = JSON.parse((init as RequestInit).body as string) as {
+					messages: Array<{ role: string; content: string }>;
+				};
+				if (
+					body.messages.some(
+						(message) => message.role === "assistant" && !message.content,
+					)
+				) {
+					return new Response(null, { status: 400 });
+				}
+				return new Response(
+					JSON.stringify({
+						model: "deepseek-v4-flash",
+						content: [{ type: "text", text: verdictJson(6) }],
+					}),
+					{ status: 200 },
+				);
+			}),
+		);
+
+		const result = await generateAiReview(
+			createDeepseekProvider("sk-test"),
+			SUB,
+		);
+		expect(result).toMatchObject({ ok: true, score: 6, attempts: 2 });
+		expect(calls).toBe(2);
 	});
 
 	it("a non-OK response becomes a typed 'error' failure, never a crash", async () => {

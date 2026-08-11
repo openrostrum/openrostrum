@@ -54,7 +54,6 @@ export type AiReviewSuccess = {
 	rationale: string;
 	/** The id that actually answered — API-reported when available. */
 	model: string;
-	/** 1 = clean first parse, 2 = the retry was needed. */
 	attempts: number;
 };
 export type AiReviewFailure = {
@@ -168,7 +167,7 @@ export async function generateAiReview(
 				? messages
 				: [
 						...messages,
-						{ role: "assistant", content: lastRaw },
+						...(lastRaw ? [{ role: "assistant", content: lastRaw }] : []),
 						{
 							role: "user",
 							content:
