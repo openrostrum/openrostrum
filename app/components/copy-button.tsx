@@ -10,7 +10,6 @@ export type CopyButtonProps = {
 	resetAfterMs?: number | null;
 	icon?: IconName | null;
 	optimistic?: boolean;
-	optimisticOnUnavailable?: boolean;
 	onFailure?: () => void;
 };
 
@@ -30,6 +29,31 @@ export function attemptClipboardWrite(
 	}
 }
 
+export async function handleClipboardFeedback(
+	write: Promise<void> | undefined,
+	{
+		optimistic,
+		showFailure,
+		onFeedback,
+		onFailure,
+	}: {
+		optimistic: boolean;
+		showFailure: boolean;
+		onFeedback: (feedback: "copied" | "failed") => void;
+		onFailure?: () => void;
+	},
+): Promise<void> {
+	if (!write) return;
+	if (optimistic) onFeedback("copied");
+	try {
+		await write;
+		if (!optimistic) onFeedback("copied");
+	} catch {
+		onFailure?.();
+		if (!optimistic && showFailure) onFeedback("failed");
+	}
+}
+
 /** The shared copy-to-clipboard button — compose this one, never another one-off. */
 export function CopyButton({
 	value,
@@ -39,7 +63,6 @@ export function CopyButton({
 	resetAfterMs = 2500,
 	icon = "export",
 	optimistic = false,
-	optimisticOnUnavailable = true,
 	onFailure,
 }: CopyButtonProps): JSX.Element {
 	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
@@ -52,16 +75,12 @@ export function CopyButton({
 
 	function copy() {
 		const write = attemptClipboardWrite(value, onFailure);
-		if (optimistic && (write || optimisticOnUnavailable)) setState("copied");
-		if (!write) return;
-		write
-			.then(() => {
-				if (!optimistic) setState("copied");
-			})
-			.catch(() => {
-				onFailure?.();
-				if (!optimistic && failedLabel !== null) setState("failed");
-			});
+		void handleClipboardFeedback(write, {
+			optimistic,
+			showFailure: failedLabel !== null,
+			onFeedback: setState,
+			onFailure,
+		});
 	}
 
 	return (

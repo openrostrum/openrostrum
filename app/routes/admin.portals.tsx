@@ -227,7 +227,6 @@ function CopyLink({ url }: { url: string }) {
 				resetAfterMs={null}
 				icon={null}
 				optimistic
-				optimisticOnUnavailable={false}
 			/>
 		</div>
 	);

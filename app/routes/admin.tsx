@@ -4,6 +4,7 @@ import { ThemeToggle } from "~/components/theme-toggle";
 import { getActiveEvent, listMyEvents, requireAdmin } from "~/lib/auth";
 import { toSwitcherEvents } from "~/lib/event-switcher.server";
 import { createTimings } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { navBySection } from "~/nav/registry";
 import { Sidebar, SidebarSection, SideNavLink } from "~/ui";
 import type { IconName } from "~/ui";
@@ -39,9 +40,14 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 }
 
 export default function AdminShell({ loaderData }: Route.ComponentProps) {
+	const busy = useBusy();
 	return (
 		<div className="flex min-h-screen">
-			<Sidebar user={loaderData.user} themeControl={<ThemeToggle />}>
+			<Sidebar
+				user={loaderData.user}
+				themeControl={<ThemeToggle />}
+				logoutDisabled={busy}
+			>
 				<EventSwitcher events={loaderData.events} />
 				{navBySection().map(([section, items]) => (
 					<SidebarSection key={section} label={section}>
