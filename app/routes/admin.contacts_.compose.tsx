@@ -550,7 +550,7 @@ export default function ComposeBulkEmail({
 					</Panel>
 
 					<Panel>
-						<Form method="post" className="flex flex-col gap-3">
+						<Form method="post" className="flex flex-col gap-[13px]">
 							{/* Snapshot the RESOLVED set: "Send to N speakers" targets exactly
 							    the names listed above, even if the roster changes mid-compose. */}
 							{selection.directoryEmails !== undefined ? (

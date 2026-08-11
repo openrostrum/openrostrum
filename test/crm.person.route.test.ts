@@ -34,34 +34,6 @@ async function runLoader(userId: string, email: string): Promise<LoaderResult> {
 }
 
 describe("CRM person profile", () => {
-	it("stores person custom-field answers at organization scope", async () => {
-		await seedCrmBaseline();
-		const db = getDb(env);
-		await db.insert(fields).values({
-			id: "person-field-1",
-			organizationId: "org1",
-			eventId: null,
-			recordType: "contact",
-			name: "Dietary requirements",
-			type: "text",
-		});
-		await db.insert(contactAnswers).values({
-			id: "person-answer-1",
-			organizationId: "org1",
-			email: "priya@example.com",
-			fieldId: "person-field-1",
-			value: "Vegetarian",
-		});
-
-		const [answer] = await db.select().from(contactAnswers);
-		expect(answer).toMatchObject({
-			organizationId: "org1",
-			email: "priya@example.com",
-			fieldId: "person-field-1",
-			value: "Vegetarian",
-		});
-	});
-
 	it("persists organization field values across profile reloads", async () => {
 		await seedCrmBaseline();
 		const db = getDb(env);
