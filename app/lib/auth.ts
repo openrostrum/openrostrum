@@ -6,6 +6,7 @@ import {
 	authSessions,
 	events,
 	organizationMembers,
+	organizations,
 	reviewerTracks,
 	tracks,
 	users,
@@ -347,4 +348,36 @@ export async function getReviewerEventIds(
 		.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
 		.where(eq(reviewerTracks.userId, userId));
 	return rows.map((r) => r.eventId);
+}
+
+/**
+ * The organization the caller operates on: the active event's org when one is
+ * set (getActiveEvent only returns the caller's orgs' events), else their
+ * first membership (an org can predate its first event). Null = no org.
+ */
+export async function resolveActiveOrg(
+	env: Env,
+	user: AppUser,
+): Promise<typeof organizations.$inferSelect | null> {
+	const db = getDb(env);
+	const event = await getActiveEvent(env, user);
+	if (event) {
+		const [org] = await db
+			.select()
+			.from(organizations)
+			.where(eq(organizations.id, event.organizationId))
+			.limit(1);
+		if (org) return org;
+	}
+	const [first] = await db
+		.select({ org: organizations })
+		.from(organizationMembers)
+		.innerJoin(
+			organizations,
+			eq(organizations.id, organizationMembers.organizationId),
+		)
+		.where(eq(organizationMembers.userId, user.id))
+		.orderBy(asc(organizationMembers.createdAt))
+		.limit(1);
+	return first?.org ?? null;
 }

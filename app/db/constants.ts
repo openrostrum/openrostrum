@@ -59,3 +59,15 @@ export const PARTICIPANT_ROLE = [
 	"moderator",
 	"secondary",
 ] as const;
+
+/** Sessionboard's eight system pipeline stages, verbatim. */
+export const PIPELINE_STAGE = [
+	"researching",
+	"identified",
+	"approved",
+	"contacted",
+	"interested",
+	"confirmed",
+	"future_fit",
+	"declined",
+] as const;
