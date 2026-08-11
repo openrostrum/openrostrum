@@ -1472,6 +1472,51 @@ export const emailOutbox = sqliteTable(
 	],
 );
 
+export const calendarInviteRevisions = sqliteTable(
+	"calendar_invite_revisions",
+	{
+		id: id(),
+		submissionId: text("submission_id")
+			.notNull()
+			.references(() => submissions.id, { onDelete: "cascade" }),
+		sequence: integer("sequence"),
+		stateHash: text("state_hash").notNull(),
+		recipient: text("recipient").notNull(),
+		startsAt: integer("starts_at", { mode: "timestamp" }),
+		endsAt: integer("ends_at", { mode: "timestamp" }),
+		location: text("location"),
+		title: text("title"),
+		outboxId: text("outbox_id").references(() => emailOutbox.id, {
+			onDelete: "set null",
+		}),
+		invalid: integer("invalid", { mode: "boolean" }).notNull().default(false),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		index("calendar_invite_revisions_submission_idx").on(t.submissionId),
+		unique("calendar_invite_revisions_submission_sequence_uq").on(
+			t.submissionId,
+			t.sequence,
+		),
+		unique("calendar_invite_revisions_submission_state_uq").on(
+			t.submissionId,
+			t.stateHash,
+		),
+		index("calendar_invite_revisions_outbox_idx").on(t.outboxId),
+	],
+);
+
+export const calendarInviteLedgerCursors = sqliteTable(
+	"calendar_invite_ledger_cursors",
+	{
+		eventId: text("event_id")
+			.primaryKey()
+			.references(() => events.id, { onDelete: "cascade" }),
+		lastOutboxRowid: integer("last_outbox_rowid").notNull().default(0),
+		updatedAt: updatedAt(),
+	},
+);
+
 /* -------------------------------------------------------------- relations --- */
 
 export const usersRelations = relations(users, ({ many }) => ({
