@@ -258,6 +258,25 @@ export function placementMissingOptions(
 	return false;
 }
 
+export function ruleApplyDisabled(
+	busy: boolean,
+	trigger: string,
+	valueAvailable: boolean,
+): boolean {
+	return busy || !trigger || !valueAvailable;
+}
+
+export function questionRuleValueAvailable(
+	valueKind: "number" | "options",
+	options: Array<{ value: string; label: string }>,
+	value: string,
+): boolean {
+	if (!value.trim()) return false;
+	return valueKind === "number"
+		? /^-?\d+(\.\d+)?$/.test(value)
+		: options.some((option) => option.value === value);
+}
+
 /** The placements every new form starts with, in Sessionboard's default order. */
 export function defaultBuiltinPlacements(
 	formId: string,
