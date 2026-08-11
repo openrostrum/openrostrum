@@ -1,0 +1,86 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] /Resources << /Font << /F1 9 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 152 >>
+stream
+BT
+/F1 30 Tf
+72 700 Td
+(FROM RAG TO RICHES) Tj
+/F1 18 Tf
+0 -54 Td
+(Retrieval systems that survive production) Tj
+0 -54 Td
+(Sam Speaker + Alex Co) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] /Resources << /Font << /F1 9 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 170 >>
+stream
+BT
+/F1 30 Tf
+72 700 Td
+(THE THREE REBUILDS) Tj
+/F1 18 Tf
+0 -54 Td
+(1. Vector search) Tj
+0 -54 Td
+(2. Hybrid retrieval) Tj
+0 -54 Td
+(3. Freshness as infrastructure) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] /Resources << /Font << /F1 9 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 209 >>
+stream
+BT
+/F1 30 Tf
+72 700 Td
+(WHAT MOVED QUALITY) Tj
+/F1 18 Tf
+0 -54 Td
+(Metadata filters beat model upgrades) Tj
+0 -54 Td
+(Canaries catch embedding drift) Tj
+0 -54 Td
+(Measure the queries users actually ask) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000133 00000 n 
+0000000259 00000 n 
+0000000461 00000 n 
+0000000587 00000 n 
+0000000807 00000 n 
+0000000933 00000 n 
+0000001192 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+1262
+%%EOF
