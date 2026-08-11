@@ -366,15 +366,15 @@ function updateEmailHtml(
 
 /**
  * One message per normalized recipient, with all changed VEVENTs attached.
- * A client-keyed semantic-state hash dedupes replays without collapsing a later
- * real revision; bounce row IDs salt retries. Each call sends at most one batch.
+ * The semantic-state hash dedupes concurrent requests and replays without
+ * collapsing a later real revision; bounce row IDs salt retries. Each call
+ * sends at most one batch.
  */
 export async function sendScheduleUpdates(
 	db: Db,
 	env: Env,
 	event: EventRow,
 	changes: readonly ScheduleChange[],
-	idempotencyKey: string,
 ): Promise<ScheduleUpdateSendResult> {
 	const result: ScheduleUpdateSendResult = {
 		sent: 0,
@@ -418,7 +418,6 @@ export async function sendScheduleUpdates(
 			})),
 		);
 		const state = JSON.stringify({
-			idempotencyKey,
 			eventId: event.id,
 			recipient,
 			revisions: items.map((item) => ({

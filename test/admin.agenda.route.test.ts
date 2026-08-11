@@ -155,9 +155,6 @@ function unwrap<T>(result: unknown): T {
 
 async function callAction(fields: Record<string, string>): Promise<ActionData> {
 	const body = new URLSearchParams(fields);
-	if (fields.intent === "schedule-updates" && !body.has("idempotencyKey")) {
-		body.set("idempotencyKey", crypto.randomUUID());
-	}
 	const request = await adminRequest(body);
 	const result = await action({
 		context: CONTEXT,
@@ -1212,7 +1209,7 @@ END:VCALENDAR
 		expect(unsafeSend).toBeUndefined();
 	});
 
-	it("rejects a missing or malformed client idempotency key without sending", async () => {
+	it("sends from a browser-native form without a JavaScript-minted key", async () => {
 		const db = await invitedBaseline();
 		await callAction({
 			intent: "schedule",
@@ -1222,20 +1219,16 @@ END:VCALENDAR
 			startMinutes: "570",
 		});
 
-		const result = await callAction({
-			intent: "schedule-updates",
-			idempotencyKey: "not-a-uuid",
-		});
+		const result = await callAction({ intent: "schedule-updates" });
 
-		expect(result.ok).toBe(false);
-		expect(result.formError).toMatch(/try again/i);
+		expect(result.updates).toMatchObject({ sent: 1, deduped: 0 });
 		const updates = (await db.select().from(emailOutbox)).filter((row) =>
 			row.dedupeKey?.startsWith("schedule-update:"),
 		);
-		expect(updates).toHaveLength(0);
+		expect(updates).toHaveLength(1);
 	});
 
-	it("one client key dedupes a replay, while a later schedule revision still sends", async () => {
+	it("semantic state dedupes a concurrent replay, while a later schedule revision still sends", async () => {
 		const db = await invitedBaseline();
 		await callAction({
 			intent: "schedule",
@@ -1249,19 +1242,13 @@ END:VCALENDAR
 		});
 		if (!event) throw new Error("Expected seeded event");
 		const firstState = await computeScheduleChanges(db, event);
-		const clientKey = "11111111-2222-4333-8444-555555555555";
-
-		const first = await callAction({
-			intent: "schedule-updates",
-			idempotencyKey: clientKey,
-		});
+		const first = await callAction({ intent: "schedule-updates" });
 		expect(first.updates).toMatchObject({ sent: 1, deduped: 0 });
 		const replay = await sendScheduleUpdates(
 			db,
 			env,
 			event,
 			firstState.changes,
-			clientKey,
 		);
 		expect(replay).toMatchObject({ sent: 0, deduped: 1 });
 
@@ -1272,10 +1259,7 @@ END:VCALENDAR
 			day: "2026-10-13",
 			startMinutes: "840",
 		});
-		const second = await callAction({
-			intent: "schedule-updates",
-			idempotencyKey: clientKey,
-		});
+		const second = await callAction({ intent: "schedule-updates" });
 		expect(second.updates).toMatchObject({ sent: 1, deduped: 0 });
 		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
 			row.dedupeKey?.startsWith("schedule-update:"),

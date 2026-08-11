@@ -989,6 +989,7 @@ export function AgendaBoard({
 
 	return (
 		<DndContext
+			id="agenda-dnd"
 			sensors={sensors}
 			collisionDetection={pointerFirstCollision}
 			onDragStart={handleDragStart}

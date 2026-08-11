@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	data,
 	Form,
@@ -338,10 +338,6 @@ const ScheduleIntent = z.object({
 		.multipleOf(SLOT_MINS),
 });
 
-const ScheduleUpdatesIntent = z.object({
-	idempotencyKey: z.string().uuid(),
-});
-
 const SettingsWindow = z
 	.object({
 		dayStartMin: z.coerce.number().int().min(0).max(1440).multipleOf(15),
@@ -574,14 +570,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 		}
 
 		if (intent === "schedule-updates") {
-			const parsed = ScheduleUpdatesIntent.safeParse({
-				idempotencyKey: form.get("idempotencyKey"),
-			});
-			if (!parsed.success) {
-				return fail(
-					"Schedule update request could not be verified — try again.",
-				);
-			}
 			const changeSet = await timings.time("db", () =>
 				computeScheduleChanges(db, event),
 			);
@@ -594,13 +582,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 				);
 			}
 			const outcome = await timings.time("send", () =>
-				sendScheduleUpdates(
-					db,
-					env,
-					event,
-					changeSet.changes,
-					parsed.data.idempotencyKey,
-				),
+				sendScheduleUpdates(db, env, event, changeSet.changes),
 			);
 			track("agenda.schedule_updates_sent", {
 				eventId: event.id,
@@ -822,13 +804,6 @@ function viewLink(
 const TIME_OPTIONS: number[] = [];
 for (let m = 0; m <= 1440; m += 30) TIME_OPTIONS.push(m);
 
-function mintScheduleUpdateKey(event: FormEvent<HTMLFormElement>) {
-	const field = event.currentTarget.elements.namedItem("idempotencyKey");
-	if (field instanceof HTMLInputElement && field.value === "") {
-		field.value = crypto.randomUUID();
-	}
-}
-
 export default function Agenda({
 	loaderData,
 	actionData,
@@ -992,8 +967,7 @@ export default function Agenda({
 							unsent schedule updates — their calendars still show the last
 							invite they were emailed.
 						</span>
-						<updatesFetcher.Form method="post" onSubmit={mintScheduleUpdateKey}>
-							<Input type="hidden" name="idempotencyKey" />
+						<updatesFetcher.Form method="post">
 							<Button
 								type="submit"
 								variant="ghost"
