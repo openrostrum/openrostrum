@@ -48,6 +48,7 @@ Everything that differs between local and cloud sits behind a typed interface wi
 | `EmailSender` | Resend | D1 `email_outbox` table (agent-queryable) |
 | `AirtableSync` | real Airtable base (serial integration lane); COMMITTED, tiered: push-on-change (Tier 1) + periodic pull of team edits ("source of truth", Tier 2) — see SCOPE P1 #15 | local fake table |
 | `Turnstile` | Cloudflare Turnstile verify | no-op pass |
+| `AI review` | DeepSeek Messages when keyed; Workers AI fallback | explicit unavailable state / injected scripted provider |
 | `Clock` | real `now()` | injectable fixed time |
 
 **Not ports:** Calendar (`ics` is a pure function — identical everywhere) and Storage (R2 emulates locally via Miniflare — use a thin wrapper only, not a swappable adapter).
