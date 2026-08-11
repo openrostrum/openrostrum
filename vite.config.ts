@@ -51,12 +51,7 @@ export default defineConfig({
 		],
 	},
 	plugins: [
-		cloudflare({
-			viteEnvironment: { name: "ssr" },
-			// Workers AI is remote-only; local app verification must not require
-			// Cloudflare authentication or spend against a live provider.
-			remoteBindings: false,
-		}),
+		cloudflare({ viteEnvironment: { name: "ssr" } }),
 		tailwindcss(),
 		reactRouter(),
 		tsconfigPaths(),
