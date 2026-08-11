@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "./motion-classes";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -258,7 +259,7 @@ function ToolbarButton({
 			onMouseDown={(e) => e.preventDefault()} // keep the editor selection
 			onClick={onClick}
 			className={cn(
-				"h-7 min-w-7 rounded-[5px] px-2 text-[12px] font-medium text-fg-muted transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-chip hover:text-fg",
+				`h-7 min-w-7 rounded-[5px] px-2 text-[12px] font-medium text-fg-muted transition-colors ${MOTION_FEEDBACK} hover:bg-chip hover:text-fg`,
 				"focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-petrol",
 				active && "bg-chip text-fg",
 			)}

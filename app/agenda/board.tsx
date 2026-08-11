@@ -13,7 +13,7 @@ import {
 	useSensor,
 	useSensors,
 } from "@dnd-kit/core";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
 	Button,
@@ -149,57 +149,6 @@ export function PublishAgendaDialog({
 	onCancel: () => void;
 	onPublish: () => void;
 }) {
-	const dialogRef = useRef<HTMLDivElement>(null);
-	const submittingRef = useRef(submitting);
-	useEffect(() => {
-		submittingRef.current = submitting;
-	}, [submitting]);
-
-	useEffect(() => {
-		const previous =
-			document.activeElement instanceof HTMLElement
-				? document.activeElement
-				: null;
-		const focusable = () =>
-			Array.from(
-				dialogRef.current?.querySelectorAll<HTMLElement>(
-					'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-				) ?? [],
-			);
-		focusable()[0]?.focus();
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape" && !submittingRef.current) {
-				event.preventDefault();
-				onCancel();
-				return;
-			}
-			if (event.key !== "Tab") return;
-			const candidates = focusable();
-			if (candidates.length === 0) {
-				event.preventDefault();
-				return;
-			}
-			const first = candidates[0];
-			const last = candidates[candidates.length - 1];
-			const active = document.activeElement;
-			if (!dialogRef.current?.contains(active)) {
-				event.preventDefault();
-				first?.focus();
-			} else if (event.shiftKey && active === first) {
-				event.preventDefault();
-				last?.focus();
-			} else if (!event.shiftKey && active === last) {
-				event.preventDefault();
-				first?.focus();
-			}
-		};
-		document.addEventListener("keydown", onKey);
-		return () => {
-			document.removeEventListener("keydown", onKey);
-			previous?.focus();
-		};
-	}, [onCancel]);
-
 	const preview = conflicts.slice(0, PUBLISH_CONFLICT_PREVIEW_LIMIT);
 	const remaining = total - preview.length;
 	const hasConflicts = total > 0;
@@ -209,7 +158,7 @@ export function PublishAgendaDialog({
 			size="md"
 			labelledBy="publish-agenda-title"
 			describedBy="publish-agenda-description"
-			panelRef={dialogRef}
+			onDismiss={submitting ? undefined : onCancel}
 		>
 			<div className="flex flex-col gap-4">
 				<div className="flex flex-col gap-2">

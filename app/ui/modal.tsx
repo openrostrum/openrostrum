@@ -20,7 +20,7 @@ export function Modal({
 	const titleId = useId();
 	if (!open) return null;
 	return (
-		<DialogSurface labelledBy={titleId}>
+		<DialogSurface labelledBy={titleId} onDismiss={onClose}>
 			<div className="flex flex-col gap-4">
 				<div className="flex items-start justify-between gap-4">
 					<div>

@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import { useState } from "react";
 import { Icon } from "~/ui";
 
@@ -20,7 +21,9 @@ export function FilePicker({
 }) {
 	const [fileName, setFileName] = useState<string | null>(null);
 	return (
-		<label className="flex cursor-pointer flex-col items-center gap-1 rounded-card border border-dashed border-hair-strong px-4 py-5 text-center transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-chip focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-petrol">
+		<label
+			className={`flex cursor-pointer flex-col items-center gap-1 rounded-card border border-dashed border-hair-strong px-4 py-5 text-center transition-colors ${MOTION_FEEDBACK} hover:bg-chip focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-petrol`}
+		>
 			<input
 				type="file"
 				name={name}

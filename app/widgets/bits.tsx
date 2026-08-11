@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import { type ReactNode, useState } from "react";
 import { Avatar, ButtonLink, Icon } from "~/ui";
 import { cn } from "~/ui/cn";
@@ -200,8 +201,8 @@ export function MetaRow({
 
 const STAR_BASE = cn(
 	"flex h-8 w-8 shrink-0 items-center justify-center rounded-control",
-	"transition-[background-color,color,transform] [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)]",
-	"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
+	`transition-[background-color,color,transform] ${MOTION_FEEDBACK}`,
+	"active:scale-[0.97] motion-reduce:active:scale-100",
 	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 );
 

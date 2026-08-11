@@ -18,7 +18,7 @@ Petrol appears in exactly five jobs — wayfinding (active nav icon, active tab 
 | `petrol` / `petrol-hover` / `petrol-wash` | `#0E6C66` / `#0A5750` / `#E4F0EE` | `#2FBFAD` / `#46D6C4` / `rgba(47,191,173,.13)` | the one accent (see the law) |
 | `row-hover` / `row-selected` | fg-alpha / petrol-alpha | white-alpha / petrol-alpha | table states |
 | `ink` / `on-ink` | `#171A19` / `#FFFFFF` | `#EDF1F0` / `#171B1A` | primary button (inverts across themes) |
-| `danger` | `#D5163F` | `#F47C95` | errors, destructive |
+| `danger` / `overlay` | `#D5163F` / black 42% | `#F47C95` / black 58% | errors, destructive / modal backdrop |
 | `radius-control/card/shell` | 7 / 10 / 12px | same | shape scale |
 | `shadow-card/btn/control` | stacked alpha shadows | deeper | depth: hairline ring + two soft layers, never a single hard border |
 
@@ -44,7 +44,7 @@ An ink letter **O standing on a petrol platform** — the name drawn literally: 
 ## States
 
 - **Focus**: `outline: 2px petrol, offset 2px` on every interactive primitive — the offset keeps the ring against the page ground where it passes 3:1 in both themes.
-- **Hover**: background/color shifts only, 120–150ms ease-out. **Press**: `scale(0.97)`, 160ms, `motion-reduce` exempt.
+- **Hover/press**: background/color/scale feedback only, 120ms responsive ease; press uses `scale(0.97)` and is `motion-reduce` exempt.
 - **Disabled**: `chip` background + `fg-faint` text — a token, never an opacity.
 - **Selected row**: wash + ONE 2px petrol rule on the leading cell only (a per-cell shadow leaks ticks at every column boundary).
 - **Empty states** say why and what to do next (`EmptyState`); **loading** holds the page shape (`SkeletonRows`), never a spinner for lists.
@@ -52,8 +52,8 @@ An ink letter **O standing on a petrol platform** — the name drawn literally: 
 
 ## Primitive inventory (`app/ui`)
 
-`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` · `SearchInput` · `TextLink` · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState` · `Skeleton`/`SkeletonRows` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Mark`/`Wordmark`. New primitive = integration-owner request, like a schema column.
+`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` · `SearchInput` · `TextLink` · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState` · `Skeleton`/`SkeletonRows` · `MotionReveal`/`PopoverSurface`/`DialogSurface` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Mark`/`Wordmark`. New primitive = integration-owner request, like a schema column.
 
 ## Motion law
 
-Vendored skill [`emil-design-eng`](../../.agents/skills/emil-design-eng/SKILL.md): ease-out for enter/exit (never ease-in), UI under 300ms, never animate keyboard-initiated actions, `prefers-reduced-motion` respected. Currently in use: hover transitions + press feedback only.
+Vendored skill [`emil-design-eng`](../../.agents/skills/emil-design-eng/SKILL.md): ease-out for enter/exit (never ease-in), UI under 300ms, never animate keyboard-initiated actions, `prefers-reduced-motion` respected. In use: 120ms parallel hover/press feedback; 180ms opacity/individual translate/individual scale entry for occasional pointer-opened reveals, popovers, and dialogs. A shared `keydown`/`pointerdown` modality tracker snapshots how each surface was opened, so keyboard-opened entry mounts in its final state; reduced-motion entry and feedback are always static. Navigation, validation, loading truth, direct manipulation, data updates, and unmount/close remain immediate.

@@ -1,5 +1,19 @@
-import type { ReactNode, Ref } from "react";
+import {
+	type ComponentPropsWithoutRef,
+	type ElementType,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { cn } from "./cn";
+import {
+	focusDialogInitial,
+	handleDialogKeyDown,
+	restoreDialogFocus,
+} from "./dialog-focus";
+
+export { MOTION_FEEDBACK } from "./motion-classes";
 
 const ENTER = cn(
 	"transition-[opacity,translate,scale]",
@@ -8,9 +22,38 @@ const ENTER = cn(
 	"motion-reduce:transition-none",
 );
 
+let lastInputWasKeyboard = false;
+
+if (typeof document !== "undefined") {
+	document.addEventListener(
+		"pointerdown",
+		() => {
+			lastInputWasKeyboard = false;
+		},
+		true,
+	);
+	document.addEventListener(
+		"keydown",
+		() => {
+			lastInputWasKeyboard = true;
+		},
+		true,
+	);
+}
+
+function useEntryMotion() {
+	const [animate] = useState(() => !lastInputWasKeyboard);
+	return animate;
+}
+
+const STARTING_FADE = cn(
+	"starting:opacity-0",
+	"motion-reduce:starting:opacity-100",
+);
+
 const STARTING_REVEAL = cn(
-	"starting:translate-y-0.5 starting:opacity-0",
-	"motion-reduce:starting:translate-y-0 motion-reduce:starting:opacity-100",
+	STARTING_FADE,
+	"starting:translate-y-0.5 motion-reduce:starting:translate-y-0",
 );
 
 export function MotionReveal({
@@ -20,7 +63,8 @@ export function MotionReveal({
 	children: ReactNode;
 	kind?: "panel" | "feedback";
 }) {
-	const className = cn(ENTER, STARTING_REVEAL);
+	const animate = useEntryMotion();
+	const className = animate ? cn(ENTER, STARTING_REVEAL) : undefined;
 	return kind === "feedback" ? (
 		<span className={cn("inline-flex", className)}>{children}</span>
 	) : (
@@ -31,6 +75,11 @@ export function MotionReveal({
 const SIDE = {
 	top: "bottom-full mb-[6px]",
 	bottom: "top-full mt-[6px]",
+} as const;
+
+const STARTING_OFFSET = {
+	top: "starting:translate-y-0.5 motion-reduce:starting:translate-y-0",
+	bottom: "starting:-translate-y-0.5 motion-reduce:starting:translate-y-0",
 } as const;
 
 const ALIGN = {
@@ -58,34 +107,75 @@ const WIDTH = {
 	trigger: "w-full",
 } as const;
 
+const PADDING = {
+	none: "",
+	menu: "py-1",
+} as const;
+
 type PopoverSurfaceOptions = {
 	side: keyof typeof SIDE;
 	align?: keyof typeof ALIGN;
 	width?: keyof typeof WIDTH;
+	padding?: keyof typeof PADDING;
 };
 
-export function popoverSurfaceClassName({
-	side,
-	align = "start",
-	width = "sm",
-}: PopoverSurfaceOptions): string {
+type PopoverSurfaceProps<T extends ElementType> = PopoverSurfaceOptions & {
+	as?: T;
+	children: ReactNode;
+} & Omit<
+		ComponentPropsWithoutRef<T>,
+		keyof PopoverSurfaceOptions | "as" | "children" | "className" | "style"
+	>;
+
+function popoverSurfaceClassName(
+	{
+		side,
+		align = "start",
+		width = "sm",
+		padding = "none",
+	}: PopoverSurfaceOptions,
+	animate: boolean,
+): string {
 	return cn(
 		"absolute z-30 flex flex-col overflow-hidden rounded-card bg-surface shadow-card",
 		SIDE[side],
 		ALIGN[align],
 		ORIGIN[side][align],
 		WIDTH[width],
-		ENTER,
-		"starting:translate-y-0.5 starting:scale-[0.98] starting:opacity-0",
-		"motion-reduce:starting:translate-y-0 motion-reduce:starting:scale-100 motion-reduce:starting:opacity-100",
+		PADDING[padding],
+		animate && [
+			ENTER,
+			STARTING_FADE,
+			STARTING_OFFSET[side],
+			"starting:scale-[0.98] motion-reduce:starting:scale-100",
+		],
 	);
 }
 
-export function PopoverSurface({
-	children,
-	...options
-}: { children: ReactNode } & PopoverSurfaceOptions) {
-	return <div className={popoverSurfaceClassName(options)}>{children}</div>;
+export function PopoverSurface<T extends ElementType = "div">({
+	as,
+	side,
+	align,
+	width,
+	padding,
+	...props
+}: PopoverSurfaceProps<T>) {
+	const animate = useEntryMotion();
+	const Component = (as ?? "div") as ElementType;
+	return (
+		<Component
+			{...props}
+			className={popoverSurfaceClassName(
+				{
+					side,
+					align,
+					width,
+					padding,
+				},
+				animate,
+			)}
+		/>
+	);
 }
 
 const DIALOG_SIZE = {
@@ -94,6 +184,50 @@ const DIALOG_SIZE = {
 	lg: "max-w-4xl",
 } as const;
 
+const FOCUSABLE =
+	'button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function useDialogFocus(onDismiss: (() => void) | undefined) {
+	const panelRef = useRef<HTMLDivElement>(null);
+	const dismissRef = useRef(onDismiss);
+
+	useEffect(() => {
+		dismissRef.current = onDismiss;
+	}, [onDismiss]);
+
+	useEffect(() => {
+		const panel = panelRef.current;
+		if (!panel) return;
+		const previous =
+			document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+		const focusable = () =>
+			Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+		focusDialogInitial(panel, focusable());
+
+		const onKeyDown = (event: KeyboardEvent) => {
+			const panel = panelRef.current;
+			if (!panel) return;
+			handleDialogKeyDown({
+				event,
+				panel,
+				candidates: focusable(),
+				active: document.activeElement,
+				onDismiss: dismissRef.current,
+			});
+		};
+
+		document.addEventListener("keydown", onKeyDown);
+		return () => {
+			document.removeEventListener("keydown", onKeyDown);
+			if (previous) restoreDialogFocus(previous);
+		};
+	}, []);
+
+	return panelRef;
+}
+
 export function DialogSurface({
 	children,
 	role = "dialog",
@@ -101,7 +235,7 @@ export function DialogSurface({
 	ariaLabel,
 	labelledBy,
 	describedBy,
-	panelRef,
+	onDismiss,
 }: {
 	children: ReactNode;
 	role?: "dialog" | "alertdialog";
@@ -109,19 +243,24 @@ export function DialogSurface({
 	ariaLabel?: string;
 	labelledBy?: string;
 	describedBy?: string;
-	panelRef?: Ref<HTMLDivElement>;
+	onDismiss?: () => void;
 }) {
+	const animate = useEntryMotion();
+	const panelRef = useDialogFocus(onDismiss);
 	return (
 		<div
 			className={cn(
-				"fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.42)] p-4",
-				"transition-opacity [transition-duration:var(--motion-duration-enter)] [transition-timing-function:var(--ease-gallery-settle)]",
-				"starting:opacity-0 motion-reduce:transition-none motion-reduce:starting:opacity-100",
+				"fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4",
+				animate && [
+					"transition-opacity [transition-duration:var(--motion-duration-enter)] [transition-timing-function:var(--ease-gallery-settle)]",
+					"starting:opacity-0 motion-reduce:transition-none motion-reduce:starting:opacity-100",
+				],
 			)}
 			role="presentation"
 		>
 			<div
 				ref={panelRef}
+				tabIndex={-1}
 				role={role}
 				aria-modal="true"
 				aria-label={ariaLabel}
@@ -130,8 +269,10 @@ export function DialogSurface({
 				className={cn(
 					"flex max-h-[92vh] w-full flex-col overflow-y-auto rounded-card bg-surface p-5 shadow-card",
 					DIALOG_SIZE[size],
-					"transition-scale [transition-duration:var(--motion-duration-enter)] [transition-timing-function:var(--ease-gallery-settle)]",
-					"starting:scale-[0.97] motion-reduce:transition-none motion-reduce:starting:scale-100",
+					animate && [
+						"transition-[scale] [transition-duration:var(--motion-duration-enter)] [transition-timing-function:var(--ease-gallery-settle)]",
+						"starting:scale-[0.97] motion-reduce:transition-none motion-reduce:starting:scale-100",
+					],
 				)}
 			>
 				{children}

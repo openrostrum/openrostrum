@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { data, Form, useOutlet } from "react-router";
 import { and, desc, eq, gt, isNull, like, lte, or, sql } from "drizzle-orm";
 import { getDb } from "~/db";
@@ -300,18 +300,12 @@ function DeleteFormDialog({
 	onCancel: () => void;
 }) {
 	const busy = useBusy();
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onCancel();
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [onCancel]);
 	return (
 		<DialogSurface
 			role="alertdialog"
 			size="sm"
 			ariaLabel={`Delete ${form.internalName}`}
+			onDismiss={onCancel}
 		>
 			<div className="flex flex-col gap-3">
 				<strong>Delete “{form.internalName}”?</strong>

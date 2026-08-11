@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button } from "./button";
 import { MotionReveal } from "./motion";
 
@@ -27,13 +27,25 @@ export function ConfirmButton({
 	children?: ReactNode;
 }) {
 	const [arming, setArming] = useState(false);
+	const revealRef = useRef<HTMLDivElement>(null);
+	const keyboardArmRef = useRef(false);
+
+	useEffect(() => {
+		if (arming && keyboardArmRef.current) {
+			revealRef.current?.querySelector("button")?.focus();
+		}
+	}, [arming]);
+
 	if (!arming) {
 		return (
 			<Button
 				type="button"
 				variant={variant}
 				disabled={disabled}
-				onClick={() => setArming(true)}
+				onClick={(event) => {
+					keyboardArmRef.current = event.detail === 0;
+					setArming(true);
+				}}
 			>
 				{label}
 			</Button>
@@ -41,7 +53,7 @@ export function ConfirmButton({
 	}
 	return (
 		<MotionReveal>
-			<div className="flex flex-wrap items-center gap-2">
+			<div ref={revealRef} className="flex flex-wrap items-center gap-2">
 				<span className="text-[12.5px] text-fg-muted">{prompt}</span>
 				{children}
 				<Button type="submit" name={name} value={value} disabled={disabled}>

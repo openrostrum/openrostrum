@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Icon, Wordmark } from "~/ui";
@@ -19,7 +20,7 @@ const H2 =
 	"font-display text-[clamp(1.6rem,3vw,2.2rem)] font-semibold leading-[1.12] tracking-[-0.015em] text-balance text-fg";
 const LEAD = "max-w-[40rem] text-[15.5px] leading-relaxed text-fg-muted";
 const NAV_LINK = cn(
-	"rounded text-[13.5px] font-medium text-fg-muted transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:text-fg",
+	`rounded text-[13.5px] font-medium text-fg-muted transition-colors ${MOTION_FEEDBACK} hover:text-fg`,
 	FOCUS_RING,
 );
 
@@ -241,7 +242,7 @@ function PublicPages() {
 							key={page.to}
 							to={page.to}
 							className={cn(
-								"group flex flex-col gap-1.5 rounded-card border border-hair bg-surface p-5 shadow-card transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-chip",
+								`group flex flex-col gap-1.5 rounded-card border border-hair bg-surface p-5 shadow-card transition-colors ${MOTION_FEEDBACK} hover:bg-chip`,
 								FOCUS_RING,
 							)}
 						>
@@ -249,7 +250,7 @@ function PublicPages() {
 								{page.label}
 								<span
 									aria-hidden="true"
-									className="text-fg-faint transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none group-hover:text-petrol"
+									className={`text-fg-faint transition-colors ${MOTION_FEEDBACK} group-hover:text-petrol`}
 								>
 									→
 								</span>

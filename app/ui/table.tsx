@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "./motion-classes";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { cn } from "./cn";
 
@@ -39,7 +40,7 @@ export function Tr({ selected, interactive, children, ...props }: TrProps) {
 		<tr
 			{...props}
 			className={cn(
-				"transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-row-hover",
+				`transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover`,
 				interactive && "cursor-pointer",
 				// Selection = wash + ONE 2px petrol rule on the leading edge only
 				// (a per-cell shadow leaks ticks at every column boundary).

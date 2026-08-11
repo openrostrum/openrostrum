@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import {
 	type ComponentPropsWithoutRef,
 	lazy,
@@ -373,17 +374,14 @@ export function ConfirmDialog({
 	confirm: ReactNode;
 	onCancel: () => void;
 }) {
-	useEffect(() => {
-		if (!open) return;
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onCancel();
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [open, onCancel]);
 	if (!open) return null;
 	return (
-		<DialogSurface role="alertdialog" size="sm" ariaLabel={title}>
+		<DialogSurface
+			role="alertdialog"
+			size="sm"
+			ariaLabel={title}
+			onDismiss={onCancel}
+		>
 			<div className="flex flex-col gap-3">
 				<h2 className="font-display text-[16px] font-semibold text-fg">
 					{title}
@@ -439,9 +437,9 @@ export function AnchorButton({
 		<a
 			href={href}
 			className={cn(
-				"inline-flex h-[34px] items-center gap-[7px] rounded-control bg-ink px-[15px] text-[13px] font-medium text-on-ink shadow-btn transition-[background-color,transform] [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)]",
+				`inline-flex h-[34px] items-center gap-[7px] rounded-control bg-ink px-[15px] text-[13px] font-medium text-on-ink shadow-btn transition-[background-color,transform] ${MOTION_FEEDBACK}`,
 				"hover:bg-ink-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
-				"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
+				"active:scale-[0.97] motion-reduce:active:scale-100",
 			)}
 		>
 			{children}

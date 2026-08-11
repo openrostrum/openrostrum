@@ -66,6 +66,7 @@
 	--color-ink-hover: light-dark(#2a2f2e, #dbe1df);
 	--color-on-ink: light-dark(#ffffff, #171b1a);
 	--color-danger: light-dark(#d5163f, #f47c95);
+	--color-overlay: light-dark(rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.58));
 
 	--radius-control: 7px;
 	--radius-card: 10px;

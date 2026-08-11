@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import { useRef, useState } from "react";
 import { Form, Link } from "react-router";
 import { useBusy } from "~/lib/use-busy";
@@ -39,8 +40,8 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 				onClick={() => setOpen((o) => !o)}
 				className={cn(
 					"flex w-full items-center gap-[10px] rounded-control bg-surface px-[10px] py-[6px] text-left shadow-control",
-					"transition-[background-color,transform] [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] hover:bg-chip",
-					"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
+					`transition-[background-color,transform] ${MOTION_FEEDBACK} hover:bg-chip`,
+					"active:scale-[0.97] motion-reduce:active:scale-100",
 					"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 				)}
 			>
@@ -71,7 +72,7 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 										onClick={() => setOpen(false)}
 										className={cn(
 											"group flex w-full flex-col items-start px-[12px] py-[6px] text-left",
-											"transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-row-hover disabled:bg-chip",
+											`transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover disabled:bg-chip`,
 											"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
 											event.isCurrent &&
 												"bg-row-selected shadow-[inset_2px_0_0_var(--color-petrol)]",
@@ -99,7 +100,7 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 							onClick={() => setOpen(false)}
 							className={cn(
 								"flex h-[34px] items-center gap-[10px] rounded-control px-[10px] text-[13.5px] font-medium text-fg-muted",
-								"transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-row-hover hover:text-fg",
+								`transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover hover:text-fg`,
 								"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 							)}
 						>
