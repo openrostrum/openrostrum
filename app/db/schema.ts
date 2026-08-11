@@ -1463,6 +1463,10 @@ export const emailOutbox = sqliteTable(
 		status: text("status", { enum: EMAIL_STATUS }).notNull().default("queued"),
 		error: text("error"),
 		providerId: text("provider_id"), // Resend id once really sent (prod)
+		sendClaimId: text("send_claim_id"),
+		sendClaimExpiresAt: integer("send_claim_expires_at", {
+			mode: "timestamp",
+		}),
 		createdAt: createdAt(),
 		sentAt: integer("sent_at", { mode: "timestamp" }),
 	},
@@ -1517,6 +1521,18 @@ export const calendarInviteProcessedOutbox = sqliteTable(
 		processedAt: integer("processed_at", { mode: "timestamp" })
 			.notNull()
 			.$defaultFn(() => new Date()),
+	},
+);
+
+export const calendarInviteSequenceFrontiers = sqliteTable(
+	"calendar_invite_sequence_frontiers",
+	{
+		submissionId: text("submission_id")
+			.primaryKey()
+			.references(() => submissions.id, { onDelete: "cascade" }),
+		sequence: integer("sequence").notNull(),
+		stateHash: text("state_hash").notNull(),
+		updatedAt: updatedAt(),
 	},
 );
 

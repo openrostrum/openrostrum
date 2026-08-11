@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "~/db";
 import { emailOutbox, emailSuppressions } from "~/db/schema";
 import { errorMessage } from "~/lib/errors";
@@ -113,6 +113,18 @@ function withSuppression(env: Env, sender: EmailSender): EmailSender {
 }
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
+const SEND_CLAIM_LEASE_MS = 5 * 60 * 1000;
+
+function createSendClaim(now = Date.now()): { id: string; expiresAt: Date } {
+	return {
+		id: crypto.randomUUID(),
+		expiresAt: new Date(now + SEND_CLAIM_LEASE_MS),
+	};
+}
+
+function sendClaimIsActive(expiresAt: Date | null, now = Date.now()): boolean {
+	return expiresAt !== null && expiresAt.getTime() > now;
+}
 
 /** base64 of a UTF-8 string — btoa alone corrupts non-Latin1 bytes. */
 function base64Utf8(s: string): string {
@@ -146,6 +158,7 @@ export function createResendEmailSender(env: Env): EmailSender {
 	const db = getDb(env);
 	return {
 		async send(msg) {
+			const sendClaim = createSendClaim();
 			// 1. Claim the outbox row. A dedupeKey conflict means a prior attempt
 			// exists: already sent/bounced → done (idempotent), failed/queued →
 			// retry on the SAME row so history shows one attempt per key.
@@ -161,6 +174,8 @@ export function createResendEmailSender(env: Env): EmailSender {
 					eventId: msg.eventId ?? null,
 					templateId: msg.templateId ?? null,
 					status: "queued",
+					sendClaimId: sendClaim.id,
+					sendClaimExpiresAt: sendClaim.expiresAt,
 				})
 				.onConflictDoNothing({ target: emailOutbox.dedupeKey })
 				.returning({ id: emailOutbox.id });
@@ -173,6 +188,8 @@ export function createResendEmailSender(env: Env): EmailSender {
 								id: emailOutbox.id,
 								status: emailOutbox.status,
 								providerId: emailOutbox.providerId,
+								sendClaimId: emailOutbox.sendClaimId,
+								sendClaimExpiresAt: emailOutbox.sendClaimExpiresAt,
 							})
 							.from(emailOutbox)
 							.where(eq(emailOutbox.dedupeKey, msg.dedupeKey))
@@ -188,7 +205,42 @@ export function createResendEmailSender(env: Env): EmailSender {
 						suppressed: false,
 					};
 				}
-				outboxId = existing.id;
+				if (
+					existing.status === "queued" &&
+					sendClaimIsActive(existing.sendClaimExpiresAt)
+				) {
+					return {
+						id: existing.id,
+						deduped: true,
+						suppressed: false,
+					};
+				}
+				const [claimed] = await db
+					.update(emailOutbox)
+					.set({
+						status: "queued",
+						error: null,
+						sendClaimId: sendClaim.id,
+						sendClaimExpiresAt: sendClaim.expiresAt,
+					})
+					.where(
+						and(
+							eq(emailOutbox.id, existing.id),
+							eq(emailOutbox.status, existing.status),
+							existing.sendClaimId === null
+								? isNull(emailOutbox.sendClaimId)
+								: eq(emailOutbox.sendClaimId, existing.sendClaimId),
+						),
+					)
+					.returning({ id: emailOutbox.id });
+				if (!claimed) {
+					return {
+						id: existing.id,
+						deduped: true,
+						suppressed: false,
+					};
+				}
+				outboxId = claimed.id;
 			}
 
 			// 2. The provider call — success and failure both land on the row.
@@ -238,15 +290,32 @@ export function createResendEmailSender(env: Env): EmailSender {
 						providerId: data.id,
 						sentAt: new Date(),
 						error: null,
+						sendClaimId: null,
+						sendClaimExpiresAt: null,
 					})
-					.where(eq(emailOutbox.id, outboxId));
+					.where(
+						and(
+							eq(emailOutbox.id, outboxId),
+							eq(emailOutbox.sendClaimId, sendClaim.id),
+						),
+					);
 				return { id: data.id, deduped: false, suppressed: false };
 			} catch (error) {
 				const reason = errorMessage(error);
 				await db
 					.update(emailOutbox)
-					.set({ status: "failed", error: reason })
-					.where(eq(emailOutbox.id, outboxId));
+					.set({
+						status: "failed",
+						error: reason,
+						sendClaimId: null,
+						sendClaimExpiresAt: null,
+					})
+					.where(
+						and(
+							eq(emailOutbox.id, outboxId),
+							eq(emailOutbox.sendClaimId, sendClaim.id),
+						),
+					);
 				track("email.send_failed", {
 					outboxId,
 					eventId: msg.eventId,

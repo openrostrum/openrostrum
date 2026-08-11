@@ -1,6 +1,7 @@
 import {
 	and,
 	asc,
+	desc,
 	eq,
 	inArray,
 	isNotNull,
@@ -13,6 +14,7 @@ import type { Db } from "~/db";
 import {
 	calendarInviteProcessedOutbox,
 	calendarInviteRevisions,
+	calendarInviteSequenceFrontiers,
 	emailOutbox,
 	type events,
 	rooms,
@@ -71,6 +73,9 @@ const OUTBOX_NORMALIZE_PAGE = 200;
 const D1_QUERY_CHUNK = 80;
 const ATTEMPT_INSERT_CHUNK = 8;
 const MARKER_INSERT_CHUNK = 25;
+// Reserve 400 D1 statements for change detection, delivery, and post-send
+// normalization that share the same Worker request.
+const NORMALIZATION_STATEMENT_BUDGET = 600;
 
 const NORMALIZATION_COLUMNS = {
 	id: emailOutbox.id,
@@ -94,6 +99,41 @@ type ParsedNormalizationRow = NormalizationRow & {
 	associatedSubmissionIds: Set<string>;
 	icsEventCount: number;
 };
+
+function chunkCount(rows: number, chunkSize: number): number {
+	return Math.ceil(rows / chunkSize);
+}
+
+function normalizationStatementUpperBound(
+	rows: readonly ParsedNormalizationRow[],
+): number {
+	const associatedSubmissionIds = new Set<string>();
+	let attemptUpperBound = 0;
+	for (const row of rows) {
+		attemptUpperBound += row.associatedSubmissionIds.size;
+		for (const submissionId of row.associatedSubmissionIds) {
+			associatedSubmissionIds.add(submissionId);
+		}
+	}
+	return (
+		chunkCount(associatedSubmissionIds.size, D1_QUERY_CHUNK) +
+		chunkCount(attemptUpperBound, ATTEMPT_INSERT_CHUNK) +
+		chunkCount(rows.length, MARKER_INSERT_CHUNK)
+	);
+}
+
+function normalizationPrefixWithinBudget(
+	rows: readonly ParsedNormalizationRow[],
+	statementBudget: number,
+): ParsedNormalizationRow[] {
+	for (let length = rows.length; length > 0; length -= 1) {
+		const prefix = rows.slice(0, length);
+		if (normalizationStatementUpperBound(prefix) <= statementBudget) {
+			return prefix;
+		}
+	}
+	return [];
+}
 
 type InviteBaseline = {
 	start: Date;
@@ -173,7 +213,7 @@ async function normalizedInviteStateHash(
 	eventId: string,
 	submissionId: string,
 	to: string,
-	invite: ParsedIcsEvent,
+	invite: Pick<ParsedIcsEvent, "start" | "end" | "location" | "title">,
 ): Promise<string> {
 	return sha256Hex(
 		JSON.stringify({
@@ -337,7 +377,10 @@ export async function normalizeCalendarInviteHistory(
 	db: Db,
 	eventId: string,
 ): Promise<void> {
-	while (true) {
+	let remainingStatements = NORMALIZATION_STATEMENT_BUDGET;
+	while (remainingStatements > 1) {
+		// The page read itself consumes one D1 statement.
+		remainingStatements -= 1;
 		const page = await db
 			.select(NORMALIZATION_COLUMNS)
 			.from(emailOutbox)
@@ -360,8 +403,14 @@ export async function normalizeCalendarInviteHistory(
 		if (page.length === 0) return;
 
 		const parsedPage = parseNormalizationRows(page);
+		const parsed = normalizationPrefixWithinBudget(
+			parsedPage,
+			remainingStatements,
+		);
+		if (parsed.length === 0) return;
+		remainingStatements -= normalizationStatementUpperBound(parsed);
 		const associatedIds = [
-			...new Set(parsedPage.flatMap((row) => [...row.associatedSubmissionIds])),
+			...new Set(parsed.flatMap((row) => [...row.associatedSubmissionIds])),
 		];
 		const validSubmissionIds = await eventSubmissionIds(
 			db,
@@ -372,7 +421,7 @@ export async function normalizeCalendarInviteHistory(
 		const markers: ProcessedOutboxInsert[] = [];
 		const processedAt = new Date();
 
-		for (const row of parsedPage) {
+		for (const row of parsed) {
 			const normalized = await normalizationAttemptsForRow(
 				row,
 				eventId,
@@ -389,6 +438,7 @@ export async function normalizeCalendarInviteHistory(
 
 		await insertNormalizationAttempts(db, attempts);
 		await insertProcessedOutboxMarkers(db, markers);
+		if (parsed.length < parsedPage.length) return;
 	}
 }
 
@@ -462,7 +512,7 @@ async function trackedSubmissionIds(
 						calendarInviteRevisions.submissionId,
 						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
 					),
-					inArray(emailOutbox.status, ["sent", "bounced"]),
+					eq(calendarInviteRevisions.invalid, false),
 				),
 			);
 		for (const row of rows) tracked.add(row.submissionId);
@@ -743,6 +793,199 @@ function updateEmailHtml(
 	].join("");
 }
 
+type AttemptFrontier = { sequence: number; stateHash: string };
+
+async function currentInviteStateHashes(
+	db: Db,
+	event: EventRow,
+	changes: readonly ScheduleChange[],
+): Promise<Map<string, string>> {
+	const submissionIds = [
+		...new Set(changes.map((change) => change.submissionId)),
+	];
+	const currentRows: {
+		id: string;
+		title: string;
+		startsAt: Date | null;
+		endsAt: Date | null;
+		roomId: string | null;
+	}[] = [];
+	for (
+		let offset = 0;
+		offset < submissionIds.length;
+		offset += D1_QUERY_CHUNK
+	) {
+		currentRows.push(
+			...(await db
+				.select({
+					id: submissions.id,
+					title: submissions.title,
+					startsAt: submissions.startsAt,
+					endsAt: submissions.endsAt,
+					roomId: submissions.roomId,
+				})
+				.from(submissions)
+				.where(
+					and(
+						eq(submissions.eventId, event.id),
+						eq(submissions.status, "accepted"),
+						isNotNull(submissions.notifiedAt),
+						isNull(submissions.parentId),
+						inArray(
+							submissions.id,
+							submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
+						),
+					),
+				)),
+		);
+	}
+	const roomIds = [
+		...new Set(
+			currentRows
+				.map((row) => row.roomId)
+				.filter((roomId): roomId is string => roomId !== null),
+		),
+	];
+	const roomNames = new Map<string, string>();
+	for (let offset = 0; offset < roomIds.length; offset += D1_QUERY_CHUNK) {
+		const rows = await db
+			.select({ id: rooms.id, name: rooms.name })
+			.from(rooms)
+			.where(inArray(rooms.id, roomIds.slice(offset, offset + D1_QUERY_CHUNK)));
+		for (const row of rows) roomNames.set(row.id, row.name);
+	}
+	const recipients = await inviteRecipients(db, submissionIds);
+	const hashes = new Map<string, string>();
+	for (const row of currentRows) {
+		const to = recipients.get(row.id);
+		const invite = inviteForSubmission(
+			row,
+			event,
+			row.roomId ? roomNames.get(row.roomId) : undefined,
+		);
+		if (!to || !invite) continue;
+		hashes.set(
+			row.id,
+			await normalizedInviteStateHash(event.id, row.id, to, invite),
+		);
+	}
+	return hashes;
+}
+
+async function latestAttemptFrontiers(
+	db: Db,
+	submissionIds: readonly string[],
+): Promise<Map<string, AttemptFrontier>> {
+	const frontiers = new Map<string, AttemptFrontier>();
+	for (
+		let offset = 0;
+		offset < submissionIds.length;
+		offset += D1_QUERY_CHUNK
+	) {
+		const rows = await db
+			.select({
+				submissionId: calendarInviteRevisions.submissionId,
+				sequence: calendarInviteRevisions.sequence,
+				stateHash: calendarInviteRevisions.stateHash,
+			})
+			.from(calendarInviteRevisions)
+			.innerJoin(
+				emailOutbox,
+				eq(emailOutbox.id, calendarInviteRevisions.outboxId),
+			)
+			.where(
+				and(
+					inArray(
+						calendarInviteRevisions.submissionId,
+						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
+					),
+					inArray(emailOutbox.status, ["sent", "queued", "failed"]),
+					eq(calendarInviteRevisions.invalid, false),
+					isNotNull(calendarInviteRevisions.sequence),
+				),
+			)
+			.orderBy(
+				desc(calendarInviteRevisions.sequence),
+				desc(calendarInviteRevisions.createdAt),
+				desc(calendarInviteRevisions.id),
+			);
+		for (const row of rows) {
+			if (row.sequence === null || frontiers.has(row.submissionId)) continue;
+			frontiers.set(row.submissionId, {
+				sequence: row.sequence,
+				stateHash: row.stateHash,
+			});
+		}
+	}
+	return frontiers;
+}
+
+async function claimScheduleSequences(
+	db: Db,
+	event: EventRow,
+	changes: readonly ScheduleChange[],
+): Promise<ScheduleChange[]> {
+	if (changes.length === 0) return [];
+	const [priorFrontiers, currentStateHashes] = await Promise.all([
+		latestAttemptFrontiers(
+			db,
+			changes.map((change) => change.submissionId),
+		),
+		currentInviteStateHashes(db, event, changes),
+	]);
+	const claimed: ScheduleChange[] = [];
+	const claimedStateHashes = new Map<string, string>();
+
+	for (const change of changes) {
+		if (change.to === null) continue;
+		const stateHash = await normalizedInviteStateHash(
+			event.id,
+			change.submissionId,
+			change.to,
+			change.invite,
+		);
+		if (currentStateHashes.get(change.submissionId) !== stateHash) continue;
+		const prior = priorFrontiers.get(change.submissionId);
+		const proposedSequence =
+			prior?.stateHash === stateHash
+				? prior.sequence
+				: Math.max(change.nextSequence, (prior?.sequence ?? -1) + 1);
+		const [frontier] = await db
+			.insert(calendarInviteSequenceFrontiers)
+			.values({
+				submissionId: change.submissionId,
+				sequence: proposedSequence,
+				stateHash,
+			})
+			.onConflictDoUpdate({
+				target: calendarInviteSequenceFrontiers.submissionId,
+				set: {
+					sequence: sql<number>`case
+						when ${calendarInviteSequenceFrontiers.stateHash} = excluded.state_hash
+							then max(${calendarInviteSequenceFrontiers.sequence}, excluded.sequence)
+						else max(${calendarInviteSequenceFrontiers.sequence} + 1, excluded.sequence)
+					end`,
+					stateHash: sql`excluded.state_hash`,
+					updatedAt: new Date(),
+				},
+			})
+			.returning({ sequence: calendarInviteSequenceFrontiers.sequence });
+		if (!frontier) throw new Error("Calendar sequence claim returned no row");
+		claimed.push({ ...change, nextSequence: frontier.sequence });
+		claimedStateHashes.set(change.submissionId, stateHash);
+	}
+
+	// A schedule can move after the pre-claim snapshot. Re-read after every claim:
+	// if a newer state claimed first, this drops the stale higher sequence; if the
+	// move happens later, its claim necessarily receives the higher sequence.
+	const latestStateHashes = await currentInviteStateHashes(db, event, claimed);
+	return claimed.filter(
+		(change) =>
+			latestStateHashes.get(change.submissionId) ===
+			claimedStateHashes.get(change.submissionId),
+	);
+}
+
 /**
  * One message per normalized recipient, with all changed VEVENTs attached.
  * The semantic-state hash dedupes concurrent requests and replays without
@@ -762,7 +1005,7 @@ export async function sendScheduleUpdates(
 		remaining: 0,
 	};
 	type RecipientGroup = { to: string; items: ScheduleChange[] };
-	const byRecipient = new Map<string, RecipientGroup>();
+	const sendable: ScheduleChange[] = [];
 	for (const change of [...changes].sort((a, b) =>
 		a.submissionId.localeCompare(b.submissionId),
 	)) {
@@ -772,6 +1015,12 @@ export async function sendScheduleUpdates(
 			result.failed += 1;
 			continue;
 		}
+		sendable.push(change);
+	}
+
+	const byRecipient = new Map<string, RecipientGroup>();
+	for (const change of await claimScheduleSequences(db, event, sendable)) {
+		if (change.to === null) continue;
 		const identity = normalizeEmail(change.to);
 		const group = byRecipient.get(identity);
 		if (group) group.items.push(change);

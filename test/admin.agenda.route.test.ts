@@ -774,21 +774,33 @@ function keynoteIcs(options: {
 
 describe("schedule-update emails (stale speaker calendars)", () => {
 	it("calendar invite ledger preserves immutable outbox attempts and processed markers", async () => {
-		const [revisionColumns, revisionIndexes, markerColumns, cursorTable] =
-			await Promise.all([
-				env.DB.prepare(
-					"SELECT name FROM pragma_table_info('calendar_invite_revisions')",
-				).all<{ name: string }>(),
-				env.DB.prepare(
-					"SELECT name, \"unique\" AS is_unique FROM pragma_index_list('calendar_invite_revisions')",
-				).all<{ name: string; is_unique: number }>(),
-				env.DB.prepare(
-					"SELECT name FROM pragma_table_info('calendar_invite_processed_outbox')",
-				).all<{ name: string }>(),
-				env.DB.prepare(
-					"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'calendar_invite_ledger_cursors'",
-				).first<{ name: string }>(),
-			]);
+		const [
+			revisionColumns,
+			revisionIndexes,
+			markerColumns,
+			frontierColumns,
+			outboxColumns,
+			cursorTable,
+		] = await Promise.all([
+			env.DB.prepare(
+				"SELECT name FROM pragma_table_info('calendar_invite_revisions')",
+			).all<{ name: string }>(),
+			env.DB.prepare(
+				"SELECT name, \"unique\" AS is_unique FROM pragma_index_list('calendar_invite_revisions')",
+			).all<{ name: string; is_unique: number }>(),
+			env.DB.prepare(
+				"SELECT name FROM pragma_table_info('calendar_invite_processed_outbox')",
+			).all<{ name: string }>(),
+			env.DB.prepare(
+				"SELECT name FROM pragma_table_info('calendar_invite_sequence_frontiers')",
+			).all<{ name: string }>(),
+			env.DB.prepare("SELECT name FROM pragma_table_info('email_outbox')").all<{
+				name: string;
+			}>(),
+			env.DB.prepare(
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'calendar_invite_ledger_cursors'",
+			).first<{ name: string }>(),
+		]);
 
 		expect(revisionColumns.results.map((row) => row.name)).toEqual(
 			expect.arrayContaining([
@@ -818,6 +830,17 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 				"invalid",
 				"processed_at",
 			]),
+		);
+		expect(frontierColumns.results.map((row) => row.name)).toEqual(
+			expect.arrayContaining([
+				"submission_id",
+				"sequence",
+				"state_hash",
+				"updated_at",
+			]),
+		);
+		expect(outboxColumns.results.map((row) => row.name)).toEqual(
+			expect.arrayContaining(["send_claim_id", "send_claim_expires_at"]),
 		);
 		expect(cursorTable).toBeNull();
 
@@ -1093,6 +1116,44 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		expect(
 			(await callAction({ intent: "schedule-updates" })).updates,
 		).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+	});
+
+	it("recovers calendar delivery from normalized queued and failed invite attempts", async () => {
+		const db = await seedBaseline();
+		await db.insert(emailOutbox).values({
+			id: "accept-keynote-recovery",
+			eventId: "e1",
+			dedupeKey: "decision:accept:recovery:s_keynote",
+			to: "marco@test.co",
+			subject: "Your session was accepted",
+			html: "<p>you're in</p>",
+			icsAttachment: HISTORIC_NPM_ICS_INVITE,
+			status: "queued",
+		});
+		await db
+			.update(submissions)
+			.set({ notifiedAt: new Date() })
+			.where(eq(submissions.id, "s_keynote"));
+		await db.insert(participants).values({
+			id: "p_keynote",
+			submissionId: "s_keynote",
+			contactId: "c_marco",
+		});
+		await normalizeCalendarInviteHistory(db, "e1");
+
+		expect((await callLoader()).event).toMatchObject({
+			staleSpeakers: 1,
+			scheduleScanTruncated: false,
+		});
+		await db
+			.update(emailOutbox)
+			.set({ status: "failed" })
+			.where(eq(emailOutbox.id, "accept-keynote-recovery"));
+		expect((await callLoader()).event?.staleSpeakers).toBe(1);
+
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, deduped: 0, failed: 0 });
+		expect((await latestUpdateInvite(db)).vevent?.sequence).toBe(0);
 	});
 
 	it("sends a bounced acceptance invite as a first delivered SEQUENCE 0", async () => {
@@ -1608,6 +1669,73 @@ END:VCALENDAR
 		expect((await callLoader()).event?.staleSpeakers).toBe(0);
 	});
 
+	it("bounds one normalization invocation and resumes the remaining history later", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+
+		const history = await env.DB.prepare(`
+			WITH RECURSIVE invite_history(n) AS (
+				SELECT 0
+				UNION ALL
+				SELECT n + 1 FROM invite_history WHERE n < 5599
+			)
+			INSERT INTO email_outbox (
+				id, event_id, dedupe_key, "to", subject, html, ics_attachment,
+				status, created_at, sent_at
+			)
+			SELECT
+				'bounded-history-' || n,
+				'e1',
+				'schedule-update:s_keynote@' || CASE WHEN n = 0 THEN 7000 ELSE n END,
+				'marco@test.co',
+				'Prior schedule update',
+				'<p>prior update</p>',
+				'BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:submission-s_keynote@openrostrum
+DTSTART:20261012T150000Z
+DTEND:20261015T010000Z
+SUMMARY:AI.Engineer Sandbox Event (save the date): Closing Keynote: The Post-SaaS Stack
+SEQUENCE:' || CASE WHEN n = 0 THEN 7000 ELSE n END || '
+END:VEVENT
+END:VCALENDAR
+',
+				'sent',
+				1800000000 + n,
+				1800000000 + n
+			FROM invite_history
+		`).run();
+		expect(history.meta.changes).toBe(5600);
+
+		const first = await callAction({ intent: "schedule-updates" });
+		expect(first.ok).toBe(false);
+		expect((await callLoader()).event).toMatchObject({
+			staleSpeakers: 0,
+			scheduleScanTruncated: true,
+		});
+		const firstProcessed = await env.DB.prepare(
+			"SELECT count(*) AS count FROM calendar_invite_processed_outbox WHERE outbox_id LIKE 'bounded-history-%'",
+		).first<{ count: number }>();
+		expect(firstProcessed?.count).toBeGreaterThan(1001);
+		expect(firstProcessed?.count).toBeLessThan(5600);
+
+		const resumed = await callAction({ intent: "schedule-updates" });
+		expect(resumed).toMatchObject({ ok: true });
+		expect(resumed.updates).toMatchObject({ sent: 1, failed: 0 });
+		const completed = await env.DB.prepare(
+			"SELECT count(*) AS count FROM calendar_invite_processed_outbox WHERE outbox_id LIKE 'bounded-history-%'",
+		).first<{ count: number }>();
+		expect(completed?.count).toBe(5600);
+		expect((await latestUpdateInvite(db)).vevent?.sequence).toBe(7001);
+		expect((await callLoader()).event?.staleSpeakers).toBe(0);
+	});
+
 	it("sends from a browser-native form without a JavaScript-minted key", async () => {
 		const db = await invitedBaseline();
 		await callAction({
@@ -1672,6 +1800,145 @@ END:VCALENDAR
 			start: utc(2026, 10, 13, 21, 0),
 			location: "Room 305",
 		});
+	});
+
+	for (const priorStatus of ["queued", "failed"] as const) {
+		it(`claims a new sequence after a ${priorStatus} schedule-update attempt`, async () => {
+			const db = await invitedBaseline();
+			await callAction({
+				intent: "schedule",
+				submissionId: "s_keynote",
+				roomId: "room_main",
+				day: "2026-10-12",
+				startMinutes: "570",
+			});
+			const event = await db.query.events.findFirst({
+				where: (row, { eq }) => eq(row.id, "e1"),
+			});
+			if (!event) throw new Error("Expected seeded event");
+			const firstState = await computeScheduleChanges(db, event);
+			expect(
+				await sendScheduleUpdates(db, env, event, firstState.changes),
+			).toMatchObject({ sent: 1, failed: 0 });
+			const first = await latestUpdateInvite(db);
+			if (!first.row) throw new Error("Expected first schedule update");
+			await db
+				.update(emailOutbox)
+				.set({ status: priorStatus })
+				.where(eq(emailOutbox.id, first.row.id));
+			await normalizeCalendarInviteHistory(db, "e1");
+
+			await callAction({
+				intent: "schedule",
+				submissionId: "s_keynote",
+				roomId: "room_305",
+				day: "2026-10-13",
+				startMinutes: "840",
+			});
+			const secondState = await computeScheduleChanges(db, event);
+			expect(
+				await sendScheduleUpdates(db, env, event, secondState.changes),
+			).toMatchObject({ sent: 1, failed: 0 });
+
+			const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
+				row.dedupeKey?.startsWith("schedule-update:"),
+			);
+			const sequences = updateRows
+				.flatMap((row) => parseIcsAttachment(row.icsAttachment ?? ""))
+				.map((invite) => invite.sequence)
+				.sort((a, b) => a - b);
+			expect(sequences).toEqual([1, 2]);
+		});
+	}
+
+	it("drops a stale concurrent snapshot before it can overwrite the current schedule", async () => {
+		const db = await invitedBaseline();
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const firstState = await computeScheduleChanges(db, event);
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_305",
+			day: "2026-10-13",
+			startMinutes: "840",
+		});
+		const secondState = await computeScheduleChanges(db, event);
+
+		const outcomes = await Promise.all([
+			sendScheduleUpdates(db, env, event, firstState.changes),
+			sendScheduleUpdates(db, env, event, secondState.changes),
+		]);
+
+		expect(outcomes[0]).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+		expect(outcomes[1]).toMatchObject({ sent: 1, deduped: 0, failed: 0 });
+		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(updateRows).toHaveLength(1);
+		expect(parseIcsAttachment(updateRows[0]?.icsAttachment ?? "")).toEqual([
+			expect.objectContaining({
+				sequence: 1,
+				start: utc(2026, 10, 13, 21, 0),
+				location: "Room 305",
+			}),
+		]);
+	});
+
+	it("revalidates the schedule after claiming a sequence", async () => {
+		const db = await invitedBaseline();
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const staleState = await computeScheduleChanges(db, event);
+		const replacementStart = utc(2026, 10, 13, 21, 0);
+		const replacementEnd = utc(2026, 10, 13, 21, 30);
+		await env.DB.prepare(`
+			CREATE TRIGGER replace_schedule_during_frontier_claim
+			BEFORE INSERT ON calendar_invite_sequence_frontiers
+			WHEN NEW.submission_id = 's_keynote'
+			BEGIN
+				UPDATE submissions
+				SET room_id = 'room_305',
+					starts_at = ${Math.floor(replacementStart.getTime() / 1000)},
+					ends_at = ${Math.floor(replacementEnd.getTime() / 1000)}
+				WHERE id = 's_keynote';
+			END
+		`).run();
+
+		let outcome: Awaited<ReturnType<typeof sendScheduleUpdates>>;
+		try {
+			outcome = await sendScheduleUpdates(db, env, event, staleState.changes);
+		} finally {
+			await env.DB.prepare(
+				"DROP TRIGGER replace_schedule_during_frontier_claim",
+			).run();
+		}
+
+		expect(outcome).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(updateRows).toHaveLength(0);
 	});
 
 	it("unscheduling an invited session reverts the calendar to the save-the-date hold", async () => {

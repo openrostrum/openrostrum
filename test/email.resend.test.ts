@@ -179,6 +179,98 @@ describe("Resend email adapter", () => {
 		expect(await outboxRows()).toHaveLength(1);
 	});
 
+	it("dedupes a concurrent key while its first provider call is in flight", async () => {
+		let releaseProvider: (() => void) | undefined;
+		let providerCalls = 0;
+		const providerStarted = new Promise<void>((resolveStarted) => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(() => {
+					providerCalls += 1;
+					if (providerCalls > 1) {
+						return Promise.resolve(
+							new Response(JSON.stringify({ id: "resend-duplicate" }), {
+								status: 200,
+							}),
+						);
+					}
+					return new Promise<Response>((resolve) => {
+						releaseProvider = () =>
+							resolve(
+								new Response(JSON.stringify({ id: "resend-concurrent" }), {
+									status: 200,
+								}),
+							);
+						resolveStarted();
+					});
+				}),
+			);
+		});
+		const fetchMock = vi.mocked(fetch);
+		const sender = createResendEmailSender(env);
+		const msg = {
+			to: "a@b.com",
+			subject: "s",
+			html: "h",
+			dedupeKey: "concurrent-k1",
+		};
+
+		const first = sender.send(msg);
+		await providerStarted;
+		expect((await outboxRows())[0]).toMatchObject({
+			status: "queued",
+			error: null,
+		});
+		const second = await sender.send(msg);
+		releaseProvider?.();
+
+		expect(await first).toMatchObject({
+			id: "resend-concurrent",
+			deduped: false,
+		});
+		expect(second).toMatchObject({ deduped: true });
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(await outboxRows()).toHaveLength(1);
+	});
+
+	it("reclaims an abandoned queued row instead of losing the send", async () => {
+		const db = getDb(env);
+		const [abandoned] = await db
+			.insert(emailOutbox)
+			.values({
+				to: "a@b.com",
+				subject: "s",
+				html: "h",
+				dedupeKey: "abandoned-k1",
+				status: "queued",
+				createdAt: new Date(Date.now() - 60 * 60 * 1000),
+			})
+			.returning({ id: emailOutbox.id });
+		if (!abandoned) throw new Error("Expected abandoned outbox row");
+		const fetchMock = mockFetch(200, { id: "resend-recovered" });
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await createResendEmailSender(env).send({
+			to: "a@b.com",
+			subject: "s",
+			html: "h",
+			dedupeKey: "abandoned-k1",
+		});
+
+		expect(result).toMatchObject({
+			id: "resend-recovered",
+			deduped: false,
+		});
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const rows = await outboxRows();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			id: abandoned.id,
+			status: "sent",
+			providerId: "resend-recovered",
+		});
+	});
+
 	it("a `failed` row stays retryable in place — the retry flips it to `sent`", async () => {
 		const fetchMock = vi
 			.fn()
