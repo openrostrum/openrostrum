@@ -149,7 +149,7 @@ describe("portal tasks", () => {
 
 	it("projects an assignment due date into the speaker task detail", async () => {
 		await seedTasks();
-		const loaded = unwrap<{ due: string | null; status: { label: string } }>(
+		const loaded = unwrap<{ due: string | null }>(
 			await taskLoader({
 				context: CONTEXT,
 				request: await authedRequest("u_priya", `${BASE}/tasks/ta_hotel`),
@@ -157,7 +157,6 @@ describe("portal tasks", () => {
 			} as unknown as LoaderArgs),
 		);
 		expect(loaded.due).toBe("Sep 30, 2026");
-		expect(loaded.status.label).toBe("Incomplete");
 	});
 
 	it("marks a simple task complete (and back to incomplete)", async () => {

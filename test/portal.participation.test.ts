@@ -113,7 +113,7 @@ describe("per-participant acceptance", () => {
 		expect(withdraw.ok).toBe(true);
 
 		expect(await acceptance("p_priya")).toBe("accepted");
-		expect(await acceptance("p_priya_moderator")).toBe("accepted");
+		expect(await acceptance("p_priya_moderator")).toBe("pending");
 		expect(await acceptance("p_dana")).toBe("declined");
 		expect(await contactStatus("c_priya")).toBe("confirmed");
 		expect(await contactStatus("c_dana")).toBe("invited");

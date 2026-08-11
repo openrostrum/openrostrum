@@ -315,6 +315,10 @@ async function planAcceptProvisioning(
 		{ speakers: number; assignmentsPlanned: number; contactsLinked: number }
 	>();
 	for (const row of rows) {
+		const dueBase =
+			row.status === "accepted" && row.statusChangedAt
+				? row.statusChangedAt
+				: now;
 		const speakers = speakerRows.filter((s) => s.submissionId === row.id);
 		const stats = {
 			speakers: speakers.length,
@@ -353,7 +357,7 @@ async function planAcceptProvisioning(
 					dueAt:
 						def.dueInDays == null
 							? null
-							: new Date(now.getTime() + def.dueInDays * 86_400_000),
+							: new Date(dueBase.getTime() + def.dueInDays * 86_400_000),
 				});
 			}
 		}

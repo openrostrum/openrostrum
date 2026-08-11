@@ -50,8 +50,8 @@ const normalizeIdentityPart = (value: string) =>
 		.toLocaleLowerCase("en-US")
 		.replace(/\s+/g, " ");
 
-/** A conservative import-only duplicate signal: a complete name and company
- * must both agree, so common names alone never block a roster write. */
+/** A conservative import-only duplicate signal: a name and company must both
+ * agree, so common names alone never block a roster write. */
 export function probableContactDuplicateKey(input: {
 	firstName: string;
 	lastName: string;

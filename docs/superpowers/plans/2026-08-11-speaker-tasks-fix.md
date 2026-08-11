@@ -296,7 +296,7 @@ export function probableContactDuplicateKey(input: {
 }): string | null {
   const name = `${normalizeIdentityPart(input.firstName)} ${normalizeIdentityPart(input.lastName)}`.trim();
   const company = normalizeIdentityPart(input.companyName ?? "");
-  return name && company ? `${name} ${company}` : null;
+  return name && company ? `${name}\u0000${company}` : null;
 }
 ```
 

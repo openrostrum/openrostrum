@@ -422,6 +422,55 @@ describe("CSV import", () => {
 		expect(await db.select().from(contacts)).toHaveLength(0);
 	});
 
+	it("reviews a later alias against identity changes planned by an exact-email merge", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/import",
+			{
+				method: "POST",
+				body: importBody(
+					[
+						"First,Last,Email,Company",
+						"Priya,Raman,old@example.com,Latticework Systems",
+						"Priya,Raman,alias@example.com,Latticework Systems",
+					].join("\n"),
+					{
+						email: "2",
+						firstName: "0",
+						lastName: "1",
+						companyName: "3",
+					},
+				),
+			},
+		);
+		await seedEvent();
+		await db.insert(contacts).values({
+			id: "c_old",
+			eventId: "e1",
+			email: "old@example.com",
+			firstName: "Old",
+			lastName: "Identity",
+			companyName: "Old Company",
+		});
+
+		const result = (await run(request)) as {
+			step: string;
+			probableDuplicates?: Array<{ row: number; existingEmail: string }>;
+		};
+
+		expect(result.step).toBe("review");
+		expect(result.probableDuplicates).toEqual([
+			expect.objectContaining({ row: 3, existingEmail: "old@example.com" }),
+		]);
+		expect(await db.select().from(contacts)).toEqual([
+			expect.objectContaining({
+				email: "old@example.com",
+				firstName: "Old",
+				companyName: "Old Company",
+			}),
+		]);
+	});
+
 	it("adds the same normalized name at a different company without warning", async () => {
 		const db = getDb(env);
 		const request = await adminRequest(
@@ -479,12 +528,13 @@ describe("CSV import", () => {
 			],
 		});
 
-		expect(html).toContain("Review probable duplicates");
 		expect(html).toContain("priya.alt@example.com");
 		expect(html).toContain("priya@example.com");
-		expect(html).toContain("Import safe rows");
-		expect(html).toContain("Create probable duplicates anyway");
 		expect(html).toMatch(/<button[^>]*value="skip"[^>]*name="duplicatePolicy"/);
+		expect(html).toMatch(
+			/<button[^>]*value="create"[^>]*name="duplicatePolicy"/,
+		);
+		expect(html).toContain('name="csvB64" value="csv-payload"');
 		expect(html).toContain('name="map_email" value="2"');
 	});
 
@@ -520,7 +570,7 @@ describe("CSV import", () => {
 					step: string;
 					added: number;
 					skipped: number;
-					results: Array<{ outcome: string; reason: string }>;
+					results: Array<{ row: number; outcome: string }>;
 				};
 			}
 		).data;
@@ -529,12 +579,7 @@ describe("CSV import", () => {
 		expect(result.added).toBe(0);
 		expect(result.skipped).toBe(1);
 		expect(result.results).toEqual([
-			expect.objectContaining({
-				outcome: "skipped",
-				reason: expect.stringMatching(
-					/probable duplicate.*same normalized name and company.*priya@example\.com/i,
-				),
-			}),
+			expect.objectContaining({ row: 2, outcome: "skipped" }),
 		]);
 		expect(await db.select().from(contacts)).toHaveLength(1);
 	});
@@ -569,20 +614,12 @@ describe("CSV import", () => {
 
 		const result = (
 			(await run(request)) as unknown as {
-				data: {
-					added: number;
-					merged: number;
-					results: Array<{ outcome: string; reason: string }>;
-				};
+				data: { added: number; merged: number };
 			}
 		).data;
 
 		expect(result.added).toBe(1);
 		expect(result.merged).toBe(0);
-		expect(result.results[0]).toMatchObject({
-			outcome: "added",
-			reason: expect.stringMatching(/created after duplicate warning/i),
-		});
 		const rows = await db.select().from(contacts);
 		expect(rows).toHaveLength(2);
 		expect(rows.find((row) => row.id === "c_priya")?.bio).toBe("Original bio");

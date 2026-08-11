@@ -270,6 +270,27 @@ describe("accept auto-provisioning", () => {
 		expect(await d.select().from(emailOutbox)).toHaveLength(0);
 	});
 
+	it("anchors newly minted replay assignments to the original acceptance time", async () => {
+		const d = await seedBase();
+		await seedOnboardingTasks();
+		const acceptedAt = new Date("2026-01-15T12:00:00.000Z");
+		const row = await insertSubmission({
+			status: "accepted",
+			statusChangedAt: acceptedAt,
+		});
+		await addSpeaker(row.id, "c_late", "late@example.com");
+
+		await transitionSubmissions(d, [row], "accepted");
+
+		const [hotel] = await d
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.taskId, "task_hotel"));
+		expect(hotel?.dueAt).toEqual(
+			new Date(acceptedAt.getTime() + 14 * 86_400_000),
+		);
+	});
+
 	it("provisions every speaker role link once and never provisions the same contacts' non-speaker links", async () => {
 		const d = await seedBase();
 		await d.insert(tasks).values({

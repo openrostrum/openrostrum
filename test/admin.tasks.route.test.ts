@@ -449,6 +449,37 @@ describe("bulk assignment", () => {
 		);
 	});
 
+	it("assigns large accepted-speaker audiences across bounded D1 insert chunks", async () => {
+		const db = await seedTasksBaseline();
+		for (let i = 0; i < 23; i += 1) {
+			const contactId = `c_scale_${i}`;
+			await db.insert(contacts).values({
+				id: contactId,
+				eventId: "e1",
+				email: `scale-${i}@example.com`,
+				firstName: "Scale",
+				lastName: String(i),
+			});
+			await db.insert(participants).values({
+				id: `p_scale_${i}`,
+				submissionId: "s1",
+				contactId,
+				role: "speaker",
+				position: i + 2,
+			});
+		}
+
+		const result = await assign("t_flight");
+
+		expect(result.formError).toBeUndefined();
+		expect(
+			await db
+				.select()
+				.from(taskAssignments)
+				.where(eq(taskAssignments.taskId, "t_flight")),
+		).toHaveLength(25);
+	});
+
 	it("a multi-talk speaker gets one submission-task assignment per accepted talk — and replays add nothing", async () => {
 		const db = await seedTasksBaseline();
 		// Priya picks up a second accepted talk.

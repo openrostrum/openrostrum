@@ -445,6 +445,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			.set({ acceptanceStatus: acceptance })
 			.where(
 				and(
+					eq(participants.id, participantId),
 					eq(participants.submissionId, submission.id),
 					eq(participants.contactId, contactId),
 					ne(participants.role, "secondary"),

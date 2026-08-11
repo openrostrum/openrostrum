@@ -297,12 +297,25 @@ export async function action({
 		db.select().from(contacts).where(eq(contacts.eventId, event.id)),
 	);
 	const byEmail = new Map(existing.map((c) => [normalizeEmail(c.email), c]));
-	const byProbableKey = new Map<string, { email: string }>();
+	const byProbableKey = new Map<string, Set<string>>();
+	const addProbableIdentity = (key: string | null, email: string) => {
+		if (!key) return;
+		const emails = byProbableKey.get(key) ?? new Set<string>();
+		emails.add(email);
+		byProbableKey.set(key, emails);
+	};
+	const removeProbableIdentity = (key: string | null, email: string) => {
+		if (!key) return;
+		const emails = byProbableKey.get(key);
+		if (!emails) return;
+		emails.delete(email);
+		if (emails.size === 0) byProbableKey.delete(key);
+	};
 	for (const contact of existing) {
-		const key = probableContactDuplicateKey(contact);
-		if (key && !byProbableKey.has(key)) {
-			byProbableKey.set(key, { email: normalizeEmail(contact.email) });
-		}
+		addProbableIdentity(
+			probableContactDuplicateKey(contact),
+			normalizeEmail(contact.email),
+		);
 	}
 
 	const results: RowResult[] = [];
@@ -373,6 +386,19 @@ export async function action({
 			if (lastName && lastName !== match.lastName) changes.lastName = lastName;
 			if (status && status !== match.status) changes.status = status;
 			const hasChanges = Object.keys(changes).length > 0;
+			const previousProbableKey = probableContactDuplicateKey(match);
+			const nextProbableKey = probableContactDuplicateKey({
+				firstName: changes.firstName ?? match.firstName,
+				lastName: changes.lastName ?? match.lastName,
+				companyName:
+					changes.companyName !== undefined
+						? changes.companyName
+						: match.companyName,
+			});
+			if (previousProbableKey !== nextProbableKey) {
+				removeProbableIdentity(previousProbableKey, email);
+				addProbableIdentity(nextProbableKey, email);
+			}
 			if (hasChanges) {
 				writes.push({
 					rowIndex: results.length,
@@ -403,27 +429,25 @@ export async function action({
 			companyName: values.companyName,
 		});
 		const probableMatch = probableKey
-			? byProbableKey.get(probableKey)
+			? byProbableKey.get(probableKey)?.values().next().value
 			: undefined;
 		if (probableMatch) {
 			probableDuplicates.push({
 				...base,
 				email,
-				existingEmail: probableMatch.email,
+				existingEmail: probableMatch,
 			});
 			if (duplicatePolicy === "skip") {
 				results.push({
 					...base,
 					outcome: "skipped",
-					reason: `Probable duplicate — same normalized name and company as ${probableMatch.email}`,
+					reason: `Probable duplicate — same normalized name and company as ${probableMatch}`,
 				});
 				continue;
 			}
 			if (duplicatePolicy === null) continue;
 		}
-		if (probableKey && !byProbableKey.has(probableKey)) {
-			byProbableKey.set(probableKey, { email });
-		}
+		addProbableIdentity(probableKey, email);
 
 		writes.push({
 			rowIndex: results.length,
