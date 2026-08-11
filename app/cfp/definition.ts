@@ -4,7 +4,10 @@
  * on submit). Only TYPES come from ~/db/schema (erased at build), so this
  * client-bundled module never pulls the drizzle runtime.
  */
+import { PARTICIPANT_ROLE_LABELS, type ParticipantRole } from "~/db/constants";
 import type { BUILTIN_FIELD, FIELD_TYPE, QuestionRule } from "~/db/schema";
+
+export type { ParticipantRole } from "~/db/constants";
 
 export type BuiltinRef = (typeof BUILTIN_FIELD)[number];
 
@@ -36,12 +39,6 @@ export type WizardField = {
 
 export type WizardValues = Record<string, string>;
 
-export type ParticipantRole =
-	| "speaker"
-	| "chairperson"
-	| "moderator"
-	| "secondary";
-
 export type WizardParticipant = {
 	/** Client row key (stable across re-renders, not persisted). */
 	key: string;
@@ -53,6 +50,8 @@ export type WizardParticipant = {
 	bio: string;
 	/** The submitter's own row: prefilled from their account, email fixed. */
 	self?: boolean;
+	/** Loaded from an existing participant link; never trusted by server writes. */
+	persisted?: boolean;
 };
 
 /** The submitter's own profile snapshot used to prefill their person row. */
@@ -329,13 +328,6 @@ export function validateSection(
 	return errors;
 }
 
-export const ROLE_LABELS: Record<ParticipantRole, string> = {
-	speaker: "Speaker",
-	chairperson: "Chairperson",
-	moderator: "Moderator",
-	secondary: "Secondary Contact",
-};
-
 export function roleCountLabel(
 	limits: RoleLimits,
 	count: number,
@@ -376,7 +368,7 @@ export function validateParticipants(
 	const rows: ParticipantErrors["rows"] = {};
 	const form: string[] = [];
 
-	const seen = new Map<string, string>();
+	const seen = new Map<string, WizardParticipant>();
 	for (const p of participants) {
 		const rowErrors: ParticipantErrors["rows"][string] = {};
 		if (!p.firstName.trim()) rowErrors.firstName = "First name is required";
@@ -386,9 +378,10 @@ export function validateParticipants(
 			rowErrors.email = "Enter a valid email address.";
 		else {
 			const normalized = p.email.trim().toLowerCase();
-			if (seen.has(normalized))
+			const duplicate = seen.get(normalized);
+			if (duplicate && !(duplicate.persisted && p.persisted))
 				rowErrors.email = "This email is already listed on the submission";
-			seen.set(normalized, p.key);
+			if (!duplicate) seen.set(normalized, p);
 		}
 		if (p.role !== "secondary") {
 			if (requirements.mobilePhone && !p.mobilePhone.trim())
@@ -405,7 +398,7 @@ export function validateParticipants(
 		const count = participants.filter((p) => p.role === role).length;
 		if (count < limits.min) {
 			form.push(
-				`At least ${limits.min} ${ROLE_LABELS[role].toLowerCase()}${limits.min === 1 ? " is" : "s are"} required.`,
+				`At least ${limits.min} ${PARTICIPANT_ROLE_LABELS[role].toLowerCase()}${limits.min === 1 ? " is" : "s are"} required.`,
 			);
 		}
 	}
@@ -426,7 +419,7 @@ export function roleMaxErrors(
 		const count = participants.filter((p) => p.role === role).length;
 		if (limits.max !== null && count > limits.max) {
 			errors.push(
-				`No more than ${limits.max} ${ROLE_LABELS[role].toLowerCase()}s are allowed.`,
+				`No more than ${limits.max} ${PARTICIPANT_ROLE_LABELS[role].toLowerCase()}s are allowed.`,
 			);
 		}
 	}

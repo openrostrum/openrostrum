@@ -354,6 +354,11 @@ export const forms = sqliteTable(
 			.default(false),
 		roleModeratorMin: integer("role_moderator_min").notNull().default(0),
 		roleModeratorMax: integer("role_moderator_max"),
+		notifyExistingContacts: integer("notify_existing_contacts", {
+			mode: "boolean",
+		})
+			.notNull()
+			.default(true),
 		// Step 6 — Form Settings
 		closeAt: integer("close_at", { mode: "timestamp" }),
 		sendReminders: integer("send_reminders", { mode: "boolean" })
@@ -758,9 +763,10 @@ export const participants = sqliteTable(
 	(t) => [
 		index("participants_submission_idx").on(t.submissionId),
 		index("participants_contact_idx").on(t.contactId),
-		unique("participants_submission_contact_uq").on(
+		unique("participants_submission_contact_role_uq").on(
 			t.submissionId,
 			t.contactId,
+			t.role,
 		),
 	],
 );

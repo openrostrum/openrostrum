@@ -24,6 +24,7 @@ import {
 	loadPortalPath,
 	loadPublicForm,
 	loadSelfContact,
+	markPersistedParticipantRows,
 	resolveFormDefinition,
 	sendConfirmationEmail,
 	writeSubmission,
@@ -42,6 +43,7 @@ import {
 } from "~/cfp/wizard";
 import { getDb } from "~/db";
 import { submitPath } from "~/domain/forms";
+import { notifyParticipantAdded } from "~/domain/participant-notifications";
 import { getUser, requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
@@ -134,6 +136,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				}
 			: p,
 	);
+	participantRows = await markPersistedParticipantRows(db, {
+		sid: parsed.data.sid,
+		formId: form.id,
+		submitterId: user.id,
+		rows: participantRows,
+	});
 
 	const fieldErrors = {
 		...validateSection(definition.session, parsed.data.values),
@@ -224,11 +232,48 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		});
 	}
 
+	const origin = new URL(request.url).origin;
+	const participantNotificationResults = await Promise.allSettled(
+		result.addedParticipants.map((added) =>
+			notifyParticipantAdded(db, env, {
+				added,
+				event: { id: event.id, name: event.name, slug: event.slug },
+				submission: {
+					id: result.submissionId,
+					title: (parsed.data.values.b_title ?? "").trim(),
+					formId: form.id,
+					submitterId: user.id,
+				},
+				origin,
+			}),
+		),
+	);
+	let participantNotificationWarning = false;
+	participantNotificationResults.forEach((notificationResult, index) => {
+		const added = result.addedParticipants[index];
+		if (notificationResult.status === "rejected") {
+			participantNotificationWarning = true;
+			track("cfp.participant_notification_failed", {
+				formId: form.id,
+				submissionId: result.submissionId,
+				participantId: added?.participantId,
+				error: errorMessage(notificationResult.reason),
+			});
+		} else if (notificationResult.value.warning) {
+			participantNotificationWarning = true;
+			track("cfp.participant_notification_warning", {
+				formId: form.id,
+				submissionId: result.submissionId,
+				participantId: added?.participantId,
+				warning: notificationResult.value.warning,
+			});
+		}
+	});
+
 	const becamePending = result.created || result.previousStatus === "draft";
 	const editedSubmitted = !becamePending;
 
 	if (becamePending && form.sendConfirmationEmail) {
-		const origin = new URL(request.url).origin;
 		const portalPath = await loadPortalPath(db, event.id, event.slug);
 		try {
 			await sendConfirmationEmail(env, {
@@ -261,7 +306,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	});
 
 	return redirect(
-		`${stepPath(base, "success")}?sid=${result.submissionId}${editedSubmitted ? "&updated=1" : ""}`,
+		`${stepPath(base, "success")}?sid=${result.submissionId}${editedSubmitted ? "&updated=1" : ""}${participantNotificationWarning ? "&notificationWarning=1" : ""}`,
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
-import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { asc, eq } from "drizzle-orm";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import {
 	contacts,
@@ -17,12 +17,13 @@ import {
 	tags,
 	tracks,
 } from "../app/db/schema";
-import { resolveFormDefinition } from "../app/cfp/server";
+import { loadWizardInitial, resolveFormDefinition } from "../app/cfp/server";
 import { action as sessionAction } from "../app/routes/submit.$eventSlug.$formId.step.session";
 import { action as submitAction } from "../app/routes/submit.$eventSlug.$formId.step.review";
 import {
 	BASE_URL,
 	CONTEXT,
+	contextWith,
 	createSpeaker,
 	FIX,
 	FRESH,
@@ -30,6 +31,7 @@ import {
 	FRESH_PARAMS,
 	jsonRequest,
 	seedCfp,
+	seedContact,
 	seedFreshCfp,
 	selfRow,
 	speakerRow,
@@ -38,6 +40,10 @@ import {
 
 const PARAMS = { eventSlug: FIX.eventSlug, formId: FIX.formPublicId };
 const WIZARD_ID = "11111111-2222-4333-8444-555555555555";
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
 
 type DataResult = { data: Record<string, unknown>; init?: { status?: number } };
 
@@ -49,9 +55,9 @@ function callSession(cookie: string, body: unknown) {
 	} as unknown as Parameters<typeof sessionAction>[0]);
 }
 
-function callSubmit(cookie: string, body: unknown) {
+function callSubmit(cookie: string, body: unknown, context: unknown = CONTEXT) {
 	return submitAction({
-		context: CONTEXT,
+		context,
 		request: jsonRequest(`${BASE_URL}/step/review`, cookie, body),
 		params: PARAMS,
 	} as unknown as Parameters<typeof submitAction>[0]);
@@ -271,6 +277,95 @@ describe("CFP submit action", () => {
 			.where(eq(participants.contactId, "c_dana"));
 		expect(linked).toHaveLength(1);
 	});
+
+	it("persists two speakers and one chairperson and notifies only the added participants", async () => {
+		await seedCfp({
+			allowChairperson: true,
+			roleChairpersonMin: 0,
+			roleChairpersonMax: 1,
+		});
+		const speaker = await createSpeaker();
+		const db = getDb(env);
+
+		const response = (await callSubmit(
+			speaker.cookie,
+			submitBody({
+				participants: [
+					selfRow(),
+					speakerRow("marcus-row", "Marcus", "Chen", "marcus.chen@example.com"),
+					{
+						...speakerRow(
+							"claire-row",
+							"Claire",
+							"Fontaine",
+							"claire.fontaine@example.com",
+						),
+						role: "chairperson" as const,
+					},
+				],
+			}),
+		)) as Response;
+		expect(response.status).toBe(302);
+
+		const people = await db
+			.select({ email: contacts.email, role: participants.role })
+			.from(participants)
+			.innerJoin(contacts, eq(contacts.id, participants.contactId))
+			.where(eq(participants.submissionId, WIZARD_ID))
+			.orderBy(asc(participants.position));
+		expect(people).toEqual([
+			{ email: "priya@example.com", role: "speaker" },
+			{ email: "marcus.chen@example.com", role: "speaker" },
+			{ email: "claire.fontaine@example.com", role: "chairperson" },
+		]);
+
+		const mail = await db
+			.select({ to: emailOutbox.to, subject: emailOutbox.subject })
+			.from(emailOutbox)
+			.orderBy(asc(emailOutbox.to));
+		expect(mail).toEqual([
+			{
+				to: "claire.fontaine@example.com",
+				subject:
+					"You’ve been added to Evals in Production: Lessons from 40 Deployments",
+			},
+			{
+				to: "marcus.chen@example.com",
+				subject:
+					"You’ve been added to Evals in Production: Lessons from 40 Deployments",
+			},
+			{ to: "priya@example.com", subject: "We received your submission" },
+		]);
+	});
+
+	it("rejects duplicate normalized participant emails without mutating submission data", async () => {
+		await seedCfp({ allowChairperson: true, roleChairpersonMax: 1 });
+		const speaker = await createSpeaker();
+		const db = getDb(env);
+
+		const result = (await callSubmit(
+			speaker.cookie,
+			submitBody({
+				participants: [
+					selfRow(),
+					speakerRow("marcus-a", "Marcus", "Chen", "Marcus@Example.com"),
+					{
+						...speakerRow("marcus-b", "Marcus", "Chen", " marcus@example.com "),
+						role: "chairperson" as const,
+					},
+				],
+			}),
+		)) as unknown as DataResult;
+
+		expect(result.init?.status).toBe(422);
+		expect(String(result.data.participantErrors)).toContain(
+			"already listed on the submission",
+		);
+		expect(await db.select().from(submissions)).toHaveLength(0);
+		expect(await db.select().from(contacts)).toHaveLength(0);
+		expect(await db.select().from(participants)).toHaveLength(0);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+	});
 });
 
 describe("submission limit", () => {
@@ -431,7 +526,7 @@ describe("draft save", () => {
 		expect(rows[0]?.description).toContain("<strong>durable</strong>");
 	});
 
-	it("resolves two co-speakers sharing an email to ONE contact instead of failing the save", async () => {
+	it("rejects duplicate normalized participant emails on draft save without mutation", async () => {
 		await seedCfp();
 		const speaker = await createSpeaker();
 		const db = getDb(env);
@@ -446,18 +541,11 @@ describe("draft save", () => {
 				speakerRow("c", "Dana Again", "Okafor", "Dana@Example.com"),
 			],
 		})) as unknown as DataResult;
-		expect(result.data.ok).toBe(true);
-
-		const danaContacts = await db
-			.select()
-			.from(contacts)
-			.where(eq(contacts.email, "dana@example.com"));
-		expect(danaContacts).toHaveLength(1);
-		const rows = await db
-			.select()
-			.from(participants)
-			.where(eq(participants.submissionId, WIZARD_ID));
-		expect(rows).toHaveLength(2); // self + one Dana
+		expect(result.data.ok).toBe(false);
+		expect(String(result.data.formError)).toContain("distinct email");
+		expect(await db.select().from(submissions)).toHaveLength(0);
+		expect(await db.select().from(contacts)).toHaveLength(0);
+		expect(await db.select().from(participants)).toHaveLength(0);
 	});
 
 	it("enforces the single-draft rule when multiple drafts are disabled", async () => {
@@ -576,7 +664,23 @@ describe("edit until close", () => {
 		expect(revisions).toHaveLength(1);
 		expect(revisions[0]?.editedById).toBe(speaker.id);
 
-		expect(await db.select().from(emailOutbox)).toHaveLength(1); // only the original confirmation
+		const mail = await db
+			.select({ to: emailOutbox.to, subject: emailOutbox.subject })
+			.from(emailOutbox);
+		expect(
+			mail.filter(
+				(row) =>
+					row.to === "priya@example.com" &&
+					row.subject === "We received your submission",
+			),
+		).toHaveLength(1);
+		expect(
+			mail.filter(
+				(row) =>
+					row.to === "dana@example.com" &&
+					row.subject === "You’ve been added to Evals in Production (revised)",
+			),
+		).toHaveLength(1);
 
 		const people = await db
 			.select({ email: contacts.email })
@@ -586,6 +690,245 @@ describe("edit until close", () => {
 		expect(people.map((p) => p.email).sort()).toEqual([
 			"dana@example.com",
 			"priya@example.com",
+		]);
+	});
+
+	it("notifies an existing contact added during an edit once across a replay", async () => {
+		await seedCfp();
+		const speaker = await createSpeaker();
+		const marcus = await createSpeaker(
+			"u_marcus",
+			"marcus.chen@example.com",
+			"Marcus Chen",
+		);
+		await seedContact(
+			"c_marcus",
+			"marcus.chen@example.com",
+			"Marcus",
+			"Chen",
+			marcus.id,
+		);
+		const db = getDb(env);
+		await callSubmit(speaker.cookie, submitBody());
+
+		const edit = submitBody({
+			sid: WIZARD_ID,
+			participants: [
+				selfRow(),
+				speakerRow("marcus-row", "Marcus", "Chen", "marcus.chen@example.com"),
+			],
+		});
+		const first = (await callSubmit(speaker.cookie, edit)) as Response;
+		const replay = (await callSubmit(speaker.cookie, edit)) as Response;
+		expect(first.status).toBe(302);
+		expect(replay.status).toBe(302);
+
+		const marcusLinks = await db
+			.select({ id: participants.id })
+			.from(participants)
+			.where(eq(participants.contactId, "c_marcus"));
+		expect(marcusLinks).toHaveLength(1);
+		const mail = await db
+			.select({ html: emailOutbox.html })
+			.from(emailOutbox)
+			.where(eq(emailOutbox.to, "marcus.chen@example.com"));
+		expect(mail).toHaveLength(1);
+		expect(mail[0]?.html).toContain(
+			`/portals/${FIX.eventSlug}/${FIX.portalPublicId}`,
+		);
+	});
+
+	it("suppresses an added-existing-contact email when the source form policy is off", async () => {
+		await seedCfp({ notifyExistingContacts: false });
+		const speaker = await createSpeaker();
+		const marcus = await createSpeaker(
+			"u_marcus",
+			"marcus.chen@example.com",
+			"Marcus Chen",
+		);
+		await seedContact(
+			"c_marcus",
+			"marcus.chen@example.com",
+			"Marcus",
+			"Chen",
+			marcus.id,
+		);
+		const db = getDb(env);
+		await callSubmit(speaker.cookie, submitBody());
+
+		const response = (await callSubmit(
+			speaker.cookie,
+			submitBody({
+				sid: WIZARD_ID,
+				participants: [
+					selfRow(),
+					speakerRow("marcus-row", "Marcus", "Chen", "marcus.chen@example.com"),
+				],
+			}),
+		)) as Response;
+		expect(response.status).toBe(302);
+		expect(
+			await db
+				.select()
+				.from(participants)
+				.where(eq(participants.contactId, "c_marcus")),
+		).toHaveLength(1);
+		expect(
+			await db
+				.select()
+				.from(emailOutbox)
+				.where(eq(emailOutbox.to, "marcus.chen@example.com")),
+		).toHaveLength(0);
+	});
+
+	it("keeps a committed participant add successful and surfaces a warning when mail fails", async () => {
+		await seedCfp();
+		const speaker = await createSpeaker();
+		const marcus = await createSpeaker(
+			"u_marcus",
+			"marcus.chen@example.com",
+			"Marcus Chen",
+		);
+		await seedContact(
+			"c_marcus",
+			"marcus.chen@example.com",
+			"Marcus",
+			"Chen",
+			marcus.id,
+		);
+		const db = getDb(env);
+		await callSubmit(speaker.cookie, submitBody());
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				new Response(JSON.stringify({ message: "provider rejected send" }), {
+					status: 422,
+				}),
+			),
+		);
+
+		const response = (await callSubmit(
+			speaker.cookie,
+			submitBody({
+				sid: WIZARD_ID,
+				participants: [
+					selfRow(),
+					speakerRow("marcus-row", "Marcus", "Chen", "marcus.chen@example.com"),
+				],
+			}),
+			contextWith({
+				RESEND_API_KEY: "re_test",
+				EMAIL_FROM: "OpenRostrum <noreply@test.example>",
+			}),
+		)) as Response;
+		expect(response.status).toBe(302);
+		expect(response.headers.get("Location")).toContain("notificationWarning=1");
+		expect(
+			await db
+				.select()
+				.from(participants)
+				.where(eq(participants.contactId, "c_marcus")),
+		).toHaveLength(1);
+		const failedMail = await db
+			.select({ status: emailOutbox.status, error: emailOutbox.error })
+			.from(emailOutbox)
+			.where(eq(emailOutbox.to, "marcus.chen@example.com"));
+		expect(failedMail).toHaveLength(1);
+		expect(failedMail[0]?.status).toBe("failed");
+		expect(failedMail[0]?.error).toContain("422");
+	});
+
+	it("round-trips persisted same-contact roles without losing acceptance state", async () => {
+		await seedCfp({ allowModerator: true });
+		const speaker = await createSpeaker();
+		await seedContact(
+			"c_priya",
+			"priya@example.com",
+			"Priya",
+			"Raman",
+			speaker.id,
+		);
+		await seedContact("c_marcus", "marcus.chen@example.com", "Marcus", "Chen");
+		const db = getDb(env);
+		await db.insert(submissions).values({
+			id: WIZARD_ID,
+			eventId: FIX.eventId,
+			formId: FIX.formId,
+			type: "session",
+			status: "pending",
+			submitterId: speaker.id,
+			title: "Persisted roles",
+		});
+		await db.insert(participants).values([
+			{
+				id: "p_self",
+				submissionId: WIZARD_ID,
+				contactId: "c_priya",
+				role: "speaker",
+				isPrimary: true,
+				position: 0,
+				acceptanceStatus: "accepted",
+			},
+			{
+				id: "p_marcus_speaker",
+				submissionId: WIZARD_ID,
+				contactId: "c_marcus",
+				role: "speaker",
+				position: 1,
+				acceptanceStatus: "accepted",
+			},
+			{
+				id: "p_marcus_moderator",
+				submissionId: WIZARD_ID,
+				contactId: "c_marcus",
+				role: "moderator",
+				position: 2,
+				acceptanceStatus: "declined",
+			},
+		]);
+		const [form] = await db
+			.select()
+			.from(forms)
+			.where(eq(forms.id, FIX.formId));
+		expect(form).toBeDefined();
+		const initial = await loadWizardInitial(
+			db,
+			form as NonNullable<typeof form>,
+			speaker.id,
+			WIZARD_ID,
+		);
+		expect(initial?.participants).toHaveLength(3);
+
+		const response = (await callSubmit(
+			speaker.cookie,
+			submitBody({
+				sid: WIZARD_ID,
+				values: { ...validValues(), b_title: "Persisted roles revised" },
+				participants: initial?.participants ?? [],
+			}),
+		)) as Response;
+		expect(response.status).toBe(302);
+		const links = await db
+			.select({
+				id: participants.id,
+				role: participants.role,
+				acceptanceStatus: participants.acceptanceStatus,
+			})
+			.from(participants)
+			.where(eq(participants.submissionId, WIZARD_ID))
+			.orderBy(asc(participants.position));
+		expect(links).toEqual([
+			{ id: "p_self", role: "speaker", acceptanceStatus: "accepted" },
+			{
+				id: "p_marcus_speaker",
+				role: "speaker",
+				acceptanceStatus: "accepted",
+			},
+			{
+				id: "p_marcus_moderator",
+				role: "moderator",
+				acceptanceStatus: "declined",
+			},
 		]);
 	});
 

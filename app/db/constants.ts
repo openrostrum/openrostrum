@@ -60,6 +60,14 @@ export const PARTICIPANT_ROLE = [
 	"secondary",
 ] as const;
 
+export type ParticipantRole = (typeof PARTICIPANT_ROLE)[number];
+export const PARTICIPANT_ROLE_LABELS: Record<ParticipantRole, string> = {
+	speaker: "Speaker",
+	chairperson: "Chairperson",
+	moderator: "Moderator",
+	secondary: "Secondary contact",
+};
+
 /** Sessionboard's eight system pipeline stages, verbatim. */
 export const PIPELINE_STAGE = [
 	"researching",

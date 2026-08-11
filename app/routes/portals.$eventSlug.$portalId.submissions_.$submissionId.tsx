@@ -1,11 +1,16 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { data, redirect } from "react-router";
 import { z } from "zod";
 import {
 	type SubmissionDetailActionData,
 	SubmissionDetailView,
 } from "~/components/portal/submission-detail-view";
-import { getDb } from "~/db";
+import { getDb, type Db } from "~/db";
+import {
+	PARTICIPANT_ROLE,
+	PARTICIPANT_ROLE_LABELS,
+	type ParticipantRole,
+} from "~/db/constants";
 import {
 	contacts,
 	formats,
@@ -23,6 +28,7 @@ import {
 	tags,
 	tracks,
 } from "~/db/schema";
+import { notifyParticipantAdded } from "~/domain/participant-notifications";
 import {
 	getEditWindow,
 	getPortalContext,
@@ -42,6 +48,150 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
 
+type RoleLimit = { min: number; max: number | null };
+type ParticipantRolePolicy = {
+	allowedRoles: ParticipantRole[];
+	limits: Record<ParticipantRole, RoleLimit>;
+};
+
+const DEFAULT_PARTICIPANT_ROLE_POLICY: ParticipantRolePolicy = {
+	allowedRoles: ["speaker", "secondary"],
+	limits: {
+		speaker: { min: 1, max: null },
+		chairperson: { min: 0, max: 0 },
+		moderator: { min: 0, max: 0 },
+		secondary: { min: 0, max: null },
+	},
+};
+
+function safeMin(value: number): number {
+	return Math.max(0, value);
+}
+
+function safeMax(value: number | null): number | null {
+	return value === null ? null : Math.max(0, value);
+}
+
+async function getParticipantRolePolicy(
+	db: Db,
+	eventId: string,
+	formId: string | null,
+): Promise<ParticipantRolePolicy> {
+	if (!formId) return DEFAULT_PARTICIPANT_ROLE_POLICY;
+	const [sourceForm] = await db
+		.select({
+			allowChairperson: forms.allowChairperson,
+			allowModerator: forms.allowModerator,
+			roleSpeakerMin: forms.roleSpeakerMin,
+			roleSpeakerMax: forms.roleSpeakerMax,
+			roleChairpersonMin: forms.roleChairpersonMin,
+			roleChairpersonMax: forms.roleChairpersonMax,
+			roleModeratorMin: forms.roleModeratorMin,
+			roleModeratorMax: forms.roleModeratorMax,
+		})
+		.from(forms)
+		.where(and(eq(forms.id, formId), eq(forms.eventId, eventId)))
+		.limit(1);
+	if (!sourceForm) return DEFAULT_PARTICIPANT_ROLE_POLICY;
+
+	return {
+		allowedRoles: [
+			"speaker",
+			...(sourceForm.allowChairperson ? (["chairperson"] as const) : []),
+			...(sourceForm.allowModerator ? (["moderator"] as const) : []),
+			"secondary",
+		],
+		limits: {
+			speaker: {
+				min: safeMin(sourceForm.roleSpeakerMin),
+				max: safeMax(sourceForm.roleSpeakerMax),
+			},
+			chairperson: sourceForm.allowChairperson
+				? {
+						min: safeMin(sourceForm.roleChairpersonMin),
+						max: safeMax(sourceForm.roleChairpersonMax),
+					}
+				: { min: 0, max: 0 },
+			moderator: sourceForm.allowModerator
+				? {
+						min: safeMin(sourceForm.roleModeratorMin),
+						max: safeMax(sourceForm.roleModeratorMax),
+					}
+				: { min: 0, max: 0 },
+			secondary: { min: 0, max: null },
+		},
+	};
+}
+
+function roleNoun(role: ParticipantRole, count: number): string {
+	const noun = PARTICIPANT_ROLE_LABELS[role].toLowerCase();
+	return count === 1 ? noun : `${noun}s`;
+}
+
+function minimumError(
+	policy: ParticipantRolePolicy,
+	role: ParticipantRole,
+	resultingCount: number,
+): string | null {
+	const minimum = policy.limits[role].min;
+	return resultingCount < minimum
+		? `This submission needs at least ${minimum} ${roleNoun(role, minimum)}.`
+		: null;
+}
+
+function maximumError(
+	policy: ParticipantRolePolicy,
+	role: ParticipantRole,
+	resultingCount: number,
+): string | null {
+	const maximum = policy.limits[role].max;
+	return maximum !== null && resultingCount > maximum
+		? `This form allows at most ${maximum} ${roleNoun(role, maximum)}.`
+		: null;
+}
+
+type ParticipantRoleRow = {
+	id: string;
+	contactId: string;
+	role: ParticipantRole;
+	isPrimary: boolean;
+	position: number;
+};
+
+async function getParticipantRoleRows(
+	db: Db,
+	submissionId: string,
+): Promise<ParticipantRoleRow[]> {
+	return db
+		.select({
+			id: participants.id,
+			contactId: participants.contactId,
+			role: participants.role,
+			isPrimary: participants.isPrimary,
+			position: participants.position,
+		})
+		.from(participants)
+		.where(eq(participants.submissionId, submissionId))
+		.orderBy(
+			asc(participants.position),
+			asc(participants.createdAt),
+			asc(participants.id),
+		);
+}
+
+function participantRoleCounts(
+	rows: ParticipantRoleRow[],
+): Record<ParticipantRole, number> {
+	const counts: Record<ParticipantRole, number> = {
+		speaker: 0,
+		chairperson: 0,
+		moderator: 0,
+		secondary: 0,
+	};
+	for (const row of rows) counts[row.role] += 1;
+	return counts;
+}
+
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
@@ -54,6 +204,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 
 	const [
 		editWindow,
+		rolePolicy,
 		people,
 		subTracks,
 		subTags,
@@ -63,9 +214,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	] = await timings.time("db2", () =>
 		Promise.all([
 			getEditWindow(env, submission),
+			getParticipantRolePolicy(db, ctx.event.id, submission.formId),
 			db
 				.select({
 					id: participants.id,
+					contactId: participants.contactId,
 					role: participants.role,
 					acceptance: participants.acceptanceStatus,
 					position: participants.position,
@@ -74,7 +227,13 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					contactUserId: contacts.userId,
 				})
 				.from(participants)
-				.innerJoin(contacts, eq(contacts.id, participants.contactId))
+				.innerJoin(
+					contacts,
+					and(
+						eq(contacts.id, participants.contactId),
+						eq(contacts.eventId, ctx.event.id),
+					),
+				)
 				.where(eq(participants.submissionId, submission.id)),
 			db
 				.select({ id: tracks.id, name: tracks.name, color: tracks.color })
@@ -153,14 +312,16 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				tracks: subTracks.map((t) => ({ name: t.name, color: t.color })),
 				tags: subTags.map((t) => ({ name: t.name, color: t.color })),
 			},
+			allowedParticipantRoles: rolePolicy.allowedRoles,
 			participants: sortedPeople.map((p) => {
 				const isMe =
-					p.id === myParticipant?.id ||
+					(ctx.contact !== null && p.contactId === ctx.contact.id) ||
 					(ctx.subjectUserId !== null && p.contactUserId === ctx.subjectUserId);
 				return {
 					id: p.id,
 					name: `${p.firstName} ${p.lastName}`,
 					role: p.role,
+					roleLabel: PARTICIPANT_ROLE_LABELS[p.role],
 					isMe,
 					acceptance:
 						isAccepted && p.role !== "secondary"
@@ -237,8 +398,13 @@ const AddParticipantSchema = insertContactSchema
 		firstName: z.string().min(1, "First name is required").max(100),
 		lastName: z.string().min(1, "Last name is required").max(100),
 		email: z.string().email("Enter a valid email address"),
-		role: z.enum(["speaker", "secondary"]),
+		role: z.enum(PARTICIPANT_ROLE),
 	});
+
+const SetParticipantRoleSchema = z.object({
+	participantId: z.string().min(1),
+	role: z.enum(PARTICIPANT_ROLE),
+});
 
 export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
@@ -264,14 +430,14 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		intent === "withdraw-participation"
 	) {
 		const participantId = String(form.get("participantId") ?? "");
-		// She can only ever act on HER OWN row — id match + contact match.
-		if (!myParticipant || myParticipant.id !== participantId)
+		if (!myParticipant || !ctx.contact || myParticipant.id !== participantId)
 			throw data(null, { status: 404 });
 		if (submission.status !== "accepted") {
 			return fail({
 				formError: "Confirmation is only available on accepted sessions.",
 			});
 		}
+		const contactId = ctx.contact.id;
 		const acceptance =
 			intent === "confirm-participation" ? "accepted" : "declined";
 		try {
@@ -279,7 +445,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				db
 					.update(participants)
 					.set({ acceptanceStatus: acceptance })
-					.where(eq(participants.id, myParticipant.id)),
+					.where(
+						and(
+							eq(participants.submissionId, submission.id),
+							eq(participants.contactId, contactId),
+							ne(participants.role, "secondary"),
+						),
+					),
 			);
 		} catch (error) {
 			track("portal.participation_change_failed", {
@@ -497,36 +669,32 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		if (!parsed.success)
 			return fail({ fieldErrors: z.flattenError(parsed.error).fieldErrors });
 
-		if (parsed.data.role === "speaker" && submission.formId) {
-			const [sourceForm] = await db
-				.select({ max: forms.roleSpeakerMax })
-				.from(forms)
-				.where(eq(forms.id, submission.formId))
-				.limit(1);
-			if (sourceForm?.max) {
-				const current = await db
-					.select({ id: participants.id })
-					.from(participants)
-					.where(
-						and(
-							eq(participants.submissionId, submission.id),
-							eq(participants.role, "speaker"),
-						),
-					);
-				if (current.length >= sourceForm.max) {
-					return fail({
-						formError: `This form allows at most ${sourceForm.max} speakers.`,
-					});
-				}
-			}
+		const rolePolicy = await getParticipantRolePolicy(
+			db,
+			ctx.event.id,
+			submission.formId,
+		);
+		if (!rolePolicy.allowedRoles.includes(parsed.data.role)) {
+			return fail({
+				formError: `${PARTICIPANT_ROLE_LABELS[parsed.data.role]} is not enabled on the source form.`,
+			});
 		}
+		const existing = await getParticipantRoleRows(db, submission.id);
+		const counts = participantRoleCounts(existing);
+		const maxError = maximumError(
+			rolePolicy,
+			parsed.data.role,
+			counts[parsed.data.role] + 1,
+		);
+		if (maxError) return fail({ formError: maxError });
 
 		const email = normalizeEmail(parsed.data.email);
 		let [contact] = await db
-			.select({ id: contacts.id })
+			.select({ id: contacts.id, userId: contacts.userId })
 			.from(contacts)
 			.where(and(eq(contacts.eventId, ctx.event.id), eq(contacts.email, email)))
 			.limit(1);
+		let wasExistingContact = Boolean(contact);
 		if (!contact) {
 			[contact] = await db
 				.insert(contacts)
@@ -536,31 +704,78 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					firstName: parsed.data.firstName,
 					lastName: parsed.data.lastName,
 				})
-				.returning({ id: contacts.id });
+				.onConflictDoNothing({ target: [contacts.eventId, contacts.email] })
+				.returning({ id: contacts.id, userId: contacts.userId });
+			if (!contact) {
+				[contact] = await db
+					.select({ id: contacts.id, userId: contacts.userId })
+					.from(contacts)
+					.where(
+						and(eq(contacts.eventId, ctx.event.id), eq(contacts.email, email)),
+					)
+					.limit(1);
+				wasExistingContact = true;
+			}
 		}
 		if (!contact) {
 			return fail({
 				formError: "Could not add this person — please try again.",
 			});
 		}
-		const existing = await db
-			.select({ id: participants.id, contactId: participants.contactId })
-			.from(participants)
-			.where(eq(participants.submissionId, submission.id));
-		// Typed duplicate check — the unique constraint below is only the
-		// concurrent-submit backstop, never the classifier.
-		if (existing.some((p) => p.contactId === contact.id)) {
-			return fail({ formError: "This person is already on this submission." });
+		if (
+			existing.some(
+				(row) => row.contactId === contact.id && row.role === parsed.data.role,
+			)
+		) {
+			return fail({
+				formError: "This person is already listed with this role.",
+			});
 		}
-		try {
-			await timings.time("db", () =>
-				db.insert(participants).values({
-					submissionId: submission.id,
-					contactId: contact.id,
-					role: parsed.data.role,
-					position: existing.length,
-				}),
+
+		const participantId = crypto.randomUUID();
+		const position =
+			existing.reduce((max, row) => Math.max(max, row.position), -1) + 1;
+		const primaryId =
+			existing.find((row) => row.role === "speaker" && row.isPrimary)?.id ??
+			existing.find((row) => row.role === "speaker")?.id ??
+			(parsed.data.role === "speaker" ? participantId : null);
+		const insertion = db
+			.insert(participants)
+			.values({
+				id: participantId,
+				submissionId: submission.id,
+				contactId: contact.id,
+				role: parsed.data.role,
+				isPrimary: participantId === primaryId,
+				position,
+			})
+			.onConflictDoNothing({
+				target: [
+					participants.submissionId,
+					participants.contactId,
+					participants.role,
+				],
+			})
+			.returning({ id: participants.id });
+		const primaryUpdates = existing
+			.filter((row) => row.isPrimary !== (row.id === primaryId))
+			.map((row) =>
+				db
+					.update(participants)
+					.set({ isPrimary: row.id === primaryId })
+					.where(
+						and(
+							eq(participants.id, row.id),
+							eq(participants.submissionId, submission.id),
+						),
+					),
 			);
+		let inserted: { id: string } | undefined;
+		try {
+			const [insertResult] = await timings.time("db", () =>
+				db.batch([insertion, ...primaryUpdates]),
+			);
+			[inserted] = insertResult;
 		} catch (error) {
 			track("portal.participant_add_failed", {
 				eventId: ctx.event.id,
@@ -571,73 +786,250 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				formError: "Could not add this person — please try again.",
 			});
 		}
+		if (!inserted) {
+			const [exact] = await db
+				.select({ id: participants.id })
+				.from(participants)
+				.where(
+					and(
+						eq(participants.submissionId, submission.id),
+						eq(participants.contactId, contact.id),
+						eq(participants.role, parsed.data.role),
+					),
+				)
+				.limit(1);
+			if (exact) {
+				return fail({
+					formError: "This person is already listed with this role.",
+				});
+			}
+			return fail({
+				formError: "Could not add this person — please try again.",
+			});
+		}
+
 		track("portal.participant_added", {
 			eventId: ctx.event.id,
 			submissionId: submission.id,
+			participantId,
 			role: parsed.data.role,
 		});
+		let warning: string | undefined;
+		try {
+			const notification = await notifyParticipantAdded(db, env, {
+				added: {
+					participantId,
+					contactId: contact.id,
+					wasExistingContact,
+					isSelf: contact.userId === user.id,
+					role: parsed.data.role,
+				},
+				event: {
+					id: ctx.event.id,
+					name: ctx.event.name,
+					slug: ctx.event.slug,
+				},
+				submission: {
+					id: submission.id,
+					title: submission.title,
+					formId: submission.formId,
+					submitterId: submission.submitterId,
+				},
+				origin: new URL(request.url).origin,
+			});
+			warning = notification.warning;
+		} catch (error) {
+			track("portal.participant_notification_failed", {
+				eventId: ctx.event.id,
+				submissionId: submission.id,
+				participantId,
+				error: errorMessage(error),
+			});
+			warning =
+				"Participant added, but the invitation failed. The participant remains linked to this submission.";
+		}
+		if (warning) {
+			return data(
+				{ intent, ok: true, warning },
+				{ headers: { "Server-Timing": timings.header() } },
+			);
+		}
 		return redirect(`${here}?saved=participant`, {
+			headers: { "Server-Timing": timings.header() },
+		});
+	}
+
+	if (intent === "set-participant-role") {
+		const parsed = SetParticipantRoleSchema.safeParse({
+			participantId: form.get("participantId"),
+			role: form.get("role"),
+		});
+		if (!parsed.success) {
+			return fail({ formError: "Choose a valid participant role." });
+		}
+		const rolePolicy = await getParticipantRolePolicy(
+			db,
+			ctx.event.id,
+			submission.formId,
+		);
+		if (!rolePolicy.allowedRoles.includes(parsed.data.role)) {
+			return fail({
+				formError: `${PARTICIPANT_ROLE_LABELS[parsed.data.role]} is not enabled on the source form.`,
+			});
+		}
+		const rows = await getParticipantRoleRows(db, submission.id);
+		const row = rows.find(
+			(candidate) => candidate.id === parsed.data.participantId,
+		);
+		if (!row) throw data(null, { status: 404 });
+		if (row.role === parsed.data.role) {
+			return redirect(`${here}?saved=role`, {
+				headers: { "Server-Timing": timings.header() },
+			});
+		}
+		if (
+			rows.some(
+				(candidate) =>
+					candidate.id !== row.id &&
+					candidate.contactId === row.contactId &&
+					candidate.role === parsed.data.role,
+			)
+		) {
+			return fail({
+				formError: "This person is already listed with the selected role.",
+			});
+		}
+		const counts = participantRoleCounts(rows);
+		const minError = minimumError(rolePolicy, row.role, counts[row.role] - 1);
+		if (minError) return fail({ formError: minError });
+		const maxError = maximumError(
+			rolePolicy,
+			parsed.data.role,
+			counts[parsed.data.role] + 1,
+		);
+		if (maxError) return fail({ formError: maxError });
+
+		const resultingSpeakers = rows.filter((candidate) =>
+			candidate.id === row.id
+				? parsed.data.role === "speaker"
+				: candidate.role === "speaker",
+		);
+		const existingPrimary = resultingSpeakers.find((candidate) =>
+			candidate.id === row.id ? row.isPrimary : candidate.isPrimary,
+		);
+		const primaryId = existingPrimary?.id ?? resultingSpeakers[0]?.id ?? null;
+		const roleUpdate = db
+			.update(participants)
+			.set({
+				role: parsed.data.role,
+				isPrimary: row.id === primaryId,
+			})
+			.where(
+				and(
+					eq(participants.id, row.id),
+					eq(participants.submissionId, submission.id),
+				),
+			);
+		const primaryUpdates = rows
+			.filter(
+				(candidate) =>
+					candidate.id !== row.id &&
+					candidate.isPrimary !== (candidate.id === primaryId),
+			)
+			.map((candidate) =>
+				db
+					.update(participants)
+					.set({ isPrimary: candidate.id === primaryId })
+					.where(
+						and(
+							eq(participants.id, candidate.id),
+							eq(participants.submissionId, submission.id),
+						),
+					),
+			);
+		try {
+			await timings.time("db", () => db.batch([roleUpdate, ...primaryUpdates]));
+		} catch (error) {
+			track("portal.participant_role_change_failed", {
+				eventId: ctx.event.id,
+				submissionId: submission.id,
+				participantId: row.id,
+				error: errorMessage(error),
+			});
+			return fail({
+				formError: "Could not change this role — please try again.",
+			});
+		}
+		track("portal.participant_role_changed", {
+			eventId: ctx.event.id,
+			submissionId: submission.id,
+			participantId: row.id,
+			fromRole: row.role,
+			toRole: parsed.data.role,
+		});
+		return redirect(`${here}?saved=role`, {
 			headers: { "Server-Timing": timings.header() },
 		});
 	}
 
 	if (intent === "remove-participant") {
 		const participantId = String(form.get("participantId") ?? "");
-		const [row] = await db
-			.select({
-				id: participants.id,
-				role: participants.role,
-				contactUserId: contacts.userId,
-			})
-			.from(participants)
-			.innerJoin(contacts, eq(contacts.id, participants.contactId))
-			.where(
-				and(
-					eq(participants.id, participantId),
-					eq(participants.submissionId, submission.id),
-				),
-			)
-			.limit(1);
+		const rows = await getParticipantRoleRows(db, submission.id);
+		const row = rows.find((candidate) => candidate.id === participantId);
 		if (!row) throw data(null, { status: 404 });
-		if (row.contactUserId === user.id) {
+		if (ctx.contact?.id === row.contactId) {
 			return fail({
 				formError:
 					"To step back yourself, use your participation controls instead.",
 			});
 		}
-		if (row.role === "speaker") {
-			let minSpeakers = 1;
-			if (submission.formId) {
-				const [sourceForm] = await db
-					.select({ min: forms.roleSpeakerMin })
-					.from(forms)
-					.where(eq(forms.id, submission.formId))
-					.limit(1);
-				minSpeakers = Math.max(1, sourceForm?.min ?? 1);
-			}
-			const speakers = await db
-				.select({ id: participants.id })
-				.from(participants)
-				.where(
-					and(
-						eq(participants.submissionId, submission.id),
-						eq(participants.role, "speaker"),
-					),
-				);
-			if (speakers.length - 1 < minSpeakers) {
-				return fail({
-					formError: `This submission needs at least ${minSpeakers} speaker${minSpeakers > 1 ? "s" : ""}.`,
-				});
-			}
-		}
-		try {
-			await timings.time("db", () =>
-				db.delete(participants).where(eq(participants.id, row.id)),
+		const rolePolicy = await getParticipantRolePolicy(
+			db,
+			ctx.event.id,
+			submission.formId,
+		);
+		const counts = participantRoleCounts(rows);
+		const minError = minimumError(rolePolicy, row.role, counts[row.role] - 1);
+		if (minError) return fail({ formError: minError });
+
+		const remaining = rows.filter((candidate) => candidate.id !== row.id);
+		const remainingSpeakers = remaining.filter(
+			(candidate) => candidate.role === "speaker",
+		);
+		const primaryId =
+			remainingSpeakers.find((candidate) => candidate.isPrimary)?.id ??
+			remainingSpeakers[0]?.id ??
+			null;
+		const removal = db
+			.delete(participants)
+			.where(
+				and(
+					eq(participants.id, row.id),
+					eq(participants.submissionId, submission.id),
+				),
 			);
+		const primaryUpdates = remaining
+			.filter(
+				(candidate) => candidate.isPrimary !== (candidate.id === primaryId),
+			)
+			.map((candidate) =>
+				db
+					.update(participants)
+					.set({ isPrimary: candidate.id === primaryId })
+					.where(
+						and(
+							eq(participants.id, candidate.id),
+							eq(participants.submissionId, submission.id),
+						),
+					),
+			);
+		try {
+			await timings.time("db", () => db.batch([removal, ...primaryUpdates]));
 		} catch (error) {
 			track("portal.participant_remove_failed", {
 				eventId: ctx.event.id,
 				submissionId: submission.id,
+				participantId: row.id,
 				error: errorMessage(error),
 			});
 			return fail({
@@ -647,6 +1039,8 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		track("portal.participant_removed", {
 			eventId: ctx.event.id,
 			submissionId: submission.id,
+			participantId: row.id,
+			role: row.role,
 		});
 		return redirect(`${here}?saved=removed`, {
 			headers: { "Server-Timing": timings.header() },

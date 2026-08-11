@@ -164,6 +164,7 @@ const SaveForm = insertFormSchema
 		sessionSectionHtml: true,
 		participantSectionTitle: true,
 		participantSectionHtml: true,
+		notifyExistingContacts: true,
 		roleSpeakerMin: true,
 		roleSpeakerMax: true,
 		allowChairperson: true,
@@ -197,6 +198,7 @@ const SaveForm = insertFormSchema
 		sessionSectionHtml: z.string().max(20000),
 		participantSectionTitle: z.string().trim().max(255),
 		participantSectionHtml: z.string().max(20000),
+		notifyExistingContacts: boolish,
 		roleSpeakerMin: z.coerce.number().int().min(0).max(50),
 		roleSpeakerMax: optionalInt(1, 50),
 		allowChairperson: boolish,
@@ -311,7 +313,39 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 
 	const [form] = await timings.time("db", () =>
 		db
-			.select()
+			.select({
+				id: forms.id,
+				publicId: forms.publicId,
+				type: forms.type,
+				status: forms.status,
+				internalName: forms.internalName,
+				externalTitle: forms.externalTitle,
+				pageHeading: forms.pageHeading,
+				welcomeHtml: forms.welcomeHtml,
+				showWelcome: forms.showWelcome,
+				participantsStep: forms.participantsStep,
+				sessionSectionTitle: forms.sessionSectionTitle,
+				sessionSectionHtml: forms.sessionSectionHtml,
+				participantSectionTitle: forms.participantSectionTitle,
+				participantSectionHtml: forms.participantSectionHtml,
+				notifyExistingContacts: forms.notifyExistingContacts,
+				roleSpeakerMin: forms.roleSpeakerMin,
+				roleSpeakerMax: forms.roleSpeakerMax,
+				allowChairperson: forms.allowChairperson,
+				roleChairpersonMin: forms.roleChairpersonMin,
+				roleChairpersonMax: forms.roleChairpersonMax,
+				allowModerator: forms.allowModerator,
+				roleModeratorMin: forms.roleModeratorMin,
+				roleModeratorMax: forms.roleModeratorMax,
+				closeAt: forms.closeAt,
+				sendReminders: forms.sendReminders,
+				submissionLimit: forms.submissionLimit,
+				allowMultipleDrafts: forms.allowMultipleDrafts,
+				autoRedirect: forms.autoRedirect,
+				successHtml: forms.successHtml,
+				sendConfirmationEmail: forms.sendConfirmationEmail,
+				config: forms.config,
+			})
 			.from(forms)
 			.where(and(eq(forms.id, params.formId), eq(forms.eventId, event.id)))
 			.limit(1),
@@ -459,6 +493,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				sessionSectionHtml: form.sessionSectionHtml ?? "",
 				participantSectionTitle: form.participantSectionTitle ?? "",
 				participantSectionHtml: form.participantSectionHtml ?? "",
+				notifyExistingContacts: form.notifyExistingContacts,
 				roleSpeakerMin: form.roleSpeakerMin,
 				roleSpeakerMax: form.roleSpeakerMax,
 				allowChairperson: form.allowChairperson,
@@ -595,6 +630,7 @@ async function handleSaveForm(
 			sessionSectionHtml: sessionSectionHtml || null,
 			participantSectionTitle: d.participantSectionTitle || null,
 			participantSectionHtml: participantSectionHtml || null,
+			notifyExistingContacts: d.notifyExistingContacts,
 			roleSpeakerMin: d.roleSpeakerMin,
 			roleSpeakerMax: d.roleSpeakerMax,
 			allowChairperson: d.allowChairperson,
@@ -1274,6 +1310,7 @@ const FIELD_STEP: Record<string, StepId> = {
 	sessionSectionHtml: "session",
 	participantSectionTitle: "participant",
 	participantSectionHtml: "participant",
+	notifyExistingContacts: "participant",
 	roleSpeakerMin: "participant",
 	roleSpeakerMax: "participant",
 	roleChairpersonMin: "participant",
@@ -2743,6 +2780,16 @@ function Builder({
 								initialLibrary={d.libraryFields}
 							/>
 							<RoleConfig form={d.form} errors={errors} />
+							<Panel>
+								<div className="flex flex-col gap-4">
+									<strong>Unique contact settings</strong>
+									<OnOffSelect
+										label="Notify existing contacts when they are added to a submission."
+										name="notifyExistingContacts"
+										defaultOn={d.form.notifyExistingContacts}
+									/>
+								</div>
+							</Panel>
 						</div>
 					</div>
 

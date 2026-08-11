@@ -64,6 +64,13 @@
       "when": 1786396752349,
       "tag": "0008_speaker_crm",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786402449601,
+      "tag": "0009_co_presenter_roles",
+      "breakpoints": true
     }
   ]
 }

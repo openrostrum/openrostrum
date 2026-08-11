@@ -1,4 +1,5 @@
 import { Form } from "react-router";
+import { PARTICIPANT_ROLE_LABELS, type ParticipantRole } from "~/db/constants";
 import { useBusy } from "~/lib/use-busy";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.submissions_.$submissionId";
 import {
@@ -6,6 +7,7 @@ import {
 	Button,
 	Chip,
 	ConfirmButton,
+	EmptyState,
 	ErrorText,
 	Field,
 	Input,
@@ -26,13 +28,8 @@ export type SubmissionDetailActionData = {
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
 	intent?: string;
-};
-
-const ROLE_LABEL: Record<string, string> = {
-	speaker: "Speaker",
-	chairperson: "Chairperson",
-	moderator: "Moderator",
-	secondary: "Secondary contact",
+	ok?: boolean;
+	warning?: string;
 };
 
 export function SubmissionDetailView({
@@ -42,7 +39,6 @@ export function SubmissionDetailView({
 	data: SubmissionDetailData;
 	actionData?: SubmissionDetailActionData;
 }) {
-	const busy = useBusy();
 	const {
 		base,
 		title,
@@ -52,6 +48,7 @@ export function SubmissionDetailView({
 		schedule,
 		room,
 		participants,
+		allowedParticipantRoles,
 		myParticipation,
 		editWindow,
 		canWithdrawSubmission,
@@ -63,6 +60,7 @@ export function SubmissionDetailView({
 	} = data;
 	const errs = actionData?.fieldErrors ?? {};
 	const err = (key: string) => errs[key]?.[0];
+	const busy = useBusy();
 
 	return (
 		<div className="flex flex-col gap-5">
@@ -80,6 +78,10 @@ export function SubmissionDetailView({
 			{saved === "participant" && (
 				<Notice tone="success">Participant added.</Notice>
 			)}
+			{saved === "role" && (
+				<Notice tone="success">Participant role updated.</Notice>
+			)}
+			{actionData?.warning && <Notice tone="info">{actionData.warning}</Notice>}
 			{saved === "removed" && (
 				<Notice tone="success">Participant removed.</Notice>
 			)}
@@ -150,66 +152,142 @@ export function SubmissionDetailView({
 			)}
 
 			<Card title="Participants">
-				<RowList>
-					{participants.map((p) => (
-						<Row
-							key={p.id}
-							right={
-								<>
-									{p.acceptance && (
-										<StatusBadge tone={p.acceptance.tone}>
-											{p.acceptance.label}
-										</StatusBadge>
-									)}
-									{editWindow.editable && p.removable && (
-										<Form method="post">
-											<input type="hidden" name="participantId" value={p.id} />
-											<ConfirmButton
-												disabled={busy}
-												label="Remove"
-												prompt={`Remove ${p.name} from this submission?`}
-												confirmLabel="Yes, remove"
-												name="intent"
-												value="remove-participant"
-											/>
-										</Form>
-									)}
-								</>
-							}
-						>
-							<span className="flex items-center gap-2">
-								<Avatar name={p.name} size={24} />
-								<Strong>
-									{p.name}
-									{p.isMe ? " (you)" : ""}
-								</Strong>
-								<Muted>{ROLE_LABEL[p.role] ?? p.role}</Muted>
-							</span>
-						</Row>
-					))}
-				</RowList>
-				{actionData?.intent === "remove-participant" &&
+				{participants.length === 0 ? (
+					<EmptyState
+						icon="users"
+						title="No participants are listed"
+						body={
+							editWindow.editable
+								? "Add the first participant with the form below."
+								: "Contact the event team if someone should be listed."
+						}
+					/>
+				) : (
+					<RowList>
+						{participants.map((p) => {
+							const roleOptions: ParticipantRole[] = [
+								...(allowedParticipantRoles.includes(p.role) ? [] : [p.role]),
+								...allowedParticipantRoles,
+							];
+							return (
+								<Row
+									key={p.id}
+									right={
+										<>
+											{p.acceptance && (
+												<StatusBadge tone={p.acceptance.tone}>
+													{p.acceptance.label}
+												</StatusBadge>
+											)}
+											{editWindow.editable && p.removable && (
+												<>
+													<Form
+														method="post"
+														className="flex items-center gap-2"
+													>
+														<input
+															type="hidden"
+															name="participantId"
+															value={p.id}
+														/>
+														<Select
+															name="role"
+															defaultValue={p.role}
+															aria-label={`Role for ${p.name}`}
+															disabled={busy}
+														>
+															{roleOptions.map((role) => (
+																<option key={role} value={role}>
+																	{PARTICIPANT_ROLE_LABELS[role]}
+																</option>
+															))}
+														</Select>
+														<Button
+															type="submit"
+															name="intent"
+															value="set-participant-role"
+															disabled={busy}
+															variant="ghost"
+														>
+															Save role
+														</Button>
+													</Form>
+													<Form method="post">
+														<input
+															type="hidden"
+															name="participantId"
+															value={p.id}
+														/>
+														<ConfirmButton
+															disabled={busy}
+															label="Remove"
+															prompt={`Remove ${p.name} from this submission?`}
+															confirmLabel="Yes, remove"
+															name="intent"
+															value="remove-participant"
+														/>
+													</Form>
+												</>
+											)}
+										</>
+									}
+								>
+									<span className="flex items-center gap-2">
+										<Avatar name={p.name} size={24} />
+										<Strong>
+											{p.name}
+											{p.isMe ? " (you)" : ""}
+										</Strong>
+										<Muted>{PARTICIPANT_ROLE_LABELS[p.role]}</Muted>
+									</span>
+								</Row>
+							);
+						})}
+					</RowList>
+				)}
+				{(actionData?.intent === "remove-participant" ||
+					actionData?.intent === "set-participant-role") &&
 					actionData.formError && <ErrorText>{actionData.formError}</ErrorText>}
 
 				{editWindow.editable && (
 					<Form method="post" className="mt-4 flex flex-wrap items-end gap-3">
 						<Field label="First name" error={err("firstName")}>
-							<Input name="firstName" invalid={Boolean(err("firstName"))} />
+							<Input
+								name="firstName"
+								autoComplete="given-name"
+								disabled={busy}
+								invalid={Boolean(err("firstName"))}
+							/>
 						</Field>
 						<Field label="Last name" error={err("lastName")}>
-							<Input name="lastName" invalid={Boolean(err("lastName"))} />
+							<Input
+								name="lastName"
+								autoComplete="family-name"
+								disabled={busy}
+								invalid={Boolean(err("lastName"))}
+							/>
 						</Field>
 						<Field label="Email" error={err("email")}>
 							<Input
 								name="email"
 								type="email"
+								autoComplete="email"
+								disabled={busy}
 								invalid={Boolean(err("email"))}
 							/>
 						</Field>
-						<Field label="Role">
-							<Select name="role" defaultValue="speaker">
-								<option value="speaker">Speaker</option>
-								<option value="secondary">Secondary contact</option>
+						<Field label="Role" error={err("role")}>
+							<Select
+								name="role"
+								defaultValue="speaker"
+								disabled={busy}
+								aria-invalid={Boolean(err("role"))}
+							>
+								{allowedParticipantRoles.map((role) => (
+									<option key={role} value={role}>
+										{PARTICIPANT_ROLE_LABELS[role]}
+									</option>
+								))}
 							</Select>
 						</Field>
 						<Button

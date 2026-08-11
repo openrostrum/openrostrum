@@ -151,6 +151,7 @@ function saveFormBody(
 		sessionSectionHtml: "",
 		participantSectionTitle: "",
 		participantSectionHtml: "",
+		notifyExistingContacts: "true",
 		roleSpeakerMin: "1",
 		roleSpeakerMax: "4",
 		allowChairperson: "true",
@@ -420,6 +421,31 @@ describe("save-form", () => {
 		expect(form?.config).toEqual({
 			notify: { newSubmission: ["u_admin"], updatedSubmission: ["u_admin"] },
 		});
+	});
+
+	it("round-trips the existing-contact participant notification policy when disabled", async () => {
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		const result = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({ notifyExistingContacts: "false" }),
+					cookie,
+				),
+			),
+		);
+		expect(result.ok).toBe("save-form");
+		const [persisted] = await db
+			.select({ notifyExistingContacts: forms.notifyExistingContacts })
+			.from(forms)
+			.where(eq(forms.id, formId));
+		expect(persisted?.notifyExistingContacts).toBe(false);
+
+		const loaded = (await loader(loaderArgs(formId, cookie))) as unknown as {
+			data: { form: { notifyExistingContacts: boolean } };
+		};
+		expect(loaded.data.form.notifyExistingContacts).toBe(false);
 	});
 
 	it("rejects a 16-character page heading and persists nothing", async () => {

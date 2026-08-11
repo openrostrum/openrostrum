@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, ne } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, ne } from "drizzle-orm";
 import { getDb } from "~/db";
 import {
 	contacts,
@@ -20,6 +20,7 @@ import {
 	tracks,
 	fields as fieldsTable,
 } from "~/db/schema";
+import type { AddedParticipant } from "~/domain/participant-notifications";
 import { normalizeEmail } from "~/lib/auth";
 import { getEmailSender } from "~/ports/email";
 import {
@@ -521,6 +522,106 @@ function taxonomyValue(
 
 type BatchStatement = Parameters<Db["batch"]>[0][number];
 
+type ExistingParticipantLink = {
+	id: string;
+	contactId: string;
+	role: WizardParticipant["role"];
+	email: string;
+};
+
+async function loadExistingParticipantLinks(
+	db: Db,
+	submissionId: string,
+): Promise<ExistingParticipantLink[]> {
+	return db
+		.select({
+			id: participants.id,
+			contactId: participants.contactId,
+			role: participants.role,
+			email: contacts.email,
+		})
+		.from(participants)
+		.innerJoin(contacts, eq(contacts.id, participants.contactId))
+		.where(eq(participants.submissionId, submissionId));
+}
+
+function persistedDuplicateKeys(
+	rows: WizardParticipant[],
+	existingLinks: ExistingParticipantLink[],
+): Set<string> {
+	const byId = new Map(existingLinks.map((link) => [link.id, link]));
+	const groups = new Map<string, WizardParticipant[]>();
+	for (const row of rows) {
+		const email = normalizeEmail(row.email);
+		if (!email) continue;
+		const group = groups.get(email) ?? [];
+		group.push(row);
+		groups.set(email, group);
+	}
+
+	const allowed = new Set<string>();
+	for (const [email, group] of groups) {
+		if (group.length < 2) continue;
+		const links = group.map((row) => byId.get(row.key));
+		if (
+			links.some((link) => !link || normalizeEmail(link.email) !== email) ||
+			new Set(links.map((link) => link?.id)).size !== group.length ||
+			new Set(links.map((link) => link?.contactId)).size !== 1
+		) {
+			continue;
+		}
+		for (const row of group) allowed.add(row.key);
+	}
+	return allowed;
+}
+
+function hasUnretainedDuplicateEmails(
+	rows: WizardParticipant[],
+	allowed: ReadonlySet<string>,
+): boolean {
+	const groups = new Map<string, WizardParticipant[]>();
+	for (const row of rows) {
+		const email = normalizeEmail(row.email);
+		if (!email) continue;
+		const group = groups.get(email) ?? [];
+		group.push(row);
+		groups.set(email, group);
+	}
+	return [...groups.values()].some(
+		(group) => group.length > 1 && group.some((row) => !allowed.has(row.key)),
+	);
+}
+
+export async function markPersistedParticipantRows(
+	db: Db,
+	input: {
+		sid?: string;
+		formId: string;
+		submitterId: string;
+		rows: WizardParticipant[];
+	},
+): Promise<WizardParticipant[]> {
+	if (!input.sid) return input.rows;
+	const [submission] = await db
+		.select({ id: submissions.id })
+		.from(submissions)
+		.where(
+			and(
+				eq(submissions.id, input.sid),
+				eq(submissions.formId, input.formId),
+				eq(submissions.submitterId, input.submitterId),
+			),
+		)
+		.limit(1);
+	if (!submission) return input.rows;
+	const existingLinks = await loadExistingParticipantLinks(db, submission.id);
+	const allowed = persistedDuplicateKeys(input.rows, existingLinks);
+	return input.rows.map((row) => ({
+		...row,
+		persisted: allowed.has(row.key) || undefined,
+	}));
+}
+
 /**
  * Plan the contact writes for the wizard's participants: existing contacts
  * are matched by normalized email and NOT overwritten (the organizer's data
@@ -537,17 +638,21 @@ async function planParticipantContacts(
 ): Promise<{
 	statements: BatchStatement[];
 	contactIdByKey: Map<string, string>;
+	wasExistingContactByKey: Map<string, boolean>;
 }> {
 	const statements: BatchStatement[] = [];
 	const contactIdByKey = new Map<string, string>();
-	// Two rows carrying the same email resolve to ONE contact — otherwise the
-	// unique(eventId, email) constraint would fail the whole batch.
-	const plannedIdByEmail = new Map<string, string>();
+	const wasExistingContactByKey = new Map<string, boolean>();
+	const plannedByEmail = new Map<
+		string,
+		{ contactId: string; wasExistingContact: boolean }
+	>();
 	for (const p of rows) {
 		const email = normalizeEmail(p.self ? user.email : p.email);
-		const alreadyPlanned = plannedIdByEmail.get(email);
+		const alreadyPlanned = plannedByEmail.get(email);
 		if (alreadyPlanned) {
-			contactIdByKey.set(p.key, alreadyPlanned);
+			contactIdByKey.set(p.key, alreadyPlanned.contactId);
+			wasExistingContactByKey.set(p.key, alreadyPlanned.wasExistingContact);
 			continue;
 		}
 		const bio = (await sanitizeHtml(p.bio)) || null;
@@ -558,7 +663,11 @@ async function planParticipantContacts(
 			.limit(1);
 		if (existing) {
 			contactIdByKey.set(p.key, existing.id);
-			plannedIdByEmail.set(email, existing.id);
+			wasExistingContactByKey.set(p.key, true);
+			plannedByEmail.set(email, {
+				contactId: existing.id,
+				wasExistingContact: true,
+			});
 			if (p.self) {
 				statements.push(
 					db
@@ -591,9 +700,13 @@ async function planParticipantContacts(
 			}) as unknown as BatchStatement,
 		);
 		contactIdByKey.set(p.key, id);
-		plannedIdByEmail.set(email, id);
+		wasExistingContactByKey.set(p.key, false);
+		plannedByEmail.set(email, {
+			contactId: id,
+			wasExistingContact: false,
+		});
 	}
-	return { statements, contactIdByKey };
+	return { statements, contactIdByKey, wasExistingContactByKey };
 }
 
 async function sanitizedAnswers(
@@ -620,6 +733,7 @@ export type WriteResult =
 			created: boolean;
 			/** Status before this write; null when the row was just created. */
 			previousStatus: string | null;
+			addedParticipants: AddedParticipant[];
 	  }
 	| { ok: false; error: string; status?: number };
 
@@ -637,9 +751,20 @@ export async function writeSubmission(
 
 	const [existing] = input.sid
 		? await db
-				.select()
+				.select({
+					id: submissions.id,
+					formId: submissions.formId,
+					submitterId: submissions.submitterId,
+					status: submissions.status,
+					language: submissions.language,
+				})
 				.from(submissions)
-				.where(eq(submissions.id, input.sid))
+				.where(
+					and(
+						eq(submissions.id, input.sid),
+						eq(submissions.eventId, form.eventId),
+					),
+				)
 				.limit(1)
 		: [undefined];
 	if (input.sid && !existing) {
@@ -666,6 +791,21 @@ export async function writeSubmission(
 			error:
 				"This proposal is already submitted — review your changes and use Save changes instead.",
 			status: 400,
+		};
+	}
+
+	const existingParticipantLinks = existing
+		? await loadExistingParticipantLinks(db, existing.id)
+		: [];
+	const retainedDuplicateKeys = persistedDuplicateKeys(
+		input.participants,
+		existingParticipantLinks,
+	);
+	if (hasUnretainedDuplicateEmails(input.participants, retainedDuplicateKeys)) {
+		return {
+			ok: false,
+			error: "Each participant must have a distinct email address.",
+			status: 422,
 		};
 	}
 
@@ -701,6 +841,7 @@ export async function writeSubmission(
 		selfContactExtras(definition, values, visibleKeys),
 	);
 	const contactIdByKey = contactPlan.contactIdByKey;
+	const wasExistingContactByKey = contactPlan.wasExistingContactByKey;
 
 	const core = {
 		title,
@@ -779,55 +920,66 @@ export async function writeSubmission(
 		statements.push(db.insert(submissionTags).values({ submissionId, tagId }));
 	}
 
-	// Participant sync by contact: update kept rows in place (their acceptance
-	// state survives an edit), remove dropped ones, insert new ones.
-	const existingParticipants = existing
-		? await db
-				.select({
-					id: participants.id,
-					contactId: participants.contactId,
-				})
-				.from(participants)
-				.where(eq(participants.submissionId, submissionId))
-		: [];
-	const nextByContact = new Map<
+	const nextByIdentity = new Map<
 		string,
-		{ p: WizardParticipant; index: number }
+		{ participant: WizardParticipant; index: number; contactId: string }
 	>();
-	input.participants.forEach((p, index) => {
-		const contactId = contactIdByKey.get(p.key);
-		if (contactId) nextByContact.set(contactId, { p, index });
-	});
-	for (const row of existingParticipants) {
-		const next = nextByContact.get(row.contactId);
+	for (const [index, participant] of input.participants.entries()) {
+		const contactId = contactIdByKey.get(participant.key);
+		if (!contactId) continue;
+		const identity = `${contactId}:${participant.role}`;
+		if (nextByIdentity.has(identity)) {
+			return {
+				ok: false,
+				error: "A contact can only be listed once in each participant role.",
+				status: 422,
+			};
+		}
+		nextByIdentity.set(identity, { participant, index, contactId });
+	}
+
+	for (const row of existingParticipantLinks) {
+		const identity = `${row.contactId}:${row.role}`;
+		const next = nextByIdentity.get(identity);
 		if (!next) {
 			statements.push(
 				db.delete(participants).where(eq(participants.id, row.id)),
 			);
-		} else {
-			statements.push(
-				db
-					.update(participants)
-					.set({
-						role: next.p.role,
-						position: next.index,
-						isPrimary: next.p.self === true,
-					})
-					.where(eq(participants.id, row.id)),
-			);
-			nextByContact.delete(row.contactId);
+			continue;
 		}
+		statements.push(
+			db
+				.update(participants)
+				.set({
+					position: next.index,
+					isPrimary:
+						next.participant.self === true &&
+						next.participant.role === "speaker",
+				})
+				.where(eq(participants.id, row.id)),
+		);
+		nextByIdentity.delete(identity);
 	}
-	for (const [contactId, { p, index }] of nextByContact) {
+
+	const plannedAdds: Array<Omit<AddedParticipant, "isSelf">> = [];
+	for (const { participant, index, contactId } of nextByIdentity.values()) {
+		const participantId = crypto.randomUUID();
 		statements.push(
 			db.insert(participants).values({
+				id: participantId,
 				submissionId,
 				contactId,
-				role: p.role,
+				role: participant.role,
 				position: index,
-				isPrimary: p.self === true,
+				isPrimary: participant.self === true && participant.role === "speaker",
 			}),
 		);
+		plannedAdds.push({
+			participantId,
+			contactId,
+			wasExistingContact: wasExistingContactByKey.get(participant.key) ?? false,
+			role: participant.role,
+		});
 	}
 
 	if (editingSubmitted && target === "submit") {
@@ -854,17 +1006,92 @@ export async function writeSubmission(
 				.where(eq(submissions.id, submissionId))
 				.limit(1);
 			if (row && row.submitterId === user.id) {
-				return { ok: true, submissionId, created: false, previousStatus: null };
+				return {
+					ok: true,
+					submissionId,
+					created: false,
+					previousStatus: null,
+					addedParticipants: [],
+				};
 			}
 		}
 		throw error;
 	}
+
+	const confirmedById = new Map<
+		string,
+		{
+			contactId: string;
+			role: WizardParticipant["role"];
+			contactUserId: string | null;
+			submitterId: string | null;
+		}
+	>();
+	if (plannedAdds.length > 0) {
+		const confirmed = await db
+			.select({
+				participantId: participants.id,
+				contactId: participants.contactId,
+				role: participants.role,
+				contactUserId: contacts.userId,
+				submitterId: submissions.submitterId,
+			})
+			.from(participants)
+			.innerJoin(
+				submissions,
+				and(
+					eq(submissions.id, participants.submissionId),
+					eq(submissions.eventId, form.eventId),
+				),
+			)
+			.innerJoin(
+				contacts,
+				and(
+					eq(contacts.id, participants.contactId),
+					eq(contacts.eventId, form.eventId),
+				),
+			)
+			.where(
+				and(
+					eq(participants.submissionId, submissionId),
+					inArray(
+						participants.id,
+						plannedAdds.map((added) => added.participantId),
+					),
+				),
+			);
+		for (const row of confirmed) {
+			confirmedById.set(row.participantId, row);
+		}
+	}
+	const addedParticipants = plannedAdds.flatMap((planned) => {
+		const confirmed = confirmedById.get(planned.participantId);
+		if (
+			!confirmed ||
+			confirmed.contactId !== planned.contactId ||
+			confirmed.role !== planned.role
+		) {
+			return [];
+		}
+		return [
+			{
+				participantId: planned.participantId,
+				contactId: planned.contactId,
+				wasExistingContact: planned.wasExistingContact,
+				isSelf:
+					confirmed.contactUserId !== null &&
+					confirmed.contactUserId === confirmed.submitterId,
+				role: planned.role,
+			} satisfies AddedParticipant,
+		];
+	});
 
 	return {
 		ok: true,
 		submissionId,
 		created: !existing,
 		previousStatus: existing?.status ?? null,
+		addedParticipants,
 	};
 }
 
@@ -912,9 +1139,19 @@ export async function loadWizardInitial(
 	sid: string,
 ): Promise<WizardInitial | null> {
 	const [row] = await db
-		.select()
+		.select({
+			formId: submissions.formId,
+			submitterId: submissions.submitterId,
+			status: submissions.status,
+			updatedAt: submissions.updatedAt,
+			title: submissions.title,
+			description: submissions.description,
+			formatId: submissions.formatId,
+			levelId: submissions.levelId,
+			language: submissions.language,
+		})
 		.from(submissions)
-		.where(eq(submissions.id, sid))
+		.where(and(eq(submissions.id, sid), eq(submissions.eventId, form.eventId)))
 		.limit(1);
 	if (!row || row.formId !== form.id || row.submitterId !== userId) return null;
 
@@ -980,6 +1217,7 @@ export async function loadWizardInitial(
 			mobilePhone: p.mobilePhone ?? "",
 			bio: p.bio ?? "",
 			self: p.contactUserId === userId || undefined,
+			persisted: true,
 		})),
 	};
 }

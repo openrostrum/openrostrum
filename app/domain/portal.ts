@@ -1,7 +1,7 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
-import type { SUBMISSION_STATUS } from "~/db/constants";
+import { PARTICIPANT_ROLE, type SUBMISSION_STATUS } from "~/db/constants";
 import {
 	type Contact,
 	contacts,
@@ -247,6 +247,7 @@ export async function listPortalSubmissions(
 				format: formats.name,
 				createdAt: submissions.createdAt,
 				participantId: participants.id,
+				participantRole: participants.role,
 				acceptance: participants.acceptanceStatus,
 			})
 			.from(participants)
@@ -258,23 +259,31 @@ export async function listPortalSubmissions(
 					eq(submissions.eventId, ctx.event.id),
 				),
 			)
-			.orderBy(desc(submissions.createdAt))
-			.limit(PORTAL_SUBMISSION_LIMIT + 1);
+			.orderBy(
+				desc(submissions.createdAt),
+				asc(participants.position),
+				asc(participants.createdAt),
+				asc(participants.id),
+			)
+			.limit((PORTAL_SUBMISSION_LIMIT + 1) * PARTICIPANT_ROLE.length);
 		for (const row of linked) {
-			byId.set(row.id, {
+			const existing = byId.get(row.id) ?? {
 				id: row.id,
 				title: row.title,
 				status: portalStatus(row.status),
 				format: row.format,
 				createdAt: row.createdAt.getTime(),
-				participation: {
+				participation: null,
+			};
+			if (row.participantRole !== "secondary" && !existing.participation) {
+				existing.participation = {
 					id: row.participantId,
 					status: PARTICIPATION_PROJECTION[row.acceptance],
 					raw: row.acceptance,
-					// Per-person Confirm/Withdraw exists ONLY on Accepted sessions.
 					confirmable: row.status === "accepted",
-				},
-			});
+				};
+			}
+			byId.set(row.id, existing);
 		}
 	}
 
@@ -307,9 +316,14 @@ export async function requireOwnedSubmission(
 		.limit(1);
 	if (!submission) throw data(null, { status: 404 });
 	let myParticipant = null;
+	let ownsThroughParticipant = false;
 	if (ctx.contact) {
-		const [p] = await db
-			.select()
+		const links = await db
+			.select({
+				id: participants.id,
+				role: participants.role,
+				acceptanceStatus: participants.acceptanceStatus,
+			})
 			.from(participants)
 			.where(
 				and(
@@ -317,11 +331,16 @@ export async function requireOwnedSubmission(
 					eq(participants.contactId, ctx.contact.id),
 				),
 			)
-			.limit(1);
-		myParticipant = p ?? null;
+			.orderBy(
+				asc(participants.position),
+				asc(participants.createdAt),
+				asc(participants.id),
+			);
+		ownsThroughParticipant = links.length > 0;
+		myParticipant = links.find((link) => link.role !== "secondary") ?? null;
 	}
 	if (
-		!myParticipant &&
+		!ownsThroughParticipant &&
 		(ctx.subjectUserId === null || submission.submitterId !== ctx.subjectUserId)
 	)
 		throw data(null, { status: 404 });
@@ -434,7 +453,12 @@ export async function getEditWindow(
 	const [form] = await db
 		.select({ closeAt: forms.closeAt })
 		.from(forms)
-		.where(eq(forms.id, submission.formId))
+		.where(
+			and(
+				eq(forms.id, submission.formId),
+				eq(forms.eventId, submission.eventId),
+			),
+		)
 		.limit(1);
 	const closesAt = form?.closeAt ?? null;
 	if (closesAt && closesAt.getTime() <= now.getTime()) {
