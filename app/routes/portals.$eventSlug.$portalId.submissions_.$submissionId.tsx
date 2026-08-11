@@ -314,7 +314,9 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			},
 			allowedParticipantRoles: rolePolicy.allowedRoles,
 			participants: sortedPeople.map((p) => {
-				const isMe = ctx.contact !== null && p.contactId === ctx.contact.id;
+				const isMe =
+					(ctx.contact !== null && p.contactId === ctx.contact.id) ||
+					(ctx.subjectUserId !== null && p.contactUserId === ctx.subjectUserId);
 				return {
 					id: p.id,
 					name: `${p.firstName} ${p.lastName}`,
