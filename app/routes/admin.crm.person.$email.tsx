@@ -363,48 +363,65 @@ export default function CrmPerson({
 				</Table>
 			</div>
 
-			{mergeHistory.merges.length > 0 && (
-				<div className="flex flex-col gap-3">
-					<SectionHeading
-						aside={
+			<div className="flex flex-col gap-3">
+				<SectionHeading
+					aside={
+						mergeHistory.merges.length > 0 && (
 							<StatusBadge tone="neutral">
 								{mergeHistory.total} completed
 							</StatusBadge>
-						}
-					>
-						Merge history
-					</SectionHeading>
-					<Table>
-						<THead>
-							<Th>Retired identity</Th>
-							<Th>Completed</Th>
-							<Th>By</Th>
-							<Th>Movements recorded</Th>
-						</THead>
-						<TBody>
-							{mergeHistory.merges.map((merge) => (
-								<Tr key={merge.id}>
-									<Td kind="mono">{merge.sourceEmail}</Td>
-									<Td kind="mono">{formatDateUTC(merge.createdAt)}</Td>
-									<Td>{merge.actorName}</Td>
-									<Td kind="mono">
-										{Object.values(merge.summary).reduce(
-											(total, value) => total + value,
-											0,
-										)}
-									</Td>
-								</Tr>
-							))}
-						</TBody>
-					</Table>
-					{mergeHistory.total > mergeHistory.merges.length && (
-						<p>
-							+{mergeHistory.total - mergeHistory.merges.length} older merges
-							not shown
-						</p>
-					)}
-				</div>
-			)}
+						)
+					}
+				>
+					Merge history
+				</SectionHeading>
+				{mergeHistory.merges.length > 0 ? (
+					<>
+						<Table>
+							<THead>
+								<Th>Retired identity</Th>
+								<Th>Completed</Th>
+								<Th>By</Th>
+								<Th>Movements recorded</Th>
+							</THead>
+							<TBody>
+								{mergeHistory.merges.map((merge) => (
+									<Tr key={merge.id}>
+										<Td kind="mono">{merge.sourceEmail}</Td>
+										<Td kind="mono">{formatDateUTC(merge.createdAt)}</Td>
+										<Td>{merge.actorName}</Td>
+										<Td kind="mono">
+											{Object.values(merge.summary).reduce(
+												(total, value) => total + value,
+												0,
+											)}
+										</Td>
+									</Tr>
+								))}
+							</TBody>
+						</Table>
+						{mergeHistory.total > mergeHistory.merges.length && (
+							<p>
+								+{mergeHistory.total - mergeHistory.merges.length} older merges
+								not shown
+							</p>
+						)}
+					</>
+				) : (
+					<Panel>
+						<EmptyState
+							icon="users"
+							title="No completed merges"
+							body="This person has not absorbed another contact yet. Review possible duplicates in the directory before combining records."
+							action={
+								<ButtonLink to="/admin/crm/directory" variant="ghost">
+									Review possible duplicates
+								</ButtonLink>
+							}
+						/>
+					</Panel>
+				)}
+			</div>
 
 			<CrmNotesPanel notes={notes} total={noteCount} error={noteError} />
 		</div>

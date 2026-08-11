@@ -1,8 +1,14 @@
 import { env } from "cloudflare:test";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import { crmNotes } from "../app/db/schema";
-import { action, loader } from "../app/routes/admin.crm.person.$email";
+import CrmPerson, {
+	action,
+	loader,
+} from "../app/routes/admin.crm.person.$email";
 import { CONTEXT, requestAs, seedCrmBaseline } from "./crm-fixtures";
 import { catchThrown, thrownStatus } from "./thrown";
 
@@ -32,6 +38,20 @@ async function runLoader(userId: string, email: string): Promise<LoaderResult> {
 	} as unknown as Parameters<typeof loader>[0])) as unknown as LoaderResult;
 }
 
+function renderPerson(loaderData: unknown): string {
+	const RouteComponent = CrmPerson as unknown as ComponentType<{
+		loaderData: unknown;
+		actionData?: unknown;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/",
+			Component: () => createElement(RouteComponent, { loaderData }),
+		},
+	]);
+	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
+}
+
 describe("CRM person profile", () => {
 	it("shows the union of appearances, surfaces the same-name duplicate, and offers only missing events", async () => {
 		await seedCrmBaseline();
@@ -51,6 +71,16 @@ describe("CRM person profile", () => {
 
 		const marcus = await runLoader("u_admin1", "marcus@example.com");
 		expect(marcus.data.addableEvents.map((e) => e.id)).toEqual(["e2"]);
+	});
+
+	it("explains an empty merge history and gives the next action", async () => {
+		await seedCrmBaseline();
+		const { data } = await runLoader("u_admin1", "priya@example.com");
+		const html = renderPerson(data);
+
+		expect(html).toContain("Merge history");
+		expect(html).toContain("No completed merges");
+		expect(html).toContain("Review possible duplicates");
 	});
 
 	it("persists internal notes across reloads", async () => {
