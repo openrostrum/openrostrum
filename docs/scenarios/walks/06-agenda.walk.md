@@ -202,7 +202,7 @@ performance bullet — same note as AG-S1.7.
 
 ---
 
-## AG-S3 — Same-room overlap: red clocks, reciprocal rows, resolve clears both
+## AG-S3 — Same-room overlap: red clocks, one logical row, resolve clears all
 
 **Step 1/2 — the two drops.** AG-S2 action twice:
 
@@ -227,7 +227,7 @@ SELECT a.id AS a_id, a.title AS a_title, b.id AS b_id, b.title AS b_title,
 FROM submissions a
 JOIN submissions b
   ON b.event_id = a.event_id
- AND b.id > a.id                                   -- each pair once; UI emits both directions
+ AND b.id > a.id                                   -- each logical pair once in SQL and UI
  AND b.room_id = a.room_id
  AND b.starts_at < a.ends_at                       -- STRICT inequalities: touching blocks
  AND a.starts_at < b.ends_at                       --   (end == next start) are NOT conflicts
@@ -250,16 +250,15 @@ Red-clock markers: the grid loader runs the same query and flags both block ids 
 refresh-based detection is explicitly allowed by the scenario ("refresh the page if
 detection is refresh-based"). `OK`.
 
-Conflicts tab rows (reciprocal pair from one SQL row):
+Conflicts tab row (one logical row from one SQL row):
 
 ```
-SESS(Live Demo)  | "…is also scheduled in Main Hall with 'Panel: Is the CFP Dead?' 10:15–10:30." | Open
-SESS(Panel CFP)  | "…is also scheduled in Main Hall with 'Live Demo: Agent Swarms…' 10:15–10:30." | Open
+Live Demo ↔ Panel CFP | "Shares Main Hall (overlapping 10:15–10:30)." | Open first | Open second
 ```
-Human-readable text (room + other session) comes straight from the query's columns. `OK`.
+The row carries both titles, room, and overlap window; either Open path reaches the corresponding editor. `OK`.
 
-**Step 5 — Open → editor.** Row links to `/admin/submissions/:id`
-(`admin.submissions.$id.tsx`, ROUTE-MAP Wave 1 ✅). `OK`.
+**Step 5 — Open → editor.** The two row links target each session's
+`/admin/submissions/:id` route (`admin.submissions.$id.tsx`, ROUTE-MAP Wave 1 ✅). `OK`.
 
 **Step 6 — resolve.**
 
@@ -270,8 +269,8 @@ WHERE id=:panel_cfp_id AND event_id=:eventId;   -- 11:30–12:30 PDT, same room
 Now `b.starts_at (18:30) < a.ends_at (17:30)` is false → the pair vanishes from the query
 result. `OK`.
 
-**Step 7 — both markers/rows gone.** Conflicts are derived, never stored → nothing to
-orphan; both sides disappear in the same query run. `OK` — compute-on-read makes
+**Step 7 — both markers and the logical row gone.** Conflicts are derived, never stored → nothing to
+orphan; both markers and the pair's single row disappear in the same query run. `OK` — compute-on-read makes
 "no stale conflict" structural (this is the argument for NOT adding a conflicts table).
 
 ---
@@ -306,9 +305,9 @@ WHERE a.event_id = :eventId
 ```
 Index check: `participants_contact_idx` serves the pa→pb self-join; `participants_submission_idx`
 the other direction. ✅ Room is deliberately ABSENT from the predicates — detection is
-cross-room by construction. Row text names the person from the query
-("Marco Silva is also scheduled in 'Live Demo…' during this time" — matches verification D's
-observed wording). `OK`.
+cross-room by construction. The logical row names the person and both sessions from the query
+("Marco Silva is also scheduled in 'Live Demo…' during this time" beside the two titles — wording
+matches verification D while the product shows the pair only once). `OK`.
 
 **Step 4 — negative probe (NO track collisions).**
 
@@ -422,6 +421,59 @@ two scenarios).
 **EXPERIENCE.** Same gesture both ways = dnd-kit droppable panel + fetcher; counts update
 via loader revalidation without full reload. Binding statement: SCOPE performance prose
 only — noted, consistent with AG-S1/AG-S2.
+
+---
+
+## AG-S7 — Conflict-aware publish and public handoff
+
+**Step 1 — recreate one unresolved clash.** Reuse AG-S3's Panel update while Live Demo
+remains in Main Hall at 10:00–10:30:
+
+```sql
+UPDATE submissions
+SET starts_at=unixepoch('2026-10-12 17:15'), ends_at=unixepoch('2026-10-12 18:15'),
+    room_id=:main_hall_id
+WHERE id=:panel_cfp_id AND event_id=:eventId;
+UPDATE events SET agenda_published_at=NULL WHERE id=:eventId;
+```
+
+**Step 2 — confirmation artifact.** `detectConflicts` yields one room `Conflict` pair;
+`buildConflictRows` preserves one logical row. `PublishAgendaDialog` receives that array and
+renders an `alertdialog` naming both titles, the overlap sentence, Cancel, and Publish anyway.
+No native dialog API exists in this path. `OK`.
+
+**Step 3 — Cancel.** Cancel only clears route-local `publishOpen`; it submits no form.
+
+```sql
+SELECT agenda_published_at FROM events WHERE id=:eventId; -- NULL
+```
+
+The public schedule loader returns no surface while the value is NULL. `OK`.
+
+**Step 4 — publish or retry.** Publish anyway submits `intent=publish` through the guarded
+fetcher; `useBusy()` disables publish controls while any agenda mutation is in flight.
+
+```sql
+UPDATE events SET agenda_published_at=unixepoch() WHERE id=:eventId;
+SELECT agenda_published_at IS NOT NULL AS published FROM events WHERE id=:eventId; -- 1
+```
+
+The dialog remains mounted while `publishedAt` is NULL, so a failed action's `formError`
+renders in context; successful loader revalidation supplies non-NULL `publishedAt`, hides the
+dialog, and exposes `/schedule/:eventSlug`. Organizer authority is preserved because the
+server action does not reject unresolved conflicts. `OK`.
+
+**Step 5 — public overlap legibility + track.** The public room column computes
+`max(200, peakLaneCount * 160)`; two lanes produce a 320px column and roughly 156px cards
+inside the existing horizontal scroller. Each card keeps `title={block.title}` and a compact
+track chip; short tracked cards omit the time line before they omit title or track. `OK`.
+
+**Step 6 — explicit detail metadata.** `SessionDetail` renders `MetaRow label="Track"` from
+`session.tracks.map(name)`, gated by the same embed field visibility as its header chips,
+alongside Format/Level/Language. `OK`.
+
+**EXPERIENCE.** One in-app consequence preview, an honest Cancel path, organizer-authoritative
+Publish anyway, and a public result whose overlaps and tracks remain readable. `OK`.
 
 ---
 
@@ -706,3 +758,65 @@ Committed UPDATE persists; no org dimension.
 
 Re-drag is the AG-S2 schedule action with NULL `starts_at` ⇒ re-derive from format
 (H5 carried); `formats` untouched by the migration.
+
+---
+
+## Re-walk 2026-08-11 — official evaluation conflict/publish/render correction
+
+Changed artifacts: `SCOPE.md` P0 #6, `docs/scenarios/06-agenda.yaml`, `app/agenda/lib.ts`
+(logical conflict projection), `app/agenda/board.tsx` (readable lane width),
+`app/routes/admin.agenda.tsx` (table/badge + guarded publish dialog), and
+`app/widgets/surfaces.tsx` (public lane/track/detail rendering). No table, port, route, or
+persistence contract changed. The official evaluation supersedes Sessionboard's reciprocal
+row presentation: OpenRostrum now counts one user-visible row per logical clash while keeping
+both editor paths.
+
+**AG-S1 — Unscheduled panel + scale**
+
+- Steps 1–6 — **UNCHANGED:** auth/event resolution, scheduled/unscheduled predicates, negative
+  fixtures, alert SQL, and accepted-spine dependency use the same loader artifacts.
+- Step 7 — **CHANGED:** `GridColumn` computes `peakLaneCount` from `layoutLanes`; its minimum
+  width is `max(148, peakLaneCount * 140)` inside the existing horizontal scroller. Dense
+  overlap clusters widen instead of shrinking titles below a readable lane.
+
+**AG-S2 — Schedule and move**
+
+- Steps 1–6 — **UNCHANGED:** format-duration lookup, schedule UPDATE, count changes, move,
+  and reload persistence are untouched. Lane width changes rendering only when placements
+  overlap; the drop/action artifacts remain exactly those walked above.
+
+**AG-S3 — Same-room conflict**
+
+- Steps 1–3 — **UNCHANGED:** both schedule writes and two red-clock markers still derive from
+  the same strict-overlap pair.
+- Step 4 — **CHANGED:** `buildConflictRows([pair])` returns `{rows:[pair], total:1}`; the table
+  renders both titles, one human sentence, and Open first/Open second links. The tab count is 1.
+- Step 5 — **CHANGED:** both `/admin/submissions/:id` links live on the same logical row.
+- Step 6 — **UNCHANGED:** moving Panel makes the strict overlap predicate false.
+- Step 7 — **CHANGED:** both markers disappear and the one logical row leaves the table.
+
+**AG-S4 — Speaker conflict / no track collision**
+
+- Steps 1–2 — **UNCHANGED:** AG-S3 precondition and Office Hours schedule write are unchanged.
+- Step 3 — **CHANGED:** the speaker detector still yields one pair; one table row names Marco
+  Silva and both sessions and retains both editor paths.
+- Steps 4–6 — **UNCHANGED:** no track query exists, the resolution write is unchanged, and the
+  final detector result remains empty.
+
+**AG-S5 — Settings**
+
+- Steps 1–7 — **UNCHANGED:** window reads/writes, schedulable-status JSON, negative Pending
+  fixture, persistence, and restore artifacts do not consume conflict-row or public-render code.
+
+**AG-S6 — Unschedule round-trip**
+
+- Steps 1–6 — **UNCHANGED:** counts, NULL-clearing UPDATE, reload, and format-derived re-drop
+  remain exactly as walked above.
+
+**AG-S7 — Publish/public handoff**
+
+- Steps 1–6 — **NEW:** fully walked in the AG-S7 section above: concrete overlap/publish SQL,
+  one logical `alertdialog` preview, no-POST Cancel path, guarded retryable publish, 320px
+  two-lane public room, track chip, and labeled Track metadata row.
+
+Result: 45 scenario steps walked — 34 unchanged, 5 changed, 6 new, 0 gaps.

@@ -7,11 +7,6 @@ import {
 	SUBMISSION_STATUS,
 	submissions,
 } from "../app/db/schema";
-import { loader as galleryLoader } from "../app/routes/gallery.$eventSlug";
-import { loader as itineraryLoader } from "../app/routes/itinerary.$eventSlug";
-import { loader as scheduleLoader } from "../app/routes/schedule.$eventSlug";
-import { loader as sessionsLoader } from "../app/routes/sessions.$eventSlug";
-import { loader as speakersLoader } from "../app/routes/speakers.$eventSlug";
 import { isPubliclyVisible, loadPublicSessions } from "../app/lib/program";
 import type {
 	AgendaSurfaceData,
@@ -20,6 +15,11 @@ import type {
 	SessionsSurfaceData,
 	SpeakerDirectoryData,
 } from "../app/lib/program-types";
+import { loader as galleryLoader } from "../app/routes/gallery.$eventSlug";
+import { loader as itineraryLoader } from "../app/routes/itinerary.$eventSlug";
+import { loader as scheduleLoader } from "../app/routes/schedule.$eventSlug";
+import { loader as sessionsLoader } from "../app/routes/sessions.$eventSlug";
+import { loader as speakersLoader } from "../app/routes/speakers.$eventSlug";
 import { CONTEXT, seedProgram, thrownStatus, unwrap } from "./program.fixtures";
 
 // Oracles come from the data-exposure matrix (public = accepted + approved
@@ -291,13 +291,13 @@ describe("public agenda + itinerary surfaces", () => {
 			data.surface?.rooms.find((r) => r.name === "Main Hall")?.blocks ?? [];
 		const byId = new Map(blocks.map((b) => [b.sessionId, b]));
 
-		// Every block gets at least the minimum legible box (time + title line).
+		// Every block gets enough display height for time, title, and track.
 		for (const b of blocks) {
-			expect(b.displayEndMin - b.startMin).toBeGreaterThanOrEqual(30);
+			expect(b.displayEndMin - b.startMin).toBeGreaterThanOrEqual(45);
 		}
 		// Real times are untouched — the floor is display-only.
 		expect(byId.get("s_short")?.endMin).toBe(9 * 60 + 45);
-		expect(byId.get("s_short")?.displayEndMin).toBe(10 * 60 + 5);
+		expect(byId.get("s_short")?.displayEndMin).toBe(10 * 60 + 20);
 
 		// The concurrent short talk shares the slot side-by-side, never behind.
 		expect(byId.get("s_short")?.lane).not.toBe(byId.get("s1")?.lane);
@@ -305,7 +305,7 @@ describe("public agenda + itinerary surfaces", () => {
 		// Lane splits stay local to their overlap cluster: the solo talk keeps
 		// the full column even though earlier talks split the slot.
 		expect(byId.get("s_solo")?.laneCount).toBe(1);
-		expect(byId.get("s1")?.laneCount).toBe(2);
+		expect(byId.get("s1")?.laneCount).toBe(3);
 
 		// No two same-lane boxes within a cluster overlap once heights are
 		// floored (same lane index in different clusters may share a column —
@@ -328,10 +328,10 @@ describe("public agenda + itinerary surfaces", () => {
 		}
 	});
 
-	it("a lightning block of six back-to-back 10-minute talks cycles three lanes, never more", async () => {
+	it("a lightning block of six back-to-back 10-minute talks cycles five lanes, never more", async () => {
 		await seedProgram();
-		// 10-minute cadence with a 30-minute display floor -> at most
-		// ceil(30/10) = 3 columns; talk 4 must reuse talk 1's freed lane.
+		// 10-minute cadence with a 45-minute display floor -> at most
+		// ceil(45/10) = 5 columns; talk 6 reuses talk 1's freed lane.
 		const blockStart = Date.UTC(2027, 4, 12, 17, 0); // 10:00 AM PDT
 		await getDb(env)
 			.insert(submissions)
@@ -353,12 +353,12 @@ describe("public agenda + itinerary surfaces", () => {
 		const blocks =
 			data.surface?.rooms.find((r) => r.name === "Room 2")?.blocks ?? [];
 		expect(blocks).toHaveLength(6);
-		// Contract, not the greedy's exact order: three columns, every lane
+		// Contract, not the greedy's exact order: five columns, every lane
 		// within them, freed lanes reused, and no same-lane boxes overlapping.
-		expect(new Set(blocks.map((b) => b.laneCount))).toEqual(new Set([3]));
+		expect(new Set(blocks.map((b) => b.laneCount))).toEqual(new Set([5]));
 		for (const b of blocks) {
 			expect(b.lane).toBeGreaterThanOrEqual(0);
-			expect(b.lane).toBeLessThan(3);
+			expect(b.lane).toBeLessThan(5);
 		}
 		const byLane = new Map<number, Array<{ start: number; end: number }>>();
 		for (const b of blocks) {

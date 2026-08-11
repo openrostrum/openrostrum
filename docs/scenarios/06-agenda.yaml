@@ -2,10 +2,10 @@
 # Ground truth: SCOPE.md P0 #6 (floor = day/room + drag-drop + conflict detection),
 # docs/flows/06-agenda-embeds.md (agenda parts only — embeds are P2, not covered here),
 # docs/flows/verification/D (conflict classes = speaker double-book + same-room/time ONLY,
-# red-clock marker, reciprocal Conflicts rows, format→default-duration in Agenda Settings),
+# red-clock marker, one logical Conflicts row per clash, format→default-duration in Agenda Settings),
 # docs/reference/discord/CLARIFICATIONS.md (#8: day/room + drag + conflicts is enough; NO track collisions).
 #
-# SEED BASELINE (same seed as 05-review-accept.yaml; fresh reset, scenarios run in order AG-S1 → AG-S6):
+# SEED BASELINE (same seed as 05-review-accept.yaml; fresh reset, scenarios run in order AG-S1 → AG-S7):
 #   Event "AI.Engineer Sandbox Event", Oct 12–14 2026. Rooms: Main Hall · Workshop Room B · Room 305.
 #   Formats with Agenda-Settings default durations: Featured Keynote 45min · Talk 30min · Panel 60min · Workshop 90min.
 #   Agenda Settings baseline: Day Start 8:00 AM, Day End 6:00 PM; schedulable statuses = [Accepted].
@@ -76,20 +76,20 @@ scenarios:
       - "EXPERIENCE: both operations are direct manipulation — click-drag-drop with the block visibly landing, no full-page reload, no intermediate modal or form."
 
   - id: AG-S3
-    name: Same room + overlapping time — red-clock markers, reciprocal Conflicts rows, resolve clears both
+    name: Same room + overlapping time — red-clock markers, one logical Conflicts row, resolve clears all
     persona: admin
     steps: |
       1. Drag "Live Demo: Agent Swarms in Production" (Talk → 30 min) onto Main Hall, Oct 12 at 10:00 AM → lands 10:00–10:30.
       2. Drag "Panel: Is the CFP Dead?" (Panel → 60 min) onto Main Hall, Oct 12 at 10:15 AM → lands 10:15–11:15, overlapping 10:15–10:30 in the SAME room.
       3. Verify both blocks now carry the red-clock conflict marker on the grid (refresh the page if detection is refresh-based — no other action).
-      4. Open the Conflicts tab: exactly 2 rows — a reciprocal pair, each naming the OTHER session and the shared room/timeslot (Main Hall, overlapping 10:15–10:30).
+      4. Open the Conflicts tab: exactly 1 row — it names BOTH sessions, the shared room/timeslot (Main Hall, overlapping 10:15–10:30), and offers Open links for either session.
       5. Click Open on one row → it launches the session editor for that session.
       6. Resolve: move "Panel: Is the CFP Dead?" to 11:30 AM (same room, now 11:30–12:30, no overlap).
-      7. Re-check: the red-clock marker is gone from BOTH blocks and BOTH rows have left the Conflicts tab.
+      7. Re-check: the red-clock marker is gone from BOTH blocks and the logical row has left the Conflicts tab.
     success_signals:
       - "Both conflicting blocks show the red-clock marker (grid screenshot)."
-      - "Conflicts tab lists the clash as a reciprocal pair — 2 rows, each readable from the other session's side — with a working Open→editor link."
-      - "Moving ONE session clears the markers on both blocks and empties both tab rows — no orphaned/stale conflict remains."
+      - "Conflicts tab lists the clash once — 1 logical row names both sessions and has working Open→editor links for either side."
+      - "Moving ONE session clears the markers on both blocks and removes the conflict row — no orphaned/stale conflict remains."
       - "EXPERIENCE: detection needs nothing beyond at most a page refresh — no manual 'recompute' button; the conflict text is human-readable (names the room and the other session), not an error code."
 
   - id: AG-S4
@@ -98,14 +98,14 @@ scenarios:
     steps: |
       1. Precondition from AG-S3: "Live Demo: Agent Swarms in Production" (speaker Marco Silva) sits in Main Hall, Oct 12 10:00–10:30.
       2. Drag "Office Hours: D1 Performance Clinic" (also speaker Marco Silva, Talk → 30 min) onto Room 305, Oct 12 at 10:15 AM → lands 10:15–10:45: different room, overlapping time, shared speaker.
-      3. Verify both sessions get the red-clock marker, and the Conflicts tab shows the reciprocal pair whose text names the person — e.g. "Marco Silva is also scheduled in 'Live Demo: Agent Swarms in Production' during this time."
+      3. Verify both sessions get the red-clock marker, and the Conflicts tab shows one logical row naming Marco Silva and BOTH sessions, with Open links for either session.
       4. Negative probe (no track collisions): drag "Workshop: Own Your Email Deliverability" (track Developer Experience, no shared speakers) onto Room 305 at 11:30 AM → 11:30–1:00 PM. It overlaps "Panel: Is the CFP Dead?" (also track Developer Experience, Main Hall 11:30–12:30) in TIME and TRACK but not room or speaker → NO conflict marker appears on any of these blocks and NO new Conflicts row is created.
-      5. Resolve the speaker clash: move "Office Hours: D1 Performance Clinic" to Oct 12 at 1:00 PM → both markers clear, both rows leave the tab.
+      5. Resolve the speaker clash: move "Office Hours: D1 Performance Clinic" to Oct 12 at 1:00 PM → both markers clear and the logical row leaves the tab.
       6. Confirm the Conflicts tab is now empty (AG-S3's clash was already resolved).
     success_signals:
-      - "Speaker double-booking is detected ACROSS rooms — reciprocal Conflicts rows naming Marco Silva and the other session (screenshot)."
+      - "Speaker double-booking is detected ACROSS rooms — one logical Conflicts row names Marco Silva and both sessions (screenshot)."
       - "Two same-track, same-time sessions in different rooms with different speakers produce zero conflicts — the detector does exactly speaker + same-room/time, nothing more (Conflicts tab screenshot showing no row for them)."
-      - "Resolution by moving one session clears markers and rows on both sides; Conflicts tab reaches a verifiably empty state."
+      - "Resolution by moving one session clears both markers and the logical row; Conflicts tab reaches a verifiably empty state."
       - "EXPERIENCE: the whole create-inspect-resolve loop is drag-drop plus one tab — no form editing required to cause or fix a conflict."
 
   - id: AG-S5
@@ -140,3 +140,20 @@ scenarios:
       - "Alert and panel counts track the change in both directions and match the DB count at each step."
       - "Unscheduled state survives reload — it is persisted, not a UI-only removal."
       - "EXPERIENCE: unscheduling is the same direct-manipulation gesture as scheduling — drag back (or one-click remove), no confirm-modal maze, counts update without a full reload."
+
+  - id: AG-S7
+    name: Publishing with unresolved conflicts is explicit, organizer-authoritative, and publicly legible
+    persona: admin
+    steps: |
+      1. Precondition: the agenda is Unpublished; "Live Demo: Agent Swarms in Production" is in Main Hall at 10:00–10:30. Move "Panel: Is the CFP Dead?" back to Main Hall at 10:15–11:15, creating one unresolved logical conflict.
+      2. Click Publish agenda → an in-app confirmation (never a native dialog) lists exactly 1 unresolved logical conflict, names BOTH sessions, and states attendees will see the overlap.
+      3. Click Cancel → the dialog closes, the header still reads Unpublished, `events.agenda_published_at` remains NULL, and the public schedule remains withheld.
+      4. Reopen the confirmation and click Publish anyway → the request stays guarded while pending; on success the header reads Published, the public-schedule link appears, and `events.agenda_published_at` is non-NULL. If the write fails, the dialog stays open with its retryable error.
+      5. Open the public schedule: both overlapping Main Hall cards remain side-by-side with a readable minimum width, truncated titles retain full `title` tooltips, and each card shows its Developer Experience track badge.
+      6. Open either session → detail exposes a labeled Track row alongside Format, Level, and Language.
+    success_signals:
+      - "Publish confirmation screenshot: 1 unresolved logical conflict, both titles, Cancel, and Publish anyway; no native browser dialog."
+      - "Cancel preserves Unpublished/NULL; Publish anyway persists Published/non-NULL and exposes the public schedule; a failed publish remains visibly retryable."
+      - "Public overlap screenshot: both titles remain distinguishable via minimum-width lanes + tooltip, and both cards show Developer Experience."
+      - "Session detail screenshot: Track is a labeled metadata row beside Format, Level, and Language."
+      - "EXPERIENCE: organizer authority is preserved without hiding the consequence — one explicit warning, then a deliberate publish path."

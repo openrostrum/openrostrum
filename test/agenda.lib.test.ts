@@ -3,8 +3,8 @@ import {
 	type AgendaSession,
 	autoPlace,
 	buildConflictRows,
-	classifyAgendaSessions,
 	type Conflict,
+	classifyAgendaSessions,
 	conflictSentence,
 	detectConflicts,
 	eventDayList,
@@ -28,6 +28,7 @@ function session(over: Partial<AgendaSession> & { id: string }): AgendaSession {
 		title: over.id,
 		status: "accepted",
 		schedulable: true,
+		publiclyVisible: true,
 		startsAt: null,
 		endsAt: null,
 		roomId: null,
@@ -218,7 +219,7 @@ describe("conflict detection (speaker + same-room only)", () => {
 		speakers: [{ contactId: "c_dana", name: "Dana Fields" }],
 	});
 
-	it("flags a same-room overlap as one reciprocal pair with the overlap window", () => {
+	it("flags a same-room overlap as one logical pair with the overlap window", () => {
 		const conflicts = detectConflicts([liveDemo, panel], ROOMS);
 		expect(conflicts).toHaveLength(1);
 		expect(conflicts[0]).toMatchObject({
@@ -250,6 +251,27 @@ describe("conflict detection (speaker + same-room only)", () => {
 		);
 		expect(sentence).toContain("Marco Silva");
 		expect(sentence).toContain("Live Demo: Agent Swarms in Production");
+	});
+
+	it("counts a shared speaker once when participant roles repeat", () => {
+		const duplicatedLive = {
+			...liveDemo,
+			speakers: [
+				{ contactId: "c_marco", name: "Marco Silva" },
+				{ contactId: "c_marco", name: "Marco Silva" },
+			],
+		};
+		const officeHours = session({
+			id: "office-roles",
+			startsAt: utc(2026, 10, 12, 17, 15),
+			endsAt: utc(2026, 10, 12, 17, 45),
+			roomId: "room_305",
+			speakers: [{ contactId: "c_marco", name: "Marco Silva" }],
+		});
+
+		expect(detectConflicts([duplicatedLive, officeHours], ROOMS)).toHaveLength(
+			1,
+		);
 	});
 
 	it("does NOT flag same track + same time in different rooms (no track collisions)", () => {
@@ -306,6 +328,21 @@ describe("conflict detection (speaker + same-room only)", () => {
 			roomId: "room_main",
 		});
 		expect(detectConflicts([liveDemo, ghost], ROOMS)).toEqual([]);
+	});
+
+	it("limits publish conflicts to attendee-visible sessions", () => {
+		const hidden = {
+			...session({
+				id: "hidden",
+				startsAt: utc(2026, 10, 12, 17, 0),
+				endsAt: utc(2026, 10, 12, 18, 0),
+				roomId: "room_main",
+			}),
+			publiclyVisible: false,
+		};
+		const visible = { ...liveDemo, publiclyVisible: true };
+
+		expect(detectConflicts([visible, hidden], ROOMS, "public")).toEqual([]);
 	});
 });
 
@@ -445,9 +482,7 @@ describe("auto-place", () => {
 
 describe("conflicts-tab rows stay bounded", () => {
 	// Stacked overlapping placements grow conflict pairs quadratically; the tab
-	// once rendered 2 unbounded rows per conflict and exceeded the Worker CPU
-	// budget in production (HTTP 1102) — the table must stay capped with an
-	// honest total.
+	// must stay capped while counting each pair once and reporting the true total.
 	const conflict = (i: number, startMin: number): Conflict => ({
 		aId: `a${i}`,
 		aTitle: `Session A${i}`,
@@ -459,21 +494,57 @@ describe("conflicts-tab rows stay bounded", () => {
 		overlapEndMs: utc(2026, 10, 12, 17, 30) + startMin * 60_000,
 	});
 
-	it("caps rendered rows at 100 while reporting the true total", () => {
+	it("caps rendered logical conflicts at 100 while reporting the true total", () => {
 		const conflicts = Array.from({ length: 120 }, (_, i) => conflict(i, i));
 		const { rows, total } = buildConflictRows(conflicts);
-		expect(total).toBe(240); // two sides per conflict
+		expect(total).toBe(120);
 		expect(rows).toHaveLength(100);
 		// earliest overlaps first — the cap keeps the most urgent rows visible
-		expect(rows[0]?.conflict.overlapStartMs).toBeLessThanOrEqual(
-			rows[99]?.conflict.overlapStartMs ?? 0,
+		expect(rows[0]?.overlapStartMs).toBeLessThanOrEqual(
+			rows[99]?.overlapStartMs ?? 0,
 		);
 	});
 
-	it("returns every row when under the cap", () => {
+	it("coalesces room and speaker reasons into one logical session clash", () => {
+		const room = conflict(1, 0);
+		const conflicts: Conflict[] = [
+			room,
+			{
+				...room,
+				kind: "speaker",
+				roomName: undefined,
+				personName: "Marco Silva",
+			},
+			{
+				...room,
+				kind: "speaker",
+				roomName: undefined,
+				personName: "Marco Silva",
+			},
+		];
+
+		const { rows, total } = buildConflictRows(conflicts);
+
+		expect(total).toBe(1);
+		expect(rows).toMatchObject([
+			{
+				aId: "a1",
+				bId: "b1",
+				reasons: [
+					{ kind: "room", roomName: "Main Hall" },
+					{ kind: "speaker", personName: "Marco Silva" },
+				],
+			},
+		]);
+	});
+
+	it("returns one row per logical conflict when under the cap", () => {
 		const conflicts = [conflict(1, 0), conflict(2, 5)];
 		const { rows, total } = buildConflictRows(conflicts);
-		expect(total).toBe(4);
-		expect(rows.map((r) => r.sideId)).toEqual(["a1", "b1", "a2", "b2"]);
+		expect(total).toBe(2);
+		expect(rows.map((row) => [row.aId, row.bId])).toEqual([
+			["a1", "b1"],
+			["a2", "b2"],
+		]);
 	});
 });

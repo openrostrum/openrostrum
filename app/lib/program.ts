@@ -627,9 +627,9 @@ export function buildAgendaData(
 }
 
 /** A block renders at least this many minutes tall. At the grid's 1.5 px/min
- * scale this is exactly the time line + one title line; below it the text
- * clips mid-line. If the view's scale changes, retune this with it. */
-const MIN_BLOCK_MINUTES = 30;
+ * scale this fits the configured time, title, and track metadata without
+ * clipping. If the view's scale changes, retune this with it. */
+const MIN_BLOCK_MINUTES = 45;
 
 /** Lanes use DISPLAY extents (endMin floored to MIN_BLOCK_MINUTES) so a
  * short session's legible-height box never sits on top of its lane
