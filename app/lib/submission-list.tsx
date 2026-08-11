@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Form, Link, useFetcher } from "react-router";
+import { Form, Link, useFetcher, useNavigation } from "react-router";
 // Pure client-safe module: the Abstracts and Sessions tabs are ONE
 // implementation rendered by two type-scoped routes (server half in
 // ./submission-list.server.ts). Enums come from ~/db/constants so no drizzle
@@ -77,6 +77,12 @@ export function humanStatus(status: string): string {
 	return status.replaceAll("_", " ");
 }
 
+export interface RowSpeaker {
+	contactId: string;
+	name: string;
+	publicVisible: boolean;
+}
+
 export interface SubmissionListRow {
 	id: string;
 	title: string;
@@ -85,9 +91,60 @@ export interface SubmissionListRow {
 	schedule: string | null;
 	roomName: string | null;
 	speakerCount: number;
+	/** Sessions only (empty for abstracts): the per-speaker eye toggles. */
+	speakers: RowSpeaker[];
 	formatName: string | null;
 	tracks: Array<{ id: string; name: string; color: string }>;
 	submittedAt: string;
+}
+
+/**
+ * Sessionboard's eye toggle: hides the CONTACT from every public surface —
+ * all their sessions, embeds, and feeds — not just this row. Optimistic while
+ * the fetcher is in flight so a slow write doesn't read as a dead button.
+ */
+function SpeakerVisibilityToggle({ speaker }: { speaker: RowSpeaker }) {
+	const fetcher = useFetcher<ListActionData>();
+	const pending = fetcher.formData?.get("visible");
+	const visible = pending != null ? pending === "1" : speaker.publicVisible;
+	return (
+		<fetcher.Form method="post" className="flex flex-col gap-1">
+			<div className="flex items-center gap-2">
+				<Input
+					type="hidden"
+					name="contactId"
+					value={speaker.contactId}
+					readOnly
+				/>
+				<Input
+					type="hidden"
+					name="visible"
+					value={visible ? "0" : "1"}
+					readOnly
+				/>
+				<Button
+					type="submit"
+					name="intent"
+					value="set-speaker-visibility"
+					variant="ghost"
+					icon="eye"
+					disabled={fetcher.state !== "idle"}
+					aria-pressed={!visible}
+					title={
+						visible
+							? `Hide ${speaker.name} from the public program (all their sessions, embeds, and feeds)`
+							: `Show ${speaker.name} on the public program`
+					}
+				>
+					{speaker.name}
+				</Button>
+				{!visible && <StatusBadge tone="neutral">Hidden</StatusBadge>}
+			</div>
+			{fetcher.data?.formError && (
+				<ErrorText>{fetcher.data.formError}</ErrorText>
+			)}
+		</fetcher.Form>
+	);
 }
 
 export interface DrawerContact {
@@ -286,6 +343,9 @@ export function SubmissionListPage({
 }) {
 	const loaded = data.eventName === null ? null : data;
 	const [drawerOpen, setDrawerOpen] = useState(false);
+	// Bulk apply is a document POST — block the double-click that would replay
+	// the transition before the first response lands.
+	const busy = useNavigation().state !== "idle";
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	// A new page/tab/search renders different rows — a stale selection would
 	// silently act on rows the admin can no longer see.
@@ -362,7 +422,7 @@ export function SubmissionListPage({
 							type="submit"
 							name="intent"
 							value="approve-all-accepted"
-							disabled={loaded.notPublicCount === 0}
+							disabled={loaded.notPublicCount === 0 || busy}
 						>
 							Approve all accepted
 						</Button>
@@ -410,12 +470,18 @@ export function SubmissionListPage({
 						name="intent"
 						value="bulk-set-status"
 						variant="ghost"
-						disabled={selected.size === 0}
+						disabled={selected.size === 0 || busy}
 					>
 						Apply
 					</Button>
 				</Form>
 			</div>
+
+			<p>
+				Apply never emails anyone — accepting links speaker accounts and mints
+				onboarding tasks; decision emails are sent explicitly from All
+				Submissions.
+			</p>
 
 			{actionData?.notice && <p>{actionData.notice}</p>}
 			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
@@ -488,7 +554,24 @@ export function SubmissionListPage({
 									))}
 								</div>
 							</Td>
-							<Td kind="mono">{s.speakerCount}</Td>
+							{kind === "session" ? (
+								<Td>
+									{s.speakers.length === 0 ? (
+										"—"
+									) : (
+										<div className="flex flex-col items-start gap-1">
+											{s.speakers.map((speaker) => (
+												<SpeakerVisibilityToggle
+													key={speaker.contactId}
+													speaker={speaker}
+												/>
+											))}
+										</div>
+									)}
+								</Td>
+							) : (
+								<Td kind="mono">{s.speakerCount}</Td>
+							)}
 							<Td>
 								{kind === "session" ? (s.formatName ?? "—") : s.submittedAt}
 							</Td>

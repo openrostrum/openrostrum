@@ -2,7 +2,9 @@ import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
+import { PARTICIPANT_ROLE as CLIENT_PARTICIPANT_ROLE } from "../app/db/constants";
 import {
+	PARTICIPANT_ROLE as SCHEMA_PARTICIPANT_ROLE,
 	contacts,
 	emailOutbox,
 	events,
@@ -632,5 +634,311 @@ describe("revision history stays bounded on the loader", () => {
 		const payload = result.data as unknown as RevisionsPayload;
 		expect(payload.revisions).toHaveLength(50);
 		expect(payload.revisionsTruncated).toBe(false);
+	});
+});
+
+describe("participant management", () => {
+	// Organizer-composed submissions start with no participants; without an
+	// attach path, decision emails skip them forever ("No speaker or
+	// submitter email"). These pin the attach/remove contract.
+	async function seedBareSubmission() {
+		const db = await seedWorld();
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e1",
+			title: "Organizer-composed",
+			status: "pending",
+			type: "session",
+		});
+		await db.insert(contacts).values([
+			{
+				id: "c1",
+				eventId: "e1",
+				email: "ada@x.co",
+				firstName: "Ada",
+				lastName: "One",
+			},
+			{
+				id: "c2",
+				eventId: "e1",
+				email: "bo@x.co",
+				firstName: "Bo",
+				lastName: "Two",
+			},
+			{
+				id: "c_foreign",
+				eventId: "e2",
+				email: "eve@x.co",
+				firstName: "Eve",
+				lastName: "Theirs",
+			},
+		]);
+		return db;
+	}
+
+	it("attaches existing contacts: first becomes primary, order follows selection", async () => {
+		const db = await seedBareSubmission();
+		const body = new URLSearchParams({
+			intent: "add-participants",
+			role: "speaker",
+		});
+		body.append("contactIds", "c1");
+		body.append("contactIds", "c2");
+		const result = unwrap(await callAction(await detailRequest(body)));
+
+		expect(result.data.notice).toContain("2 participants attached as speaker");
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		expect(rows).toHaveLength(2);
+		const byContact = new Map(rows.map((r) => [r.contactId, r]));
+		expect(byContact.get("c1")?.isPrimary).toBe(true);
+		expect(byContact.get("c1")?.position).toBe(0);
+		expect(byContact.get("c2")?.isPrimary).toBe(false);
+		expect(byContact.get("c2")?.position).toBe(1);
+
+		// The SAME rows feed the contact record's session list — the two surfaces
+		// read one table, so they can never contradict each other.
+		const loaded = unwrap(await callLoader(await detailRequest()))
+			.data as unknown as {
+			participants: Array<{ email: string; role: string }>;
+		};
+		expect(loaded.participants.map((p) => p.email).sort()).toEqual([
+			"ada@x.co",
+			"bo@x.co",
+		]);
+	});
+
+	it("refuses a contact from another event without writing anything", async () => {
+		const db = await seedBareSubmission();
+		const body = new URLSearchParams({
+			intent: "add-participants",
+			role: "speaker",
+		});
+		body.append("contactIds", "c_foreign");
+		const result = unwrap(await callAction(await detailRequest(body)));
+
+		expect(result.data.formError).toMatch(/do not belong/i);
+		expect(
+			await db
+				.select()
+				.from(participants)
+				.where(eq(participants.submissionId, "s1")),
+		).toHaveLength(0);
+	});
+
+	it("replaying an attach is clean: no duplicate row, an honest notice", async () => {
+		const db = await seedBareSubmission();
+		const body = new URLSearchParams({
+			intent: "add-participants",
+			role: "speaker",
+		});
+		body.append("contactIds", "c1");
+		unwrap(await callAction(await detailRequest(body)));
+		const replay = unwrap(await callAction(await detailRequest(body)));
+
+		expect(replay.data.notice).toMatch(/already participants/i);
+		expect(
+			await db
+				.select()
+				.from(participants)
+				.where(eq(participants.submissionId, "s1")),
+		).toHaveLength(1);
+	});
+
+	it("creates + attaches a brand-new contact with a normalized email", async () => {
+		const db = await seedBareSubmission();
+		const body = new URLSearchParams({
+			intent: "add-new-participant",
+			firstName: "Grace",
+			lastName: "Hopper",
+			email: "  Grace@Navy.mil ",
+			role: "speaker",
+		});
+		const result = unwrap(await callAction(await detailRequest(body)));
+
+		expect(result.data.notice).toContain("1 participant attached as speaker");
+		const [contact] = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.email, "grace@navy.mil"));
+		expect(contact?.eventId).toBe("e1");
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.contactId).toBe(contact?.id);
+		expect(rows[0]?.isPrimary).toBe(true);
+	});
+
+	it("an email that already belongs to an event contact attaches THAT contact — no duplicate", async () => {
+		const db = await seedBareSubmission();
+		const body = new URLSearchParams({
+			intent: "add-new-participant",
+			firstName: "Different",
+			lastName: "Name",
+			email: "ADA@x.co",
+			role: "moderator",
+		});
+		const result = unwrap(await callAction(await detailRequest(body)));
+
+		expect(result.data.notice).toMatch(
+			/already exists — attached the existing contact/i,
+		);
+		// Still exactly one contact with that email on the event.
+		expect(
+			await db.select().from(contacts).where(eq(contacts.email, "ada@x.co")),
+		).toHaveLength(1);
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.contactId).toBe("c1");
+		expect(rows[0]?.role).toBe("moderator");
+	});
+
+	it("rejects an invalid new-contact email with a field error, writes nothing", async () => {
+		const db = await seedBareSubmission();
+		const body = new URLSearchParams({
+			intent: "add-new-participant",
+			firstName: "No",
+			lastName: "Email",
+			email: "not-an-email",
+			role: "speaker",
+		});
+		const result = unwrap(await callAction(await detailRequest(body)));
+
+		expect(result.data.fieldErrors?.email?.[0]).toBeTruthy();
+		expect(await db.select().from(participants)).toHaveLength(0);
+	});
+
+	// A submission with speakers must always keep exactly one primary: task
+	// provisioning targets the primary and decision emails address it first,
+	// so a primary-less submission silently drops out of both.
+	it("removing the primary promotes the next speaker by position", async () => {
+		const db = await seedBareSubmission();
+		await db.insert(participants).values([
+			{
+				id: "p1",
+				submissionId: "s1",
+				contactId: "c1",
+				role: "speaker",
+				isPrimary: true,
+				position: 0,
+			},
+			{
+				id: "p2",
+				submissionId: "s1",
+				contactId: "c2",
+				role: "speaker",
+				isPrimary: false,
+				position: 1,
+			},
+		]);
+		const result = unwrap(
+			await callAction(
+				await detailRequest(
+					new URLSearchParams({
+						intent: "remove-participant",
+						participantId: "p1",
+					}),
+				),
+			),
+		);
+		expect(result.data.notice).toMatch(/next speaker is now primary/i);
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.id).toBe("p2");
+		expect(rows[0]?.isPrimary).toBe(true);
+	});
+
+	it("attaching a speaker where none is primary grants primary (swap flow ends whole)", async () => {
+		const db = await seedBareSubmission();
+		// Only a moderator on the submission — no primary exists.
+		await db.insert(participants).values({
+			id: "p_mod",
+			submissionId: "s1",
+			contactId: "c1",
+			role: "moderator",
+			isPrimary: false,
+			position: 0,
+		});
+		const body = new URLSearchParams({
+			intent: "add-participants",
+			role: "speaker",
+		});
+		body.append("contactIds", "c2");
+		unwrap(await callAction(await detailRequest(body)));
+		const rows = await db
+			.select()
+			.from(participants)
+			.where(eq(participants.submissionId, "s1"));
+		const speaker = rows.find((r) => r.contactId === "c2");
+		expect(speaker?.isPrimary).toBe(true);
+		expect(rows.find((r) => r.id === "p_mod")?.isPrimary).toBe(false);
+	});
+
+	it("removes a participant from this submission only — a foreign id is refused", async () => {
+		const db = await seedBareSubmission();
+		await db.insert(submissions).values({
+			id: "s_other",
+			eventId: "e1",
+			title: "Other",
+			status: "pending",
+		});
+		await db.insert(participants).values([
+			{ id: "p1", submissionId: "s1", contactId: "c1", role: "speaker" },
+			{
+				id: "p_other",
+				submissionId: "s_other",
+				contactId: "c2",
+				role: "speaker",
+			},
+		]);
+
+		const foreign = unwrap(
+			await callAction(
+				await detailRequest(
+					new URLSearchParams({
+						intent: "remove-participant",
+						participantId: "p_other",
+					}),
+				),
+			),
+		);
+		expect(foreign.data.formError).toMatch(/not on this submission/i);
+		expect(await db.select().from(participants)).toHaveLength(2);
+
+		const removed = unwrap(
+			await callAction(
+				await detailRequest(
+					new URLSearchParams({
+						intent: "remove-participant",
+						participantId: "p1",
+					}),
+				),
+			),
+		);
+		expect(removed.data.notice).toMatch(/removed/i);
+		expect(
+			await db
+				.select()
+				.from(participants)
+				.where(eq(participants.submissionId, "s1")),
+		).toHaveLength(0);
+	});
+});
+
+describe("PARTICIPANT_ROLE lockstep", () => {
+	// The client-safe tuple (route components must not import schema.ts) and
+	// the integration-owned schema enum must never diverge.
+	it("keeps the client PARTICIPANT_ROLE tuple in lockstep with the schema", () => {
+		expect(CLIENT_PARTICIPANT_ROLE).toEqual(SCHEMA_PARTICIPANT_ROLE);
 	});
 });

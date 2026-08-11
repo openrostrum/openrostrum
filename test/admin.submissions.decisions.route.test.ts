@@ -290,6 +290,43 @@ describe("bulk + send-decisions intents", () => {
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
 
+	// The two accept paths must run the SAME provisioning spine — bulk accept
+	// differs from send-accept ONLY by not emailing (Sessionboard parity:
+	// status changes never email). A bulk accept that only flipped status
+	// would strand speakers without portal tasks.
+	it("bulk apply to accepted runs the full provisioning spine, minus the email", async () => {
+		const db = await seedWorld();
+		await seedSubmissionWithSpeaker("s1", "pending", "a@example.com");
+		const request = await requestAs(
+			"u_admin",
+			new URLSearchParams([
+				["intent", "bulk-set-status"],
+				["submissionIds", "s1"],
+				["status", "accepted"],
+			]),
+		);
+		unwrap(
+			await action({
+				context: CONTEXT,
+				request,
+				params: {},
+			} as unknown as Parameters<typeof action>[0]),
+		);
+		const [row] = await db
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, "s1"));
+		expect(row?.status).toBe("accepted");
+		expect(row?.contentStatus).toBe("in_review");
+		// Both seeded onboarding defaults minted for the speaker contact.
+		const assignments = await db.select().from(taskAssignments);
+		expect(assignments.map((a) => a.contactId)).toEqual(["c_s1", "c_s1"]);
+		expect(new Set(assignments.map((a) => a.taskId))).toEqual(
+			new Set(["task_hotel", "task_flight"]),
+		);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+	});
+
 	it("send-accept emails each selected row, finalizes it, and provisions — replay-safe", async () => {
 		const db = await seedWorld();
 		await seedSubmissionWithSpeaker("s1", "accept_queue", "marco@example.com");

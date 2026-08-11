@@ -26,6 +26,12 @@ APP_ENV=development
 # TURNSTILE_SECRET=...
 # TURNSTILE_SITE_KEY=...   # paired public widget key (both or neither)
 
+# AI-assisted submission review (Evaluation → AI review). Provider resolves by
+# capability: DEEPSEEK_API_KEY set → DeepSeek V4 Flash through its Anthropic-
+# compatible Messages endpoint; unset → the Workers AI binding (remote inference
+# needs wrangler auth locally); neither → the tab reports "not available".
+# DEEPSEEK_API_KEY=your-deepseek-api-key
+
 # Signs unsubscribe-footer tokens. Unset locally → a fixed dev secret (mail
 # never leaves the machine). REQUIRED whenever RESEND_API_KEY is set — real
 # mail with forgeable unsubscribe tokens would let anyone suppress any address.

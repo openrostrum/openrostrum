@@ -2,7 +2,11 @@ import { and, asc, count, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
 import { data } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
-import { DECISION_STATUS } from "~/db/constants";
+import {
+	DECISION_STATUS,
+	SUBMISSION_STATUS,
+	SUBMISSION_TYPE,
+} from "~/db/constants";
 import { contacts, type events, submissions } from "~/db/schema";
 import { transitionSubmissions } from "~/domain/accept";
 import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
@@ -19,6 +23,33 @@ import { createTimings, track } from "~/lib/track";
 
 type EventRow = typeof events.$inferSelect;
 type SubmissionType = (typeof submissions.$inferSelect)["type"];
+type SubmissionStatus = (typeof submissions.$inferSelect)["status"];
+
+/**
+ * The ONE parser for the All-Submissions `?type=`/`?status=` filters — the
+ * list loader and the CSV export both consume it, so "export what I'm looking
+ * at" stays exact by construction. Unknown values fall back to "no filter"
+ * (a stale link never errors); "" means unfiltered.
+ */
+export function parseSubmissionFilters(url: URL): {
+	filterType: SubmissionType | "";
+	filterStatus: SubmissionStatus | "";
+} {
+	const typeParam = url.searchParams.get("type") ?? "";
+	const statusParam = url.searchParams.get("status") ?? "";
+	return {
+		filterType: (SUBMISSION_TYPE as readonly string[]).includes(typeParam)
+			? (typeParam as SubmissionType)
+			: "",
+		filterStatus: (SUBMISSION_STATUS as readonly string[]).includes(statusParam)
+			? (statusParam as SubmissionStatus)
+			: "",
+	};
+}
+
+/** One bound for every contact-picker roster (drawer, detail attach): fetch
+ * one past it so truncation is detectable, never silent. */
+export const CONTACT_PICKER_CAP = 1000;
 
 function emptyCounts(): Record<ListTab, number> {
 	return Object.fromEntries(LIST_TABS.map((t) => [t, 0])) as Record<
@@ -114,8 +145,40 @@ export async function loadSubmissionList(
 				offset: (page - 1) * PAGE_SIZE,
 			});
 
+			// The sessions tab renders per-speaker eye toggles; abstracts render only
+			// a count, so the contact columns are fetched for sessions alone (bounded
+			// loaders: never haul columns a projection drops). Keyed on THIS page's
+			// submission ids — at most PAGE_SIZE bind params.
+			const speakersBySubmission = new Map<
+				string,
+				Array<{ contactId: string; name: string; publicVisible: boolean }>
+			>();
+			if (type === "session" && rows.length > 0) {
+				const pageIds = rows.map((r) => r.id);
+				const speakerRows = await db.query.participants.findMany({
+					columns: { submissionId: true, contactId: true, position: true },
+					where: (p, { inArray: inArrayOp }) =>
+						inArrayOp(p.submissionId, pageIds),
+					with: {
+						contact: {
+							columns: { firstName: true, lastName: true, publicVisible: true },
+						},
+					},
+					orderBy: (p, { asc: ascOp }) => [ascOp(p.position)],
+				});
+				for (const p of speakerRows) {
+					const list = speakersBySubmission.get(p.submissionId) ?? [];
+					list.push({
+						contactId: p.contactId,
+						name: `${p.contact.firstName} ${p.contact.lastName}`.trim(),
+						publicVisible: p.contact.publicVisible,
+					});
+					speakersBySubmission.set(p.submissionId, list);
+				}
+			}
+
 			// Fetch one past the cap so truncation is detectable, never silent.
-			const contactCap = 1000;
+			const contactCap = CONTACT_PICKER_CAP;
 			const contactRows = await db
 				.select({
 					id: contacts.id,
@@ -161,6 +224,7 @@ export async function loadSubmissionList(
 					schedule: formatScheduleRange(r.startsAt, r.endsAt, event.timezone),
 					roomName: r.room?.name ?? null,
 					speakerCount: r.participants.length,
+					speakers: speakersBySubmission.get(r.id) ?? [],
 					formatName: r.format?.name ?? null,
 					tracks: r.submissionTracks.map((st) => ({
 						id: st.trackId,
@@ -208,7 +272,65 @@ export async function submissionListAction(
 	if (intent === "approve-all-accepted") {
 		return approveAllAccepted(db, event.id);
 	}
+	if (intent === "set-speaker-visibility") {
+		return setSpeakerVisibility(db, event.id, form);
+	}
 	return { formError: "Unknown action." } satisfies ListActionData;
+}
+
+const SetSpeakerVisibility = z.object({
+	contactId: z.string().min(1),
+	visible: z.enum(["1", "0"]),
+});
+
+/**
+ * The per-speaker eye toggle. `publicVisible` lives on the CONTACT, so hiding
+ * a speaker removes them from every public surface (pages, embeds, feeds) —
+ * across all their sessions — the next time those load.
+ */
+async function setSpeakerVisibility(
+	db: ReturnType<typeof getDb>,
+	eventId: string,
+	form: FormData,
+) {
+	const parsed = SetSpeakerVisibility.safeParse({
+		contactId: form.get("contactId"),
+		visible: form.get("visible"),
+	});
+	if (!parsed.success) {
+		return {
+			formError: "Invalid visibility request.",
+		} satisfies ListActionData;
+	}
+	const publicVisible = parsed.data.visible === "1";
+	const timings = createTimings();
+	const result = await timings.time("db", async (): Promise<ListActionData> => {
+		// Event scoping in the WHERE is the cross-tenant denial: a foreign
+		// contactId matches no row and nothing is written.
+		const updated = await db
+			.update(contacts)
+			.set({ publicVisible })
+			.where(
+				and(
+					eq(contacts.id, parsed.data.contactId),
+					eq(contacts.eventId, eventId),
+				),
+			)
+			.returning({ id: contacts.id });
+		if (!updated[0]) {
+			return {
+				formError: "That speaker isn't part of this event.",
+			} satisfies ListActionData;
+		}
+		track("contact.visibility_set", {
+			eventId,
+			contactId: parsed.data.contactId,
+			publicVisible,
+		});
+		// Success needs no message: revalidation flips the eye/badge in place.
+		return {} satisfies ListActionData;
+	});
+	return timed(timings, result);
 }
 
 function timed(

@@ -49,6 +49,17 @@ export const CONTACT_STATUS = [
 	"declined",
 ] as const;
 
+/**
+ * Participant roles on a submission. Same lockstep contract as CONTACT_STATUS:
+ * schema.ts keeps its own integration-owned tuple; a test pins the two equal.
+ */
+export const PARTICIPANT_ROLE = [
+	"speaker",
+	"chairperson",
+	"moderator",
+	"secondary",
+] as const;
+
 /** Sessionboard's eight system pipeline stages, verbatim. */
 export const PIPELINE_STAGE = [
 	"researching",

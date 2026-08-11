@@ -13,6 +13,7 @@ it("provider secrets never reach the test env", () => {
 		"AIRTABLE_WEBHOOK_SECRET",
 		"TURNSTILE_SECRET",
 		"UNSUBSCRIBE_SECRET",
+		"DEEPSEEK_API_KEY",
 	] as const;
 	for (const key of secrets) {
 		expect(env[key] ?? "", `${key} leaked into the test env`).toBe("");

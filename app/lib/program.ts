@@ -1,6 +1,7 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { Db } from "~/db";
-import { events } from "~/db/schema";
+import { contacts, events, participants, submissions } from "~/db/schema";
+import { currentHeadshotsSql } from "~/domain/files";
 import type {
 	AgendaBlock,
 	AgendaSurfaceData,
@@ -46,6 +47,21 @@ export async function getDefaultEvent(db: Db): Promise<EventRow | null> {
 		.orderBy(asc(events.createdAt))
 		.limit(1);
 	return row ?? null;
+}
+
+/**
+ * The per-session "Add to calendar" link, or null when the feed wouldn't
+ * serve it: /feeds/:slug/agenda.ics 404s until the agenda is published, and
+ * an unscheduled session has no times to export. The one place that knows
+ * the feed's URL + query contract.
+ */
+export function sessionCalendarHref(
+	event: EventRow,
+	detail: PublicSession | null,
+): string | null {
+	return event.agendaPublishedAt && detail?.scheduled
+		? `/feeds/${event.slug}/agenda.ics?ids=${detail.id}`
+		: null;
 }
 
 /* ------------------------------------------------------- date formatting --- */
@@ -293,9 +309,32 @@ function projectSpeaker(
 	};
 }
 
+export async function getPublicHeadshotKey(
+	db: Db,
+	file: { id: string; eventId: string; contactId: string },
+): Promise<string | null> {
+	const rows = await db.all<{ r2_key: string }>(sql`
+		select f.r2_key
+		from ${currentHeadshotsSql(file.eventId, file.contactId)} f
+		join ${contacts} c on c.id = f.contact_id
+		join ${participants} p on p.contact_id = c.id
+		join ${submissions} s on s.id = p.submission_id
+		where f.id = ${file.id}
+			and c.event_id = f.event_id
+			and c.public_visible = 1
+			and s.event_id = f.event_id
+			and s.status = 'accepted'
+			and s.content_status = 'approved'
+			and s.parent_id is null
+			and p.role in ('speaker', 'chairperson', 'moderator')
+		limit 1
+	`);
+	return rows[0]?.r2_key ?? null;
+}
+
 /**
- * Filtered by event + kind (2 bound params), matched to contacts in JS — an
- * inArray over hundreds of speaker ids would blow D1's 100-parameter cap.
+ * Matched to contacts in JS because an inArray over hundreds of speaker ids
+ * would blow D1's 100-parameter cap.
  */
 async function latestHeadshots(
 	db: Db,
@@ -303,16 +342,15 @@ async function latestHeadshots(
 	contactIds: ReadonlySet<string>,
 ): Promise<Map<string, string>> {
 	if (contactIds.size === 0) return new Map();
-	const rows = await db.query.files.findMany({
-		columns: { id: true, contactId: true },
-		where: (f, { and: andOp, eq: eqOp }) =>
-			andOp(eqOp(f.eventId, eventId), eqOp(f.kind, "headshot")),
-		orderBy: (f, { desc }) => [desc(f.version), desc(f.createdAt)],
-	});
+	const rows = await db.all<{ id: string; contact_id: string | null }>(sql`
+		select f.id, f.contact_id
+		from ${currentHeadshotsSql(eventId)} f
+		where f.event_id = ${eventId}
+	`);
 	const map = new Map<string, string>();
-	for (const f of rows) {
-		if (f.contactId && contactIds.has(f.contactId) && !map.has(f.contactId)) {
-			map.set(f.contactId, `/files/${f.id}`);
+	for (const row of rows) {
+		if (row.contact_id && contactIds.has(row.contact_id)) {
+			map.set(row.contact_id, `/files/${row.id}`);
 		}
 	}
 	return map;
