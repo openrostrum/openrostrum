@@ -27,6 +27,7 @@ import {
 import {
 	buildContactMergePreview,
 	executeContactMerge,
+	queryContactMergeHistory,
 } from "../app/domain/contact-merge";
 import {
 	getPortalContext,
@@ -34,6 +35,10 @@ import {
 	listPortalTasks,
 } from "../app/domain/portal";
 import { createSession, hashPassword } from "../app/lib/auth";
+import {
+	action as mergeAction,
+	loader as mergeLoader,
+} from "../app/routes/admin.crm.merge";
 import { loader as portalLoader } from "../app/routes/portal";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
@@ -124,11 +129,12 @@ async function seedMergeBaseline() {
 async function authenticatedRequest(
 	userId: string,
 	url: string,
+	init?: RequestInit,
 ): Promise<Request> {
 	const cookie = await createSession(env, userId);
-	return new Request(url, {
-		headers: { Cookie: cookie.split(";")[0] ?? "" },
-	});
+	const headers = new Headers(init?.headers);
+	headers.set("Cookie", cookie.split(";")[0] ?? "");
+	return new Request(url, { ...init, headers });
 }
 
 async function seedReferenceMatrix() {
@@ -821,6 +827,88 @@ describe("contact merge", () => {
 		expect(links.find((row) => row.id === "airtable-foreign")?.recordId).toBe(
 			"foreign-b1",
 		);
+	});
+
+	it("loads an exact comparison and lets the organizer reverse the survivor", async () => {
+		await seedReferenceMatrix();
+		const first = (await mergeLoader({
+			context: CONTEXT,
+			request: await authenticatedRequest(
+				"admin-a",
+				"http://localhost/admin/crm/merge?source=ada.alt%40example.com&survivor=ada%40example.com",
+			),
+			params: {},
+		} as unknown as Parameters<typeof mergeLoader>[0])) as unknown as {
+			data: {
+				preview: { source: { email: string }; survivor: { email: string } };
+				mergeKey: string;
+			};
+		};
+		expect(first.data.preview).toMatchObject({
+			source: { email: "ada.alt@example.com" },
+			survivor: { email: "ada@example.com" },
+		});
+		expect(first.data.mergeKey).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		);
+
+		const reversed = (await mergeLoader({
+			context: CONTEXT,
+			request: await authenticatedRequest(
+				"admin-a",
+				"http://localhost/admin/crm/merge?source=ada%40example.com&survivor=ada.alt%40example.com",
+			),
+			params: {},
+		} as unknown as Parameters<typeof mergeLoader>[0])) as unknown as {
+			data: { preview: { survivor: { email: string } } };
+		};
+		expect(reversed.data.preview.survivor.email).toBe("ada.alt@example.com");
+	});
+
+	it("executes the reviewed merge and redirects to the surviving profile", async () => {
+		await seedReferenceMatrix();
+		const response = (await mergeAction({
+			context: CONTEXT,
+			request: await authenticatedRequest(
+				"admin-a",
+				"http://localhost/admin/crm/merge",
+				{
+					method: "POST",
+					body: new URLSearchParams({
+						sourceEmail: "ada.alt@example.com",
+						survivorEmail: "ada@example.com",
+						mergeKey: "66666666-6666-4666-8666-666666666666",
+					}),
+				},
+			),
+			params: {},
+		} as unknown as Parameters<typeof mergeAction>[0])) as Response;
+		expect(response.status).toBe(302);
+		expect(response.headers.get("Location")).toBe(
+			"/admin/crm/person/ada%40example.com?merged=1",
+		);
+		expect(
+			await getDb(env)
+				.select({ id: contacts.id })
+				.from(contacts)
+				.where(eq(contacts.email, "ada.alt@example.com")),
+		).toHaveLength(0);
+		const history = await queryContactMergeHistory(
+			getDb(env),
+			"org-a",
+			"ada@example.com",
+			20,
+		);
+		expect(history).toMatchObject({
+			total: 1,
+			merges: [
+				{
+					sourceEmail: "ada.alt@example.com",
+					survivorEmail: "ada@example.com",
+					actorName: "Admin A",
+				},
+			],
+		});
 	});
 
 	it("sends a retired portal login to the survivor with unioned submissions and tasks", async () => {

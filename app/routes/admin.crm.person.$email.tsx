@@ -16,8 +16,10 @@ import {
 	queryNotes,
 	queryPerson,
 } from "~/domain/crm";
+import { queryContactMergeHistory } from "~/domain/contact-merge";
 import { normalizeEmail, requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { formatDateUTC } from "~/lib/format";
 import { PIPELINE_STAGE_LABEL, PIPELINE_STAGE_TONE } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -59,32 +61,34 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	if (!org) throw redirect("/admin/crm");
 	const email = normalizeEmail(params.email);
-	const [person, noteThread, card, orgEvents] = await timings.time("db", () =>
-		Promise.all([
-			queryPerson(db, org.id, email),
-			queryNotes(db, org.id, email, NOTES_SHOWN),
-			db
-				.select({
-					id: pipelineCards.id,
-					stage: pipelineCards.stage,
-					score: pipelineCards.score,
-				})
-				.from(pipelineCards)
-				.where(
-					and(
-						eq(pipelineCards.organizationId, org.id),
-						eq(pipelineCards.email, email),
-					),
-				)
-				.limit(1)
-				.then((rows) => rows[0] ?? null),
-			db
-				.select({ id: events.id, name: events.name })
-				.from(events)
-				.where(eq(events.organizationId, org.id))
-				.orderBy(asc(events.createdAt)),
-		]),
-	);
+	const [person, noteThread, card, orgEvents, mergeHistory] =
+		await timings.time("db", () =>
+			Promise.all([
+				queryPerson(db, org.id, email),
+				queryNotes(db, org.id, email, NOTES_SHOWN),
+				db
+					.select({
+						id: pipelineCards.id,
+						stage: pipelineCards.stage,
+						score: pipelineCards.score,
+					})
+					.from(pipelineCards)
+					.where(
+						and(
+							eq(pipelineCards.organizationId, org.id),
+							eq(pipelineCards.email, email),
+						),
+					)
+					.limit(1)
+					.then((rows) => rows[0] ?? null),
+				db
+					.select({ id: events.id, name: events.name })
+					.from(events)
+					.where(eq(events.organizationId, org.id))
+					.orderBy(asc(events.createdAt)),
+				queryContactMergeHistory(db, org.id, email, 20),
+			]),
+		);
 	if (!person) {
 		throw data("No such person in this organization's directory", {
 			status: 404,
@@ -98,6 +102,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			notes: noteThread.notes,
 			noteCount: noteThread.total,
 			card,
+			mergeHistory,
+			justMerged: new URL(request.url).searchParams.get("merged") === "1",
 			addableEvents: orgEvents.filter((e) => !appearedEventIds.has(e.id)),
 		},
 		{ headers: { "Server-Timing": timings.header() } },
@@ -181,7 +187,16 @@ export default function CrmPerson({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { person, email, notes, noteCount, card, addableEvents } = loaderData;
+	const {
+		person,
+		email,
+		notes,
+		noteCount,
+		card,
+		mergeHistory,
+		justMerged,
+		addableEvents,
+	} = loaderData;
 	const name = `${person.firstName} ${person.lastName}`.trim();
 	const busy = useBusy();
 	const formError =
@@ -189,7 +204,11 @@ export default function CrmPerson({
 	const noteError =
 		actionData && "noteError" in actionData ? actionData.noteError : undefined;
 	const notice =
-		actionData && "notice" in actionData ? actionData.notice : undefined;
+		actionData && "notice" in actionData
+			? actionData.notice
+			: justMerged
+				? "Contacts merged. This profile now carries the combined history."
+				: undefined;
 
 	return (
 		<div className="flex flex-col gap-5">
@@ -209,12 +228,19 @@ export default function CrmPerson({
 							Another directory entry shares this name under a different email:
 						</span>
 						{person.sameNamePeople.map((p) => (
-							<TextLink
-								key={p.email}
-								to={`/admin/crm/person/${encodeURIComponent(p.email)}`}
-							>
-								{p.email}
-							</TextLink>
+							<span key={p.email} className="flex items-center gap-2">
+								<TextLink
+									to={`/admin/crm/person/${encodeURIComponent(p.email)}`}
+								>
+									{p.email}
+								</TextLink>
+								<ButtonLink
+									to={`/admin/crm/merge?source=${encodeURIComponent(p.email)}&survivor=${encodeURIComponent(email)}`}
+									variant="ghost"
+								>
+									Review merge
+								</ButtonLink>
+							</span>
 						))}
 						{person.sameNameTotal > person.sameNamePeople.length && (
 							<span>
@@ -336,6 +362,49 @@ export default function CrmPerson({
 					</TBody>
 				</Table>
 			</div>
+
+			{mergeHistory.merges.length > 0 && (
+				<div className="flex flex-col gap-3">
+					<SectionHeading
+						aside={
+							<StatusBadge tone="neutral">
+								{mergeHistory.total} completed
+							</StatusBadge>
+						}
+					>
+						Merge history
+					</SectionHeading>
+					<Table>
+						<THead>
+							<Th>Retired identity</Th>
+							<Th>Completed</Th>
+							<Th>By</Th>
+							<Th>Movements recorded</Th>
+						</THead>
+						<TBody>
+							{mergeHistory.merges.map((merge) => (
+								<Tr key={merge.id}>
+									<Td kind="mono">{merge.sourceEmail}</Td>
+									<Td kind="mono">{formatDateUTC(merge.createdAt)}</Td>
+									<Td>{merge.actorName}</Td>
+									<Td kind="mono">
+										{Object.values(merge.summary).reduce(
+											(total, value) => total + value,
+											0,
+										)}
+									</Td>
+								</Tr>
+							))}
+						</TBody>
+					</Table>
+					{mergeHistory.total > mergeHistory.merges.length && (
+						<p>
+							+{mergeHistory.total - mergeHistory.merges.length} older merges
+							not shown
+						</p>
+					)}
+				</div>
+			)}
 
 			<CrmNotesPanel notes={notes} total={noteCount} error={noteError} />
 		</div>
