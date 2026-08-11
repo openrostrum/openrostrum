@@ -10,6 +10,7 @@ export type CopyButtonProps = {
 	resetAfterMs?: number | null;
 	icon?: IconName | null;
 	optimistic?: boolean;
+	optimisticOnUnavailable?: boolean;
 	onFailure?: () => void;
 };
 
@@ -38,6 +39,7 @@ export function CopyButton({
 	resetAfterMs = 2500,
 	icon = "export",
 	optimistic = false,
+	optimisticOnUnavailable = true,
 	onFailure,
 }: CopyButtonProps): JSX.Element {
 	const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
@@ -50,7 +52,7 @@ export function CopyButton({
 
 	function copy() {
 		const write = attemptClipboardWrite(value, onFailure);
-		if (optimistic) setState("copied");
+		if (optimistic && (write || optimisticOnUnavailable)) setState("copied");
 		if (!write) return;
 		write
 			.then(() => {
