@@ -1,6 +1,6 @@
 // @public — account creation must be reachable while logged out.
 import { eq } from "drizzle-orm";
-import { Form, redirect, useNavigation } from "react-router";
+import { Form, redirect } from "react-router";
 import { z } from "zod";
 import { AuthNote, AuthPage } from "~/marketing/auth";
 import { getDb } from "~/db";
@@ -15,6 +15,7 @@ import {
 import { TurnstileWidget } from "~/cfp/ui";
 import { errorChainIncludes, errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { getTurnstile } from "~/ports/turnstile";
 import { Button, ErrorText, Field, Input, TextLink } from "~/ui";
 import type { Route } from "./+types/signup";
@@ -138,7 +139,7 @@ export default function Signup({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	return (
 		<AuthPage
 			title="Create your account"

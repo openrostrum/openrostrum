@@ -1,7 +1,8 @@
 // @public — welcome step of the public CFP wizard.
 import { useRouteLoaderData } from "react-router";
 import { HtmlContent, LeadText, PageTitle } from "~/cfp/ui";
-import { stepPath, submitBasePath } from "~/cfp/wizard";
+import { stepPath } from "~/cfp/wizard";
+import { submitPath } from "~/domain/forms";
 import { ButtonLink, Panel } from "~/ui";
 import type { Route as LayoutRoute } from "./+types/submit.$eventSlug.$formId";
 
@@ -10,7 +11,7 @@ export default function WelcomeStep() {
 		"routes/submit.$eventSlug.$formId",
 	);
 	if (!layout) return null;
-	const base = submitBasePath(layout.event.slug, layout.form.publicId);
+	const base = submitPath(layout.event.slug, layout.form.publicId);
 	const next = stepPath(base, layout.user ? "session" : "account");
 	return (
 		<Panel>

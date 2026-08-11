@@ -6,7 +6,6 @@ import {
 	Form,
 	isRouteErrorResponse,
 	redirect,
-	useNavigation,
 	useRouteError,
 } from "react-router";
 import { z } from "zod";
@@ -40,6 +39,7 @@ import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
 import { CONTENT_STATUS_TONE, humanStatus } from "~/lib/submission-list";
 import { CONTACT_PICKER_CAP } from "~/lib/submission-list.server";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	Chip,
@@ -971,10 +971,7 @@ export default function SubmissionDetail({
 		contactsTruncated,
 	} = loaderData;
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
-	// Every mutation here is a document POST — block the double-click that
-	// would replay it (duplicate revisions, double deletes) before the
-	// response lands.
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	const isDraft = s.status === "draft";
 	const feedback = (actionData ?? undefined) as ActionData | undefined;
 	const languageOptions = library.languages.includes(s.language)
@@ -1156,7 +1153,6 @@ export default function SubmissionDetail({
 					<AttachParticipants
 						contacts={contactRows}
 						contactsTruncated={contactsTruncated}
-						busy={busy}
 						feedback={feedback}
 					/>
 
@@ -1236,7 +1232,7 @@ export default function SubmissionDetail({
 									key={s.status}
 									name="status"
 									defaultValue={s.status}
-									disabled={isDraft}
+									disabled={isDraft || busy}
 								>
 									{(s.status === "withdrawn" || isDraft) && (
 										<option value={s.status} disabled>
@@ -1316,6 +1312,7 @@ export default function SubmissionDetail({
 									key={s.contentStatus}
 									name="contentStatus"
 									defaultValue={s.contentStatus}
+									disabled={busy}
 								>
 									{CONTENT_STATUS_OPTIONS.map((cs) => (
 										<option key={cs} value={cs}>
@@ -1347,6 +1344,7 @@ export default function SubmissionDetail({
 									key={s.customStatusId ?? "none"}
 									name="customStatusId"
 									defaultValue={s.customStatusId ?? ""}
+									disabled={busy}
 								>
 									<option value="">None</option>
 									{library.customStatuses.map((cs) => (
@@ -1382,6 +1380,7 @@ export default function SubmissionDetail({
 									key={s.formatId ?? "none"}
 									name="formatId"
 									defaultValue={s.formatId ?? ""}
+									disabled={busy}
 								>
 									<option value="">None</option>
 									{library.formats.map((f) => (
@@ -1396,6 +1395,7 @@ export default function SubmissionDetail({
 									key={s.levelId ?? "none"}
 									name="levelId"
 									defaultValue={s.levelId ?? ""}
+									disabled={busy}
 								>
 									<option value="">None</option>
 									{library.levels.map((l) => (
@@ -1410,6 +1410,7 @@ export default function SubmissionDetail({
 									key={s.language}
 									name="language"
 									defaultValue={s.language}
+									disabled={busy}
 								>
 									{languageOptions.map((l) => (
 										<option key={l} value={l}>
@@ -1427,6 +1428,7 @@ export default function SubmissionDetail({
 											name="trackIds"
 											value={t.id}
 											defaultChecked={s.trackIds.includes(t.id)}
+											disabled={busy}
 										/>
 										<Chip color={t.color}>{t.name}</Chip>
 									</label>
@@ -1444,6 +1446,7 @@ export default function SubmissionDetail({
 											name="tagIds"
 											value={t.id}
 											defaultChecked={s.tagIds.includes(t.id)}
+											disabled={busy}
 										/>
 										<Chip color={t.color}>{t.name}</Chip>
 									</label>
@@ -1479,6 +1482,7 @@ export default function SubmissionDetail({
 								<div>
 									<Button
 										variant="ghost"
+										disabled={busy}
 										onClick={() => setConfirmingDelete(true)}
 									>
 										Delete submission…
@@ -1524,14 +1528,13 @@ export default function SubmissionDetail({
 function AttachParticipants({
 	contacts: contactRows,
 	contactsTruncated,
-	busy,
 	feedback,
 }: {
 	contacts: Array<{ id: string; name: string; email: string }>;
 	contactsTruncated: boolean;
-	busy: boolean;
 	feedback: ActionData | undefined;
 }) {
+	const busy = useBusy();
 	const [filter, setFilter] = useState("");
 	const needle = filter.trim().toLowerCase();
 	const visible = needle
@@ -1554,7 +1557,7 @@ function AttachParticipants({
 					/>
 					<div className="flex flex-wrap items-end gap-3">
 						<Field label="Role">
-							<Select name="role" defaultValue="speaker">
+							<Select name="role" defaultValue="speaker" disabled={busy}>
 								{PARTICIPANT_ROLE.map((r) => (
 									<option key={r} value={r}>
 										{r}
@@ -1575,7 +1578,12 @@ function AttachParticipants({
 					<div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
 						{visible.map((c) => (
 							<label key={c.id} className="flex items-center gap-2">
-								<Input type="checkbox" name="contactIds" value={c.id} />
+								<Input
+									type="checkbox"
+									name="contactIds"
+									value={c.id}
+									disabled={busy}
+								/>
 								<span>
 									{c.name} · {c.email}
 								</span>
@@ -1630,7 +1638,7 @@ function AttachParticipants({
 						/>
 					</Field>
 					<Field label="Role">
-						<Select name="role" defaultValue="speaker">
+						<Select name="role" defaultValue="speaker" disabled={busy}>
 							{PARTICIPANT_ROLE.map((r) => (
 								<option key={r} value={r}>
 									{r}

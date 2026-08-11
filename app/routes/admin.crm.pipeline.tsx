@@ -207,14 +207,12 @@ function MoveControl({
 	cardId,
 	name,
 	stage,
-	busy,
 }: {
 	cardId: string;
 	name: string;
 	stage: PipelineStage;
-	/** Screen-wide in-flight guard — a move must not race another mutation. */
-	busy: boolean;
 }) {
+	const busy = useBusy();
 	const fetcher = useFetcher();
 	const pending = fetcher.formData?.get("stage");
 	const shown = isPipelineStage(pending) ? pending : stage;
@@ -351,7 +349,6 @@ export default function CrmPipeline({
 													cardId={card.id}
 													name={name}
 													stage={card.stage}
-													busy={busy}
 												/>
 											}
 										/>

@@ -51,10 +51,12 @@ export function Wordmark({
 export function Sidebar({
 	user,
 	themeControl,
+	logoutDisabled,
 	children,
 }: {
 	user: { name: string | null; email: string };
 	themeControl?: ReactNode;
+	logoutDisabled: boolean;
 	children: ReactNode;
 }) {
 	return (
@@ -78,6 +80,7 @@ export function Sidebar({
 					<button
 						type="submit"
 						aria-label="Log out"
+						disabled={logoutDisabled}
 						className="flex h-7 w-7 items-center justify-center rounded-control text-fg-faint transition-colors duration-150 hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
 					>
 						<Icon name="logout" size={15} />

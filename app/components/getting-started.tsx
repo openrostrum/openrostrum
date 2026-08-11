@@ -1,8 +1,9 @@
-import { Form, useNavigation } from "react-router";
+import { Form } from "react-router";
 import type {
 	GettingStartedState,
 	GettingStartedStepId,
 } from "~/domain/getting-started";
+import { useBusy } from "~/lib/use-busy";
 import { Button, Icon, Panel, TextLink } from "~/ui";
 import { cn } from "~/ui/cn";
 import { CopyButton } from "./copy-button";
@@ -89,7 +90,7 @@ export function GettingStartedCard({
 	state: GettingStartedState;
 	cfpUrl: string | null;
 }) {
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	return (
 		<Panel>
 			<div className="flex flex-col gap-1">

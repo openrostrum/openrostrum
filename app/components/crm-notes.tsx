@@ -1,5 +1,6 @@
 import { Form } from "react-router";
 import { formatInTz } from "~/lib/format";
+import { useBusy } from "~/lib/use-busy";
 import { Button, Field, Panel, Textarea } from "~/ui";
 import { SectionHeading } from "./section-heading";
 
@@ -19,14 +20,12 @@ export function CrmNotesPanel({
 	notes,
 	total,
 	error,
-	busy,
 }: {
 	notes: Note[];
 	total: number;
 	error?: string;
-	/** Disables the composer while a submission is in flight (double-submit guard). */
-	busy?: boolean;
 }) {
+	const busy = useBusy();
 	return (
 		<Panel>
 			<div className="flex flex-col gap-3">

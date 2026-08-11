@@ -11,7 +11,7 @@ import {
 	like,
 	sql,
 } from "drizzle-orm";
-import { Form, Outlet, data, redirect, useNavigation } from "react-router";
+import { Form, Outlet, data, redirect } from "react-router";
 import { z } from "zod";
 import { type Db, getDb } from "~/db";
 import {
@@ -49,6 +49,7 @@ import {
 } from "~/lib/evaluation";
 import { Pager } from "~/lib/pager";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { getAiProvider } from "~/ports/ai-review";
 import {
 	Button,
@@ -819,6 +820,7 @@ function PlansTab({
 		fieldErrors?: Record<string, string[] | undefined>;
 	};
 }) {
+	const busy = useBusy();
 	const [deleting, setDeleting] = useState<string | null>(null);
 	const deletingPlan = plans.find((p) => p.id === deleting);
 	return (
@@ -843,7 +845,7 @@ function PlansTab({
 							size={48}
 						/>
 					</Field>
-					<Button type="submit" icon="plus">
+					<Button type="submit" icon="plus" disabled={busy}>
 						Add plan
 					</Button>
 				</Form>
@@ -894,7 +896,7 @@ function PlansTab({
 										<Form method="post">
 											<Input type="hidden" name="intent" value="toggle-plan" />
 											<Input type="hidden" name="planId" value={plan.id} />
-											<Button type="submit" variant="ghost">
+											<Button type="submit" variant="ghost" disabled={busy}>
 												{plan.status === "open" ? "Close" : "Reopen"}
 											</Button>
 										</Form>
@@ -921,7 +923,11 @@ function PlansTab({
 							Delete “{deletingPlan.name}” and all {deletingPlan.totalEvals}{" "}
 							evaluations recorded in it? This cannot be undone.
 						</ErrorText>
-						<Button type="submit" onClick={() => setDeleting(null)}>
+						<Button
+							type="submit"
+							disabled={busy}
+							onClick={() => setDeleting(null)}
+						>
 							Delete plan
 						</Button>
 						<Button
@@ -1069,9 +1075,7 @@ type AiTabData = Extract<
 >["ai"];
 
 function AiTab({ ai }: { ai: AiTabData }) {
-	// Model runs are paid: while any submission is in flight, every AI action
-	// is disabled so a double-click can't buy a second inference.
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	if (!ai) return null;
 	const {
 		available,

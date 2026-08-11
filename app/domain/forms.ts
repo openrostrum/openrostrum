@@ -26,3 +26,7 @@ export function formIsOpen(
 export function submitPath(eventSlug: string, formPublicId: string): string {
 	return `/submit/${eventSlug}/${formPublicId}`;
 }
+
+export function adminFormPath(formId: string): string {
+	return `/admin/forms/${formId}`;
+}

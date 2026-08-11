@@ -5,6 +5,7 @@ import { Form } from "react-router";
 import { getDb } from "~/db";
 import { emailSuppressions } from "~/db/schema";
 import { verifyUnsubscribeToken } from "~/lib/unsubscribe";
+import { useBusy } from "~/lib/use-busy";
 import { track } from "~/lib/track";
 import { Button, PageHeader, Panel, Wordmark } from "~/ui";
 import type { Route } from "./+types/unsubscribe.$token";
@@ -46,6 +47,7 @@ export default function Unsubscribe({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const state = actionData?.state ?? loaderData.state;
 	const email = actionData?.email ?? loaderData.email;
 
@@ -75,7 +77,9 @@ export default function Unsubscribe({
 					/>
 					<Panel>
 						<Form method="post" className="flex">
-							<Button type="submit">Unsubscribe {email}</Button>
+							<Button type="submit" disabled={busy}>
+								Unsubscribe {email}
+							</Button>
 						</Form>
 					</Panel>
 				</div>

@@ -20,6 +20,7 @@ import {
 	TASK_STATUS_TONE,
 } from "~/lib/task-status";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	type BadgeTone,
 	Button,
@@ -281,6 +282,7 @@ export default function TaskAssignmentDetail({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const {
 		assignment,
 		task,
@@ -345,7 +347,7 @@ export default function TaskAssignmentDetail({
 												: "complete"
 										}
 									/>
-									<Button type="submit" variant="ghost">
+									<Button type="submit" variant="ghost" disabled={busy}>
 										{assignment.status === "complete"
 											? "Reopen"
 											: "Mark complete on speaker's behalf"}
@@ -365,7 +367,7 @@ export default function TaskAssignmentDetail({
 								>
 									<Input type="date" name="dueDate" defaultValue={dueDefault} />
 								</Field>
-								<Button type="submit" variant="ghost">
+								<Button type="submit" variant="ghost" disabled={busy}>
 									Save due date
 								</Button>
 							</Form>
@@ -443,7 +445,9 @@ export default function TaskAssignmentDetail({
 							<Form method="post">
 								<Input type="hidden" name="intent" value="approve-file" />
 								<Input type="hidden" name="fileId" value={uploads[0].id} />
-								<Button type="submit">Approve v{uploads[0].version}</Button>
+								<Button type="submit" disabled={busy}>
+									Approve v{uploads[0].version}
+								</Button>
 							</Form>
 							<Form method="post" className="flex flex-wrap items-end gap-2">
 								<Input type="hidden" name="intent" value="deny-file" />
@@ -458,7 +462,7 @@ export default function TaskAssignmentDetail({
 										maxLength={2000}
 									/>
 								</Field>
-								<Button type="submit" variant="ghost">
+								<Button type="submit" variant="ghost" disabled={busy}>
 									Deny v{uploads[0].version}
 								</Button>
 							</Form>

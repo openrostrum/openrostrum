@@ -1,7 +1,8 @@
 import { and, eq, gt, inArray, isNotNull, lte } from "drizzle-orm";
-import { stepPath, submitBasePath } from "~/cfp/wizard";
+import { stepPath } from "~/cfp/wizard";
 import { getDb } from "~/db";
 import { emailTemplates, events, forms, submissions, users } from "~/db/schema";
+import { submitPath } from "~/domain/forms";
 import { formatInTimeZone } from "~/lib/dates";
 import {
 	type MergeContext,
@@ -228,7 +229,7 @@ export async function runDraftCloseReminders(
 			const resumeUrl = origin
 				? origin +
 					stepPath(
-						submitBasePath(form.eventSlug, form.publicId),
+						submitPath(form.eventSlug, form.publicId),
 						"session",
 						drafts.length === 1 ? latest.submissionId : undefined,
 					)

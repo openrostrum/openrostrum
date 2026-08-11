@@ -1,5 +1,6 @@
 import { Form } from "react-router";
 import { HEADSHOT_ACCEPT, HEADSHOT_CONSTRAINTS } from "~/lib/headshot";
+import { useBusy } from "~/lib/use-busy";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.profile";
 import {
 	Avatar,
@@ -38,6 +39,7 @@ export function ProfileView({
 	data: ProfileViewData;
 	actionData?: ProfileActionData;
 }) {
+	const busy = useBusy();
 	const { contact, headshotUrl, saved } = data;
 	const errs = actionData?.fieldErrors ?? {};
 	const err = (key: string) => errs[key]?.[0];
@@ -88,7 +90,12 @@ export function ProfileView({
 							required
 						/>
 						<div className="flex items-center gap-3">
-							<Button type="submit" variant="ghost" icon="export">
+							<Button
+								type="submit"
+								variant="ghost"
+								icon="export"
+								disabled={busy}
+							>
 								Upload headshot
 							</Button>
 							{err("headshot") && <ErrorText>{err("headshot")}</ErrorText>}
@@ -226,7 +233,9 @@ export function ProfileView({
 				</Card>
 
 				<div className="flex items-center gap-3">
-					<Button type="submit">Save profile</Button>
+					<Button type="submit" disabled={busy}>
+						Save profile
+					</Button>
 					{actionData?.intent === "profile" && actionData.formError && (
 						<ErrorText>{actionData.formError}</ErrorText>
 					)}

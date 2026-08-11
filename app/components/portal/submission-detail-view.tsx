@@ -1,4 +1,5 @@
 import { Form } from "react-router";
+import { useBusy } from "~/lib/use-busy";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.submissions_.$submissionId";
 import {
 	Avatar,
@@ -41,6 +42,7 @@ export function SubmissionDetailView({
 	data: SubmissionDetailData;
 	actionData?: SubmissionDetailActionData;
 }) {
+	const busy = useBusy();
 	const {
 		base,
 		title,
@@ -163,6 +165,7 @@ export function SubmissionDetailView({
 										<Form method="post">
 											<input type="hidden" name="participantId" value={p.id} />
 											<ConfirmButton
+												disabled={busy}
 												label="Remove"
 												prompt={`Remove ${p.name} from this submission?`}
 												confirmLabel="Yes, remove"
@@ -214,6 +217,7 @@ export function SubmissionDetailView({
 							name="intent"
 							value="add-participant"
 							icon="plus"
+							disabled={busy}
 						>
 							Add participant
 						</Button>
@@ -313,7 +317,12 @@ export function SubmissionDetailView({
 								</div>
 							)}
 							<div className="flex items-center gap-3">
-								<Button type="submit" name="intent" value="update">
+								<Button
+									type="submit"
+									name="intent"
+									value="update"
+									disabled={busy}
+								>
 									Save changes
 								</Button>
 								{actionData?.intent === "update" && actionData.formError && (
@@ -338,6 +347,7 @@ export function SubmissionDetailView({
 						</Muted>
 						<Form method="post" className="flex flex-wrap items-center gap-2">
 							<ConfirmButton
+								disabled={busy}
 								label="Withdraw submission"
 								prompt="Withdraw this submission for everyone on it?"
 								confirmLabel="Yes, withdraw it"

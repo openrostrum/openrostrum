@@ -38,13 +38,9 @@ import {
 	RichText,
 	SectionHeading,
 } from "~/cfp/ui";
-import {
-	stepPath,
-	submitBasePath,
-	type WizardCtx,
-	wizardPayload,
-} from "~/cfp/wizard";
+import { stepPath, type WizardCtx, wizardPayload } from "~/cfp/wizard";
 import { getDb } from "~/db";
+import { submitPath } from "~/domain/forms";
 import { getUser } from "~/lib/auth";
 import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
@@ -55,7 +51,7 @@ import type { Route as LayoutRoute } from "./+types/submit.$eventSlug.$formId";
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
-	const base = submitBasePath(params.eventSlug, params.formId);
+	const base = submitPath(params.eventSlug, params.formId);
 	const url = new URL(request.url);
 	const user = await getUser(env, request);
 	if (!user) throw redirect(`${base}/step/account${url.search}`);
@@ -96,7 +92,7 @@ export default function ParticipantStep({
 	});
 	const [extraErrors, setExtraErrors] = useState<Record<string, string>>({});
 
-	const base = submitBasePath(params.eventSlug, params.formId);
+	const base = submitPath(params.eventSlug, params.formId);
 	const { definition } = loaderData;
 	const state = ctx.state;
 

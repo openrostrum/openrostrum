@@ -13,6 +13,7 @@ import { formatInTimeZone } from "~/lib/dates";
 import type { MergeContext } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ErrorText,
@@ -211,10 +212,12 @@ export default function EmailTemplateEditor({
 }: Route.ComponentProps) {
 	const { template, sampleCtx } = loaderData;
 	const fetcher = useFetcher<typeof action>();
+	const busy = useBusy();
+	const saving = fetcher.state !== "idle";
 	const [subject, setSubject] = useState(template.subject);
 	const [body, setBody] = useState(template.bodyHtml);
 	const fieldErrors = fetcher.data?.fieldErrors;
-	const saved = fetcher.state === "idle" && fetcher.data?.ok === true;
+	const saved = !saving && fetcher.data?.ok === true;
 
 	return (
 		<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
@@ -275,8 +278,8 @@ export default function EmailTemplateEditor({
 							/>
 						</Field>
 						<div className="flex items-center gap-3">
-							<Button type="submit" disabled={fetcher.state !== "idle"}>
-								{fetcher.state !== "idle" ? "Saving…" : "Save template"}
+							<Button type="submit" disabled={busy}>
+								{saving ? "Saving…" : "Save template"}
 							</Button>
 							{saved && <Hint>Saved.</Hint>}
 							{fetcher.data?.formError && (

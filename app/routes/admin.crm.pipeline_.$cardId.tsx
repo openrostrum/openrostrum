@@ -317,18 +317,14 @@ export default function CrmPipelineCard({
 								confirmLabel="Remove card"
 								name="intent"
 								value="remove"
+								disabled={busy}
 							/>
 						</Form>
 					</div>
 				</Panel>
 			</div>
 
-			<CrmNotesPanel
-				notes={notes}
-				total={noteCount}
-				error={noteError}
-				busy={busy}
-			/>
+			<CrmNotesPanel notes={notes} total={noteCount} error={noteError} />
 
 			<div className="flex flex-col gap-3">
 				<Table>

@@ -35,6 +35,7 @@ import {
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorChainIncludes } from "~/lib/errors";
 import { createTimings, track as trackEvent } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { optionalBoundedInt } from "~/settings/event-details.server";
 import { FIELD_TYPE_LABELS, FIELD_TYPES } from "~/settings/event-form";
 import {
@@ -627,7 +628,7 @@ function useEditLifecycle(
 function RowActions({
 	name,
 	confirming,
-	deleting,
+	busy,
 	onEdit,
 	onConfirm,
 	onDelete,
@@ -635,7 +636,7 @@ function RowActions({
 }: {
 	name: string;
 	confirming: boolean;
-	deleting: boolean;
+	busy: boolean;
 	onEdit(): void;
 	onConfirm(): void;
 	onDelete(): void;
@@ -648,7 +649,7 @@ function RowActions({
 				<Button
 					type="button"
 					variant="ghost"
-					disabled={deleting}
+					disabled={busy}
 					onClick={onDelete}
 				>
 					Delete
@@ -664,7 +665,7 @@ function RowActions({
 			<Button type="button" variant="ghost" onClick={onEdit}>
 				Edit
 			</Button>
-			<Button type="button" variant="ghost" onClick={onConfirm}>
+			<Button type="button" variant="ghost" disabled={busy} onClick={onConfirm}>
 				Delete
 			</Button>
 		</div>
@@ -697,10 +698,10 @@ function Section<Row extends { id: string; name: string }>({
 }) {
 	const save = useFetcher<LibraryResult>();
 	const remove = useFetcher<LibraryResult>();
+	const busy = useBusy();
 	const { editingId, setEditingId, confirmId, setConfirmId, generation } =
 		useEditLifecycle(save.data);
 	const editing = rows.find((r) => r.id === editingId) ?? null;
-	const saving = save.state !== "idle";
 
 	return (
 		<Panel>
@@ -724,7 +725,7 @@ function Section<Row extends { id: string; name: string }>({
 						name="intent"
 						value={`${entity}.${editing ? "update" : "create"}`}
 						icon={editing ? undefined : "plus"}
-						disabled={saving}
+						disabled={busy}
 					>
 						{editing ? "Save changes" : addLabel}
 					</Button>
@@ -761,7 +762,7 @@ function Section<Row extends { id: string; name: string }>({
 									<RowActions
 										name={row.name}
 										confirming={confirmId === row.id}
-										deleting={remove.state !== "idle"}
+										busy={busy}
 										onEdit={() => {
 											setEditingId(row.id);
 											setConfirmId(null);
@@ -804,6 +805,7 @@ function fieldDetails(row: FieldRow): string {
 function FieldsSection({ rows }: { rows: FieldRow[] }) {
 	const save = useFetcher<LibraryResult>();
 	const remove = useFetcher<LibraryResult>();
+	const busy = useBusy();
 	const [query, setQuery] = useState("");
 	const [type, setType] = useState<(typeof FIELD_TYPES)[number]>("text");
 	const { editingId, setEditingId, confirmId, setConfirmId, generation } =
@@ -821,7 +823,6 @@ function FieldsSection({ rows }: { rows: FieldRow[] }) {
 	}, [rows, query]);
 
 	const errors = save.data?.fieldErrors;
-	const saving = save.state !== "idle";
 	const showLength = type === "text" || type === "textarea";
 	const showOptions = type === "dropdown";
 
@@ -854,6 +855,7 @@ function FieldsSection({ rows }: { rows: FieldRow[] }) {
 							<Select
 								name="type"
 								value={type}
+								disabled={busy}
 								onChange={(e) =>
 									setType(e.target.value as (typeof FIELD_TYPES)[number])
 								}
@@ -873,7 +875,7 @@ function FieldsSection({ rows }: { rows: FieldRow[] }) {
 							</Field>
 						) : (
 							<Field label="Scope" error={errors?.scope?.[0]}>
-								<Select name="scope" defaultValue="event">
+								<Select name="scope" defaultValue="event" disabled={busy}>
 									<option value="event">This event only</option>
 									<option value="org">Org-wide (all events)</option>
 								</Select>
@@ -920,7 +922,7 @@ function FieldsSection({ rows }: { rows: FieldRow[] }) {
 							name="intent"
 							value={`field.${editing ? "update" : "create"}`}
 							icon={editing ? undefined : "plus"}
-							disabled={saving}
+							disabled={busy}
 						>
 							{editing ? "Save changes" : "Add field"}
 						</Button>
@@ -969,7 +971,7 @@ function FieldsSection({ rows }: { rows: FieldRow[] }) {
 									<RowActions
 										name={row.name}
 										confirming={confirmId === row.id}
-										deleting={remove.state !== "idle"}
+										busy={busy}
 										onEdit={() => {
 											setEditingId(row.id);
 											setConfirmId(null);

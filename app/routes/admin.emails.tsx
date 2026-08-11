@@ -9,6 +9,7 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { templateKindLabel } from "~/lib/email-render";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -203,6 +204,7 @@ export default function EmailTemplates({
 			? templates
 			: templates.filter((t) => t.category === category);
 	const [confirmingId, setConfirmingId] = useState<string | null>(null);
+	const busy = useBusy();
 
 	return (
 		<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
@@ -229,7 +231,7 @@ export default function EmailTemplates({
 							invalid={Boolean(actionData?.fieldErrors?.name?.[0])}
 						/>
 					</Field>
-					<Button type="submit" icon="plus">
+					<Button type="submit" icon="plus" disabled={busy}>
 						Add template
 					</Button>
 					{actionData?.formError && (
@@ -289,6 +291,7 @@ export default function EmailTemplates({
 												variant="ghost"
 												name="intent"
 												value={`delete:${t.id}`}
+												disabled={busy}
 											>
 												Confirm delete
 											</Button>
@@ -305,6 +308,7 @@ export default function EmailTemplates({
 											type="button"
 											variant="ghost"
 											onClick={() => setConfirmingId(t.id)}
+											disabled={busy}
 										>
 											Delete
 										</Button>

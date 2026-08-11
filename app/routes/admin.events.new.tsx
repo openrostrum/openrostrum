@@ -6,8 +6,8 @@ import { events, organizationMembers, organizations, users } from "~/db/schema";
 import { provisionEventDefaults } from "~/domain/provisionEvent";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { useBusy } from "~/lib/use-busy";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	isSlugTakenError,
 	parseEventDetails,
@@ -158,7 +158,6 @@ export default function NewEvent({
 			invalid.focus({ preventScroll: true });
 		}
 	}, [fieldErrorCount, actionData]);
-
 	return (
 		<div className="mx-auto flex max-w-[760px] flex-col gap-5 px-7 py-6">
 			<PageHeader

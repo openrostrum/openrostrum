@@ -1,10 +1,11 @@
 import { count, inArray } from "drizzle-orm";
-import { Form, data, redirect, useNavigation } from "react-router";
+import { Form, data, redirect } from "react-router";
 import { getDb } from "~/db";
 import { airtableLinks } from "~/db/schema";
 import { SYNCED_TABLES, TABLE_MAPS } from "~/lib/airtable-map";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { createTimings } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	DEMO_ORG_ID,
 	readLastWebhookPing,
@@ -173,8 +174,7 @@ export default function AirtableSync({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const navigation = useNavigation();
-	const busy = navigation.state !== "idle";
+	const busy = useBusy();
 
 	if (loaderData.state === "no_event") {
 		return (

@@ -337,12 +337,7 @@ export default function CrmPerson({
 				</Table>
 			</div>
 
-			<CrmNotesPanel
-				notes={notes}
-				total={noteCount}
-				error={noteError}
-				busy={busy}
-			/>
+			<CrmNotesPanel notes={notes} total={noteCount} error={noteError} />
 		</div>
 	);
 }
