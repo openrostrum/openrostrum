@@ -14,6 +14,7 @@ import {
 	effectiveFormStatus,
 	placementMissingOptions,
 	questionRuleValueAvailable,
+	ruleApplyDisabled,
 } from "../app/lib/forms";
 import { loader } from "../app/routes/admin.forms";
 
@@ -140,6 +141,15 @@ describe("effectiveFormStatus", () => {
 		expect(effectiveFormStatus("open", future, Date.now())).toBe("open");
 		expect(effectiveFormStatus("open", null, Date.now())).toBe("open");
 		expect(effectiveFormStatus("draft", past, Date.now())).toBe("draft");
+	});
+});
+
+describe("ruleApplyDisabled", () => {
+	it("blocks a valid rule while any mutation is pending", () => {
+		expect(ruleApplyDisabled(false, "field:experience", true)).toBe(false);
+		expect(ruleApplyDisabled(true, "field:experience", true)).toBe(true);
+		expect(ruleApplyDisabled(false, "", true)).toBe(true);
+		expect(ruleApplyDisabled(false, "field:experience", false)).toBe(true);
 	});
 });
 

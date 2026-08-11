@@ -75,6 +75,13 @@ function CommentThread({
 					<span className="text-[13px] text-fg">{c.body}</span>
 				</div>
 			))}
+			{comments.length === 0 && (
+				<EmptyState
+					icon="mail"
+					title="No comments yet"
+					body="Write a comment below to start the thread with the event team."
+				/>
+			)}
 			<fetcher.Form
 				key={activeDraft.key}
 				method="post"

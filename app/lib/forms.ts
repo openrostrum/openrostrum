@@ -258,6 +258,14 @@ export function placementMissingOptions(
 	return false;
 }
 
+export function ruleApplyDisabled(
+	busy: boolean,
+	trigger: string,
+	valueAvailable: boolean,
+): boolean {
+	return busy || !trigger || !valueAvailable;
+}
+
 export function questionRuleValueAvailable(
 	valueKind: "number" | "options",
 	options: Array<{ value: string; label: string }>,

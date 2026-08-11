@@ -53,12 +53,14 @@ import {
 	type FormSectionId,
 	placementMissingOptions,
 	questionRuleValueAvailable,
+	ruleApplyDisabled,
 	RULE_TRIGGER_FIELD_TYPES,
 	utcToZonedInputs,
 	zonedTimeToUtc,
 } from "~/lib/forms";
 import { loadRuleOptions, sanitizeRichText } from "~/lib/forms.server";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { PaginationBar } from "./admin.forms";
 import {
 	Button,
@@ -1711,6 +1713,7 @@ function RuleEditor({
 	onClose: () => void;
 }) {
 	const fetcher = useFetcher<typeof action>();
+	const busy = useBusy();
 	const rule = placement.questionRule;
 	const [trigger, setTrigger] = useState(
 		rule
@@ -1805,7 +1808,7 @@ function RuleEditor({
 					</Field>
 					<Button
 						type="button"
-						disabled={!trigger || !valueAvailable}
+						disabled={ruleApplyDisabled(busy, trigger, valueAvailable)}
 						onClick={() =>
 							fetcher.submit(
 								{
