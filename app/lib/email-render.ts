@@ -25,7 +25,10 @@ export const MERGE_TAGS = [
 	{ tag: "event_name", label: "Event name" },
 	{ tag: "session_title", label: "Session / submission title" },
 	{ tag: "session_date_time", label: "Scheduled session date & time" },
+	{ tag: "starts_at", label: "Scheduled session start" },
+	{ tag: "ends_at", label: "Scheduled session end" },
 	{ tag: "session_room", label: "Scheduled session room" },
+	{ tag: "location", label: "Session location" },
 	{ tag: "portal_link", label: "Speaker portal URL" },
 	{ tag: "form_title", label: "Submission form title" },
 	{ tag: "form_close_date", label: "Submission form close date" },
@@ -40,7 +43,26 @@ export type MergeTag = (typeof MERGE_TAGS)[number]["tag"];
  * renders as empty string. */
 export type MergeContext = Record<MergeTag, string | null>;
 
-const TAG_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+const CLASSIC_TAG_ALIASES: Readonly<Record<string, MergeTag>> = {
+	"recipient.first_name": "first_name",
+	"recipient.last_name": "last_name",
+	title: "session_title",
+	"event.name": "event_name",
+};
+
+const MERGE_TAG_PATTERN =
+	/\{\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}\}|\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+const TEMPLATE_MERGE_TAGS = MERGE_TAGS.map(
+	({ tag }) => tag,
+) as readonly string[];
+
+function contextKey(
+	tripleTag: string | undefined,
+	doubleTag: string | undefined,
+) {
+	const normalized = (tripleTag ?? doubleTag ?? "").toLowerCase();
+	return CLASSIC_TAG_ALIASES[normalized] ?? normalized;
+}
 
 export function escapeHtml(value: string): string {
 	return value
@@ -53,14 +75,20 @@ export function escapeHtml(value: string): string {
 
 function substitute(
 	template: string,
-	ctx: MergeContext,
+	values: Partial<Record<string, string | null>>,
+	knownTags: readonly string[],
+	unknown: "blank" | "preserve",
 	transform: (value: string) => string,
 ): string {
-	const values = ctx as Partial<Record<string, string | null>>;
-	return template.replace(TAG_RE, (_match, tag: string) => {
-		const value = values[tag.toLowerCase()];
-		return value ? transform(value) : "";
-	});
+	return template.replace(
+		MERGE_TAG_PATTERN,
+		(whole, tripleTag: string | undefined, doubleTag: string | undefined) => {
+			const tag = contextKey(tripleTag, doubleTag);
+			if (!knownTags.includes(tag)) return unknown === "preserve" ? whole : "";
+			const value = values[tag];
+			return value == null ? "" : transform(value);
+		},
+	);
 }
 
 /** How a template's category reads as a send kind, everywhere it is shown. */
@@ -72,13 +100,13 @@ export function templateKindLabel(category: string | null): string {
 
 /** Plain-text substitution — subjects are never HTML. */
 export function renderSubject(template: string, ctx: MergeContext): string {
-	return substitute(template, ctx, (v) => v);
+	return substitute(template, ctx, TEMPLATE_MERGE_TAGS, "blank", (v) => v);
 }
 
 /** HTML substitution — merge values are DATA (speaker-supplied names, titles),
  * so they are escaped; markup belongs to the template, never to a value. */
 export function renderBody(template: string, ctx: MergeContext): string {
-	return substitute(template, ctx, escapeHtml);
+	return substitute(template, ctx, TEMPLATE_MERGE_TAGS, "blank", escapeHtml);
 }
 
 // ─── Compose pipeline — contact-scoped campaign vocabulary ─────────────────
@@ -99,25 +127,25 @@ export const CAMPAIGN_MERGE_TAGS = [
 export type CampaignMergeTag = (typeof CAMPAIGN_MERGE_TAGS)[number];
 export type MergeValues = Partial<Record<CampaignMergeTag, string | null>>;
 
-const CAMPAIGN_TAG_PATTERN = /\{\{\s*([a-z_]+)\s*\}\}/g;
-
-/** Whether the template references a tag, with the SAME whitespace tolerance
- * the renderer applies — a guard using a literal match would miss "{{ tag }}". */
 export function templateUsesTag(
 	template: string,
 	tag: CampaignMergeTag,
 ): boolean {
-	return [...template.matchAll(CAMPAIGN_TAG_PATTERN)].some((m) => m[1] === tag);
+	return [...template.matchAll(MERGE_TAG_PATTERN)].some(
+		(match) => contextKey(match[1], match[2]) === tag,
+	);
 }
 
 export function renderMergeFields(
 	template: string,
 	values: MergeValues,
 ): string {
-	return template.replace(CAMPAIGN_TAG_PATTERN, (whole, tag: string) =>
-		(CAMPAIGN_MERGE_TAGS as readonly string[]).includes(tag)
-			? (values[tag as CampaignMergeTag] ?? "")
-			: whole,
+	return substitute(
+		template,
+		values,
+		CAMPAIGN_MERGE_TAGS,
+		"preserve",
+		(value) => value,
 	);
 }
 

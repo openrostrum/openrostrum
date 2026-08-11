@@ -45,6 +45,15 @@ function fromBase64Url(value: string): Uint8Array | null {
 	}
 }
 
+/**
+ * Config check for senders that must mint unsubscribe links: throws (with the
+ * operator-facing message) on a deployed instance missing UNSUBSCRIBE_SECRET.
+ * Callers run it before a recipient loop so a config failure surfaces once.
+ */
+export function assertUnsubscribeSigningConfigured(env: Env): void {
+	secretFor(env);
+}
+
 function hmacKey(env: Env): Promise<CryptoKey> {
 	return crypto.subtle.importKey(
 		"raw",
