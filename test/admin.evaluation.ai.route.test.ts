@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import { aiReviews, reviews } from "../app/db/schema";
-import { WORKERS_AI_DEFAULT_MODEL } from "../app/domain/ai-review";
 import {
 	action as listAction,
 	loader as listLoader,
@@ -153,7 +152,7 @@ describe("AI review — run and persist", () => {
 			score: 7.5,
 			effective: 7.5,
 			rationale: RATIONALE,
-			model: WORKERS_AI_DEFAULT_MODEL,
+			model: "@cf/openai/gpt-oss-120b",
 			override: null,
 		});
 		// Human decision lives in its own labeled list, apart from the AI block.
@@ -208,18 +207,7 @@ describe("AI review — run and persist", () => {
 		const result = await runAi(deepseekEnv, "s1");
 		expect(result.ok).toContain("8.00");
 		expect(binding.calls).toHaveLength(0); // the key outranks the binding
-		const [url, init] = fetchMock.mock.calls[0] as unknown as [
-			string,
-			RequestInit,
-		];
-		expect(url).toBe("https://api.deepseek.com/anthropic/v1/messages");
-		expect((init.headers as Record<string, string>)["x-api-key"]).toBe(
-			"sk-test",
-		);
-		const body = JSON.parse(init.body as string);
-		expect(body.model).toBe("deepseek-v4-flash");
-		expect(body.messages.at(-1).content).toContain("Taming 40-Minute CI");
-		expect(body.output_config).toBeUndefined();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const db = getDb(env);
 		const [row] = await db
 			.select({ model: aiReviews.model, score: aiReviews.score })

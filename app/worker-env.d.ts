@@ -16,8 +16,6 @@ declare namespace Cloudflare {
 		UNSUBSCRIBE_SECRET?: string;
 		/** AI-review primary provider (DeepSeek). Unset → Workers AI binding fallback. */
 		DEEPSEEK_API_KEY?: string;
-		/** Pins the Workers AI fallback model; unset → WORKERS_AI_DEFAULT_MODEL. Not a secret — a plain var. */
-		AI_REVIEW_WORKERS_MODEL?: string;
 		/** Public origin (e.g. https://openrostrum.com) for links in cron-sent
 		 * emails, where no request URL exists to derive it from. */
 		APP_ORIGIN?: string;

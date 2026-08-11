@@ -4,19 +4,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import { aiReviews } from "../app/db/schema";
 import {
-	type AiChatProvider,
 	type AiReviewSubmission,
-	type AiRunner,
 	buildReviewMessages,
 	clearAiOverride,
-	createDeepseekProvider,
-	createWorkersAiProvider,
 	effectiveAiScore,
 	generateAiReview,
-	getAiProvider,
 	overrideAiReview,
 	saveAiReview,
 } from "../app/domain/ai-review";
+import {
+	type AiChatProvider,
+	type AiRunner,
+	createDeepseekProvider,
+	createWorkersAiProvider,
+	getAiProvider,
+} from "../app/ports/ai-review";
 import { seedEvalBase } from "./eval-fixtures";
 
 const SUB: AiReviewSubmission = {
@@ -180,10 +182,11 @@ describe("Workers AI provider — reply envelopes", () => {
 				return { response: verdictJson(5) };
 			},
 		};
-		await generateAiReview(
+		const result = await generateAiReview(
 			createWorkersAiProvider(runner, "@cf/pinned/x"),
 			SUB,
 		);
+		expect(result).toMatchObject({ ok: true, score: 5, model: "@cf/pinned/x" });
 		expect(models).toEqual(["@cf/pinned/x"]);
 	});
 });
@@ -261,15 +264,9 @@ describe("provider resolution — capability, like the email port", () => {
 		expect(provider?.model).toBe("deepseek-v4-flash");
 	});
 
-	it("no key → GPT-OSS fallback; env var pins another model", () => {
+	it("no key → GPT-OSS fallback", () => {
 		const base = { DEEPSEEK_API_KEY: "", AI: binding } as unknown as Env;
 		expect(getAiProvider(base)?.model).toBe("@cf/openai/gpt-oss-120b");
-		expect(
-			getAiProvider({
-				...base,
-				AI_REVIEW_WORKERS_MODEL: "@cf/moonshotai/kimi-k2.6",
-			} as unknown as Env)?.model,
-		).toBe("@cf/moonshotai/kimi-k2.6");
 	});
 
 	it("neither key nor binding → null (the degraded state)", () => {

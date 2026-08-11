@@ -32,7 +32,6 @@ import {
 	clearAiOverride,
 	effectiveAiScore,
 	generateAiReview,
-	getAiProvider,
 	loadAiReviewContexts,
 	overrideAiReview,
 	roundToTenth,
@@ -50,6 +49,7 @@ import {
 } from "~/lib/evaluation";
 import { Pager } from "~/lib/pager";
 import { createTimings, track } from "~/lib/track";
+import { getAiProvider } from "~/ports/ai-review";
 import {
 	Button,
 	ButtonLink,
