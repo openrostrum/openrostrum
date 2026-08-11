@@ -3,6 +3,7 @@ import {
 	type AgendaSession,
 	autoPlace,
 	buildConflictRows,
+	classifyAgendaSessions,
 	type Conflict,
 	conflictSentence,
 	detectConflicts,
@@ -43,6 +44,101 @@ const ROOMS = [
 	{ id: "room_305", name: "Room 305", capacity: 60 },
 ];
 
+describe("agenda placement classification", () => {
+	it("classifies complete retained placements as scheduled", () => {
+		const retained = session({
+			id: "retained",
+			status: "accept_queue",
+			schedulable: false,
+			startsAt: 100,
+			endsAt: 200,
+		});
+		const partial = session({ id: "partial", startsAt: 100 });
+
+		const result = classifyAgendaSessions([retained, partial], false);
+
+		expect(result.scheduled.map((s) => s.id)).toEqual(["retained"]);
+	});
+
+	it("classifies start-only and end-only accepted rows as unscheduled and needing a slot", () => {
+		const startOnly = session({ id: "start-only", startsAt: 100 });
+		const endOnly = session({ id: "end-only", endsAt: 200 });
+		const empty = session({ id: "empty" });
+
+		const result = classifyAgendaSessions([startOnly, endOnly, empty], false);
+
+		expect(result.unscheduled.map((s) => s.id)).toEqual([
+			"start-only",
+			"end-only",
+			"empty",
+		]);
+		expect(result.needsSlot.map((s) => s.id)).toEqual([
+			"start-only",
+			"end-only",
+			"empty",
+		]);
+		expect(result.schedulableUnplaced.map((s) => s.id)).toEqual([
+			"start-only",
+			"end-only",
+			"empty",
+		]);
+	});
+
+	it("removes both complete and incomplete drafts from header counts when Drafts is off", () => {
+		const placedDraft = session({
+			id: "placed-draft",
+			status: "draft",
+			schedulable: false,
+			startsAt: 100,
+			endsAt: 200,
+		});
+		const partialDraft = session({
+			id: "partial-draft",
+			status: "draft",
+			startsAt: 100,
+		});
+
+		const hidden = classifyAgendaSessions([placedDraft, partialDraft], false);
+		const shown = classifyAgendaSessions([placedDraft, partialDraft], true);
+
+		expect(hidden.scheduled).toEqual([]);
+		expect(hidden.unscheduled).toEqual([]);
+		expect(shown.scheduled.map((s) => s.id)).toEqual(["placed-draft"]);
+		expect(shown.unscheduled.map((s) => s.id)).toEqual(["partial-draft"]);
+	});
+
+	it("keeps hidden schedulable drafts in week occupancy and excludes retained non-schedulable placements", () => {
+		const hiddenDraft = session({
+			id: "hidden-draft",
+			status: "draft",
+			roomId: "room_main",
+			startsAt: 100,
+			endsAt: 200,
+		});
+		const retained = session({
+			id: "retained",
+			status: "withdrawn",
+			schedulable: false,
+			roomId: "room_305",
+			startsAt: 100,
+			endsAt: 200,
+		});
+		const { schedulablePlaced } = classifyAgendaSessions(
+			[hiddenDraft, retained],
+			false,
+		);
+
+		expect(
+			pickFreeRoom(
+				[{ id: "room_main" }, { id: "room_305" }],
+				schedulablePlaced,
+				125,
+				175,
+			),
+		).toBe("room_305");
+	});
+});
+
 describe("wall-clock conversion", () => {
 	it("converts event-TZ wall clock to UTC across the DST boundary", () => {
 		// 9:30 AM PDT on Oct 12 = 16:30 UTC.
@@ -58,12 +154,37 @@ describe("wall-clock conversion", () => {
 });
 
 describe("event day list", () => {
-	it("derives inclusive calendar days from date-at-UTC-midnight bounds", () => {
-		expect(eventDayList(utc(2026, 10, 12, 0), utc(2026, 10, 14, 0))).toEqual([
-			"2026-10-12",
-			"2026-10-13",
-			"2026-10-14",
-		]);
+	it("a 3-day LA event renders exactly 3 days (judge repro: May 12–14 showed May 12–15)", () => {
+		// Settings "May 12 09:00 → May 14 17:00" in LA store 16:00Z / next-day
+		// 00:00Z (PDT = UTC-7); reading UTC dates leaked a phantom 4th day.
+		expect(eventDayList(utc(2027, 5, 12, 16), utc(2027, 5, 15, 0), TZ)).toEqual(
+			["2027-05-12", "2027-05-13", "2027-05-14"],
+		);
+	});
+
+	it("an east-of-UTC event does not start a day early", () => {
+		// May 12 00:00 → May 14 23:00 in Tokyo (UTC+9) = May 11 15:00Z → May 14
+		// 14:00Z; the UTC read began the strip on May 11.
+		expect(
+			eventDayList(utc(2027, 5, 11, 15), utc(2027, 5, 14, 14), "Asia/Tokyo"),
+		).toEqual(["2027-05-12", "2027-05-13", "2027-05-14"]);
+	});
+
+	it("spans the spring-forward DST transition without skipping or repeating a day", () => {
+		// Mar 12 09:00 PST (UTC-8) → Mar 15 17:00 PDT (UTC-7), 2027; US DST
+		// starts Mar 14 — the 23-hour day must still be one column.
+		expect(eventDayList(utc(2027, 3, 12, 17), utc(2027, 3, 16, 0), TZ)).toEqual(
+			["2027-03-12", "2027-03-13", "2027-03-14", "2027-03-15"],
+		);
+	});
+
+	it("degrades an inverted range to one day and caps a runaway range", () => {
+		expect(
+			eventDayList(utc(2027, 5, 14, 16), utc(2027, 5, 12, 16), TZ),
+		).toEqual(["2027-05-14"]);
+		expect(
+			eventDayList(utc(2027, 1, 1, 8), utc(2027, 12, 31, 8), TZ),
+		).toHaveLength(30);
 	});
 
 	it("falls back to session days, then today, when the event has no dates", () => {

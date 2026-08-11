@@ -29,6 +29,10 @@ import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";
 import { type EmailResult, getEmailSender } from "~/ports/email";
 
+/** One per-request send cap for every speaker-facing batch (decision emails
+ * here, schedule updates in schedule-update.ts). */
+export const EMAIL_BATCH_LIMIT = 100;
+
 /**
  * The accept/decline spine — the ONE code path for every submission decision
  * (admin inline flip, bulk edit, compat API, Airtable-inbound). Caller
@@ -462,9 +466,9 @@ export async function sendDecisionEmails(
 ): Promise<DecisionSendResult[]> {
 	const { event, rows, decision, idempotencyKey } = opts;
 	if (rows.length === 0) return [];
-	if (rows.length > 100) {
+	if (rows.length > EMAIL_BATCH_LIMIT) {
 		throw new Error(
-			"Decision emails go out in batches of up to 100 — narrow the selection.",
+			`Decision emails go out in batches of up to ${EMAIL_BATCH_LIMIT} — narrow the selection.`,
 		);
 	}
 
@@ -481,10 +485,10 @@ export async function sendDecisionEmails(
 	if (!template) throw new MissingTemplateError(decision);
 
 	const ids = rows.map((r) => r.id);
+	const recipientById = await inviteRecipients(db, ids);
 	const speakerRows = await db
 		.select({
 			submissionId: participants.submissionId,
-			email: contacts.email,
 			firstName: contacts.firstName,
 			lastName: contacts.lastName,
 		})
@@ -503,7 +507,7 @@ export async function sendDecisionEmails(
 	];
 	const submitterRows = submitterIds.length
 		? await db
-				.select({ id: users.id, email: users.email, name: users.name })
+				.select({ id: users.id, name: users.name })
 				.from(users)
 				.where(inArray(users.id, submitterIds))
 		: [];
@@ -553,7 +557,7 @@ export async function sendDecisionEmails(
 		const submitter = row.submitterId
 			? submitterById.get(row.submitterId)
 			: undefined;
-		const to = speaker?.email ?? submitter?.email;
+		const to = recipientById.get(row.id);
 		if (!to) {
 			results.push({
 				submissionId: row.id,
@@ -673,29 +677,139 @@ export function icsUidForSubmission(submissionId: string): string {
 	return `submission-${submissionId}@openrostrum`;
 }
 
+const INVITE_RECIPIENT_QUERY_CHUNK = 80;
+
+/**
+ * THE invite recipient rule, shared by decision and schedule-update emails:
+ * the primary speaker contact first, the submitter account as fallback.
+ * Missing entries mean nobody is emailable for that submission.
+ */
+export async function inviteRecipients(
+	db: Db,
+	submissionIds: readonly string[],
+): Promise<Map<string, string>> {
+	if (submissionIds.length === 0) return new Map();
+	const ids = [...submissionIds];
+	const speakerRows: { submissionId: string; email: string }[] = [];
+	const submitterRows: { submissionId: string; email: string }[] = [];
+	for (
+		let offset = 0;
+		offset < ids.length;
+		offset += INVITE_RECIPIENT_QUERY_CHUNK
+	) {
+		const chunk = ids.slice(offset, offset + INVITE_RECIPIENT_QUERY_CHUNK);
+		const [speakers, submitters] = await Promise.all([
+			db
+				.select({
+					submissionId: participants.submissionId,
+					email: contacts.email,
+				})
+				.from(participants)
+				.innerJoin(contacts, eq(contacts.id, participants.contactId))
+				.where(
+					and(
+						inArray(participants.submissionId, chunk),
+						eq(participants.role, "speaker"),
+					),
+				)
+				.orderBy(desc(participants.isPrimary), asc(participants.position)),
+			db
+				.select({ submissionId: submissions.id, email: users.email })
+				.from(submissions)
+				.innerJoin(users, eq(users.id, submissions.submitterId))
+				.where(inArray(submissions.id, chunk)),
+		]);
+		speakerRows.push(...speakers);
+		submitterRows.push(...submitters);
+	}
+	const speakerEmail = new Map<string, string>();
+	for (const row of speakerRows) {
+		if (!speakerEmail.has(row.submissionId)) {
+			speakerEmail.set(row.submissionId, row.email);
+		}
+	}
+	const submitterEmail = new Map(
+		submitterRows.map((r) => [r.submissionId, r.email]),
+	);
+	const out = new Map<string, string>();
+	for (const id of ids) {
+		const email = speakerEmail.get(id) ?? submitterEmail.get(id);
+		if (email) out.set(id, email);
+	}
+	return out;
+}
+
+export type SubmissionInvite = {
+	title: string;
+	start: Date;
+	end: Date;
+	location: string | null;
+};
+
+/**
+ * THE invite shape for a submission — exact slot when scheduled, else a
+ * save-the-date hold spanning the event. Decision emails send it at SEQUENCE
+ * 0; the schedule-update sender re-derives it as its change-detection
+ * baseline, so both flows MUST come through here.
+ */
+export function inviteForSubmission(
+	row: { title: string; startsAt: Date | null; endsAt: Date | null },
+	event: typeof events.$inferSelect,
+	room: string | undefined,
+): SubmissionInvite | null {
+	if (row.startsAt && row.endsAt) {
+		return {
+			title: `${row.title} — ${event.name}`,
+			start: row.startsAt,
+			end: row.endsAt,
+			location: room ?? event.location ?? null,
+		};
+	}
+	if (!event.startsAt || !event.endsAt) return null;
+	return {
+		title: `${event.name} (save the date): ${row.title}`,
+		start: event.startsAt,
+		end: event.endsAt,
+		location: event.location ?? null,
+	};
+}
+
+/**
+ * The one invite→VEVENT mapping. Change detection compares parsed ledger
+ * payloads against `inviteForSubmission` output, which only holds if every
+ * sender serializes the shape identically — so both come through here.
+ */
+export function icsForInvites(
+	event: typeof events.$inferSelect,
+	items: readonly {
+		submissionId: string;
+		invite: SubmissionInvite;
+		sequence: number;
+	}[],
+): string {
+	return buildIcs({
+		calendarName: event.name,
+		method: "PUBLISH",
+		events: items.map((item) => ({
+			uid: icsUidForSubmission(item.submissionId),
+			start: item.invite.start,
+			end: item.invite.end,
+			title: item.invite.title,
+			location: item.invite.location ?? undefined,
+			sequence: item.sequence,
+			status: "CONFIRMED",
+		})),
+	});
+}
+
 function buildDecisionIcs(
 	row: Submission,
 	event: typeof events.$inferSelect,
 	room: string | undefined,
 ): string | undefined {
-	const scheduled = Boolean(row.startsAt && row.endsAt);
-	const start = scheduled ? row.startsAt : event.startsAt;
-	const end = scheduled ? row.endsAt : event.endsAt;
-	if (!start || !end) return undefined;
-	return buildIcs({
-		calendarName: event.name,
-		events: [
-			{
-				uid: icsUidForSubmission(row.id),
-				start,
-				end,
-				title: scheduled
-					? `${row.title} — ${event.name}`
-					: `${event.name} (save the date): ${row.title}`,
-				location: (scheduled ? room : undefined) ?? event.location ?? undefined,
-			},
-		],
-	});
+	const invite = inviteForSubmission(row, event, room);
+	if (!invite) return undefined;
+	return icsForInvites(event, [{ submissionId: row.id, invite, sequence: 0 }]);
 }
 
 /** Appended below the template body so the recipient knows WHICH submission the decision covers (a speaker can have several in flight). */

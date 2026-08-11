@@ -29,9 +29,12 @@ describe("resolveTimezone", () => {
 });
 
 describe("eventCountdown", () => {
-	// Seed convention: startsAt/endsAt are calendar dates stored as UTC midnight.
-	const start = new Date("2026-10-12T00:00:00Z");
-	const end = new Date("2026-10-14T00:00:00Z");
+	// Stored as the settings form stores them: the organizer's wall-clock
+	// datetimes as UTC instants — Oct 12 8:00 AM → Oct 14 6:00 PM PDT (UTC-7).
+	// The end instant deliberately crosses UTC midnight: read as a UTC date it
+	// would fake a 4th event day.
+	const start = new Date("2026-10-12T15:00:00Z");
+	const end = new Date("2026-10-15T01:00:00Z");
 
 	it("counts calendar days in the EVENT's timezone", () => {
 		// Aug 10 → Oct 12 is 63 days (21 left in Aug + 30 in Sep + 12 in Oct).
@@ -49,6 +52,14 @@ describe("eventCountdown", () => {
 		expect(
 			eventCountdown(new Date("2026-08-10T07:01:00Z"), LA, start, end),
 		).toEqual({ phase: "upcoming", days: 63 });
+	});
+
+	it("reads the START's day in the event zone — the eve of the event is still 'upcoming'", () => {
+		// 03:00 UTC on Oct 12 is 8:00 PM Oct 11 in LA: one day out. A UTC read
+		// of the start instant would already call the event running.
+		expect(
+			eventCountdown(new Date("2026-10-12T03:00:00Z"), LA, start, end),
+		).toEqual({ phase: "upcoming", days: 1 });
 	});
 
 	it("reports day-of-event while the event runs, inclusive of both ends", () => {
@@ -78,7 +89,7 @@ describe("eventCountdown", () => {
 				new Date("2026-10-12T20:00:00Z"),
 				LA,
 				start,
-				new Date("2026-10-01T00:00:00Z"),
+				new Date("2026-10-01T07:00:00Z"),
 			),
 		).toEqual({ phase: "running", day: 1, ofDays: 1 });
 	});

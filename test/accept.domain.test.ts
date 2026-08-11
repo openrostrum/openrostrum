@@ -39,7 +39,7 @@ async function seedBase() {
 		timezone: "America/Los_Angeles",
 		location: "Sandbox Center",
 		startsAt: new Date("2026-10-12T00:00:00Z"),
-		endsAt: new Date("2026-10-14T00:00:00Z"),
+		endsAt: new Date("2026-10-15T06:59:00Z"),
 	});
 	return d;
 }
@@ -621,12 +621,12 @@ describe("send decisions", () => {
 		expect(marcoMail?.icsAttachment).toContain("BEGIN:VCALENDAR");
 		expect(marcoMail?.icsAttachment).toContain("DTSTART:20261013T170000Z");
 		expect(marcoMail?.icsAttachment).toContain("LOCATION:Room A");
-		// The body names the session the decision covers.
 		expect(marcoMail?.html).toContain("Edge-Native Vector Search on D1");
 		const danaMail = outbox.find((o) => o.to === "dana.kim@example.com");
-		// Unscheduled session → save-the-date hold spanning the event.
+		// Unscheduled session → save-the-date hold through October 14 at 23:59
+		// in the event's Los Angeles timezone, covering the selected final day.
 		expect(danaMail?.icsAttachment).toContain("DTSTART:20261012T000000Z");
-		expect(danaMail?.icsAttachment).toContain("DTEND:20261014T000000Z");
+		expect(danaMail?.icsAttachment).toContain("DTEND:20261015T065900Z");
 		expect(danaMail?.html).toContain("to be announced");
 
 		const after = await d.select().from(submissions);

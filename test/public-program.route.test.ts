@@ -1,12 +1,18 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
-import { submissions } from "../app/db/schema";
+import {
+	CONTENT_STATUS,
+	events,
+	SUBMISSION_STATUS,
+	submissions,
+} from "../app/db/schema";
 import { loader as galleryLoader } from "../app/routes/gallery.$eventSlug";
 import { loader as itineraryLoader } from "../app/routes/itinerary.$eventSlug";
 import { loader as scheduleLoader } from "../app/routes/schedule.$eventSlug";
 import { loader as sessionsLoader } from "../app/routes/sessions.$eventSlug";
 import { loader as speakersLoader } from "../app/routes/speakers.$eventSlug";
+import { isPubliclyVisible, loadPublicSessions } from "../app/lib/program";
 import type {
 	AgendaSurfaceData,
 	ItinerarySurfaceData,
@@ -69,6 +75,21 @@ describe("public sessions surface", () => {
 		expect(serialized).not.toMatch(/@px\.test/);
 		expect(serialized).not.toMatch(/555-0001/);
 		expect(serialized).not.toMatch(/mobilePhone|homePhone|passwordHash/);
+	});
+
+	it("falls back to UTC formatting when an imported event timezone is malformed", async () => {
+		await seedProgram();
+		await getDb(env).update(events).set({ timezone: "Not/AZone" });
+
+		const { data } = unwrap<SessionsData>(
+			await call(sessionsLoader, "http://localhost/sessions/devflow"),
+		);
+
+		expect(data.event.timezone).toBe("Not/AZone");
+		expect(data.event.dateRange).toBe("May 12 – 14, 2027");
+		expect(
+			data.surface.sessions.find((session) => session.id === "s1")?.timeRange,
+		).toBe("4:30 PM – 5:00 PM");
 	});
 
 	it("search matches titles AND speaker names; facets filter", async () => {
@@ -395,5 +416,50 @@ describe("public agenda + itinerary surfaces", () => {
 			d.groups.flatMap((g) => g.sessions.map((s) => s.id)),
 		);
 		expect(allIds?.sort()).toEqual(["s1", "s2"]); // search must not shrink the starred pool
+	});
+});
+
+describe("public projection ↔ isPubliclyVisible predicate lockstep", () => {
+	it("loadPublicSessions returns exactly the rows the predicate accepts, across the full status × contentStatus matrix", async () => {
+		// The agenda's "hidden from the public schedule" count trusts the
+		// predicate; if the SQL filter gains a condition the predicate lacks
+		// (or vice versa), the affordance lies. Oracle: the data-exposure rule —
+		// public = accepted + approved, nothing else.
+		await seedProgram();
+		const db = getDb(env);
+		await db.delete(submissions);
+		const matrix: { id: string; status: string; contentStatus: string }[] = [];
+		for (const status of SUBMISSION_STATUS) {
+			for (const contentStatus of CONTENT_STATUS) {
+				matrix.push({
+					id: `m_${status}_${contentStatus}`,
+					status,
+					contentStatus,
+				});
+			}
+		}
+		// Chunked: 21 rows in one insert exceeds D1's 100-bound-parameter cap.
+		for (let i = 0; i < matrix.length; i += 5) {
+			await db.insert(submissions).values(
+				matrix.slice(i, i + 5).map((m) => ({
+					id: m.id,
+					eventId: "e1",
+					title: m.id,
+					status: m.status as (typeof SUBMISSION_STATUS)[number],
+					contentStatus: m.contentStatus as (typeof CONTENT_STATUS)[number],
+				})),
+			);
+		}
+		const [event] = await db.select().from(events).limit(1);
+		if (!event) throw new Error("seed lost the event");
+		const publicIds = (await loadPublicSessions(db, event))
+			.map((s) => s.id)
+			.sort();
+		const predicateIds = matrix
+			.filter((m) => isPubliclyVisible(m))
+			.map((m) => m.id)
+			.sort();
+		expect(publicIds).toEqual(predicateIds);
+		expect(predicateIds).toEqual(["m_accepted_approved"]);
 	});
 });
