@@ -12,7 +12,7 @@ import {
 import { parseTheme, THEMES, type Theme } from "~/lib/theme";
 import { useBusy } from "~/lib/use-busy";
 import { useDismiss } from "~/lib/use-dismiss";
-import { Icon, type IconName } from "~/ui";
+import { Icon, PopoverSurface, type IconName } from "~/ui";
 import { cn } from "~/ui/cn";
 import type { loader as rootLoader } from "~/root";
 
@@ -50,40 +50,42 @@ export function ThemeMenuForm({
 	onSubmit,
 }: ThemeMenuFormProps) {
 	return (
-		<Form
-			method="post"
-			action="/theme"
-			onSubmit={onSubmit}
-			className="absolute bottom-full right-0 z-20 mb-[6px] flex w-[168px] flex-col overflow-hidden rounded-card bg-surface py-1 shadow-card"
-		>
-			{THEMES.map((option) => (
-				<button
-					key={option}
-					type="submit"
-					name="theme"
-					value={option}
-					disabled={busy}
-					aria-current={option === theme || undefined}
-					className={cn(
-						"flex h-[34px] w-full items-center gap-[10px] px-[12px] text-left text-[13px] font-medium text-fg-muted",
-						"transition-colors duration-150 hover:bg-row-hover hover:text-fg",
-						"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
-						option === theme &&
-							"bg-row-selected text-fg shadow-[inset_2px_0_0_var(--color-petrol)]",
-					)}
-				>
-					<span
+		<PopoverSurface side="top" align="end" width="sm">
+			<Form
+				method="post"
+				action="/theme"
+				onSubmit={onSubmit}
+				className="flex flex-col py-1"
+			>
+				{THEMES.map((option) => (
+					<button
+						key={option}
+						type="submit"
+						name="theme"
+						value={option}
+						disabled={busy}
+						aria-current={option === theme || undefined}
 						className={cn(
-							"opacity-70",
-							option === theme && "text-petrol opacity-100",
+							"flex h-[34px] w-full items-center gap-[10px] px-[12px] text-left text-[13px] font-medium text-fg-muted",
+							"transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-row-hover hover:text-fg",
+							"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
+							option === theme &&
+								"bg-row-selected text-fg shadow-[inset_2px_0_0_var(--color-petrol)]",
 						)}
 					>
-						<Icon name={ICONS[option]} size={15} />
-					</span>
-					{LABELS[option]}
-				</button>
-			))}
-		</Form>
+						<span
+							className={cn(
+								"opacity-70",
+								option === theme && "text-petrol opacity-100",
+							)}
+						>
+							<Icon name={ICONS[option]} size={15} />
+						</span>
+						{LABELS[option]}
+					</button>
+				))}
+			</Form>
+		</PopoverSurface>
 	);
 }
 
@@ -107,7 +109,7 @@ export function ThemeToggle() {
 				aria-expanded={open}
 				aria-haspopup="true"
 				onClick={() => setOpen((o) => !o)}
-				className="flex h-7 w-7 items-center justify-center rounded-control text-fg-faint transition-colors duration-150 hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+				className="flex h-7 w-7 items-center justify-center rounded-control text-fg-faint transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
 			>
 				<Icon name={ICONS[theme]} size={15} />
 			</button>

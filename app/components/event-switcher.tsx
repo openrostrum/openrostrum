@@ -3,7 +3,7 @@ import { Form, Link } from "react-router";
 import { useBusy } from "~/lib/use-busy";
 import { useDismiss } from "~/lib/use-dismiss";
 import { cn } from "~/ui/cn";
-import { Icon } from "~/ui";
+import { Icon, PopoverSurface } from "~/ui";
 
 export type SwitcherEvent = {
 	id: string;
@@ -40,7 +40,7 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 				onClick={() => setOpen((o) => !o)}
 				className={cn(
 					"flex w-full items-center gap-[10px] rounded-control bg-surface px-[10px] py-[6px] text-left shadow-control",
-					"transition-[background-color,transform] duration-150 ease-out hover:bg-chip",
+					"transition-[background-color,transform] [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] hover:bg-chip",
 					"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
 					"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 				)}
@@ -58,7 +58,7 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 				</span>
 			</button>
 			{open && (
-				<div className="absolute inset-x-0 top-full z-20 mt-[6px] flex flex-col overflow-hidden rounded-card bg-surface shadow-card">
+				<PopoverSurface side="bottom" align="stretch" width="trigger">
 					<ul className="max-h-[300px] overflow-y-auto py-1">
 						{events.map((event) => (
 							<li key={event.id}>
@@ -72,7 +72,7 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 										onClick={() => setOpen(false)}
 										className={cn(
 											"group flex w-full flex-col items-start px-[12px] py-[6px] text-left",
-											"transition-colors duration-150 hover:bg-row-hover disabled:bg-chip",
+											"transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-row-hover disabled:bg-chip",
 											"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
 											event.isCurrent &&
 												"bg-row-selected shadow-[inset_2px_0_0_var(--color-petrol)]",
@@ -100,7 +100,7 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 							onClick={() => setOpen(false)}
 							className={cn(
 								"flex h-[34px] items-center gap-[10px] rounded-control px-[10px] text-[13.5px] font-medium text-fg-muted",
-								"transition-colors duration-150 hover:bg-row-hover hover:text-fg",
+								"transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-row-hover hover:text-fg",
 								"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 							)}
 						>
@@ -108,7 +108,7 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 							Create event
 						</Link>
 					</div>
-				</div>
+				</PopoverSurface>
 			)}
 		</div>
 	);
