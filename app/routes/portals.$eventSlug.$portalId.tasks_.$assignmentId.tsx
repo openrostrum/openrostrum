@@ -169,7 +169,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					.map((c) => ({
 						id: c.id,
 						author: c.authorName,
-						isYou: c.authorId === ctx.subjectUserId,
+						isYou:
+							ctx.subjectUserId !== null && c.authorId === ctx.subjectUserId,
 						body: c.body,
 						on: formatInTz(c.createdAt, tz, "date"),
 					})),

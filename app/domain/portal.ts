@@ -317,7 +317,10 @@ export async function requireOwnedSubmission(
 			.limit(1);
 		myParticipant = p ?? null;
 	}
-	if (!myParticipant && submission.submitterId !== ctx.subjectUserId)
+	if (
+		!myParticipant &&
+		(ctx.subjectUserId === null || submission.submitterId !== ctx.subjectUserId)
+	)
 		throw data(null, { status: 404 });
 	return { submission, myParticipant };
 }

@@ -71,7 +71,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					position: participants.position,
 					firstName: contacts.firstName,
 					lastName: contacts.lastName,
-					contactUserId: contacts.userId,
 				})
 				.from(participants)
 				.innerJoin(contacts, eq(contacts.id, participants.contactId))
@@ -157,12 +156,12 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				id: p.id,
 				name: `${p.firstName} ${p.lastName}`,
 				role: p.role,
-				isMe: p.contactUserId === ctx.subjectUserId,
+				isMe: p.id === myParticipant?.id,
 				acceptance:
 					isAccepted && p.role !== "secondary"
 						? PARTICIPATION_PROJECTION[p.acceptance]
 						: null,
-				removable: p.contactUserId !== ctx.subjectUserId,
+				removable: p.id !== myParticipant?.id,
 			})),
 			myParticipation: myParticipant
 				? {
@@ -180,6 +179,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					: null,
 			},
 			canWithdrawSubmission:
+				ctx.subjectUserId !== null &&
 				submission.submitterId === ctx.subjectUserId &&
 				!["withdrawn", "declined", "draft"].includes(submission.status),
 			saved: new URL(request.url).searchParams.get("saved"),

@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
 	contacts,
+	fileComments,
+	files,
 	organizationMembers,
 	participants,
 	portalForms,
@@ -16,7 +18,10 @@ import {
 	loader as submissionDetailLoader,
 } from "../app/routes/portals.$eventSlug.$portalId.submissions_.$submissionId";
 import { loader as submissionsLoader } from "../app/routes/portals.$eventSlug.$portalId.submissions";
-import { action as taskDetailAction } from "../app/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
+import {
+	action as taskDetailAction,
+	loader as taskDetailLoader,
+} from "../app/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
 import { loader as tasksLoader } from "../app/routes/portals.$eventSlug.$portalId.tasks";
 import { loader as shellLoader } from "../app/routes/portals.$eventSlug.$portalId";
 import {
@@ -33,6 +38,7 @@ import {
 } from "./portal.helpers";
 
 const PREVIEW_COOKIE = "__portal_preview=c_priya";
+const UNLINKED_PREVIEW_COOKIE = "__portal_preview=c_unlinked";
 
 /** Portal world + an org1 admin, Priya (form task + simple task), and Mallory. */
 async function seedPreviewWorld() {
@@ -130,6 +136,85 @@ async function seedPreviewWorld() {
 	return db;
 }
 
+/** Preview fixtures whose selected contact and related identities have no user. */
+async function seedUnlinkedPreviewWorld() {
+	const db = await seedPreviewWorld();
+	await makeContact(
+		"c_unlinked",
+		"e1",
+		"unlinked@example.com",
+		null,
+		"Una",
+		"Linked",
+	);
+	await makeContact(
+		"c_unlinked_other",
+		"e1",
+		"other-unlinked@example.com",
+		null,
+		"Otto",
+		"Unlinked",
+	);
+	await db.insert(submissions).values([
+		{
+			id: "s_ownerless_unrelated",
+			eventId: "e1",
+			title: "Unrelated ownerless proposal",
+			status: "pending",
+			submitterId: null,
+		},
+		{
+			id: "s_ownerless_panel",
+			eventId: "e1",
+			title: "Ownerless panel",
+			status: "pending",
+			submitterId: null,
+		},
+	]);
+	await db.insert(participants).values([
+		{
+			id: "p_unlinked_selected",
+			submissionId: "s_ownerless_panel",
+			contactId: "c_unlinked",
+		},
+		{
+			id: "p_unlinked_other",
+			submissionId: "s_ownerless_panel",
+			contactId: "c_unlinked_other",
+		},
+	]);
+	await db.insert(tasks).values({
+		id: "t_unlinked_file",
+		eventId: "e1",
+		name: "Ownerless file request",
+		type: "contact",
+		isFileRequest: true,
+	});
+	await db.insert(taskAssignments).values({
+		id: "ta_unlinked_file",
+		taskId: "t_unlinked_file",
+		contactId: "c_unlinked",
+	});
+	await db.insert(files).values({
+		id: "f_unlinked",
+		eventId: "e1",
+		contactId: "c_unlinked",
+		taskAssignmentId: "ta_unlinked_file",
+		r2Key: "task-files/e1/ta_unlinked_file/f_unlinked",
+		fileName: "ownerless.pdf",
+		sizeBytes: 9,
+		reviewStatus: "pending",
+	});
+	await db.insert(fileComments).values({
+		id: "fc_deleted_author",
+		fileId: "f_unlinked",
+		authorId: null,
+		authorName: "Former organizer",
+		body: "Archived feedback",
+	});
+	return db;
+}
+
 async function requestWithPreview(
 	userId: string,
 	url: string,
@@ -219,6 +304,105 @@ describe("admin portal preview (View portal as)", () => {
 			isMe: true,
 			removable: false,
 		});
+	});
+
+	it("404s an unrelated ownerless submission for an unlinked preview contact", async () => {
+		await seedUnlinkedPreviewWorld();
+		const request = await requestWithPreview(
+			"u_admin",
+			`${BASE}/submissions/s_ownerless_unrelated`,
+			undefined,
+			UNLINKED_PREVIEW_COOKIE,
+		);
+
+		await expect(
+			submissionDetailLoader({
+				context: CONTEXT,
+				request,
+				params: {
+					...PORTAL_PARAMS,
+					submissionId: "s_ownerless_unrelated",
+				},
+			} as unknown as Parameters<typeof submissionDetailLoader>[0]),
+		).rejects.toMatchObject({ init: { status: 404 } });
+	});
+
+	it("does not offer withdrawal of an ownerless submission to its unlinked participant", async () => {
+		await seedUnlinkedPreviewWorld();
+		const detail = unwrap<{ canWithdrawSubmission: boolean }>(
+			await submissionDetailLoader({
+				context: CONTEXT,
+				request: await requestWithPreview(
+					"u_admin",
+					`${BASE}/submissions/s_ownerless_panel`,
+					undefined,
+					UNLINKED_PREVIEW_COOKIE,
+				),
+				params: {
+					...PORTAL_PARAMS,
+					submissionId: "s_ownerless_panel",
+				},
+			} as unknown as Parameters<typeof submissionDetailLoader>[0]),
+		);
+
+		expect(detail.canWithdrawSubmission).toBe(false);
+	});
+
+	it("identifies only the selected contact among unlinked participants", async () => {
+		await seedUnlinkedPreviewWorld();
+		const detail = unwrap<{
+			participants: Array<{ id: string; isMe: boolean; removable: boolean }>;
+		}>(
+			await submissionDetailLoader({
+				context: CONTEXT,
+				request: await requestWithPreview(
+					"u_admin",
+					`${BASE}/submissions/s_ownerless_panel`,
+					undefined,
+					UNLINKED_PREVIEW_COOKIE,
+				),
+				params: {
+					...PORTAL_PARAMS,
+					submissionId: "s_ownerless_panel",
+				},
+			} as unknown as Parameters<typeof submissionDetailLoader>[0]),
+		);
+
+		expect(
+			detail.participants.find((p) => p.id === "p_unlinked_selected"),
+		).toMatchObject({ isMe: true, removable: false });
+		expect(
+			detail.participants.find((p) => p.id === "p_unlinked_other"),
+		).toMatchObject({ isMe: false, removable: true });
+	});
+
+	it("does not label a null-author file comment as the unlinked preview contact", async () => {
+		await seedUnlinkedPreviewWorld();
+		const detail = unwrap<{
+			fileRequest: {
+				files: Array<{
+					id: string;
+					comments: Array<{ id: string; isYou: boolean }>;
+				}>;
+			};
+		}>(
+			await taskDetailLoader({
+				context: CONTEXT,
+				request: await requestWithPreview(
+					"u_admin",
+					`${BASE}/tasks/ta_unlinked_file`,
+					undefined,
+					UNLINKED_PREVIEW_COOKIE,
+				),
+				params: { ...PORTAL_PARAMS, assignmentId: "ta_unlinked_file" },
+			} as unknown as Parameters<typeof taskDetailLoader>[0]),
+		);
+
+		expect(
+			detail.fileRequest.files[0]?.comments.find(
+				(comment) => comment.id === "fc_deleted_author",
+			),
+		).toMatchObject({ isYou: false });
 	});
 
 	it("blocks every mutation server-side while previewing — 403 AND the write never happened", async () => {
