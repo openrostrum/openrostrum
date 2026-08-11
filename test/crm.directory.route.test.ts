@@ -248,6 +248,149 @@ describe("CRM directory", () => {
 		]);
 	});
 
+	it("creates a new organization person in the selected event and redirects to their CRM profile", async () => {
+		await seedCrmBaseline();
+		const db = getDb(env);
+		const result = (await runAction(
+			"u_admin1",
+			"http://localhost/admin/crm/directory",
+			new URLSearchParams({
+				intent: "add-person",
+				firstName: "Ada",
+				lastName: "Lovelace",
+				email: " Ada@Example.com ",
+				jobTitle: "Researcher",
+				companyName: "Analytical Engines",
+				initialEventId: "e1",
+			}),
+		)) as Response;
+
+		expect(result.status).toBe(302);
+		expect(result.headers.get("Location")).toBe(
+			"/admin/crm/person/ada%40example.com",
+		);
+		const created = await db
+			.select()
+			.from(contacts)
+			.where(eq(contacts.email, "ada@example.com"));
+		expect(created).toHaveLength(1);
+		expect(created[0]).toMatchObject({
+			eventId: "e1",
+			firstName: "Ada",
+			lastName: "Lovelace",
+			jobTitle: "Researcher",
+			companyName: "Analytical Engines",
+		});
+	});
+
+	it("blocks an exact organization email and warns before creating a same-name person", async () => {
+		await seedCrmBaseline();
+		const db = getDb(env);
+		const exact = (await runAction(
+			"u_admin1",
+			"http://localhost/admin/crm/directory",
+			new URLSearchParams({
+				intent: "add-person",
+				firstName: "Different",
+				lastName: "Name",
+				email: " PRIYA@EXAMPLE.COM ",
+				initialEventId: "e1",
+			}),
+		)) as { data?: { existing?: { email: string } } };
+		expect(exact.data?.existing?.email).toBe("priya@example.com");
+		expect(
+			(
+				await db
+					.select({ id: contacts.id })
+					.from(contacts)
+					.where(eq(contacts.email, "priya@example.com"))
+			).length,
+		).toBe(2);
+
+		const probableBody = new URLSearchParams({
+			intent: "add-person",
+			firstName: "Priya",
+			lastName: "Raman",
+			email: "priya.third@example.com",
+			initialEventId: "e1",
+		});
+		const warning = (await runAction(
+			"u_admin1",
+			"http://localhost/admin/crm/directory",
+			probableBody,
+		)) as { data?: { duplicate?: { name: string; email: string } } };
+		expect(warning.data?.duplicate).toEqual({
+			name: "Priya Raman",
+			email: "priya@example.com",
+		});
+		expect(
+			await db
+				.select({ id: contacts.id })
+				.from(contacts)
+				.where(eq(contacts.email, "priya.third@example.com")),
+		).toHaveLength(0);
+
+		probableBody.set("confirmDuplicate", "1");
+		const confirmed = (await runAction(
+			"u_admin1",
+			"http://localhost/admin/crm/directory",
+			probableBody,
+		)) as Response;
+		expect(confirmed.status).toBe(302);
+		expect(confirmed.headers.get("Location")).toBe(
+			"/admin/crm/person/priya.third%40example.com",
+		);
+		expect(
+			await db
+				.select({ id: contacts.id })
+				.from(contacts)
+				.where(eq(contacts.email, "priya.third@example.com")),
+		).toHaveLength(1);
+	});
+
+	it("rejects incomplete people and another organization's initial event", async () => {
+		await seedCrmBaseline();
+		const db = getDb(env);
+		const incomplete = (await runAction(
+			"u_admin1",
+			"http://localhost/admin/crm/directory",
+			new URLSearchParams({
+				intent: "add-person",
+				firstName: "",
+				lastName: "",
+				email: "not-an-email",
+				initialEventId: "",
+			}),
+		)) as { data?: { fieldErrors?: Record<string, string[]> } };
+		expect(Object.keys(incomplete.data?.fieldErrors ?? {}).sort()).toEqual([
+			"email",
+			"firstName",
+			"initialEventId",
+			"lastName",
+		]);
+
+		const foreign = (await runAction(
+			"u_admin1",
+			"http://localhost/admin/crm/directory",
+			new URLSearchParams({
+				intent: "add-person",
+				firstName: "Grace",
+				lastName: "Hopper",
+				email: "grace@example.com",
+				initialEventId: "e3",
+			}),
+		)) as { data?: { fieldErrors?: Record<string, string[]> } };
+		expect(foreign.data?.fieldErrors?.initialEventId?.[0]).toMatch(
+			/organization/i,
+		);
+		expect(
+			await db
+				.select({ id: contacts.id })
+				.from(contacts)
+				.where(eq(contacts.email, "grace@example.com")),
+		).toHaveLength(0);
+	});
+
 	it("saves the current filter set as a segment and rejects blank or duplicate saves", async () => {
 		await seedCrmBaseline();
 		const db = getDb(env);
