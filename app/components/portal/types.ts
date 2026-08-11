@@ -14,6 +14,7 @@ export type ParticipationView = {
 	status: StatusView;
 	raw: string;
 	confirmable: boolean;
+	roleLabel?: string;
 };
 
 export type SubmissionRowView = {

@@ -291,6 +291,49 @@ describe("accept auto-provisioning", () => {
 		);
 	});
 
+	it("provisions a hundred-speaker panel within D1 statement parameter limits", async () => {
+		const d = await seedBase();
+		await d.insert(tasks).values({
+			id: "task_scale",
+			eventId: "e1",
+			name: "Scale onboarding",
+			type: "contact",
+			isOnboardingDefault: true,
+		});
+		const row = await insertSubmission({ status: "pending" });
+		const people = Array.from({ length: 101 }, (_, index) => ({
+			contact: {
+				id: `c_scale_${index}`,
+				eventId: "e1",
+				email: `scale-${index}@example.com`,
+				firstName: "Scale",
+				lastName: String(index),
+			},
+			participant: {
+				id: `p_scale_${index}`,
+				submissionId: row.id,
+				contactId: `c_scale_${index}`,
+				role: "speaker" as const,
+				position: index,
+			},
+		}));
+		for (let index = 0; index < people.length; index += 10) {
+			const chunk = people.slice(index, index + 10);
+			await d.insert(contacts).values(chunk.map((person) => person.contact));
+			await d
+				.insert(participants)
+				.values(chunk.map((person) => person.participant));
+		}
+
+		await transitionSubmissions(d, [row], "accepted");
+
+		expect(await d.select().from(taskAssignments)).toHaveLength(101);
+		const statuses = await d.select({ status: contacts.status }).from(contacts);
+		expect(statuses.every((contact) => contact.status === "invited")).toBe(
+			true,
+		);
+	});
+
 	it("provisions every speaker role link once and never provisions the same contacts' non-speaker links", async () => {
 		const d = await seedBase();
 		await d.insert(tasks).values({

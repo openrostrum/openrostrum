@@ -197,7 +197,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const user = await requireUser(env, request);
 	const ctx = await getPortalContext(env, user, params, request);
 	const timings = createTimings();
-	const { submission, myParticipant } = await timings.time("db", () =>
+	const { submission } = await timings.time("db", () =>
 		requireOwnedSubmission(env, ctx, params.submissionId),
 	);
 	const db = getDb(env);
@@ -286,6 +286,9 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const tz = ctx.event.timezone;
 	const isAccepted = submission.status === "accepted";
 	const sortedPeople = [...people].sort((a, b) => a.position - b.position);
+	const isMine = (person: (typeof sortedPeople)[number]) =>
+		(ctx.contact !== null && person.contactId === ctx.contact.id) ||
+		(ctx.subjectUserId !== null && person.contactUserId === ctx.subjectUserId);
 
 	return data(
 		{
@@ -314,30 +317,29 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			},
 			allowedParticipantRoles: rolePolicy.allowedRoles,
 			participants: sortedPeople.map((p) => {
-				const isMe =
-					(ctx.contact !== null && p.contactId === ctx.contact.id) ||
-					(ctx.subjectUserId !== null && p.contactUserId === ctx.subjectUserId);
+				const mine = isMine(p);
 				return {
 					id: p.id,
 					name: `${p.firstName} ${p.lastName}`,
 					role: p.role,
 					roleLabel: PARTICIPANT_ROLE_LABELS[p.role],
-					isMe,
+					isMe: mine,
 					acceptance:
 						isAccepted && p.role !== "secondary"
 							? PARTICIPATION_PROJECTION[p.acceptance]
 							: null,
-					removable: !isMe,
+					removable: !mine,
 				};
 			}),
-			myParticipation: myParticipant
-				? {
-						id: myParticipant.id,
-						status: PARTICIPATION_PROJECTION[myParticipant.acceptanceStatus],
-						raw: myParticipant.acceptanceStatus,
-						confirmable: isAccepted,
-					}
-				: null,
+			myParticipations: sortedPeople
+				.filter((person) => isMine(person) && person.role !== "secondary")
+				.map((person) => ({
+					id: person.id,
+					status: PARTICIPATION_PROJECTION[person.acceptance],
+					raw: person.acceptance,
+					confirmable: isAccepted,
+					roleLabel: PARTICIPANT_ROLE_LABELS[person.role],
+				})),
 			editWindow: {
 				editable: editWindow.editable,
 				reason: editWindow.reason,
@@ -410,7 +412,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
 	const ctx = await getPortalContext(env, user, params, request);
-	const { submission, myParticipant } = await requireOwnedSubmission(
+	const { submission } = await requireOwnedSubmission(
 		env,
 		ctx,
 		params.submissionId,
@@ -430,8 +432,20 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		intent === "withdraw-participation"
 	) {
 		const participantId = String(form.get("participantId") ?? "");
-		if (!myParticipant || !ctx.contact || myParticipant.id !== participantId)
-			throw data(null, { status: 404 });
+		if (!ctx.contact) throw data(null, { status: 404 });
+		const [ownedParticipant] = await db
+			.select({ id: participants.id })
+			.from(participants)
+			.where(
+				and(
+					eq(participants.id, participantId),
+					eq(participants.submissionId, submission.id),
+					eq(participants.contactId, ctx.contact.id),
+					ne(participants.role, "secondary"),
+				),
+			)
+			.limit(1);
+		if (!ownedParticipant) throw data(null, { status: 404 });
 		if (submission.status !== "accepted") {
 			return fail({
 				formError: "Confirmation is only available on accepted sessions.",
@@ -491,7 +505,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		track("portal.participation_changed", {
 			eventId: ctx.event.id,
 			submissionId: submission.id,
-			participantId: myParticipant.id,
+			participantId,
 			acceptance,
 		});
 		return data(

@@ -27,7 +27,7 @@ export function ParticipationControls({
 			className="flex flex-wrap items-center gap-2"
 		>
 			<input type="hidden" name="participantId" value={participation.id} />
-			<Muted>Your participation:</Muted>
+			<Muted>{participation.roleLabel ?? "Your participation"}:</Muted>
 			<StatusBadge tone={participation.status.tone}>
 				{participation.status.label}
 			</StatusBadge>

@@ -32,6 +32,17 @@ import { type EmailResult, getEmailSender } from "~/ports/email";
 /** One per-request send cap for every speaker-facing batch (decision emails
  * here, schedule updates in schedule-update.ts). */
 export const EMAIL_BATCH_LIMIT = 100;
+const D1_QUERY_CHUNK = 80;
+const D1_COMBINED_QUERY_CHUNK = 40;
+const D1_INSERT_CHUNK = 10;
+
+function chunked<T>(items: readonly T[], size: number): T[][] {
+	const chunks: T[][] = [];
+	for (let index = 0; index < items.length; index += size) {
+		chunks.push(items.slice(index, index + size));
+	}
+	return chunks;
+}
 
 /**
  * The accept/decline spine — the ONE code path for every submission decision
@@ -183,53 +194,75 @@ async function planAcceptProvisioning(
 	const ids = rows.map((r) => r.id);
 	const eventIds = [...new Set(rows.map((r) => r.eventId))];
 
-	const speakerRows = await db
-		.select({
-			submissionId: participants.submissionId,
-			contactId: contacts.id,
-			contactEmail: contacts.email,
-			contactUserId: contacts.userId,
-			contactStatus: contacts.status,
-			contactEventId: contacts.eventId,
-		})
-		.from(participants)
-		.innerJoin(contacts, eq(contacts.id, participants.contactId))
-		.where(
-			and(
-				inArray(participants.submissionId, ids),
-				eq(participants.role, "speaker"),
-			),
-		);
-
-	const taskDefs = await db
-		.select()
-		.from(tasks)
-		.where(
-			and(
-				inArray(tasks.eventId, eventIds),
-				eq(tasks.isOnboardingDefault, true),
-			),
-		);
-
-	const speakerContactIds = [...new Set(speakerRows.map((s) => s.contactId))];
-	const existing =
-		taskDefs.length && speakerContactIds.length
-			? await db
+	const speakerRows = (
+		await Promise.all(
+			chunked(ids, D1_QUERY_CHUNK).map((chunk) =>
+				db
 					.select({
-						taskId: taskAssignments.taskId,
-						contactId: taskAssignments.contactId,
-						submissionId: taskAssignments.submissionId,
+						submissionId: participants.submissionId,
+						contactId: contacts.id,
+						contactEmail: contacts.email,
+						contactUserId: contacts.userId,
+						contactStatus: contacts.status,
+						contactEventId: contacts.eventId,
 					})
-					.from(taskAssignments)
+					.from(participants)
+					.innerJoin(contacts, eq(contacts.id, participants.contactId))
 					.where(
 						and(
-							inArray(
-								taskAssignments.taskId,
-								taskDefs.map((t) => t.id),
+							inArray(participants.submissionId, chunk),
+							eq(participants.role, "speaker"),
+						),
+					),
+			),
+		)
+	).flat();
+
+	const taskDefs = (
+		await Promise.all(
+			chunked(eventIds, D1_QUERY_CHUNK).map((chunk) =>
+				db
+					.select()
+					.from(tasks)
+					.where(
+						and(
+							inArray(tasks.eventId, chunk),
+							eq(tasks.isOnboardingDefault, true),
+						),
+					),
+			),
+		)
+	).flat();
+
+	const speakerContactIds = [...new Set(speakerRows.map((s) => s.contactId))];
+	const taskIdChunks = chunked(
+		taskDefs.map((task) => task.id),
+		D1_COMBINED_QUERY_CHUNK,
+	);
+	const contactIdChunks = chunked(speakerContactIds, D1_COMBINED_QUERY_CHUNK);
+	const existing =
+		taskDefs.length && speakerContactIds.length
+			? (
+					await Promise.all(
+						taskIdChunks.flatMap((taskIds) =>
+							contactIdChunks.map((contactIds) =>
+								db
+									.select({
+										taskId: taskAssignments.taskId,
+										contactId: taskAssignments.contactId,
+										submissionId: taskAssignments.submissionId,
+									})
+									.from(taskAssignments)
+									.where(
+										and(
+											inArray(taskAssignments.taskId, taskIds),
+											inArray(taskAssignments.contactId, contactIds),
+										),
+									),
 							),
-							inArray(taskAssignments.contactId, speakerContactIds),
 						),
 					)
+				).flat()
 			: [];
 	// Key per idempotency scope: (task, contact) when submission_id is NULL,
 	// (task, contact, submission) otherwise — the same split as the partial
@@ -254,10 +287,16 @@ async function planAcceptProvisioning(
 		...new Set([...unlinkedByContact.values()].map(normalizeEmail)),
 	];
 	const userRows = emails.length
-		? await db
-				.select({ id: users.id, email: users.email })
-				.from(users)
-				.where(inArray(users.email, emails))
+		? (
+				await Promise.all(
+					chunked(emails, D1_QUERY_CHUNK).map((chunk) =>
+						db
+							.select({ id: users.id, email: users.email })
+							.from(users)
+							.where(inArray(users.email, chunk)),
+					),
+				)
+			).flat()
 		: [];
 	const userByEmail = new Map(userRows.map((u) => [u.email, u.id]));
 
@@ -268,16 +307,13 @@ async function planAcceptProvisioning(
 			.map((speaker) => [speaker.contactId, speaker.contactEventId]),
 	);
 	const invitedContactIds = [...invitedContacts.keys()];
-	if (invitedContactIds.length) {
+	for (const chunk of chunked(invitedContactIds, D1_QUERY_CHUNK)) {
 		statements.push(
 			db
 				.update(contacts)
 				.set({ status: "invited" })
 				.where(
-					and(
-						inArray(contacts.id, invitedContactIds),
-						eq(contacts.status, "pending"),
-					),
+					and(inArray(contacts.id, chunk), eq(contacts.status, "pending")),
 				),
 		);
 	}
@@ -362,11 +398,11 @@ async function planAcceptProvisioning(
 			}
 		}
 	}
-	if (values.length) {
+	for (const chunk of chunked(values, D1_INSERT_CHUNK)) {
 		statements.push(
 			db
 				.insert(taskAssignments)
-				.values(values)
+				.values(chunk)
 				// Race guard only — the pre-read above already excluded known rows.
 				// Targetless because the conflict may land on either partial unique
 				// index, and SQLite's ON CONFLICT target cannot address them without
