@@ -5,6 +5,7 @@ import {
 	renderEmailHtml,
 	renderMergeFields,
 	renderSubject,
+	templateUsesTag,
 } from "../app/lib/email-render";
 
 // Oracle: the renderer's delivery contract — recipient values resolve, zero
@@ -21,7 +22,10 @@ describe("merge-tag renderer", () => {
 		event_name: null,
 		session_title: null,
 		session_date_time: null,
+		starts_at: null,
+		ends_at: null,
 		session_room: null,
+		location: null,
 		portal_link: null,
 		form_title: null,
 		form_close_date: null,
@@ -31,6 +35,14 @@ describe("merge-tag renderer", () => {
 		first_name: "Priya",
 		session_title: "Scaling Vector Search at the Edge",
 		portal_link: "https://example.com/portals/ev/p1?a=1&b=2",
+	};
+	const classicCtx = {
+		...ctx,
+		last_name: "Patel",
+		event_name: "EdgeConf",
+		starts_at: "Oct 13, 2026, 10:00 AM",
+		ends_at: "Oct 13, 2026, 10:30 AM",
+		location: "Room A",
 	};
 
 	it("resolves known tags in subject and body", () => {
@@ -69,6 +81,65 @@ describe("merge-tag renderer", () => {
 	it("does not escape subjects (they are plain text, not HTML)", () => {
 		expect(renderSubject("{{first_name}} & co", ctx)).toBe("Priya & co");
 	});
+
+	it("renders the complete verified classic token set with whitespace and case tolerance", () => {
+		expect(
+			renderSubject(
+				[
+					"{{{ Recipient.First_Name }}}",
+					"{{{recipient.last_name}}}",
+					"{{{ title }}}",
+					"{{{ EVENT.NAME }}}",
+					"{{{starts_at}}}",
+					"{{{ ends_at }}}",
+					"{{{location}}}",
+				].join(" | "),
+				classicCtx,
+			),
+		).toBe(
+			"Priya | Patel | Scaling Vector Search at the Edge | EdgeConf | Oct 13, 2026, 10:00 AM | Oct 13, 2026, 10:30 AM | Room A",
+		);
+	});
+
+	it("HTML-escapes classic dotted recipient values without leaving stray braces", () => {
+		const hostile = {
+			...classicCtx,
+			first_name: '<Priya & "team">',
+		};
+		expect(renderBody("<p>{{{recipient.first_name}}}</p>", hostile)).toBe(
+			"<p>&lt;Priya &amp; &quot;team&quot;&gt;</p>",
+		);
+	});
+
+	it("blanks missing classic values instead of leaking tokens", () => {
+		const missing = {
+			...classicCtx,
+			first_name: null,
+			last_name: null,
+			session_title: null,
+			event_name: null,
+			starts_at: null,
+			ends_at: null,
+			location: null,
+		};
+		const output = renderBody(
+			"<p>{{{recipient.first_name}}}|{{{recipient.last_name}}}|{{{title}}}|{{{event.name}}}|{{{starts_at}}}|{{{ends_at}}}|{{{location}}}</p>",
+			missing,
+		);
+		expect(output).toBe("<p>||||||</p>");
+		expect(output).not.toContain("{");
+	});
+
+	it("keeps every double-brace alias backward-compatible with classic tokens", () => {
+		expect(
+			renderSubject(
+				"{{first_name}}|{{last_name}}|{{session_title}}|{{event_name}}|{{starts_at}}|{{ends_at}}|{{location}}",
+				classicCtx,
+			),
+		).toBe(
+			"Priya|Patel|Scaling Vector Search at the Edge|EdgeConf|Oct 13, 2026, 10:00 AM|Oct 13, 2026, 10:30 AM|Room A",
+		);
+	});
 });
 
 describe("renderMergeFields", () => {
@@ -86,6 +157,24 @@ describe("renderMergeFields", () => {
 			"Hello {{frist_name}}",
 		);
 	});
+
+	it("uses template-parser grammar and aliases for case, whitespace, triple braces, and dotted paths", () => {
+		const values = {
+			first_name: "Priya",
+			last_name: "Patel",
+			event_name: "EdgeConf",
+		};
+		expect(
+			renderMergeFields(
+				"{{{ Recipient.First_Name }}} | {{ recipient.last_name }} | {{{ EVENT.NAME }}} | {{ unknown.path }}",
+				values,
+			),
+		).toBe("Priya | Patel | EdgeConf | {{ unknown.path }}");
+		expect(templateUsesTag("{{{ Recipient.First_Name }}}", "first_name")).toBe(
+			true,
+		);
+		expect(templateUsesTag("{{ EVENT.NAME }}", "event_name")).toBe(true);
+	});
 });
 
 describe("renderEmailHtml", () => {
@@ -95,6 +184,14 @@ describe("renderEmailHtml", () => {
 		});
 		expect(html).not.toContain("<script>");
 		expect(html).toContain("&lt;script&gt;");
+	});
+
+	it("escapes recipient data through classic triple-brace dotted aliases", () => {
+		expect(
+			renderEmailHtml("Hi {{{ recipient.first_name }}}", {
+				first_name: '<script>alert("x")</script>',
+			}),
+		).toBe("<p>Hi &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;</p>");
 	});
 
 	it("maps blank-line blocks to paragraphs and single newlines to <br>", () => {
