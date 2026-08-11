@@ -18,7 +18,8 @@
 - Public sessions require the requested event, `status === "accepted"`, `contentStatus === "approved"`, and public speaker visibility; private contact fields never serialize.
 - API tokens remain organization-scoped, optionally one-event restricted, and read-only.
 - Organization members are equal admins; there is no supported membership-role mutation, and the final member cannot be removed.
-- Run `pnpm verify`, merge (never rebase) `origin/main` if it advances, run exactly one `judge-loop` round with suffix `-H10`, and do not merge the PR.
+- Run `pnpm verify`, merge (never rebase) `origin/main` if it advances, run exactly one `judge-loop` round with suffix `H10`, and do not merge the PR.
+- Open the PR as `test(tenancy): comprehensive two-organization scoping matrix`; its results table reports feature, two-org case, result, and change or already-correct.
 
 ---
 
@@ -406,7 +407,7 @@ git commit -m "test(security): lock token and anonymous boundaries" -m "Co-Autho
 
 - [ ] **Step 1: Complete the findings table**
 
-Every mandatory row must end as one of:
+Every mandatory feature gets a PR results row with `Feature | Two-org case | Result | Change or already-correct`. Each result must end as one of:
 
 ```text
 FIXED — test failed before the named server query predicate and passed after it.
@@ -488,7 +489,7 @@ Put the summary, full findings table, `NEEDS-SCHEMA` section, exact test/verify 
 ```bash
 git push -u origin test/tenancy-redteam
 gh pr create \
-  --title "test(security): cross-tenant isolation red-team + fixes" \
+  --title "test(tenancy): comprehensive two-organization scoping matrix" \
   --body-file /tmp/openrostrum-H10-findings.md
 ```
 
