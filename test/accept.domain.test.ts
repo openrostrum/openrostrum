@@ -1102,28 +1102,34 @@ describe("send decisions", () => {
 		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
 		if (!event) throw new Error("missing fixture");
 
-		await sendPreviewedDecisionEmails(d, env, {
-			event,
-			rows: [row],
-			decision: "accept",
-			idempotencyKey: "key-A",
-		});
-		const replay = await sendPreviewedDecisionEmails(d, env, {
-			event,
-			rows: [row],
-			decision: "accept",
-			idempotencyKey: "key-A",
-		});
-		expect(replay[0]?.deduped).toBe(true);
-		expect(await d.select().from(emailOutbox)).toHaveLength(1);
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-08-11T18:00:00Z"));
+			await sendPreviewedDecisionEmails(d, env, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "key-A",
+			});
+			const replay = await sendPreviewedDecisionEmails(d, env, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "key-A",
+			});
+			expect(replay[0]?.deduped).toBe(true);
+			expect(await d.select().from(emailOutbox)).toHaveLength(1);
 
-		await sendPreviewedDecisionEmails(d, env, {
-			event,
-			rows: [row],
-			decision: "accept",
-			idempotencyKey: "key-B",
-		});
-		expect(await d.select().from(emailOutbox)).toHaveLength(2);
+			await sendPreviewedDecisionEmails(d, env, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "key-B",
+			});
+			expect(await d.select().from(emailOutbox)).toHaveLength(2);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("a corrective decline after an accept on the SAME selection still delivers", async () => {
