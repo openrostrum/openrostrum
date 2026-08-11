@@ -441,6 +441,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			return fail({
 				commentKey,
 				commentFileId: fileId,
+				commentBody: body,
 				formError: "Write a comment up to 2,000 characters.",
 			});
 		}
@@ -474,6 +475,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			return fail({
 				commentKey,
 				commentFileId: file.id,
+				commentBody: body,
 				formError: "Could not post your comment — please try again.",
 			});
 		}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Form, useFetcher } from "react-router";
+import { resolveCommentDraft } from "~/lib/comment-draft";
 import { useBusy } from "~/lib/use-busy";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
 import {
@@ -30,6 +31,7 @@ export type TaskDetailActionData = {
 	ok?: boolean;
 	commentKey?: string;
 	commentFileId?: string;
+	commentBody?: string;
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
 };
@@ -51,13 +53,17 @@ function CommentThread({
 }) {
 	const fetcher = useFetcher<TaskDetailActionData>();
 	const posting = fetcher.state !== "idle";
-	const [firstCommentKey] = useState(initialCommentKey);
+	const [draft, setDraft] = useState({
+		key: initialCommentKey,
+		fileId,
+		body: "",
+	});
 	const routeResult =
 		actionData?.intent === "comment" && actionData.commentFileId === fileId
 			? actionData
 			: undefined;
 	const result = fetcher.data ?? routeResult;
-	const commentKey = result?.commentKey ?? firstCommentKey;
+	const activeDraft = resolveCommentDraft(draft, result, fileId);
 	return (
 		<div className="mt-2 flex flex-col gap-2 border-l-2 border-hair pl-3">
 			{comments.map((c) => (
@@ -70,16 +76,20 @@ function CommentThread({
 				</div>
 			))}
 			<fetcher.Form
-				key={commentKey}
+				key={activeDraft.key}
 				method="post"
 				action={action}
 				className="flex flex-wrap items-center gap-2"
 			>
 				<input type="hidden" name="intent" value="comment" />
-				<input type="hidden" name="fileId" value={fileId} />
-				<input type="hidden" name="commentKey" value={commentKey} />
+				<input type="hidden" name="fileId" value={activeDraft.fileId} />
+				<input type="hidden" name="commentKey" value={activeDraft.key} />
 				<Input
 					name="body"
+					value={activeDraft.body}
+					onChange={(event) =>
+						setDraft({ ...activeDraft, body: event.currentTarget.value })
+					}
 					placeholder="Write a comment for the event team…"
 					maxLength={2000}
 					required

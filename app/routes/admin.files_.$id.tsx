@@ -25,6 +25,7 @@ import {
 	setFileReview,
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { resolveCommentDraft } from "~/lib/comment-draft";
 import { errorMessage } from "~/lib/errors";
 import { resolveTimezone } from "~/lib/event-time";
 import { formatBytes, formatInTz } from "~/lib/format";
@@ -155,6 +156,7 @@ type ActionResult = {
 	ok?: boolean;
 	commentKey?: string;
 	commentFileId?: string;
+	commentBody?: string;
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
 	notice?: string;
@@ -168,6 +170,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "");
 	const submittedCommentKey = String(form.get("commentKey") ?? "");
+	const submittedCommentBody = String(form.get("body") ?? "").trim();
 	const timings = createTimings();
 	const withTimings = (result: ActionResult) =>
 		data(result, { headers: { "Server-Timing": timings.header() } });
@@ -225,12 +228,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 
 		if (intent === "comment") {
 			if (!commentFile) throw data(null, { status: 404 });
-			const body = String(form.get("body") ?? "").trim();
+			const body = submittedCommentBody;
 			if (!body || body.length > REVIEW_NOTE_MAX) {
 				return withTimings({
 					intent,
 					commentKey: submittedCommentKey,
 					commentFileId: commentFile.id,
+					commentBody: body,
 					fieldErrors: { body: ["Write a comment up to 2,000 characters."] },
 				});
 			}
@@ -286,6 +290,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			intent,
 			commentKey: intent === "comment" ? submittedCommentKey : undefined,
 			commentFileId: commentFile?.id,
+			commentBody: intent === "comment" ? submittedCommentBody : undefined,
 			formError: "Could not save that change — please try again.",
 		});
 	}
@@ -306,29 +311,33 @@ function CommentForm({
 }) {
 	const fetcher = useFetcher<ActionResult>();
 	const posting = fetcher.state !== "idle";
-	const [initialComment] = useState({
+	const [draft, setDraft] = useState({
 		key: initialCommentKey,
 		fileId,
+		body: "",
 	});
 	const routeResult = actionData?.intent === "comment" ? actionData : undefined;
 	const result = fetcher.data ?? routeResult;
-	const commentKey = result?.commentKey ?? initialComment.key;
-	const commentFileId = result?.commentFileId ?? initialComment.fileId;
+	const activeDraft = resolveCommentDraft(draft, result, fileId);
 	return (
 		<fetcher.Form
-			key={commentKey}
+			key={activeDraft.key}
 			method="post"
 			className="flex flex-wrap items-end gap-3"
 		>
 			<Input type="hidden" name="intent" value="comment" />
-			<Input type="hidden" name="fileId" value={commentFileId} />
-			<Input type="hidden" name="commentKey" value={commentKey} />
+			<Input type="hidden" name="fileId" value={activeDraft.fileId} />
+			<Input type="hidden" name="commentKey" value={activeDraft.key} />
 			<Field
 				label="Reply to the speaker"
 				error={result?.fieldErrors?.body?.[0]}
 			>
 				<Input
 					name="body"
+					value={activeDraft.body}
+					onChange={(event) =>
+						setDraft({ ...activeDraft, body: event.currentTarget.value })
+					}
 					placeholder="Write a comment…"
 					maxLength={REVIEW_NOTE_MAX}
 				/>
