@@ -157,7 +157,7 @@ export function SubmissionDetailView({
 					<EmptyState
 						icon="users"
 						title="No participation to confirm"
-						body="There is nothing for you to confirm for this submission."
+						body="Review the participant list below, or contact the event team if you expected a role."
 					/>
 				)}
 			</Card>
