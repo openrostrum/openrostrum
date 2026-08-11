@@ -206,7 +206,7 @@ describe("AI review — run and persist", () => {
 		} as unknown as Env;
 		const result = await runAi(deepseekEnv, "s1");
 		expect(result.ok).toContain("8.00");
-		expect(binding.calls).toHaveLength(0); // the key outranks the binding
+		expect(binding.calls).toHaveLength(0);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const db = getDb(env);
 		const [row] = await db

@@ -38,7 +38,6 @@ const RATIONALE =
 const verdictJson = (score: number) =>
 	JSON.stringify({ score, rationale: RATIONALE });
 
-/** Scripted provider: returns each reply text in order, records every call. */
 function scriptedProvider(replies: string[]) {
 	const calls: Array<Array<{ role: string; content: string }>> = [];
 	const provider: AiChatProvider = {
@@ -122,6 +121,20 @@ describe("generateAiReview — structured output with retry-once", () => {
 		expect(result).toMatchObject({ ok: false, reason: "timeout" });
 	});
 
+	it("a timeout aborts the in-flight provider call", async () => {
+		let signal: AbortSignal | undefined;
+		const provider: AiChatProvider = {
+			model: "test-model",
+			chat: (_messages, opts) => {
+				signal = (opts as typeof opts & { signal?: AbortSignal }).signal;
+				return new Promise(() => {});
+			},
+		};
+		const result = await generateAiReview(provider, SUB, { timeoutMs: 50 });
+		expect(result).toMatchObject({ ok: false, reason: "timeout" });
+		expect(signal?.aborted).toBe(true);
+	});
+
 	it("a thrown provider error becomes a typed failure, not an exception", async () => {
 		const provider: AiChatProvider = {
 			model: "test-model",
@@ -143,7 +156,6 @@ describe("generateAiReview — structured output with retry-once", () => {
 
 describe("Workers AI provider — reply envelopes", () => {
 	it("reads the OpenAI chat-completions envelope the live chat route returns", async () => {
-		// Shape captured from a real Workers AI reply on 2026-08-10.
 		const runner: AiRunner = {
 			run: async () => ({
 				choices: [
@@ -174,11 +186,29 @@ describe("Workers AI provider — reply envelopes", () => {
 		expect(result).toMatchObject({ ok: true, score: 8 });
 	});
 
-	it("asks the binding for exactly the configured model", async () => {
-		const models: string[] = [];
+	it("treats an unknown response envelope as a provider error without retrying", async () => {
+		let calls = 0;
 		const runner: AiRunner = {
-			run: async (model) => {
+			run: async () => {
+				calls++;
+				return { unexpected: true };
+			},
+		};
+		const result = await generateAiReview(
+			createWorkersAiProvider(runner, "@cf/test/model"),
+			SUB,
+		);
+		expect(result).toMatchObject({ ok: false, reason: "error" });
+		expect(calls).toBe(1);
+	});
+
+	it("asks the binding for exactly the configured model and passes cancellation", async () => {
+		const models: string[] = [];
+		let signal: AbortSignal | undefined;
+		const runner: AiRunner = {
+			run: async (model, _inputs, options?: { signal?: AbortSignal }) => {
 				models.push(model);
+				signal = options?.signal;
 				return { response: verdictJson(5) };
 			},
 		};
@@ -188,6 +218,7 @@ describe("Workers AI provider — reply envelopes", () => {
 		);
 		expect(result).toMatchObject({ ok: true, score: 5, model: "@cf/pinned/x" });
 		expect(models).toEqual(["@cf/pinned/x"]);
+		expect(signal).toBeInstanceOf(AbortSignal);
 	});
 });
 
@@ -238,6 +269,7 @@ describe("DeepSeek provider — Anthropic Messages endpoint", () => {
 		);
 		expect(JSON.stringify(body)).not.toContain('"type":"image"');
 		expect(body.output_config).toBeUndefined();
+		expect(init.signal).toBeInstanceOf(AbortSignal);
 	});
 
 	it("a non-OK response becomes a typed 'error' failure, never a crash", async () => {

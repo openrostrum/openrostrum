@@ -17,12 +17,8 @@ import { stripHtml } from "~/lib/html";
 import type { AiChatProvider } from "~/ports/ai-review";
 
 /**
- * AI first-pass review of a CFP submission. The AI is a triage signal only:
- * its score lives in `ai_reviews`, is always labeled as AI, and never enters
- * human evaluation aggregates. The model provider resolves by CAPABILITY,
- * exactly like the email port: DEEPSEEK_API_KEY present → DeepSeek; else the
- * Workers AI binding; else every surface degrades to an explicit "not
- * available" state — never a crash, never a fabricated score.
+ * AI scores are triage signals: always labeled AI and never in human aggregates.
+ * Provider absence is an explicit unavailable state, never a fabricated score.
  */
 
 /** How many missing submissions one bulk click processes (kept small so the request stays bounded). */
@@ -116,7 +112,12 @@ export function buildReviewMessages(
 
 class TimeoutError extends Error {}
 
-async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+async function withTimeout<T>(
+	start: (signal: AbortSignal) => Promise<T>,
+	ms: number,
+): Promise<T> {
+	const controller = new AbortController();
+	const promise = start(controller.signal);
 	// A late loser must not surface as an unhandled rejection.
 	promise.catch(() => {});
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -124,7 +125,10 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 		return await Promise.race([
 			promise,
 			new Promise<never>((_, reject) => {
-				timer = setTimeout(() => reject(new TimeoutError()), ms);
+				timer = setTimeout(() => {
+					reject(new TimeoutError());
+					controller.abort();
+				}, ms);
 			}),
 		]);
 	} finally {
@@ -175,7 +179,12 @@ export async function generateAiReview(
 		let reply: { text: string; model?: string };
 		try {
 			reply = await withTimeout(
-				provider.chat(thread, { maxTokens: 600, temperature: 0.2 }),
+				(signal) =>
+					provider.chat(thread, {
+						maxTokens: 600,
+						temperature: 0.2,
+						signal,
+					}),
 				timeoutMs,
 			);
 		} catch (error) {
