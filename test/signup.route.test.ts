@@ -71,7 +71,7 @@ describe("signup route", () => {
 
 		const pendingHtml = html();
 		expect(pendingHtml).toContain("disabled");
-		expect(pendingHtml).toMatch(/creating account/i);
+		expect(pendingHtml).toContain('aria-busy="true"');
 
 		finishAction?.();
 		await navigation;
@@ -85,8 +85,7 @@ describe("signup route", () => {
 
 		const duplicateHtml = html();
 		expect(duplicateHtml).toContain('role="alert"');
-		expect(duplicateHtml).toMatch(/already have an account/i);
-		expect(duplicateHtml).toMatch(/sign in/i);
+		expect(duplicateHtml).toContain('href="/login"');
 	});
 
 	it("creates an admin account, normalizes the email, and redirects to onboarding", async () => {
