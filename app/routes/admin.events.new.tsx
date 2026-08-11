@@ -1,10 +1,12 @@
 import { asc, eq } from "drizzle-orm";
-import { Form, redirect, useNavigation } from "react-router";
+import { useEffect, useRef } from "react";
+import { Form, redirect } from "react-router";
 import { getDb } from "~/db";
 import { events, organizationMembers, organizations, users } from "~/db/schema";
 import { provisionEventDefaults } from "~/domain/provisionEvent";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { useBusy } from "~/lib/use-busy";
 import { createTimings, track } from "~/lib/track";
 import {
 	isSlugTakenError,
@@ -139,7 +141,24 @@ export default function NewEvent({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
+	const formRef = useRef<HTMLFormElement>(null);
+	const fieldErrorCount = Object.values(actionData?.fieldErrors ?? {}).filter(
+		(msgs) => msgs?.length,
+	).length;
+
+	// The submit button sits below the fold of the field that failed — without
+	// this, a slug-taken rejection reads as "nothing happened". Instant jump,
+	// never smooth: keyboard-initiated actions are never animated.
+	useEffect(() => {
+		if (fieldErrorCount === 0) return;
+		const invalid = formRef.current?.querySelector('[aria-invalid="true"]');
+		if (invalid instanceof HTMLElement) {
+			invalid.scrollIntoView({ block: "center" });
+			invalid.focus({ preventScroll: true });
+		}
+	}, [fieldErrorCount, actionData]);
+
 	return (
 		<div className="mx-auto flex max-w-[760px] flex-col gap-5 px-7 py-6">
 			<PageHeader
@@ -147,18 +166,24 @@ export default function NewEvent({
 				subtitle={`The new event joins ${loaderData.organizationName} with its own submissions, forms, library, and agenda. Everything here can be changed later in settings.`}
 			/>
 			<Panel>
-				<Form method="post" className="flex flex-col gap-[13px]">
+				<Form ref={formRef} method="post" className="flex flex-col gap-[13px]">
 					<EventDetailsFields
 						values={actionData?.values ?? null}
 						errors={actionData?.fieldErrors}
 						autoSlug
 					/>
-					<div className="flex items-center gap-3">
+					<div className="flex flex-wrap items-center gap-3">
 						<Button type="submit" icon="plus" disabled={busy}>
 							Create event
 						</Button>
 						{actionData?.formError && (
 							<ErrorText>{actionData.formError}</ErrorText>
+						)}
+						{fieldErrorCount > 0 && (
+							<ErrorText>
+								The event wasn’t created — fix the highlighted{" "}
+								{fieldErrorCount === 1 ? "field" : "fields"} above.
+							</ErrorText>
 						)}
 					</div>
 				</Form>

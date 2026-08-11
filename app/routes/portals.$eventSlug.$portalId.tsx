@@ -7,6 +7,7 @@ import {
 } from "react-router";
 import { PortalBrand } from "~/components/portal-brand";
 import { FooterNote } from "~/components/portal/bits";
+import { ThemeToggle } from "~/components/theme-toggle";
 import { getPortalContext, portalPath } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { Button, Input, PageHeader, Panel, StatusBadge, Tab, Tabs } from "~/ui";
@@ -101,7 +102,7 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 					<Outlet />
 				</fieldset>
 			</main>
-			<footer>
+			<footer className="flex flex-wrap items-center justify-between gap-3">
 				<FooterNote>
 					<span>
 						You are logged in as {user.name ?? user.email} ({user.email}).
@@ -113,6 +114,9 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 						</Button>
 					</Form>
 				</FooterNote>
+				<div className="ml-auto">
+					<ThemeToggle />
+				</div>
 			</footer>
 		</div>
 	);

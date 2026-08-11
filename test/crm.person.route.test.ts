@@ -1,0 +1,97 @@
+import { env } from "cloudflare:test";
+import { describe, expect, it } from "vitest";
+import { getDb } from "../app/db";
+import { crmNotes } from "../app/db/schema";
+import { action, loader } from "../app/routes/admin.crm.person.$email";
+import { CONTEXT, requestAs, seedCrmBaseline } from "./crm-fixtures";
+import { catchThrown, thrownStatus } from "./thrown";
+
+type LoaderResult = {
+	data: {
+		person: {
+			firstName: string;
+			companyName: string | null;
+			appearances: Array<{ eventName: string; status: string }>;
+			sameNamePeople: Array<{ email: string }>;
+		};
+		notes: Array<{ body: string; authorName: string }>;
+		noteCount: number;
+		addableEvents: Array<{ id: string }>;
+	};
+};
+
+async function runLoader(userId: string, email: string): Promise<LoaderResult> {
+	const request = await requestAs(
+		userId,
+		`http://localhost/admin/crm/person/${encodeURIComponent(email)}`,
+	);
+	return (await loader({
+		context: CONTEXT,
+		request,
+		params: { email },
+	} as unknown as Parameters<typeof loader>[0])) as unknown as LoaderResult;
+}
+
+describe("CRM person profile", () => {
+	it("shows the union of appearances, surfaces the same-name duplicate, and offers only missing events", async () => {
+		await seedCrmBaseline();
+		const { data } = await runLoader("u_admin1", "priya@example.com");
+		expect(data.person.firstName).toBe("Priya");
+		expect(data.person.appearances.map((a) => a.eventName).sort()).toEqual([
+			"AI Summit 2026",
+			"DevFlow 2026",
+		]);
+		// The other org1 Priya (different email) is the duplicate candidate;
+		// org2's identically-named people never bleed in.
+		expect(data.person.sameNamePeople.map((p) => p.email)).toEqual([
+			"priya.alt@example.com",
+		]);
+		// Priya already appears in both org1 events — nothing left to add to.
+		expect(data.addableEvents).toEqual([]);
+
+		const marcus = await runLoader("u_admin1", "marcus@example.com");
+		expect(marcus.data.addableEvents.map((e) => e.id)).toEqual(["e2"]);
+	});
+
+	it("persists internal notes across reloads", async () => {
+		await seedCrmBaseline();
+		const db = getDb(env);
+		const email = "priya@example.com";
+		const request = await requestAs(
+			"u_admin1",
+			`http://localhost/admin/crm/person/${encodeURIComponent(email)}`,
+			{
+				method: "POST",
+				body: new URLSearchParams({
+					intent: "add-note",
+					body: "Met at DevFlow 2026 - strong on CI topics; shortlist for keynote.",
+				}),
+			},
+		);
+		await action({
+			context: CONTEXT,
+			request,
+			params: { email },
+		} as unknown as Parameters<typeof action>[0]);
+
+		const [note] = await db.select().from(crmNotes);
+		expect(note?.organizationId).toBe("org1");
+		expect(note?.authorName).toBe("Org One Admin");
+
+		// A fresh load — the "reload" — still carries the note.
+		const reloaded = await runLoader("u_admin1", email);
+		expect(reloaded.data.noteCount).toBe(1);
+		expect(reloaded.data.notes[0]?.body).toBe(
+			"Met at DevFlow 2026 - strong on CI topics; shortlist for keynote.",
+		);
+	});
+
+	it("404s for a person who exists only in another organization", async () => {
+		await seedCrmBaseline();
+		// zara@rival.com is org2-only — org1's admin must not see her profile.
+		const thrown = await catchThrown(() =>
+			runLoader("u_admin1", "zara@rival.com"),
+		);
+		expect(thrownStatus(thrown)).toBe(404);
+	});
+});

@@ -14,6 +14,7 @@ import {
 	tasks,
 } from "~/db/schema";
 import {
+	addFileComment,
 	checkUpload,
 	insertTaskUpload,
 	UPLOAD_CONSTRAINTS,
@@ -29,6 +30,7 @@ import {
 import { persistInitialPortalFormResponse } from "~/domain/portal-task-form";
 import { requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { resolveTimezone } from "~/lib/event-time";
 import { formatBytes, formatDateUTC, formatInTz } from "~/lib/format";
 import { isOverdue } from "~/lib/task-status";
 import { getEmailSender } from "~/ports/email";
@@ -72,7 +74,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		requireMyAssignment(env, ctx, params.assignmentId),
 	);
 	const db = getDb(env);
-	const tz = ctx.event.timezone;
+	const tz = resolveTimezone(ctx.event.timezone);
 	const now = new Date();
 
 	const kind: "file" | "form" | "simple" = task.isFileRequest
@@ -112,6 +114,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		canUpload: boolean;
 		files: Array<{
 			id: string;
+			commentKey: string;
 			version: number;
 			fileName: string;
 			size: string;
@@ -158,10 +161,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			canUpload: assignment.status !== "complete",
 			files: uploads.map((f, i) => ({
 				id: f.id,
+				commentKey: crypto.randomUUID(),
 				version: f.version,
 				fileName: f.fileName,
 				size: formatBytes(f.sizeBytes),
-				uploadedOn: formatInTz(f.createdAt, tz, "date"),
+				uploadedOn: formatInTz(f.createdAt, tz),
 				review: FILE_REVIEW_PROJECTION[f.reviewStatus],
 				reviewNote: f.reviewStatus === "denied" ? f.reviewNote : null,
 				latest: i === 0,
@@ -173,7 +177,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 						isYou:
 							ctx.subjectUserId !== null && c.authorId === ctx.subjectUserId,
 						body: c.body,
-						on: formatInTz(c.createdAt, tz, "date"),
+						on: formatInTz(c.createdAt, tz),
 					})),
 			})),
 		};
@@ -439,9 +443,15 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 
 	if (intent === "comment") {
 		const fileId = String(form.get("fileId") ?? "");
+		const commentKey = String(form.get("commentKey") ?? "");
 		const body = String(form.get("body") ?? "").trim();
 		if (!body || body.length > 2000) {
-			return fail({ formError: "Write a comment up to 2,000 characters." });
+			return fail({
+				commentKey,
+				commentFileId: fileId,
+				commentBody: body,
+				formError: "Write a comment up to 2,000 characters.",
+			});
 		}
 		const [file] = await db
 			.select({ id: files.id })
@@ -451,9 +461,11 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			)
 			.limit(1);
 		if (!file) throw data(null, { status: 404 });
+		let deduped: boolean;
 		try {
-			await timings.time("db", () =>
-				db.insert(fileComments).values({
+			({ deduped } = await timings.time("db", () =>
+				addFileComment(db, {
+					key: commentKey,
 					fileId: file.id,
 					authorId: user.id,
 					authorName: ctx.contact
@@ -461,7 +473,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 						: (user.name ?? user.email),
 					body,
 				}),
-			);
+			));
 		} catch (error) {
 			track("portal.file_comment_failed", {
 				eventId: ctx.event.id,
@@ -469,15 +481,24 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				error: errorMessage(error),
 			});
 			return fail({
+				commentKey,
+				commentFileId: file.id,
+				commentBody: body,
 				formError: "Could not post your comment — please try again.",
 			});
 		}
 		track("portal.file_comment_added", {
 			eventId: ctx.event.id,
 			fileId: file.id,
+			deduped,
 		});
 		return data(
-			{ intent, ok: true },
+			{
+				intent,
+				ok: true,
+				commentKey: crypto.randomUUID(),
+				commentFileId: file.id,
+			},
 			{ headers: { "Server-Timing": timings.header() } },
 		);
 	}

@@ -66,6 +66,13 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Airtable webhook receiver | `hooks.airtable.tsx` | `/hooks/airtable` (POST; HMAC-verified via `X-Airtable-Content-MAC`, no session auth — `// @public`; P1 #15) | 2 | done |
 | Theme preference | `theme.tsx` | `/theme` (POST; persists the tri-state System/Light/Dark cookie; `// @public` — per-browser, works pre-login) | — | done |
 | Airtable sync status | `admin.settings.airtable.tsx` | `/admin/settings/airtable` (last sync, breaker alert + resume, Sync now; explicit not-configured states; P1 #15) | 2 | done |
+| Speaker CRM shell (org-level) | `admin.crm.tsx` | `/admin/crm/*` (header + module tabs; children below) | 3 | done |
+| CRM overview dashboard | `admin.crm._index.tsx` | `/admin/crm` (org KPIs + widgets, CRM-12) | 3 | done |
+| CRM directory | `admin.crm.directory.tsx` | `/admin/crm/directory` (cross-event union by email; filters, add-to-event, enroll, save-segment; CRM-01/02/06/09/10) | 3 | done |
+| CRM person profile | `admin.crm.person.$email.tsx` | `/admin/crm/person/:email` (appearances, notes, duplicates, enroll, add-to-event; CRM-03) | 3 | done |
+| CRM sourcing pipeline | `admin.crm.pipeline.tsx` | `/admin/crm/pipeline` (kanban board + enroll + move; CRM-07) | 3 | done |
+| CRM pipeline card detail | `admin.crm.pipeline_.$cardId.tsx` (trailing `_`: renders beside the board, not nested in it) | `/admin/crm/pipeline/:cardId` (notes + stage history + assign-to-event; CRM-08) | 3 | done |
+| CRM saved segments | `admin.crm.segments.tsx` | `/admin/crm/segments` (dynamic segments over directory filters; CRM-09) | 3 | done |
 
 If you need a route not listed here, add the row on the integration branch first
 (so no one else claims the same file), then build it in your worktree.
