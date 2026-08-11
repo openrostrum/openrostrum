@@ -73,6 +73,38 @@ describe("CFP success route tenancy", () => {
 		expect(thrownStatus(thrown)).toBe(404);
 	});
 
+	it("404s the signed-in user's submission from another form in the same event", async () => {
+		await seedCfp();
+		const speaker = await createSpeaker();
+		const db = getDb(env);
+		await db.insert(forms).values({
+			id: "f_same_event",
+			eventId: FIX.eventId,
+			publicId: "form-uuid-same-event",
+			type: "session",
+			status: "open",
+			internalName: "Same Event CFP",
+			externalTitle: "Same Event Call for Sessions",
+		});
+		await seedOwnedSubmission(
+			"s_other_form",
+			FIX.eventId,
+			"f_same_event",
+			speaker.id,
+			"Other Form Secret Title",
+		);
+
+		const thrown = await catchThrown(() =>
+			successLoader({
+				context: CONTEXT,
+				request: successRequest(speaker.cookie, "s_other_form"),
+				params: PARAMS,
+			} as unknown as LoaderArgs),
+		);
+
+		expect(thrownStatus(thrown)).toBe(404);
+	});
+
 	it("returns an owned submission from the selected event and form", async () => {
 		await seedCfp();
 		const speaker = await createSpeaker();

@@ -45,7 +45,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			id: submissions.id,
 			title: submissions.title,
 			status: submissions.status,
-			submitterId: submissions.submitterId,
 		})
 		.from(submissions)
 		.where(
@@ -57,7 +56,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			),
 		)
 		.limit(1);
-	if (!row || row.submitterId !== user.id) {
+	if (!row) {
 		throw data("Submission not found", { status: 404 });
 	}
 	if (row.status === "draft") {
