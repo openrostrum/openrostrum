@@ -146,6 +146,34 @@ describe("compose bulk email", () => {
 		expect(await verifyUnsubscribeToken(env, token)).toBe("alice@example.com");
 	});
 
+	it("sends classic triple-brace dotted aliases through the same parser as templates", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/compose",
+			{
+				method: "POST",
+				body: sendBody({
+					ids: "c_alice",
+					status: "",
+					subject: "Welcome {{{ EVENT.NAME }}}, {{{ Recipient.First_Name }}}!",
+					body: "Hi {{ recipient.last_name }},\n\nPortal: {{{ portal_link }}}",
+				}),
+			},
+		);
+		await seedRoster();
+
+		const result = (await run(request)) as { step: string; sent: number };
+		expect(result).toMatchObject({ step: "sent", sent: 1 });
+		const [mail] = await db.select().from(emailOutbox);
+		expect(mail?.subject).toBe("Welcome DevFlow Conf, Alice!");
+		expect(mail?.html).toContain("<p>Hi Anders,</p>");
+		expect(mail?.html).toContain(
+			"<p>Portal: http://localhost/portals/devflow/portal-public</p>",
+		);
+		expect(mail?.subject).not.toContain("{");
+		expect(mail?.html).not.toContain("{");
+	});
+
 	it("ignores a double submit: the same sendKey never delivers twice", async () => {
 		const db = getDb(env);
 		const first = await adminRequest(

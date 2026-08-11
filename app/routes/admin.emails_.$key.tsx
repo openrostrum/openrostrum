@@ -104,7 +104,14 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		session_date_time: sample.submission?.startsAt
 			? formatInTimeZone(sample.submission.startsAt, tz)
 			: null,
+		starts_at: sample.submission?.startsAt
+			? formatInTimeZone(sample.submission.startsAt, tz)
+			: null,
+		ends_at: sample.submission?.endsAt
+			? formatInTimeZone(sample.submission.endsAt, tz)
+			: null,
 		session_room: sample.submission?.room?.name ?? null,
+		location: sample.submission?.room?.name ?? event.location ?? null,
 		portal_link: sample.portal
 			? `${origin}/portals/${event.slug}/${sample.portal.publicId}`
 			: null,
