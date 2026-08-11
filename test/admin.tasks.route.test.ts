@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
+	contacts,
 	emailOutbox,
 	emailSuppressions,
 	events,
@@ -390,6 +391,62 @@ describe("bulk assignment", () => {
 			expect(row.submissionId).toBeTruthy();
 		}
 		expect(rows.map((r) => r.submissionId).sort()).toEqual(["s1", "s2"]);
+	});
+
+	it("assigns accepted-session work to every speaker role and excludes non-speaker roles", async () => {
+		const db = await seedTasksBaseline();
+		await db.insert(contacts).values([
+			{
+				id: "c_co_speaker",
+				eventId: "e1",
+				email: "co-speaker@example.com",
+				firstName: "Co",
+				lastName: "Speaker",
+			},
+			{
+				id: "c_moderator",
+				eventId: "e1",
+				email: "moderator@example.com",
+				firstName: "Mo",
+				lastName: "Derator",
+			},
+		]);
+		await db.insert(participants).values([
+			{
+				id: "p_co_speaker",
+				submissionId: "s1",
+				contactId: "c_co_speaker",
+				role: "speaker",
+				position: 1,
+			},
+			{
+				id: "p_moderator",
+				submissionId: "s1",
+				contactId: "c_moderator",
+				role: "moderator",
+				position: 2,
+			},
+		]);
+
+		await assign("t_slides");
+		await assign("t_flight");
+
+		const allAssignments = await db.select().from(taskAssignments);
+		const slides = allAssignments.filter((row) => row.taskId === "t_slides");
+		expect(slides.map((row) => row.contactId).sort()).toEqual([
+			"c_bob",
+			"c_co_speaker",
+			"c_priya",
+		]);
+		const flights = allAssignments.filter((row) => row.taskId === "t_flight");
+		expect(flights.map((row) => row.contactId).sort()).toEqual([
+			"c_bob",
+			"c_co_speaker",
+			"c_priya",
+		]);
+		expect(allAssignments.some((row) => row.contactId === "c_moderator")).toBe(
+			false,
+		);
 	});
 
 	it("a multi-talk speaker gets one submission-task assignment per accepted talk — and replays add nothing", async () => {

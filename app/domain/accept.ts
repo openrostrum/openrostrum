@@ -189,6 +189,8 @@ async function planAcceptProvisioning(
 			contactId: contacts.id,
 			contactEmail: contacts.email,
 			contactUserId: contacts.userId,
+			contactStatus: contacts.status,
+			contactEventId: contacts.eventId,
 		})
 		.from(participants)
 		.innerJoin(contacts, eq(contacts.id, participants.contactId))
@@ -260,6 +262,25 @@ async function planAcceptProvisioning(
 	const userByEmail = new Map(userRows.map((u) => [u.email, u.id]));
 
 	const statements: BatchItem<"sqlite">[] = [];
+	const invitedContacts = new Map(
+		speakerRows
+			.filter((speaker) => speaker.contactStatus === "pending")
+			.map((speaker) => [speaker.contactId, speaker.contactEventId]),
+	);
+	const invitedContactIds = [...invitedContacts.keys()];
+	if (invitedContactIds.length) {
+		statements.push(
+			db
+				.update(contacts)
+				.set({ status: "invited" })
+				.where(
+					and(
+						inArray(contacts.id, invitedContactIds),
+						eq(contacts.status, "pending"),
+					),
+				),
+		);
+	}
 	const linkedContactIds = new Set<string>();
 	for (const [contactId, email] of unlinkedByContact) {
 		const userId = userByEmail.get(normalizeEmail(email));
@@ -353,6 +374,14 @@ async function planAcceptProvisioning(
 	return {
 		statements,
 		emitEvents() {
+			for (const [contactId, eventId] of invitedContacts) {
+				track("contact.status_changed", {
+					contactId,
+					eventId,
+					from: "pending",
+					to: "invited",
+				});
+			}
 			for (const row of rows) {
 				track("accept.provisioned", {
 					submissionId: row.id,

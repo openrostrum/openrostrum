@@ -713,7 +713,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 
 		let candidates: Array<{ contactId: string; submissionId: string | null }>;
 		if (task.type === "submission") {
-			// Submission tasks target each accepted submission's primary speaker;
+			// Submission tasks target every speaker on each accepted session;
 			// contactId is ALWAYS set so the per-speaker dashboard sees the row.
 			candidates = await db
 				.select({
@@ -727,7 +727,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 						eq(submissions.eventId, event.id),
 						eq(submissions.status, "accepted"),
 						eq(participants.role, "speaker"),
-						eq(participants.isPrimary, true),
 					),
 				);
 		} else {
@@ -740,6 +739,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 					.where(
 						and(
 							eq(participants.contactId, contacts.id),
+							eq(participants.role, "speaker"),
 							eq(submissions.status, "accepted"),
 						),
 					),
@@ -1436,7 +1436,7 @@ export default function TasksDashboard({
 							<Field label="To">
 								{assignTaskType === "submission" ? (
 									<Select name="target" disabled>
-										<option>Accepted submissions&apos; primary speakers</option>
+										<option>Speakers on accepted submissions</option>
 									</Select>
 								) : (
 									<Select name="target" defaultValue="accepted">
