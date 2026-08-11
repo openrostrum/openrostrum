@@ -18,6 +18,7 @@ import {
 	passwordResets,
 	pipelineCards,
 	pipelineStageChanges,
+	portals,
 	submissions,
 	taskAssignments,
 	tasks,
@@ -27,7 +28,15 @@ import {
 	buildContactMergePreview,
 	executeContactMerge,
 } from "../app/domain/contact-merge";
-import { hashPassword } from "../app/lib/auth";
+import {
+	getPortalContext,
+	listPortalSubmissions,
+	listPortalTasks,
+} from "../app/domain/portal";
+import { createSession, hashPassword } from "../app/lib/auth";
+import { loader as portalLoader } from "../app/routes/portal";
+
+const CONTEXT = { cloudflare: { env, ctx: {} } };
 
 async function seedMergeBaseline() {
 	const db = getDb(env);
@@ -110,6 +119,16 @@ async function seedMergeBaseline() {
 			lastName: "Person",
 		},
 	]);
+}
+
+async function authenticatedRequest(
+	userId: string,
+	url: string,
+): Promise<Request> {
+	const cookie = await createSession(env, userId);
+	return new Request(url, {
+		headers: { Cookie: cookie.split(";")[0] ?? "" },
+	});
 }
 
 async function seedReferenceMatrix() {
@@ -801,6 +820,66 @@ describe("contact merge", () => {
 		).not.toBe("source-a2");
 		expect(links.find((row) => row.id === "airtable-foreign")?.recordId).toBe(
 			"foreign-b1",
+		);
+	});
+
+	it("sends a retired portal login to the survivor with unioned submissions and tasks", async () => {
+		await seedReferenceMatrix();
+		const db = getDb(env);
+		await db.insert(portals).values([
+			{
+				id: "portal-a1",
+				eventId: "event-a1",
+				publicId: "portal-public-a1",
+				name: "Event A1 Portal",
+			},
+			{
+				id: "portal-a2",
+				eventId: "event-a2",
+				publicId: "portal-public-a2",
+				name: "Event A2 Portal",
+			},
+		]);
+		expect((await runReferenceMerge()).ok).toBe(true);
+		const [sourceUser] = await db
+			.select()
+			.from(users)
+			.where(eq(users.id, "source-user"));
+		if (!sourceUser) throw new Error("Missing retired portal fixture user.");
+		const ctx = await getPortalContext(
+			env,
+			sourceUser,
+			{ eventSlug: "event-a1", portalId: "portal-public-a1" },
+			new Request("http://localhost/portals/event-a1/portal-public-a1/home"),
+		);
+		expect(ctx.contact).toMatchObject({
+			email: "ada@example.com",
+			id: "survivor-a1",
+		});
+		expect(ctx.subjectUserId).toBe("survivor-user");
+		expect(
+			(await listPortalSubmissions(env, ctx)).rows.map((row) => row.id).sort(),
+		).toEqual(["submission-conflict", "submission-source"]);
+		expect(
+			(await listPortalTasks(env, ctx)).map((row) => row.id).sort(),
+		).toEqual(["assignment-source-only", "assignment-target-conflict"]);
+
+		let thrown: unknown;
+		try {
+			await portalLoader({
+				context: CONTEXT,
+				request: await authenticatedRequest(
+					"source-user",
+					"http://localhost/portal",
+				),
+				params: {},
+			} as unknown as Parameters<typeof portalLoader>[0]);
+		} catch (error) {
+			thrown = error;
+		}
+		expect(thrown).toBeInstanceOf(Response);
+		expect((thrown as Response).headers.get("Location")).toBe(
+			"/portals/event-a2/portal-public-a2/home",
 		);
 	});
 
