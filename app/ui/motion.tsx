@@ -25,44 +25,54 @@ const ENTER = cn(
 );
 
 type InputModality = "keyboard" | "pointer";
-type InputModalityRef = { current: InputModality };
+type InputModalityTarget = Pick<
+	EventTarget,
+	"addEventListener" | "removeEventListener"
+>;
 
-const InputModalityContext = createContext<InputModalityRef | null>(null);
+type InputModalityTracker = {
+	allowsEntryMotion: () => boolean;
+	listen: (target: InputModalityTarget) => () => void;
+};
 
-export function allowsEntryMotion(input: InputModality) {
-	return input === "pointer";
+export function createInputModalityTracker(): InputModalityTracker {
+	let input: InputModality = "pointer";
+	return {
+		allowsEntryMotion: () => input === "pointer",
+		listen: (target) => {
+			const onPointerDown = () => {
+				input = "pointer";
+			};
+			const onKeyDown = () => {
+				input = "keyboard";
+			};
+			target.addEventListener("pointerdown", onPointerDown, true);
+			target.addEventListener("keydown", onKeyDown, true);
+			return () => {
+				target.removeEventListener("pointerdown", onPointerDown, true);
+				target.removeEventListener("keydown", onKeyDown, true);
+			};
+		},
+	};
 }
 
-export function MotionInputBoundary({ children }: { children: ReactNode }) {
-	const input = useRef<InputModality>("pointer");
+const InputModalityContext = createContext<InputModalityTracker | null>(null);
 
-	useEffect(() => {
-		const onPointerDown = () => {
-			input.current = "pointer";
-		};
-		const onKeyDown = () => {
-			input.current = "keyboard";
-		};
-		document.addEventListener("pointerdown", onPointerDown, true);
-		document.addEventListener("keydown", onKeyDown, true);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown, true);
-			document.removeEventListener("keydown", onKeyDown, true);
-		};
-	}, []);
+export function MotionInputBoundary({ children }: { children: ReactNode }) {
+	const [tracker] = useState(createInputModalityTracker);
+
+	useEffect(() => tracker.listen(document), [tracker]);
 
 	return (
-		<InputModalityContext.Provider value={input}>
+		<InputModalityContext.Provider value={tracker}>
 			{children}
 		</InputModalityContext.Provider>
 	);
 }
 
 function useEntryMotion() {
-	const input = useContext(InputModalityContext);
-	const [animate] = useState(() =>
-		allowsEntryMotion(input?.current ?? "pointer"),
-	);
+	const tracker = useContext(InputModalityContext);
+	const [animate] = useState(() => tracker?.allowsEntryMotion() ?? true);
 	return animate;
 }
 

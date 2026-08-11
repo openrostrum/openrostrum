@@ -1,14 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { allowsEntryMotion } from "../app/ui/motion";
+import { createInputModalityTracker } from "../app/ui/motion";
 
 describe("entry motion input policy", () => {
-	it("animates pointer entry but keeps keyboard entry static", () => {
-		expect({
-			pointer: allowsEntryMotion("pointer"),
-			keyboard: allowsEntryMotion("keyboard"),
-		}).toEqual({
-			pointer: true,
-			keyboard: false,
-		});
+	it("tracks input modality until its listeners are removed", () => {
+		const events = new EventTarget();
+		const target: Pick<
+			EventTarget,
+			"addEventListener" | "removeEventListener"
+		> = {
+			addEventListener: (type, listener) =>
+				events.addEventListener(type, listener),
+			removeEventListener: (type, listener) =>
+				events.removeEventListener(type, listener),
+		};
+		const tracker = createInputModalityTracker();
+		const stopListening = tracker.listen(target);
+
+		expect(tracker.allowsEntryMotion()).toBe(true);
+
+		events.dispatchEvent(new Event("keydown"));
+		expect(tracker.allowsEntryMotion()).toBe(false);
+
+		events.dispatchEvent(new Event("pointerdown"));
+		expect(tracker.allowsEntryMotion()).toBe(true);
+
+		stopListening();
+		events.dispatchEvent(new Event("keydown"));
+		expect(tracker.allowsEntryMotion()).toBe(true);
 	});
 });
