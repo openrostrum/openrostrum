@@ -847,7 +847,7 @@ describe("edit-until-close (portal View Submission)", () => {
 		expect(renderDetail(loaded)).toContain("No participants are listed");
 	});
 
-	it("uses one deterministic multi-role participation control and updates every non-secondary role link", async () => {
+	it("uses one deterministic multi-role control and updates only that participant link", async () => {
 		await seedEditableSubmission(FUTURE, { allowModerator: true });
 		const db = getDb(env);
 		await db.batch([
@@ -914,7 +914,7 @@ describe("edit-until-close (portal View Submission)", () => {
 		expect(acceptance.sort((a, b) => a.role.localeCompare(b.role))).toEqual([
 			{ role: "moderator", status: "accepted" },
 			{ role: "secondary", status: "declined" },
-			{ role: "speaker", status: "accepted" },
+			{ role: "speaker", status: "pending" },
 		]);
 	});
 
