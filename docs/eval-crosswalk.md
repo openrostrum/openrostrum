@@ -53,7 +53,7 @@ doesn't — never hide a feature, and never gate one behind an emailed link.
 | ABS-11 | 2 | Co-authors w/ role labels persist to organizer views | P0 #2 participants + P1 #19 (add by edit) |
 | ABS-12 | 1 | Conflict-of-interest recusal | P1 #10 — `evaluations.status='abstained'` |
 | ABS-13 | 2 | Review scores export (CSV) | P2 #3 committed set — `admin.evaluation.export.csv` |
-| ABS-14 | 1 | AI triage (only if claimed) | P2 #7 SHIPPED — `/admin/evaluation?tab=ai` (Workers AI first-pass score + rationale, `ai_reviews`; human override persists; AI column in plan results + cumulative CSV) |
+| ABS-14 | 1 | AI triage (only if claimed) | P2 #7 SHIPPED — `/admin/evaluation?tab=ai` (DeepSeek-primary first-pass score + rationale with benchmarked Workers AI fallback, `ai_reviews`; human override persists; AI column in plan results + cumulative CSV) |
 
 ## 03 Speaker Management (36 pts)
 

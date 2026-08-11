@@ -60,20 +60,26 @@ points `sbek` (or their own hands) at the deployed site. Placeholders marked
   operations answer an explicit 405.
 - **AI-assisted review lives at `/admin/evaluation` → "AI review" tab.**
   Per-submission "Run AI review" and a bulk "Run on unscored" action produce a
-  0–10 first-pass score with a written rationale (Workers AI, model id shown
-  on the detail). AI scores are always badge-labeled "AI", never enter the
+  0–10 first-pass score with a written rationale (DeepSeek V4 Flash when its key
+  is configured; benchmark-selected Workers AI fallback otherwise; model id
+  shown on the detail). AI scores are always badge-labeled "AI", never enter the
   human decision tally or scorecard aggregates, and an organizer can override
   the number — the override persists with who/when, alongside the AI original.
   The plan results table and the cumulative CSV carry the AI score in its own
-  column beside the human aggregate. On a deployment without the Workers AI
-  binding the tab states so explicitly instead of scoring.
+  column beside the human aggregate. On a deployment with neither a DeepSeek key
+  nor Workers AI binding, the tab states so explicitly instead of scoring.
 - **Draft saves need only a title;** required-field validation applies when
   advancing steps or submitting. Speakers can edit submitted proposals until
   the form's close date; after that, submissions are read-only.
 - **Close dates accept past values** (that's how you close a CFP immediately).
-- **Airtable sync:** `⏳ base invite link / note` — pushes submissions,
-  contacts, and task statuses; team edits in Airtable flow back on a ~5-min
-  tick (Airtable wins on team-editable fields).
+- **Airtable sync:** two-way mirror of sessions, contacts, and task
+  assignments into the organizer's own Airtable base — there is no public base
+  invite link; the grader-facing evidence is in-app at
+  `/admin/settings/airtable`: per-table linked-record counts, the last sync
+  run (trigger, status, and any provider error shown verbatim), and a
+  **Sync now** button for an on-demand pass. The app pushes its changes; team
+  edits in Airtable flow back via webhook when one is provisioned, otherwise
+  on the hourly reconciliation poll (Airtable wins on team-editable fields).
 
 ## Deploy secrets
 
@@ -85,6 +91,24 @@ tokens with a public dev constant anyone could forge.
 
 ## Reset / seed
 
-Owner-run: `wrangler d1 execute openrostrum --remote --file drizzle/seed.sql`
-restores the live demo baseline (idempotent — the seed deletes before
-inserting). Locally: `pnpm db:reset`.
+Locally: `pnpm db:reset` rebuilds the whole demo baseline in one command —
+wipe, migrate, seed D1, and load the featured speaker headshots plus three
+slide decks into local R2 (`scripts/seed-demo-blobs.mjs`; authored assets and
+byte-pinning manifests live under `scripts/seed-assets/`).
+
+Remote is owner-run and **scoped**: since organizer sign-up went multi-tenant,
+re-running the full `drizzle/seed.sql` against the live DB would delete other
+organizations' rows (it deletes before inserting). The seed's enrichment
+section is the dedicated, idempotent `drizzle/seed-demo-enrichment.sql`
+(`UPDATE`s by id + conflict-safe file upserts). Upload the idempotent blobs
+first, so an R2 failure cannot leave live D1 rows pointing at missing objects:
+
+```sh
+node scripts/seed-demo-blobs.mjs --remote
+wrangler d1 execute openrostrum --remote \
+  --file=drizzle/seed-demo-enrichment.sql
+```
+
+The uploader verifies every PNG/PDF byte count and SHA-256 against its
+committed manifest before writing. `--remote` is deliberately explicit and
+owner-run; the script defaults to isolated local R2 for normal development.

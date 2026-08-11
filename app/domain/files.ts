@@ -272,6 +272,25 @@ export const GROUP_KEY_SQL = sql<string>`case
 	else 'e:' || ${files.eventId} || ':' || lower(${files.fileName})
 end`;
 
+export function currentHeadshotsSql(eventId: string, contactId?: string): SQL {
+	const contactFilter = contactId ? sql`and contact_id = ${contactId}` : sql``;
+	return sql`(
+		select id, event_id, contact_id, r2_key
+		from (
+			select id, event_id, contact_id, r2_key,
+				row_number() over (
+					partition by event_id, contact_id
+					order by version desc, created_at desc, id desc
+				) as position
+			from ${files}
+			where kind = 'headshot'
+				and event_id = ${eventId}
+				${contactFilter}
+		) ranked
+		where position = 1
+	)`;
+}
+
 export type FileRow = typeof files.$inferSelect;
 
 /** Every file of the event, ranked within its chain (rn = 1 is latest,

@@ -4,8 +4,10 @@ import {
 	buildSessionsData,
 	getEventBySlug,
 	loadPublicSessions,
+	sessionCalendarHref,
 	toProgramEvent,
 } from "~/lib/program";
+import { CalendarDownloadSurface } from "~/components/add-to-calendar";
 import { createTimings } from "~/lib/track";
 import { ProgramErrorScreen, ProgramShell, SessionsSurface } from "~/widgets";
 import type { Route } from "./+types/sessions.$eventSlug";
@@ -36,11 +38,10 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 	const sessions = await timings.time("db", () =>
 		loadPublicSessions(db, event),
 	);
+	const surface = buildSessionsData(sessions, new URL(request.url));
+	const calendarHref = sessionCalendarHref(event, surface.detail);
 	return data(
-		{
-			event: toProgramEvent(event),
-			surface: buildSessionsData(sessions, new URL(request.url)),
-		},
+		{ event: toProgramEvent(event), surface, calendarHref },
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
@@ -48,10 +49,12 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 export default function PublicSessions({ loaderData }: Route.ComponentProps) {
 	return (
 		<ProgramShell event={loaderData.event} active="sessions">
-			<SessionsSurface
-				data={loaderData.surface}
-				base={`/sessions/${loaderData.event.slug}`}
-			/>
+			<CalendarDownloadSurface href={loaderData.calendarHref}>
+				<SessionsSurface
+					data={loaderData.surface}
+					base={`/sessions/${loaderData.event.slug}`}
+				/>
+			</CalendarDownloadSurface>
 		</ProgramShell>
 	);
 }
