@@ -92,7 +92,6 @@ describe("admin shell loader (event switcher data)", () => {
 		await seed("e_a2");
 		const result = await runLoader("u_a");
 		const [a1, a2] = result.events;
-		// No dates set → the menu's second line falls back to the type.
 		expect(a1).toMatchObject({ dates: null, type: "Conference" });
 		// Event-zone rendering — a UTC read of the midnight-crossing end instant
 		// would label this Oct 12 – Oct 15.
