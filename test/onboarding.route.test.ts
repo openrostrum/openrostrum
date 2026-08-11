@@ -48,7 +48,12 @@ async function seedSessionUser(opts?: {
 	return { cookie: "__session=sess1", userId: "u1" };
 }
 
+const SETUP_ORGANIZATION_ID = "11111111-1111-4111-8111-111111111111";
+const SETUP_EVENT_ID = "22222222-2222-4222-8222-222222222222";
+
 const VALID_FORM = {
+	setupOrganizationId: SETUP_ORGANIZATION_ID,
+	setupEventId: SETUP_EVENT_ID,
 	organizationName: "Devcon Collective",
 	eventName: "Devcon 2027",
 	slug: "devcon-2027",
@@ -80,6 +85,23 @@ function load(cookie?: string) {
 }
 
 describe("onboarding route", () => {
+	it("mints UUID setup IDs that the form can preserve across a replay", async () => {
+		const { cookie } = await seedSessionUser();
+
+		const data = (await load(cookie)) as {
+			setupOrganizationId: string;
+			setupEventId: string;
+		};
+
+		expect(data.setupOrganizationId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		);
+		expect(data.setupEventId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		);
+		expect(data.setupOrganizationId).not.toBe(data.setupEventId);
+	});
+
 	it("creates org + membership + first event + default templates and activates the event", async () => {
 		const { cookie, userId } = await seedSessionUser();
 		const res = (await act(VALID_FORM, cookie)) as Response;
@@ -165,29 +187,100 @@ describe("onboarding route", () => {
 		expect(await getDb(env).select().from(organizations)).toHaveLength(0);
 	});
 
-	it("redirects a user who already has an organization to /admin (loader and action)", async () => {
+	it("resumes a membership-only setup by creating the first event in the existing organization", async () => {
 		const { cookie } = await seedSessionUser({ withOrg: true });
 
-		const thrownFromLoader = await load(cookie).catch((r: unknown) => r);
+		const result = await act(VALID_FORM, cookie).catch(
+			(response: unknown) => response,
+		);
+
+		expect(result).toBeInstanceOf(Response);
+		expect((result as Response).headers.get("Location")).toBe("/admin");
+
+		const db = getDb(env);
+		const orgs = await db.select().from(organizations);
+		expect(orgs).toHaveLength(1);
+		expect(orgs[0]?.id).toBe("org1");
+
+		const eventRows = await db.select().from(events);
+		expect(eventRows).toHaveLength(1);
+		expect(eventRows[0]?.organizationId).toBe("org1");
+		expect(eventRows[0]?.slug).toBe(VALID_FORM.slug);
+	});
+
+	it("coalesces concurrent setup submissions into one organization and first event", async () => {
+		const { cookie } = await seedSessionUser();
+
+		const results = await Promise.all(
+			[act(VALID_FORM, cookie), act(VALID_FORM, cookie)].map((request) =>
+				request.catch((response: unknown) => response),
+			),
+		);
+
+		expect(results).toHaveLength(2);
+		for (const result of results) {
+			expect(result).toBeInstanceOf(Response);
+			expect((result as Response).headers.get("Location")).toBe("/admin");
+		}
+		const db = getDb(env);
+		expect(await db.select().from(organizations)).toHaveLength(1);
+		expect(await db.select().from(organizationMembers)).toHaveLength(1);
+		expect(await db.select().from(events)).toHaveLength(1);
+	});
+
+	it("does not treat a reused setup ID with different details as a successful replay", async () => {
+		const { cookie } = await seedSessionUser();
+
+		const results = await Promise.all([
+			act(VALID_FORM, cookie),
+			act({ ...VALID_FORM, eventName: "Different Event" }, cookie),
+		]);
+
+		expect(results.filter((result) => result instanceof Response)).toHaveLength(
+			1,
+		);
+		expect(
+			results.filter(
+				(result) =>
+					!(result instanceof Response) &&
+					"formError" in result &&
+					Boolean(result.formError),
+			),
+		).toHaveLength(1);
+		const db = getDb(env);
+		expect(await db.select().from(organizations)).toHaveLength(1);
+		expect(await db.select().from(events)).toHaveLength(1);
+	});
+
+	it("redirects completed onboarding replays without minting another organization or event", async () => {
+		const { cookie } = await seedSessionUser();
+		await act(VALID_FORM, cookie);
+
+		const thrownFromLoader = await load(cookie).catch(
+			(response: unknown) => response,
+		);
 		expect(thrownFromLoader).toBeInstanceOf(Response);
 		expect((thrownFromLoader as Response).headers.get("Location")).toBe(
 			"/admin",
 		);
 
-		// A replayed POST (double submit) must not mint a second organization.
 		const thrownFromAction = await act(VALID_FORM, cookie).catch(
-			(r: unknown) => r,
+			(response: unknown) => response,
 		);
 		expect(thrownFromAction).toBeInstanceOf(Response);
 		expect((thrownFromAction as Response).headers.get("Location")).toBe(
 			"/admin",
 		);
-		expect(await getDb(env).select().from(organizations)).toHaveLength(1);
+		const db = getDb(env);
+		expect(await db.select().from(organizations)).toHaveLength(1);
+		expect(await db.select().from(events)).toHaveLength(1);
 	});
 
-	it("redirects anonymous visitors to /signup", async () => {
-		const thrown = await load().catch((r: unknown) => r);
+	it("uses the shared auth gate for anonymous visitors", async () => {
+		const thrown = await load().catch((response: unknown) => response);
 		expect(thrown).toBeInstanceOf(Response);
-		expect((thrown as Response).headers.get("Location")).toBe("/signup");
+		expect((thrown as Response).headers.get("Location")).toBe(
+			"/login?redirectTo=%2Fonboarding",
+		);
 	});
 });
