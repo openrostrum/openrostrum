@@ -562,6 +562,108 @@ export const contacts = sqliteTable(
 	],
 );
 
+export type ContactMergeAuditSummary = {
+	eventContactsCreated: number;
+	contactsRetired: number;
+	profileFieldsFilled: number;
+	participantLinksMoved: number;
+	participantLinksConsolidated: number;
+	taskAssignmentsMoved: number;
+	taskAssignmentsConsolidated: number;
+	filesMoved: number;
+	customValuesMoved: number;
+	customValuesConsolidated: number;
+	notesMoved: number;
+	pipelineCardsMoved: number;
+	pipelineCardsConsolidated: number;
+	pipelineHistoryMoved: number;
+	portalIdentitiesAliased: number;
+	submissionsReassigned: number;
+	airtableLinksMoved: number;
+	airtableLinksConsolidated: number;
+};
+
+/** Event-contact values for custom fields from the shared field library. */
+export const contactFieldValues = sqliteTable(
+	"contact_field_values",
+	{
+		id: id(),
+		contactId: text("contact_id")
+			.notNull()
+			.references(() => contacts.id, { onDelete: "cascade" }),
+		fieldId: text("field_id")
+			.notNull()
+			.references(() => fields.id, { onDelete: "restrict" }),
+		value: text("value"),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		unique("contact_field_values_contact_field_uq").on(t.contactId, t.fieldId),
+		index("contact_field_values_contact_idx").on(t.contactId),
+	],
+);
+
+/** Append-only proof of a completed organization-person merge. */
+export const contactMerges = sqliteTable(
+	"contact_merges",
+	{
+		id: id(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		sourceEmail: text("source_email").notNull(),
+		survivorEmail: text("survivor_email").notNull(),
+		actorId: text("actor_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		actorName: text("actor_name").notNull(),
+		idempotencyKey: text("idempotency_key").notNull(),
+		summary: text("summary", { mode: "json" })
+			.$type<ContactMergeAuditSummary>()
+			.notNull(),
+		retiredContacts: text("retired_contacts", { mode: "json" })
+			.$type<Array<typeof contacts.$inferSelect>>()
+			.notNull(),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		unique("contact_merges_org_key_uq").on(t.organizationId, t.idempotencyKey),
+		index("contact_merges_survivor_idx").on(t.organizationId, t.survivorEmail),
+	],
+);
+
+/** Old portal accounts keep resolving to the chosen organization identity. */
+export const contactIdentityAliases = sqliteTable(
+	"contact_identity_aliases",
+	{
+		id: id(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		sourceUserId: text("source_user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		survivorUserId: text("survivor_user_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		survivorEmail: text("survivor_email").notNull(),
+		mergeId: text("merge_id")
+			.notNull()
+			.references(() => contactMerges.id, { onDelete: "cascade" }),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		unique("contact_identity_aliases_org_user_uq").on(
+			t.organizationId,
+			t.sourceUserId,
+		),
+		index("contact_identity_aliases_survivor_idx").on(
+			t.organizationId,
+			t.survivorEmail,
+		),
+	],
+);
+
 /* ------------------------------------------------------------ submissions --- */
 
 // Submission status/type tuples live in ./constants (pure, client-safe); we
@@ -1479,6 +1581,12 @@ export const usersRelations = relations(users, ({ many }) => ({
 	reviews: many(reviews),
 	reviewerTracks: many(reviewerTracks),
 	organizationMemberships: many(organizationMembers),
+	contactMergeAliasesAsSource: many(contactIdentityAliases, {
+		relationName: "contactMergeSourceUser",
+	}),
+	contactMergeAliasesAsSurvivor: many(contactIdentityAliases, {
+		relationName: "contactMergeSurvivorUser",
+	}),
 }));
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
@@ -1486,6 +1594,8 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
 	members: many(organizationMembers),
 	apiTokens: many(apiTokens),
 	fields: many(fields),
+	contactMerges: many(contactMerges),
+	contactIdentityAliases: many(contactIdentityAliases),
 }));
 
 export const organizationMembersRelations = relations(
@@ -1565,7 +1675,61 @@ export const contactsRelations = relations(contacts, ({ one, many }) => ({
 	event: one(events, { fields: [contacts.eventId], references: [events.id] }),
 	user: one(users, { fields: [contacts.userId], references: [users.id] }),
 	participants: many(participants),
+	customValues: many(contactFieldValues),
 }));
+
+export const contactFieldValuesRelations = relations(
+	contactFieldValues,
+	({ one }) => ({
+		contact: one(contacts, {
+			fields: [contactFieldValues.contactId],
+			references: [contacts.id],
+		}),
+		field: one(fields, {
+			fields: [contactFieldValues.fieldId],
+			references: [fields.id],
+		}),
+	}),
+);
+
+export const contactMergesRelations = relations(
+	contactMerges,
+	({ one, many }) => ({
+		organization: one(organizations, {
+			fields: [contactMerges.organizationId],
+			references: [organizations.id],
+		}),
+		actor: one(users, {
+			fields: [contactMerges.actorId],
+			references: [users.id],
+		}),
+		identityAliases: many(contactIdentityAliases),
+	}),
+);
+
+export const contactIdentityAliasesRelations = relations(
+	contactIdentityAliases,
+	({ one }) => ({
+		organization: one(organizations, {
+			fields: [contactIdentityAliases.organizationId],
+			references: [organizations.id],
+		}),
+		sourceUser: one(users, {
+			fields: [contactIdentityAliases.sourceUserId],
+			references: [users.id],
+			relationName: "contactMergeSourceUser",
+		}),
+		survivorUser: one(users, {
+			fields: [contactIdentityAliases.survivorUserId],
+			references: [users.id],
+			relationName: "contactMergeSurvivorUser",
+		}),
+		merge: one(contactMerges, {
+			fields: [contactIdentityAliases.mergeId],
+			references: [contactMerges.id],
+		}),
+	}),
+);
 
 export const submissionsRelations = relations(submissions, ({ one, many }) => ({
 	event: one(events, {
@@ -1901,6 +2065,8 @@ export const insertTaskSchema = createInsertSchema(tasks);
 export type Submission = typeof submissions.$inferSelect;
 export type NewSubmission = typeof submissions.$inferInsert;
 export type Contact = typeof contacts.$inferSelect;
+export type ContactMerge = typeof contactMerges.$inferSelect;
+export type ContactIdentityAlias = typeof contactIdentityAliases.$inferSelect;
 export type Form = typeof forms.$inferSelect;
 export type PipelineCard = typeof pipelineCards.$inferSelect;
 export type CrmSegment = typeof crmSegments.$inferSelect;
