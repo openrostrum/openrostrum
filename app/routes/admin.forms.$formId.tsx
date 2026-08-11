@@ -285,18 +285,37 @@ export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
 function fieldScopePredicate(eventId: string, organizationId: string) {
 	// Event fields of THIS event, plus org-wide fields of THIS org — never
 	// another tenant's library.
-	return or(
-		eq(fields.eventId, eventId),
-		and(eq(fields.organizationId, organizationId), isNull(fields.eventId)),
+	return and(
+		eq(fields.recordType, "session"),
+		or(
+			eq(fields.eventId, eventId),
+			and(eq(fields.organizationId, organizationId), isNull(fields.eventId)),
+		),
 	);
 }
 
 async function loadPlacements(db: Db, formId: string) {
-	return db.query.formFields.findMany({
+	const placements = await db.query.formFields.findMany({
 		where: eq(formFields.formId, formId),
-		with: { field: true },
+		with: {
+			field: {
+				columns: {
+					id: true,
+					organizationId: true,
+					name: true,
+					recordType: true,
+					type: true,
+					maxLength: true,
+					options: true,
+				},
+			},
+		},
 		orderBy: [asc(formFields.position), asc(formFields.createdAt)],
 	});
+	return placements.filter(
+		(placement) =>
+			placement.field === null || placement.field.recordType === "session",
+	);
 }
 
 const VIEW_PAGE_SIZE = 50;

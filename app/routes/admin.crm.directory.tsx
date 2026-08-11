@@ -474,6 +474,9 @@ export default function CrmDirectory({
 			return next;
 		});
 	};
+	const composeUrl = `/admin/contacts/compose?${new URLSearchParams({
+		directoryEmails: [...selected].join(","),
+	}).toString()}`;
 	const filtered = hasDirectoryFilters(filters);
 	const from = total === 0 ? 0 : (page - 1) * perPage + 1;
 	const to = Math.min(page * perPage, total);
@@ -691,6 +694,15 @@ export default function CrmDirectory({
 							))}
 						</Select>
 					</Field>
+					{selected.size > 0 ? (
+						<ButtonLink to={composeUrl} variant="ghost" icon="mail">
+							Email selected
+						</ButtonLink>
+					) : (
+						<Button type="button" variant="ghost" icon="mail" disabled>
+							Email selected
+						</Button>
+					)}
 					<Button
 						type="submit"
 						name="intent"

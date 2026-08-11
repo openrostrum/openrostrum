@@ -385,6 +385,7 @@ export const forms = sqliteTable(
 	(t) => [index("forms_event_idx").on(t.eventId)],
 );
 
+export const FIELD_RECORD_TYPE = ["session", "contact"] as const;
 export const FIELD_TYPE = [
 	"text",
 	"textarea",
@@ -418,6 +419,9 @@ export const fields = sqliteTable(
 			onDelete: "cascade",
 		}),
 		name: text("name").notNull(),
+		recordType: text("record_type", { enum: FIELD_RECORD_TYPE })
+			.notNull()
+			.default("session"),
 		type: text("type", { enum: FIELD_TYPE }).notNull().default("text"),
 		description: text("description"),
 		maxLength: integer("max_length"),
@@ -427,6 +431,7 @@ export const fields = sqliteTable(
 	(t) => [
 		index("fields_event_idx").on(t.eventId),
 		index("fields_org_idx").on(t.organizationId),
+		index("fields_record_type_org_idx").on(t.recordType, t.organizationId),
 	],
 );
 
@@ -559,6 +564,33 @@ export const contacts = sqliteTable(
 		index("contacts_event_idx").on(t.eventId),
 		index("contacts_user_idx").on(t.userId),
 		unique("contacts_event_email_uq").on(t.eventId, t.email),
+	],
+);
+
+/** Values belong to the cross-event CRM person, whose stable org key is email. */
+export const contactAnswers = sqliteTable(
+	"contact_answers",
+	{
+		id: id(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		email: text("email").notNull(),
+		fieldId: text("field_id")
+			.notNull()
+			.references(() => fields.id, { onDelete: "cascade" }),
+		value: text("value").notNull(),
+		createdAt: createdAt(),
+		updatedAt: updatedAt(),
+	},
+	(t) => [
+		unique("contact_answers_org_email_field_uq").on(
+			t.organizationId,
+			t.email,
+			t.fieldId,
+		),
+		index("contact_answers_org_email_idx").on(t.organizationId, t.email),
+		index("contact_answers_field_idx").on(t.fieldId),
 	],
 );
 
@@ -1486,6 +1518,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
 	members: many(organizationMembers),
 	apiTokens: many(apiTokens),
 	fields: many(fields),
+	contactAnswers: many(contactAnswers),
 }));
 
 export const organizationMembersRelations = relations(
@@ -1546,6 +1579,19 @@ export const fieldsRelations = relations(fields, ({ one, many }) => ({
 	}),
 	event: one(events, { fields: [fields.eventId], references: [events.id] }),
 	formFields: many(formFields),
+	submissionAnswers: many(submissionAnswers),
+	contactAnswers: many(contactAnswers),
+}));
+
+export const contactAnswersRelations = relations(contactAnswers, ({ one }) => ({
+	organization: one(organizations, {
+		fields: [contactAnswers.organizationId],
+		references: [organizations.id],
+	}),
+	field: one(fields, {
+		fields: [contactAnswers.fieldId],
+		references: [fields.id],
+	}),
 }));
 
 export const apiTokensRelations = relations(apiTokens, ({ one }) => ({
