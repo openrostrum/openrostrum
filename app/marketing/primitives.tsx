@@ -25,7 +25,7 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 
 const CTA_BASE = cn(
 	"inline-flex items-center justify-center gap-2 rounded-control font-medium",
-	"transition-[background-color,transform,box-shadow] duration-160 ease-out",
+	"transition-[background-color,transform,box-shadow] [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)]",
 	FOCUS_RING,
 	"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
 );

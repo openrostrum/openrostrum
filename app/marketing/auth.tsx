@@ -96,7 +96,7 @@ export function AuthPage({
 					target="_blank"
 					rel="noreferrer"
 					className={cn(
-						"rounded text-fg-muted transition-colors duration-150 ease-out hover:text-fg",
+						"rounded text-fg-muted transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:text-fg",
 						FOCUS_RING,
 					)}
 				>

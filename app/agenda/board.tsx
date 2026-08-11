@@ -304,7 +304,7 @@ export function SectionLabel({
 
 const CHIP_BTN = cn(
 	"inline-flex h-[28px] items-center gap-[6px] rounded-full px-[12px] text-[12.5px] font-medium",
-	"transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
+	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 );
 
 /** Chip-shaped toggle button — petrol marks “chosen”, per the design law. */

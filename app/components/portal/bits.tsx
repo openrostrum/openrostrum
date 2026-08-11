@@ -155,7 +155,7 @@ export function PillToggle({
 			aria-pressed={active}
 			onClick={onSelect}
 			className={cn(
-				"rounded-full px-[10px] py-[3px] text-[12px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
+				"rounded-full px-[10px] py-[3px] text-[12px] font-medium transition-[background-color,color,transform] [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 				active ? "bg-petrol-wash text-petrol" : "text-fg-muted hover:bg-chip",
 			)}
 		>

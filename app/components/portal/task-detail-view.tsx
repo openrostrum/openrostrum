@@ -187,7 +187,7 @@ export function TaskDetailView({
 							href={data.linkUrl}
 							target="_blank"
 							rel="noopener noreferrer"
-							className="font-medium text-petrol underline underline-offset-2 hover:text-petrol-hover"
+							className="font-medium text-petrol underline underline-offset-2 transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:text-petrol-hover"
 						>
 							Open link ↗
 						</a>

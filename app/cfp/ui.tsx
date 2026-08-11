@@ -451,9 +451,9 @@ export function AnchorButton({
 		<a
 			href={href}
 			className={cn(
-				"inline-flex h-[34px] items-center gap-[7px] rounded-control bg-ink px-[15px] text-[13px] font-medium text-on-ink shadow-btn",
+				"inline-flex h-[34px] items-center gap-[7px] rounded-control bg-ink px-[15px] text-[13px] font-medium text-on-ink shadow-btn transition-[background-color,transform] [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)]",
 				"hover:bg-ink-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
-				"active:scale-[0.97] motion-reduce:active:scale-100",
+				"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
 			)}
 		>
 			{children}
