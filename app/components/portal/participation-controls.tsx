@@ -1,5 +1,6 @@
 import { useFetcher } from "react-router";
-import { ConfirmButton, StatusBadge } from "~/ui";
+import { useBusy } from "~/lib/use-busy";
+import { Button, ConfirmButton, StatusBadge } from "~/ui";
 
 import { Muted } from "./bits";
 import type { ParticipationView } from "./types";
@@ -17,6 +18,7 @@ export function ParticipationControls({
 	participation: ParticipationView;
 }) {
 	const fetcher = useFetcher<{ formError?: string }>();
+	const busy = useBusy();
 	if (!participation.confirmable) return null;
 	return (
 		<fetcher.Form
@@ -29,25 +31,35 @@ export function ParticipationControls({
 			<StatusBadge tone={participation.status.tone}>
 				{participation.status.label}
 			</StatusBadge>
-			{participation.raw !== "accepted" && (
-				<ConfirmButton
-					label="Confirm participation"
-					prompt="Confirm you will participate in this session?"
-					confirmLabel="Yes, confirm"
-					name="intent"
-					value="confirm-participation"
-					variant="primary"
-				/>
-			)}
-			{participation.raw !== "declined" && (
-				<ConfirmButton
-					label="Withdraw"
-					prompt="Withdraw your participation? The event team will see this."
-					confirmLabel="Yes, withdraw"
-					name="intent"
-					value="withdraw-participation"
-				/>
-			)}
+			{participation.raw !== "accepted" &&
+				(busy ? (
+					<Button type="button" disabled>
+						Confirm participation
+					</Button>
+				) : (
+					<ConfirmButton
+						label="Confirm participation"
+						prompt="Confirm you will participate in this session?"
+						confirmLabel="Yes, confirm"
+						name="intent"
+						value="confirm-participation"
+						variant="primary"
+					/>
+				))}
+			{participation.raw !== "declined" &&
+				(busy ? (
+					<Button type="button" variant="ghost" disabled>
+						Withdraw
+					</Button>
+				) : (
+					<ConfirmButton
+						label="Withdraw"
+						prompt="Withdraw your participation? The event team will see this."
+						confirmLabel="Yes, withdraw"
+						name="intent"
+						value="withdraw-participation"
+					/>
+				))}
 			{fetcher.data?.formError && (
 				<Muted tone="danger">{fetcher.data.formError}</Muted>
 			)}
