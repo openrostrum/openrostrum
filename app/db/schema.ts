@@ -11,7 +11,11 @@ import {
 	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
-import { SUBMISSION_STATUS, SUBMISSION_TYPE } from "./constants";
+import {
+	PIPELINE_STAGE,
+	SUBMISSION_STATUS,
+	SUBMISSION_TYPE,
+} from "./constants";
 
 /**
  * Integration-owned: feature worktrees import from here and must not edit this
@@ -1274,6 +1278,112 @@ export const airtableLinks = sqliteTable(
 	(t) => [unique("airtable_links_table_record_uq").on(t.tableName, t.recordId)],
 );
 
+/* ------------------------------------------------------------ speaker CRM --- */
+
+/**
+ * Org-level sourcing pipeline card (Speaker CRM). The CRM "person" is derived
+ * — the union of the org's event contacts keyed by lowercased email — so a
+ * card keys on (organizationId, email) and snapshots identity at enroll time;
+ * the directory stays the live profile.
+ */
+export const pipelineCards = sqliteTable(
+	"crm_pipeline_cards",
+	{
+		id: id(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		email: text("email").notNull(), // ALWAYS stored lowercased — see normalizeEmail()
+		firstName: text("first_name").notNull(),
+		lastName: text("last_name").notNull(),
+		companyName: text("company_name"),
+		stage: text("stage", { enum: PIPELINE_STAGE })
+			.notNull()
+			.default("researching"),
+		/** Prospect score 0–100, optional at enrollment. */
+		score: integer("score"),
+		rationale: text("rationale"),
+		createdAt: createdAt(),
+		updatedAt: updatedAt(),
+	},
+	(t) => [
+		unique("crm_pipeline_cards_org_email_uq").on(t.organizationId, t.email),
+		index("crm_pipeline_cards_org_stage_idx").on(t.organizationId, t.stage),
+	],
+);
+
+/** Append-only stage-transition history; a null fromStage = the enrollment. */
+export const pipelineStageChanges = sqliteTable(
+	"crm_stage_history",
+	{
+		id: id(),
+		cardId: text("card_id")
+			.notNull()
+			.references(() => pipelineCards.id, { onDelete: "cascade" }),
+		fromStage: text("from_stage", { enum: PIPELINE_STAGE }),
+		toStage: text("to_stage", { enum: PIPELINE_STAGE }).notNull(),
+		changedById: text("changed_by_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		/** Keeps the history readable if the actor's user row goes away. */
+		changedByName: text("changed_by_name").notNull(),
+		createdAt: createdAt(),
+	},
+	(t) => [index("crm_stage_history_card_idx").on(t.cardId)],
+);
+
+/**
+ * Internal notes on a PERSON (organizationId + lowercased email) — one thread
+ * shared by the directory profile and that person's pipeline card, and keyed
+ * to the person so removing a card never destroys the org's knowledge.
+ */
+export const crmNotes = sqliteTable(
+	"person_notes",
+	{
+		id: id(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		email: text("email").notNull(),
+		authorId: text("author_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		authorName: text("author_name").notNull(),
+		body: text("body").notNull(),
+		createdAt: createdAt(),
+	},
+	(t) => [index("person_notes_org_email_idx").on(t.organizationId, t.email)],
+);
+
+/**
+ * A saved directory filter set — a dynamic segment: reopening re-runs the
+ * filters, so membership always reflects the current directory.
+ */
+export const crmSegments = sqliteTable(
+	"crm_segments",
+	{
+		id: id(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		filters: text("filters", { mode: "json" })
+			.$type<{
+				q?: string;
+				company?: string;
+				title?: string;
+				eventId?: string;
+				status?: string;
+			}>()
+			.notNull(),
+		createdById: text("created_by_id").references(() => users.id, {
+			onDelete: "set null",
+		}),
+		createdAt: createdAt(),
+	},
+	(t) => [unique("crm_segments_org_name_uq").on(t.organizationId, t.name)],
+);
+
 /* ------------------------------------------------------------------ email --- */
 
 export const EMAIL_CATEGORY = ["lifecycle", "custom"] as const;
@@ -1728,6 +1838,49 @@ export const taskAssignmentsRelations = relations(
 	}),
 );
 
+export const pipelineCardsRelations = relations(
+	pipelineCards,
+	({ one, many }) => ({
+		organization: one(organizations, {
+			fields: [pipelineCards.organizationId],
+			references: [organizations.id],
+		}),
+		stageChanges: many(pipelineStageChanges),
+	}),
+);
+
+export const pipelineStageChangesRelations = relations(
+	pipelineStageChanges,
+	({ one }) => ({
+		card: one(pipelineCards, {
+			fields: [pipelineStageChanges.cardId],
+			references: [pipelineCards.id],
+		}),
+		changedBy: one(users, {
+			fields: [pipelineStageChanges.changedById],
+			references: [users.id],
+		}),
+	}),
+);
+
+export const crmNotesRelations = relations(crmNotes, ({ one }) => ({
+	organization: one(organizations, {
+		fields: [crmNotes.organizationId],
+		references: [organizations.id],
+	}),
+	author: one(users, {
+		fields: [crmNotes.authorId],
+		references: [users.id],
+	}),
+}));
+
+export const crmSegmentsRelations = relations(crmSegments, ({ one }) => ({
+	organization: one(organizations, {
+		fields: [crmSegments.organizationId],
+		references: [organizations.id],
+	}),
+}));
+
 /* --------------------------------------------------------------- contracts --- */
 
 // drizzle-zod: DB shape → Zod, so form/API/loader contracts share one source
@@ -1743,3 +1896,5 @@ export type Submission = typeof submissions.$inferSelect;
 export type NewSubmission = typeof submissions.$inferInsert;
 export type Contact = typeof contacts.$inferSelect;
 export type Form = typeof forms.$inferSelect;
+export type PipelineCard = typeof pipelineCards.$inferSelect;
+export type CrmSegment = typeof crmSegments.$inferSelect;

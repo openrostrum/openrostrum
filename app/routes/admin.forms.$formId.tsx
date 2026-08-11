@@ -52,12 +52,15 @@ import {
 	FORM_STATUS_TONE,
 	type FormSectionId,
 	placementMissingOptions,
+	questionRuleValueAvailable,
+	ruleApplyDisabled,
 	RULE_TRIGGER_FIELD_TYPES,
 	utcToZonedInputs,
 	zonedTimeToUtc,
 } from "~/lib/forms";
 import { loadRuleOptions, sanitizeRichText } from "~/lib/forms.server";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { PaginationBar } from "./admin.forms";
 import {
 	Button,
@@ -696,7 +699,7 @@ async function handleSetRule(
 			formError: "Rules can only depend on questions in the same step.",
 		};
 	if (resolved.valueKind === "number") {
-		if (!/^-?\d+(\.\d+)?$/.test(value))
+		if (!questionRuleValueAvailable("number", [], value))
 			return { formError: "Enter a number to compare against." };
 	} else {
 		if (operator !== "equals" && operator !== "not_equals")
@@ -1710,6 +1713,7 @@ function RuleEditor({
 	onClose: () => void;
 }) {
 	const fetcher = useFetcher<typeof action>();
+	const busy = useBusy();
 	const rule = placement.questionRule;
 	const [trigger, setTrigger] = useState(
 		rule
@@ -1726,6 +1730,11 @@ function RuleEditor({
 		chosen?.valueKind === "number"
 			? ["equals", "not_equals", "gt", "lt"]
 			: ["equals", "not_equals"];
+	const valuesMissing =
+		chosen?.valueKind === "options" && chosen.valueOptions.length === 0;
+	const valueAvailable = chosen
+		? questionRuleValueAvailable(chosen.valueKind, chosen.valueOptions, value)
+		: false;
 	if (choices.length === 0) {
 		return (
 			<Panel>
@@ -1784,9 +1793,11 @@ function RuleEditor({
 							<Select
 								value={value}
 								onChange={(e) => setValue(e.target.value)}
-								disabled={!chosen}
+								disabled={!chosen || valuesMissing}
 							>
-								<option value="">Choose a value…</option>
+								<option value="">
+									{valuesMissing ? "No values yet" : "Choose a value…"}
+								</option>
 								{(chosen?.valueOptions ?? []).map((o) => (
 									<option key={o.value} value={o.value}>
 										{o.label}
@@ -1797,7 +1808,7 @@ function RuleEditor({
 					</Field>
 					<Button
 						type="button"
-						disabled={!trigger || !value.trim()}
+						disabled={ruleApplyDisabled(busy, trigger, valueAvailable)}
 						onClick={() =>
 							fetcher.submit(
 								{
@@ -1831,6 +1842,13 @@ function RuleEditor({
 						Close
 					</Button>
 				</div>
+				{valuesMissing && chosen && (
+					<p>
+						“{chosen.label}” has no options yet — add them in the{" "}
+						<TextLink to="/admin/settings/library">Library</TextLink> to build a
+						rule on it.
+					</p>
+				)}
 				{fetcher.data?.formError && (
 					<ErrorText>{fetcher.data.formError}</ErrorText>
 				)}
