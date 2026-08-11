@@ -6,7 +6,7 @@ import {
 	useOutletContext,
 	useSearchParams,
 } from "react-router";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { isFormClosed, loadPortalPath, loadPublicForm } from "~/cfp/server";
 import {
 	AnchorButton,
@@ -48,7 +48,14 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			submitterId: submissions.submitterId,
 		})
 		.from(submissions)
-		.where(eq(submissions.id, sid))
+		.where(
+			and(
+				eq(submissions.id, sid),
+				eq(submissions.eventId, event.id),
+				eq(submissions.formId, form.id),
+				eq(submissions.submitterId, user.id),
+			),
+		)
 		.limit(1);
 	if (!row || row.submitterId !== user.id) {
 		throw data("Submission not found", { status: 404 });
