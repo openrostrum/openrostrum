@@ -7,6 +7,7 @@ import { adminFormPath } from "~/domain/forms";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { effectiveFormStatus, FORM_STATUS_TONE } from "~/lib/forms";
 import { createTimings } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
@@ -216,11 +217,11 @@ function listHref(tab: string, q: string, page = 1): string {
 	return qs ? `/admin/forms?${qs}` : "/admin/forms";
 }
 
-function NewFormButton() {
+function NewFormButton({ busy }: { busy: boolean }) {
 	return (
 		<Form method="post" action="/admin/forms/new">
 			<Input type="hidden" name="intent" value="create" readOnly />
-			<Button type="submit" icon="plus">
+			<Button type="submit" icon="plus" disabled={busy}>
 				New form
 			</Button>
 		</Form>
@@ -229,9 +230,11 @@ function NewFormButton() {
 
 function FormActionsMenu({
 	form,
+	busy,
 	onDelete,
 }: {
 	form: FormRow;
+	busy: boolean;
 	onDelete: () => void;
 }) {
 	return (
@@ -251,7 +254,7 @@ function FormActionsMenu({
 						{form.rawStatus !== "open" && (
 							<Form method="post" action={adminFormPath(form.id)}>
 								<Input type="hidden" name="intent" value="publish" readOnly />
-								<Button variant="ghost" type="submit">
+								<Button variant="ghost" type="submit" disabled={busy}>
 									Open form
 								</Button>
 							</Form>
@@ -270,11 +273,16 @@ function FormActionsMenu({
 						</ButtonLink>
 						<Form method="post" action={adminFormPath(form.id)}>
 							<Input type="hidden" name="intent" value="duplicate" readOnly />
-							<Button variant="ghost" type="submit">
+							<Button variant="ghost" type="submit" disabled={busy}>
 								Duplicate
 							</Button>
 						</Form>
-						<Button variant="ghost" type="button" onClick={onDelete}>
+						<Button
+							variant="ghost"
+							type="button"
+							disabled={busy}
+							onClick={onDelete}
+						>
 							Delete
 						</Button>
 					</div>
@@ -286,9 +294,11 @@ function FormActionsMenu({
 
 function DeleteFormDialog({
 	form,
+	busy,
 	onCancel,
 }: {
 	form: FormRow;
+	busy: boolean;
 	onCancel: () => void;
 }) {
 	useEffect(() => {
@@ -320,7 +330,9 @@ function DeleteFormDialog({
 							</Button>
 							<Form method="post" action={adminFormPath(form.id)}>
 								<Input type="hidden" name="intent" value="delete" readOnly />
-								<Button type="submit">Delete form</Button>
+								<Button type="submit" disabled={busy}>
+									Delete form
+								</Button>
 							</Form>
 						</div>
 					</div>
@@ -346,6 +358,7 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 	// Flat routes make this file the LAYOUT for admin.forms.$formId — when the
 	// editor matches, it replaces the list rather than nesting inside it.
 	const outlet = useOutlet();
+	const busy = useBusy();
 	if (outlet) return outlet;
 
 	return (
@@ -354,7 +367,7 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 				title="Forms"
 				count={`${tabCounts.all} total`}
 				subtitle="Collect abstract, session and participant information."
-				actions={hasEvent ? <NewFormButton /> : undefined}
+				actions={hasEvent ? <NewFormButton busy={busy} /> : undefined}
 			/>
 
 			<Form method="get" className="flex items-center gap-2">
@@ -421,7 +434,7 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 							icon="sliders"
 							title="No forms yet"
 							body="Create a submission form to start collecting proposals — its public link becomes shareable the moment you publish."
-							action={<NewFormButton />}
+							action={<NewFormButton busy={busy} />}
 						/>
 					)}
 				</Panel>
@@ -445,7 +458,11 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 										Created {f.createdLabel}
 									</p>
 								</div>
-								<FormActionsMenu form={f} onDelete={() => setDeleteId(f.id)} />
+								<FormActionsMenu
+									form={f}
+									busy={busy}
+									onDelete={() => setDeleteId(f.id)}
+								/>
 							</div>
 						</Panel>
 					))}
@@ -462,6 +479,7 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 			{deleteTarget && (
 				<DeleteFormDialog
 					form={deleteTarget}
+					busy={busy}
 					onCancel={() => setDeleteId(null)}
 				/>
 			)}

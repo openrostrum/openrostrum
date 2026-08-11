@@ -60,6 +60,7 @@ import {
 } from "~/lib/forms";
 import { loadRuleOptions, sanitizeRichText } from "~/lib/forms.server";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { PaginationBar } from "./admin.forms";
 import {
 	Button,
@@ -1484,11 +1485,13 @@ function OnOffSelect({
 	name: string;
 	defaultOn: boolean;
 }) {
+	const busy = useBusy();
 	return (
 		<Field label={label}>
 			<Select
 				name={name}
 				defaultValue={defaultOn ? "true" : "false"}
+				disabled={busy}
 				form="builder-form"
 			>
 				<option value="true">On</option>
@@ -1510,6 +1513,7 @@ function MemberPicker({
 	initial: string[];
 }) {
 	const [selected, setSelected] = useState<string[]>(initial);
+	const busy = useBusy();
 	return (
 		<div className="flex flex-col gap-[5px]">
 			<Field label={label}>
@@ -1528,6 +1532,7 @@ function MemberPicker({
 							type="button"
 							variant={on ? "primary" : "ghost"}
 							aria-pressed={on}
+							disabled={busy}
 							onClick={() =>
 								setSelected((prev) =>
 									on ? prev.filter((id) => id !== m.id) : [...prev, m.id],
@@ -1557,19 +1562,21 @@ function FieldRow({
 	placement,
 	siblings,
 	ruleOptions,
+	busy,
 	isRuleOpen,
 	onToggleRule,
 }: {
 	placement: Placement;
 	siblings: Placement[];
 	ruleOptions: RuleOptions;
+	busy: boolean;
 	isRuleOpen: boolean;
 	onToggleRule: () => void;
 }) {
 	const view = placementView(placement);
 	const fetcher = useFetcher<typeof action>();
 	const { attributes, listeners, setNodeRef, transform, transition } =
-		useSortable({ id: placement.id });
+		useSortable({ id: placement.id, disabled: busy });
 	// Drag GEOMETRY only (transform/transition) — dnd-kit cannot move the row
 	// without it. Visual drag styling (dim/elevate) is a skin decision a route
 	// must not make.
@@ -1621,7 +1628,7 @@ function FieldRow({
 					<Select
 						aria-label={`Required: ${view.name}`}
 						value={required ? "true" : "false"}
-						disabled={view.requiredLocked}
+						disabled={view.requiredLocked || busy}
 						onChange={(e) =>
 							fetcher.submit(
 								{
@@ -1646,6 +1653,7 @@ function FieldRow({
 					<Button
 						type="button"
 						variant="ghost"
+						disabled={busy}
 						onClick={() =>
 							fetcher.submit(
 								{ intent: "remove-field", formFieldId: placement.id },
@@ -1684,6 +1692,7 @@ function RuleEditor({
 	onClose: () => void;
 }) {
 	const fetcher = useFetcher<typeof action>();
+	const busy = useBusy();
 	const rule = placement.questionRule;
 	const [trigger, setTrigger] = useState(
 		rule
@@ -1721,6 +1730,7 @@ function RuleEditor({
 					<Field label="Trigger question">
 						<Select
 							value={trigger}
+							disabled={busy}
 							onChange={(e) => {
 								setTrigger(e.target.value);
 								setValue("");
@@ -1738,6 +1748,7 @@ function RuleEditor({
 					<Field label="Condition">
 						<Select
 							value={operator}
+							disabled={busy}
 							onChange={(e) => setOperator(e.target.value)}
 						>
 							{operators.map((op) => (
@@ -1757,8 +1768,8 @@ function RuleEditor({
 						) : (
 							<Select
 								value={value}
+								disabled={busy || !chosen}
 								onChange={(e) => setValue(e.target.value)}
-								disabled={!chosen}
 							>
 								<option value="">Choose a value…</option>
 								{(chosen?.valueOptions ?? []).map((o) => (
@@ -1771,7 +1782,7 @@ function RuleEditor({
 					</Field>
 					<Button
 						type="button"
-						disabled={!trigger || !value.trim()}
+						disabled={busy || !trigger || !value.trim()}
 						onClick={() =>
 							fetcher.submit(
 								{
@@ -1791,6 +1802,7 @@ function RuleEditor({
 						<Button
 							type="button"
 							variant="ghost"
+							disabled={busy}
 							onClick={() =>
 								fetcher.submit(
 									{ intent: "clear-rule", formFieldId: placement.id },
@@ -1830,6 +1842,7 @@ function FieldList({
 	const rows = placements.filter((p) => p.section === section);
 	const [openRule, setOpenRule] = useState<string | null>(null);
 	const reorderFetcher = useFetcher<typeof action>();
+	const busy = useBusy();
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
 		useSensor(KeyboardSensor, {
@@ -1859,7 +1872,7 @@ function FieldList({
 				sensors={sensors}
 				collisionDetection={closestCenter}
 				onDragEnd={({ active, over }) => {
-					if (!over || active.id === over.id) return;
+					if (busy || !over || active.id === over.id) return;
 					const ids = ordered.map((r) => r.id);
 					const next = arrayMove(
 						ids,
@@ -1883,6 +1896,7 @@ function FieldList({
 								placement={p}
 								siblings={ordered}
 								ruleOptions={ruleOptions}
+								busy={busy}
 								isRuleOpen={openRule === p.id}
 								onToggleRule={() =>
 									setOpenRule((cur) => (cur === p.id ? null : p.id))
@@ -1919,6 +1933,7 @@ function LibraryPicker({
 }) {
 	const search = useFetcher<typeof loader>();
 	const add = useFetcher<typeof action>();
+	const busy = useBusy();
 	const [q, setQ] = useState("");
 	useEffect(() => {
 		if (!q.trim()) return;
@@ -1962,7 +1977,7 @@ function LibraryPicker({
 							<Button
 								type="button"
 								variant="ghost"
-								disabled={placed}
+								disabled={placed || busy}
 								onClick={() =>
 									add.submit(
 										{ intent: "add-library", fieldId: f.id, section },
@@ -1989,6 +2004,7 @@ function CreateFieldPanel({
 	formPath: string;
 }) {
 	const fetcher = useFetcher<typeof action>();
+	const busy = useBusy();
 	const [type, setType] = useState<string>("text");
 	const errors = fetcher.data?.fieldErrors;
 	const hasLength =
@@ -2021,6 +2037,7 @@ function CreateFieldPanel({
 				<Select
 					name="type"
 					value={type}
+					disabled={busy}
 					onChange={(e) => setType(e.target.value)}
 				>
 					{CREATE_FIELD_TYPES.map((t) => (
@@ -2048,18 +2065,20 @@ function CreateFieldPanel({
 				<Input name="description" />
 			</Field>
 			<Field label="Scope">
-				<Select name="scope" defaultValue="event">
+				<Select name="scope" defaultValue="event" disabled={busy}>
 					<option value="event">This event only</option>
 					<option value="org">Organization-wide</option>
 				</Select>
 			</Field>
 			<Field label="Required">
-				<Select name="required" defaultValue="false">
+				<Select name="required" defaultValue="false" disabled={busy}>
 					<option value="false">Optional</option>
 					<option value="true">Required</option>
 				</Select>
 			</Field>
-			<Button type="submit">Add field</Button>
+			<Button type="submit" disabled={busy}>
+				Add field
+			</Button>
 			{fetcher.data?.formError && (
 				<ErrorText>{fetcher.data.formError}</ErrorText>
 			)}
@@ -2086,6 +2105,7 @@ function AddQuestion({
 	>(null);
 	const builtinFetcher = useFetcher<typeof action>();
 	const layoutFetcher = useFetcher<typeof action>();
+	const busy = useBusy();
 	const placedRefs = new Set(
 		placements.filter((p) => p.builtinRef).map((p) => p.builtinRef),
 	);
@@ -2154,7 +2174,7 @@ function AddQuestion({
 						>
 							<Input type="hidden" name="intent" value="add-builtin" readOnly />
 							<Field label="Built-in question">
-								<Select name="ref">
+								<Select name="ref" disabled={busy}>
 									{unusedBuiltins.map((ref) => (
 										<option key={ref} value={ref}>
 											{BUILTIN_META[ref].label}
@@ -2162,7 +2182,9 @@ function AddQuestion({
 									))}
 								</Select>
 							</Field>
-							<Button type="submit">Add question</Button>
+							<Button type="submit" disabled={busy}>
+								Add question
+							</Button>
 							{builtinFetcher.data?.formError && (
 								<ErrorText>{builtinFetcher.data.formError}</ErrorText>
 							)}
@@ -2183,10 +2205,21 @@ function AddQuestion({
 						>
 							<Input name="label" />
 						</Field>
-						<Button type="submit" name="kind" value="section_header">
+						<Button
+							type="submit"
+							name="kind"
+							value="section_header"
+							disabled={busy}
+						>
 							Add section header
 						</Button>
-						<Button type="submit" name="kind" value="divider" variant="ghost">
+						<Button
+							type="submit"
+							name="kind"
+							value="divider"
+							variant="ghost"
+							disabled={busy}
+						>
 							Add divider
 						</Button>
 						{layoutFetcher.data?.formError && (
@@ -2370,6 +2403,7 @@ function Builder({
 	const [step, setStep] = useState<StepId>("setup");
 	const [formType, setFormType] = useState(d.form.type);
 	const navigation = useNavigation();
+	const busy = useBusy();
 	const savingForm =
 		navigation.state !== "idle" &&
 		navigation.formData?.get("intent") === "save-form";
@@ -2426,7 +2460,7 @@ function Builder({
 						{d.form.status !== "open" && (
 							<Form method="post">
 								<Input type="hidden" name="intent" value="publish" readOnly />
-								<Button type="submit" variant="ghost">
+								<Button type="submit" variant="ghost" disabled={busy}>
 									Publish
 								</Button>
 							</Form>
@@ -2434,7 +2468,7 @@ function Builder({
 						{actionData?.ok === "save-form" && !savingForm && (
 							<span aria-live="polite">Saved</span>
 						)}
-						<Button form="builder-form" type="submit" disabled={savingForm}>
+						<Button form="builder-form" type="submit" disabled={busy}>
 							{savingForm ? "Saving…" : "Save"}
 						</Button>
 					</>
@@ -2490,7 +2524,9 @@ function Builder({
 								value="initialize-builtins"
 								readOnly
 							/>
-							<Button type="submit">Set up built-in questions</Button>
+							<Button type="submit" disabled={busy}>
+								Set up built-in questions
+							</Button>
 						</Form>
 					</div>
 				</Panel>
@@ -2527,6 +2563,7 @@ function Builder({
 											type="button"
 											variant={formType === "abstract" ? "primary" : "ghost"}
 											aria-pressed={formType === "abstract"}
+											disabled={busy}
 											onClick={() => setFormType("abstract")}
 										>
 											Abstracts
@@ -2535,6 +2572,7 @@ function Builder({
 											type="button"
 											variant={formType === "session" ? "primary" : "ghost"}
 											aria-pressed={formType === "session"}
+											disabled={busy}
 											onClick={() => setFormType("session")}
 										>
 											Sessions
@@ -2833,7 +2871,7 @@ function Builder({
 							</Button>
 						)}
 						<div className="ml-auto">
-							<Button form="builder-form" type="submit" disabled={savingForm}>
+							<Button form="builder-form" type="submit" disabled={busy}>
 								{savingForm ? "Saving…" : "Save"}
 							</Button>
 						</div>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Form, Link, useFetcher, useNavigation } from "react-router";
+import { Form, Link, useFetcher } from "react-router";
 // Pure client-safe module: the Abstracts and Sessions tabs are ONE
 // implementation rendered by two type-scoped routes (server half in
 // ./submission-list.server.ts). Enums come from ~/db/constants so no drizzle
@@ -9,6 +9,7 @@ import {
 	DECISION_STATUS,
 	type SUBMISSION_TYPE,
 } from "~/db/constants";
+import { useBusy } from "~/lib/use-busy";
 
 import {
 	Button,
@@ -150,6 +151,7 @@ export function AddSubmissionDrawer({
 	contactsTruncated: boolean;
 	onClose: () => void;
 }) {
+	const busy = useBusy();
 	const [filter, setFilter] = useState("");
 	const fetcher = useFetcher<{
 		created?: boolean;
@@ -203,7 +205,7 @@ export function AddSubmissionDrawer({
 							</Field>
 						</div>
 						<Field label="Status">
-							<Select name="status" defaultValue="pending">
+							<Select name="status" defaultValue="pending" disabled={busy}>
 								{DECISION_STATUS.map((s) => (
 									<option key={s} value={s}>
 										{humanStatus(s)}
@@ -230,6 +232,7 @@ export function AddSubmissionDrawer({
 										type="checkbox"
 										name="participantContactIds"
 										value={c.id}
+										disabled={busy}
 									/>
 									<span>
 										{c.name} · {c.email}
@@ -260,7 +263,7 @@ export function AddSubmissionDrawer({
 						<ErrorText>{fetcher.data.warning}</ErrorText>
 					)}
 					<div className="flex gap-2">
-						<Button type="submit" disabled={fetcher.state !== "idle"}>
+						<Button type="submit" disabled={busy}>
 							Create
 						</Button>
 						<Button type="button" variant="ghost" onClick={onClose}>
@@ -284,11 +287,9 @@ export function SubmissionListPage({
 	data: SubmissionListData;
 	actionData?: ListActionData;
 }) {
+	const busy = useBusy();
 	const loaded = data.eventName === null ? null : data;
 	const [drawerOpen, setDrawerOpen] = useState(false);
-	// Bulk apply is a document POST — block the double-click that would replay
-	// the transition before the first response lands.
-	const busy = useNavigation().state !== "idle";
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	// A new page/tab/search renders different rows — a stale selection would
 	// silently act on rows the admin can no longer see.
@@ -400,7 +401,7 @@ export function SubmissionListPage({
 				</Form>
 				<Form method="post" id={bulkFormId} className="flex items-end gap-2">
 					<Field label={`${selected.size} selected — set status to`}>
-						<Select name="status" defaultValue="accept_queue">
+						<Select name="status" defaultValue="accept_queue" disabled={busy}>
 							{DECISION_STATUS.map((s) => (
 								<option key={s} value={s}>
 									{humanStatus(s)}
@@ -454,6 +455,7 @@ export function SubmissionListPage({
 									form={bulkFormId}
 									aria-label={`Select ${s.title}`}
 									checked={selected.has(s.id)}
+									disabled={busy}
 									onChange={(e) =>
 										toggleSelected(s.id, e.currentTarget.checked)
 									}

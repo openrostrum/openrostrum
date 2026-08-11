@@ -1,7 +1,7 @@
 import { and, count, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { useState } from "react";
-import { Form, data, redirect, useFetcher, useNavigation } from "react-router";
+import { Form, data, redirect, useFetcher } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 // Client-safe enums come from ~/db/constants (pure) — importing them from
@@ -28,6 +28,7 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { parseSubmissionFilters } from "~/lib/submission-list.server";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	Chip,
@@ -549,10 +550,12 @@ function StatusCell({
 	id,
 	title,
 	status,
+	busy,
 }: {
 	id: string;
 	title: string;
 	status: (typeof SUBMISSION_STATUS)[number];
+	busy: boolean;
 }) {
 	const fetcher = useFetcher();
 	const pending = fetcher.formData?.get("status");
@@ -585,6 +588,7 @@ function StatusCell({
 				name="status"
 				defaultValue={status}
 				aria-label={`Change status of ${title}`}
+				disabled={busy}
 				onChange={(e) => fetcher.submit(e.currentTarget.form)}
 			>
 				{status === "withdrawn" && (
@@ -607,11 +611,9 @@ export default function Submissions({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
+	const busy = useBusy();
 	const { submissions: rows, total, filterType, filterStatus } = loaderData;
 	const filtered = Boolean(filterType || filterStatus);
-	// Disabled-while-submitting: a double-clicked document POST fires twice
-	// before the response lands, and a duplicate create is a real row.
-	const busy = useNavigation().state !== "idle";
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	// The send idempotency key is minted per SELECTION and held in client
 	// state, so loader revalidation can't rotate it: retrying a failed (or
@@ -650,7 +652,7 @@ export default function Submissions({
 						<Input name="title" invalid={Boolean(fieldErrors?.title?.[0])} />
 					</Field>
 					<Field label="Type">
-						<Select name="type">
+						<Select name="type" disabled={busy}>
 							{SUBMISSION_TYPE.map((t) => (
 								<option key={t} value={t}>
 									{t}
@@ -659,7 +661,7 @@ export default function Submissions({
 						</Select>
 					</Field>
 					<Field label="Status">
-						<Select name="status">
+						<Select name="status" disabled={busy}>
 							{SUBMISSION_STATUS.map((s) => (
 								<option key={s} value={s}>
 									{s.replace("_", " ")}
@@ -684,7 +686,7 @@ export default function Submissions({
 					<Field
 						label={`${selected.size} selected submission${selected.size === 1 ? "" : "s"}`}
 					>
-						<Select name="status" defaultValue="accept_queue">
+						<Select name="status" defaultValue="accept_queue" disabled={busy}>
 							{DECISION_STATUS.map((s) => (
 								<option key={s} value={s}>
 									{s.replace("_", " ")}
@@ -805,6 +807,7 @@ export default function Submissions({
 									form="bulk-actions"
 									aria-label={`Select ${s.title}`}
 									checked={selected.has(s.id)}
+									disabled={busy}
 									onChange={(e) =>
 										toggleSelected(s.id, e.currentTarget.checked)
 									}
@@ -812,7 +815,12 @@ export default function Submissions({
 							</Td>
 							<Td kind="strong">{s.title}</Td>
 							<Td>
-								<StatusCell id={s.id} title={s.title} status={s.status} />
+								<StatusCell
+									id={s.id}
+									title={s.title}
+									status={s.status}
+									busy={busy}
+								/>
 							</Td>
 							<Td>
 								<div className="flex flex-wrap gap-3">

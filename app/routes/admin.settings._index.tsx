@@ -1,11 +1,12 @@
 import { eq } from "drizzle-orm";
-import { Form, data, useNavigation, useRouteLoaderData } from "react-router";
+import { Form, data, useRouteLoaderData } from "react-router";
 import { getDb } from "~/db";
 import { events } from "~/db/schema";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { bytesToBase64 } from "~/lib/base64";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	eventDetailsValues,
 	isSlugTakenError,
@@ -361,7 +362,7 @@ export default function EventDetails({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	const { event, values, images } = loaderData;
 	// The admin layout already loads the switcher listing on every admin
 	// navigation — read it instead of re-querying the same rows here.

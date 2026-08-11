@@ -1,11 +1,12 @@
 import { asc, eq } from "drizzle-orm";
-import { Form, redirect, useNavigation } from "react-router";
+import { Form, redirect } from "react-router";
 import { getDb } from "~/db";
 import { events, organizationMembers, organizations, users } from "~/db/schema";
 import { provisionEventDefaults } from "~/domain/provisionEvent";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import {
 	isSlugTakenError,
 	parseEventDetails,
@@ -139,7 +140,7 @@ export default function NewEvent({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	return (
 		<div className="mx-auto flex max-w-[760px] flex-col gap-5 px-7 py-6">
 			<PageHeader
