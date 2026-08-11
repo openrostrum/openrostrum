@@ -3,7 +3,9 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
+	contacts,
 	emailOutbox,
+	events,
 	fileComments,
 	files,
 	portalForms,
@@ -457,20 +459,46 @@ describe("portal tasks", () => {
 		// One submit firing twice replays the SAME client key — both report
 		// success, one row lands.
 		const key = crypto.randomUUID();
-		const first = unwrap<{ ok?: boolean }>(
-			await comment("Speaker notes are on slide 12.", key),
-		);
-		const second = unwrap<{ ok?: boolean }>(
-			await comment("Speaker notes are on slide 12.", key),
-		);
-		expect(first.ok).toBe(true);
-		expect(second.ok).toBe(true);
+		const [firstResponse, secondResponse] = await Promise.all([
+			comment("Speaker notes are on slide 12.", key),
+			comment("Speaker notes are on slide 12.", key),
+		]);
+		const first = unwrap<{
+			ok?: boolean;
+			commentKey?: string;
+			commentFileId?: string;
+		}>(firstResponse);
+		const second = unwrap<{
+			ok?: boolean;
+			commentKey?: string;
+			commentFileId?: string;
+		}>(secondResponse);
+		expect(first).toMatchObject({ ok: true, commentFileId: upload?.id });
+		expect(second).toMatchObject({ ok: true, commentFileId: upload?.id });
+		expect(first.commentKey).not.toBe(key);
+		expect(second.commentKey).not.toBe(key);
 		expect(await thread()).toHaveLength(1);
+
+		// The author label is server-derived display data, not part of the
+		// logical operation. A rename between a committed write and its replay
+		// must not turn that replay into a second comment.
+		await db
+			.update(contacts)
+			.set({ firstName: "Priyanka" })
+			.where(eq(contacts.id, "c_priya"));
+		await comment("Speaker notes are on slide 12.", key);
+		expect(await thread()).toHaveLength(1);
+
+		// Reusing a visible key with changed text is a new logical comment, but
+		// replaying that changed request still lands once.
+		await comment("Edited speaker notes.", key);
+		await comment("Edited speaker notes.", key);
+		expect(await thread()).toHaveLength(2);
 
 		// A deliberate re-post of the same words rides a FRESH key and lands —
 		// comments send no notifications, so a re-ping must never vanish.
 		await comment("Speaker notes are on slide 12.", crypto.randomUUID());
-		expect(await thread()).toHaveLength(2);
+		expect(await thread()).toHaveLength(3);
 
 		// A missing/garbage key never blocks the post — the server mints one.
 		const bare = await taskAction({
@@ -488,7 +516,7 @@ describe("portal tasks", () => {
 			params: params("ta_slides"),
 		} as unknown as ActionArgs);
 		expect(unwrap<{ ok?: boolean }>(bare).ok).toBe(true);
-		expect(await thread()).toHaveLength(3);
+		expect(await thread()).toHaveLength(4);
 
 		// Comment ids are visible in loader payloads — a key colliding with
 		// ANOTHER author's row is not a replay and must not eat the comment.
@@ -501,7 +529,8 @@ describe("portal tasks", () => {
 			body: "Looks good.",
 		});
 		await comment("Collides with a foreign id, still lands.", organizerRowId);
-		expect(await thread()).toHaveLength(5);
+		await comment("Collides with a foreign id, still lands.", organizerRowId);
+		expect(await thread()).toHaveLength(6);
 	});
 
 	it("serializes comments with the author's real name, an isYou flag, and a date+time stamp", async () => {
@@ -541,10 +570,27 @@ describe("portal tasks", () => {
 			authorName: "Olive Organizer",
 			body: "Looks great.",
 		});
+		await db
+			.update(files)
+			.set({ createdAt: new Date("2026-08-10T00:30:00Z") })
+			.where(eq(files.id, upload?.id ?? ""));
+		await db
+			.update(fileComments)
+			.set({ createdAt: new Date("2026-08-10T01:30:00Z") })
+			.where(eq(fileComments.body, "Ready for review."));
+		await db
+			.update(fileComments)
+			.set({ createdAt: new Date("2026-08-10T02:30:00Z") })
+			.where(eq(fileComments.body, "Looks great."));
+		await db
+			.update(events)
+			.set({ timezone: "Not/A-Timezone" })
+			.where(eq(events.id, "e1"));
 
 		const loaded = unwrap<{
 			fileRequest: {
 				files: Array<{
+					commentKey: string;
 					uploadedOn: string;
 					comments: Array<{
 						author: string;
@@ -562,14 +608,19 @@ describe("portal tasks", () => {
 			} as unknown as LoaderArgs),
 		);
 		const file = loaded.fileRequest.files[0];
+		expect(file?.commentKey).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+		);
 		// The thread names its authors — the viewer is flagged, never renamed.
 		expect(file?.comments.map((c) => [c.author, c.isYou])).toEqual([
 			["Priya R", true],
 			["Olive Organizer", false],
 		]);
-		// Timestamps carry a time of day, never a bare date.
-		const withTime = /\d{1,2}:\d{2}/;
-		expect(file?.uploadedOn).toMatch(withTime);
-		for (const c of file?.comments ?? []) expect(c.on).toMatch(withTime);
+		// The invalid imported timezone degrades to exact UTC date-times.
+		expect(file?.uploadedOn).toBe("Aug 10, 2026, 12:30 AM UTC");
+		expect(file?.comments.map((comment) => comment.on)).toEqual([
+			"Aug 10, 2026, 1:30 AM UTC",
+			"Aug 10, 2026, 2:30 AM UTC",
+		]);
 	});
 });

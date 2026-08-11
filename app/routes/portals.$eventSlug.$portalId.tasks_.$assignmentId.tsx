@@ -29,6 +29,7 @@ import {
 } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { resolveTimezone } from "~/lib/event-time";
 import { formatBytes, formatDateUTC, formatInTz } from "~/lib/format";
 import { isOverdue } from "~/lib/task-status";
 import { getEmailSender } from "~/ports/email";
@@ -72,7 +73,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		requireMyAssignment(env, ctx, params.assignmentId),
 	);
 	const db = getDb(env);
-	const tz = ctx.event.timezone;
+	const tz = resolveTimezone(ctx.event.timezone);
 	const now = new Date();
 
 	const kind: "file" | "form" | "simple" = task.isFileRequest
@@ -112,6 +113,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		canUpload: boolean;
 		files: Array<{
 			id: string;
+			commentKey: string;
 			version: number;
 			fileName: string;
 			size: string;
@@ -158,6 +160,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			canUpload: assignment.status !== "complete",
 			files: uploads.map((f, i) => ({
 				id: f.id,
+				commentKey: crypto.randomUUID(),
 				version: f.version,
 				fileName: f.fileName,
 				size: formatBytes(f.sizeBytes),
@@ -432,9 +435,14 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 
 	if (intent === "comment") {
 		const fileId = String(form.get("fileId") ?? "");
+		const commentKey = String(form.get("commentKey") ?? "");
 		const body = String(form.get("body") ?? "").trim();
 		if (!body || body.length > 2000) {
-			return fail({ formError: "Write a comment up to 2,000 characters." });
+			return fail({
+				commentKey,
+				commentFileId: fileId,
+				formError: "Write a comment up to 2,000 characters.",
+			});
 		}
 		const [file] = await db
 			.select({ id: files.id })
@@ -448,7 +456,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		try {
 			({ deduped } = await timings.time("db", () =>
 				addFileComment(db, {
-					key: form.get("commentKey"),
+					key: commentKey,
 					fileId: file.id,
 					authorId: user.id,
 					authorName: ctx.contact
@@ -464,6 +472,8 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				error: errorMessage(error),
 			});
 			return fail({
+				commentKey,
+				commentFileId: file.id,
 				formError: "Could not post your comment — please try again.",
 			});
 		}
@@ -473,7 +483,12 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			deduped,
 		});
 		return data(
-			{ intent, ok: true },
+			{
+				intent,
+				ok: true,
+				commentKey: crypto.randomUUID(),
+				commentFileId: file.id,
+			},
 			{ headers: { "Server-Timing": timings.header() } },
 		);
 	}

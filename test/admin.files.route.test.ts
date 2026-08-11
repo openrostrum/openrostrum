@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { fileComments, files, taskAssignments } from "../app/db/schema";
+import { events, fileComments, files, taskAssignments } from "../app/db/schema";
 import { loader as libraryLoader } from "../app/routes/admin.files";
 import {
 	action as detailAction,
@@ -76,6 +76,7 @@ async function loadLibrary(query = "") {
 			reviewStatus: string;
 		}>;
 		total: number;
+		timezone: string;
 	}>(
 		await libraryLoader({
 			context: CONTEXT,
@@ -88,9 +89,15 @@ async function loadLibrary(query = "") {
 async function loadDetail(fileId: string) {
 	const request = await authedRequest(`http://localhost/admin/files/${fileId}`);
 	return unwrap<{
+		commentKey: string;
 		latest: { id: string; version: number; reviewStatus: string };
-		versions: Array<{ id: string; version: number }>;
-		comments: Array<{ author: string; body: string; version: number | null }>;
+		versions: Array<{ id: string; version: number; uploadedOn: string }>;
+		comments: Array<{
+			author: string;
+			body: string;
+			version: number | null;
+			on: string;
+		}>;
 	}>(
 		await detailLoader({
 			context: CONTEXT,
@@ -230,6 +237,15 @@ describe("central files library", () => {
 		const ids = [...page1.rows, ...page2.rows].map((r) => r.id);
 		expect(new Set(ids).size).toBe(55);
 	});
+
+	it("falls back to UTC when an imported event timezone is invalid", async () => {
+		const db = await seedSlidesChain();
+		await db
+			.update(events)
+			.set({ timezone: "Not/A-Timezone" })
+			.where(eq(events.id, "e1"));
+		expect((await loadLibrary()).timezone).toBe("UTC");
+	});
 });
 
 describe("file detail — versions, review, comments", () => {
@@ -238,6 +254,22 @@ describe("file detail — versions, review, comments", () => {
 		const fromOld = await loadDetail("f_slides_v1");
 		expect(fromOld.versions.map((v) => v.version)).toEqual([2, 1]);
 		expect(fromOld.latest.id).toBe("f_slides_v2");
+		expect(fromOld.commentKey).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+		);
+	});
+
+	it("renders timestamps in UTC when an imported timezone is invalid", async () => {
+		const db = await seedSlidesChain();
+		await db
+			.update(events)
+			.set({ timezone: "Not/A-Timezone" })
+			.where(eq(events.id, "e1"));
+		const detail = await loadDetail("f_slides_v1");
+		expect(detail.versions.map((version) => version.uploadedOn)).toEqual([
+			"Aug 2, 2026, 10:00 AM UTC",
+			"Aug 1, 2026, 10:00 AM UTC",
+		]);
 	});
 
 	it("404s a file belonging to another event", async () => {
@@ -300,11 +332,21 @@ describe("file detail — versions, review, comments", () => {
 			body: "Draft deck - final version coming Friday.",
 			createdAt: new Date("2026-08-01T11:00:00Z"),
 		});
-		const response = await postDetail("f_slides_v2", {
-			intent: "comment",
-			body: "Thanks - please confirm the final version by Tuesday.",
-		});
-		expect((response as Response).status).toBe(302);
+		const submittedCommentKey = crypto.randomUUID();
+		const response = unwrap<{
+			ok?: boolean;
+			commentKey?: string;
+			commentFileId?: string;
+		}>(
+			await postDetail("f_slides_v2", {
+				intent: "comment",
+				fileId: "f_slides_v2",
+				commentKey: submittedCommentKey,
+				body: "Thanks - please confirm the final version by Tuesday.",
+			}),
+		);
+		expect(response).toMatchObject({ ok: true, commentFileId: "f_slides_v2" });
+		expect(response.commentKey).not.toBe(submittedCommentKey);
 
 		const detail = await loadDetail("f_slides_v1");
 		expect(detail.comments.map((c) => [c.author, c.body])).toEqual([
@@ -335,17 +377,37 @@ describe("file detail — versions, review, comments", () => {
 					url,
 					postForm(url, {
 						intent: "comment",
+						fileId: "f_slides_v2",
 						commentKey: replayKey,
 						body: "Ping - any update?",
 					}),
 				),
 				params: { id: "f_slides_v2" },
 			} as unknown as DetailActionArgs);
-		await reply();
+		await Promise.all([reply(), reply()]);
+		expect((await loadDetail("f_slides_v1")).comments).toHaveLength(3);
+
+		// A response-lost retry still targets the rendered version even when a new
+		// upload becomes latest before the exact POST is replayed.
+		await db.insert(files).values({
+			id: "f_slides_v3",
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/v3",
+			fileName: "slides.pdf",
+			kind: "slides",
+			sizeBytes: 9,
+			version: 3,
+			reviewStatus: "pending",
+		});
 		await reply();
 		expect((await loadDetail("f_slides_v1")).comments).toHaveLength(3);
-		await postDetail("f_slides_v2", {
+
+		await postDetail("f_slides_v3", {
 			intent: "comment",
+			fileId: "f_slides_v3",
 			commentKey: crypto.randomUUID(),
 			body: "Ping - any update?",
 		});
@@ -375,9 +437,23 @@ describe("file detail — versions, review, comments", () => {
 
 	it("rejects an empty comment without writing a row", async () => {
 		const db = await seedSlidesChain();
-		const result = unwrap<{ fieldErrors?: Record<string, string[]> }>(
-			await postDetail("f_slides_v2", { intent: "comment", body: "   " }),
+		const commentKey = crypto.randomUUID();
+		const result = unwrap<{
+			commentKey?: string;
+			commentFileId?: string;
+			fieldErrors?: Record<string, string[]>;
+		}>(
+			await postDetail("f_slides_v2", {
+				intent: "comment",
+				fileId: "f_slides_v2",
+				commentKey,
+				body: "   ",
+			}),
 		);
+		expect(result).toMatchObject({
+			commentKey,
+			commentFileId: "f_slides_v2",
+		});
 		expect(result.fieldErrors?.body?.[0]).toBeTruthy();
 		expect(await db.select().from(fileComments)).toHaveLength(0);
 	});

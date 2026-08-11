@@ -14,6 +14,7 @@ import {
 	type UploadErrorCode,
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { resolveTimezone } from "~/lib/event-time";
 import { formatBytes, formatInTz } from "~/lib/format";
 import { createTimings } from "~/lib/track";
 import {
@@ -110,7 +111,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					? UPLOAD_ERRORS[uploadError as UploadErrorCode]
 					: null,
 			uploaded,
-			timezone: event.timezone,
+			timezone: resolveTimezone(event.timezone),
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);

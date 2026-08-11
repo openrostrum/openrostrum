@@ -52,6 +52,7 @@ import {
 	FORM_STATUS_TONE,
 	type FormSectionId,
 	placementMissingOptions,
+	questionRuleValueAvailable,
 	RULE_TRIGGER_FIELD_TYPES,
 	utcToZonedInputs,
 	zonedTimeToUtc,
@@ -696,7 +697,7 @@ async function handleSetRule(
 			formError: "Rules can only depend on questions in the same step.",
 		};
 	if (resolved.valueKind === "number") {
-		if (!/^-?\d+(\.\d+)?$/.test(value))
+		if (!questionRuleValueAvailable("number", [], value))
 			return { formError: "Enter a number to compare against." };
 	} else {
 		if (operator !== "equals" && operator !== "not_equals")
@@ -1728,6 +1729,9 @@ function RuleEditor({
 			: ["equals", "not_equals"];
 	const valuesMissing =
 		chosen?.valueKind === "options" && chosen.valueOptions.length === 0;
+	const valueAvailable = chosen
+		? questionRuleValueAvailable(chosen.valueKind, chosen.valueOptions, value)
+		: false;
 	if (choices.length === 0) {
 		return (
 			<Panel>
@@ -1801,7 +1805,7 @@ function RuleEditor({
 					</Field>
 					<Button
 						type="button"
-						disabled={!trigger || !value.trim()}
+						disabled={!trigger || !valueAvailable}
 						onClick={() =>
 							fetcher.submit(
 								{

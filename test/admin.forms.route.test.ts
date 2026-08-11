@@ -10,7 +10,11 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { effectiveFormStatus, placementMissingOptions } from "../app/lib/forms";
+import {
+	effectiveFormStatus,
+	placementMissingOptions,
+	questionRuleValueAvailable,
+} from "../app/lib/forms";
 import { loader } from "../app/routes/admin.forms";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
@@ -136,6 +140,32 @@ describe("effectiveFormStatus", () => {
 		expect(effectiveFormStatus("open", future, Date.now())).toBe("open");
 		expect(effectiveFormStatus("open", null, Date.now())).toBe("open");
 		expect(effectiveFormStatus("draft", past, Date.now())).toBe("draft");
+	});
+});
+
+describe("questionRuleValueAvailable", () => {
+	const options = [
+		{ value: "beginner", label: "Beginner" },
+		{ value: "advanced", label: "Advanced" },
+	];
+
+	it("accepts only a current option for option-backed triggers", () => {
+		expect(questionRuleValueAvailable("options", options, "advanced")).toBe(
+			true,
+		);
+		expect(questionRuleValueAvailable("options", options, "removed")).toBe(
+			false,
+		);
+		expect(questionRuleValueAvailable("options", [], "advanced")).toBe(false);
+		expect(questionRuleValueAvailable("options", options, "")).toBe(false);
+	});
+
+	it("accepts only numeric conditions the action can persist", () => {
+		expect(questionRuleValueAvailable("number", [], "0")).toBe(true);
+		expect(questionRuleValueAvailable("number", [], "-1.5")).toBe(true);
+		expect(questionRuleValueAvailable("number", [], "1e3")).toBe(false);
+		expect(questionRuleValueAvailable("number", [], "advanced")).toBe(false);
+		expect(questionRuleValueAvailable("number", [], "  ")).toBe(false);
 	});
 });
 
