@@ -105,7 +105,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const status = (EMAIL_STATUS as readonly string[]).includes(statusParam)
 		? (statusParam as (typeof EMAIL_STATUS)[number])
 		: undefined;
-	const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+	const requestedPage = Math.max(1, Number(url.searchParams.get("page")) || 1);
 	const openId = url.searchParams.get("open");
 
 	// Escape LIKE wildcards so searching for "100%" matches literally.
@@ -122,7 +122,13 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			: undefined,
 	);
 
-	const [rows, [totalRow], detailRow] = await timings.time("db", () =>
+	const [totalRow] = await timings.time("db-count", () =>
+		db.select({ n: count() }).from(emailOutbox).where(where),
+	);
+	const total = totalRow?.n ?? 0;
+	const finalPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+	const page = Math.min(requestedPage, finalPage);
+	const [rows, detailRow] = await timings.time("db", () =>
 		Promise.all([
 			db
 				.select({
@@ -142,7 +148,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				.orderBy(desc(emailOutbox.createdAt), desc(emailOutbox.id))
 				.limit(PAGE_SIZE)
 				.offset((page - 1) * PAGE_SIZE),
-			db.select({ n: count() }).from(emailOutbox).where(where),
 			openId
 				? db
 						.select({
@@ -193,7 +198,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					sentAtLabel: formatInTimeZone(r.sentAt ?? r.createdAt, tz),
 				};
 			}),
-			total: totalRow?.n ?? 0,
+			total,
 			page,
 			pageSize: PAGE_SIZE,
 			statuses,

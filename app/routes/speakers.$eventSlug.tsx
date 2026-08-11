@@ -51,6 +51,7 @@ export default function PublicSpeakers({ loaderData }: Route.ComponentProps) {
 			<SpeakersSurface
 				data={loaderData.surface}
 				base={`/speakers/${loaderData.event.slug}`}
+				sessionsBase={`/sessions/${loaderData.event.slug}`}
 			/>
 		</ProgramShell>
 	);

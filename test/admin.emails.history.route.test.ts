@@ -115,6 +115,7 @@ type Result = {
 			templateName: string;
 		}>;
 		total: number;
+		page: number;
 		detail: { to: string; html: string; hasIcs: boolean } | null;
 	};
 };
@@ -139,6 +140,14 @@ describe("email history log", () => {
 		expect(page1.data.rows[0]?.id).toBe("m_percent"); // newest
 		const page2 = await run(cookie, "?page=2");
 		expect(page2.data.rows).toHaveLength(5);
+	});
+
+	it("clamps an out-of-range page to the final page", async () => {
+		const cookie = await seed();
+		const result = await run(cookie, "?page=99");
+
+		expect(result.data.page).toBe(2);
+		expect(result.data.rows).toHaveLength(5);
 	});
 
 	it("search narrows by recipient AND by subject", async () => {

@@ -40,6 +40,7 @@ type ThemeMenuFormProps = {
 	Form: ElementType<FetcherFormProps>;
 	busy: boolean;
 	theme: Theme;
+	placement?: "above" | "below";
 	onSubmit: FormEventHandler<HTMLFormElement>;
 };
 
@@ -47,6 +48,7 @@ export function ThemeMenuForm({
 	Form,
 	busy,
 	theme,
+	placement = "above",
 	onSubmit,
 }: ThemeMenuFormProps) {
 	return (
@@ -54,7 +56,10 @@ export function ThemeMenuForm({
 			method="post"
 			action="/theme"
 			onSubmit={onSubmit}
-			className="absolute bottom-full right-0 z-20 mb-[6px] flex w-[168px] flex-col overflow-hidden rounded-card bg-surface py-1 shadow-card"
+			className={cn(
+				"absolute right-0 z-20 flex w-[168px] flex-col overflow-hidden rounded-card bg-surface py-1 shadow-card",
+				placement === "below" ? "top-full mt-[6px]" : "bottom-full mb-[6px]",
+			)}
 		>
 			{THEMES.map((option) => (
 				<button
@@ -87,7 +92,11 @@ export function ThemeMenuForm({
 	);
 }
 
-export function ThemeToggle() {
+export function ThemeToggle({
+	placement = "above",
+}: {
+	placement?: "above" | "below";
+} = {}) {
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const fetcher = useFetcher();
@@ -116,6 +125,7 @@ export function ThemeToggle() {
 					Form={fetcher.Form}
 					busy={busy}
 					theme={theme}
+					placement={placement}
 					onSubmit={() => setOpen(false)}
 				/>
 			)}

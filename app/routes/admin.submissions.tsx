@@ -7,6 +7,7 @@ import {
 	data,
 	redirect,
 	useFetcher,
+	useLocation,
 	useNavigate,
 } from "react-router";
 import { z } from "zod";
@@ -705,7 +706,11 @@ export default function Submissions({
 	actionData,
 }: Route.ComponentProps) {
 	const busy = useBusy();
+	const location = useLocation();
 	const navigate = useNavigate();
+	const returnTo = `${location.pathname}${location.search}`;
+	const detailHref = (id: string) =>
+		`/admin/submissions/${id}?${new URLSearchParams({ returnTo })}`;
 	const decisionFetcher = useFetcher<DecisionFetcherData>();
 	const [previewDecision, setPreviewDecision] = useState<
 		"accept" | "decline" | null
@@ -934,7 +939,7 @@ export default function Submissions({
 								if (target.closest?.("a,button,input,select,textarea,label")) {
 									return;
 								}
-								navigate(`/admin/submissions/${s.id}`);
+								navigate(detailHref(s.id));
 							}}
 						>
 							<Td>
@@ -952,7 +957,7 @@ export default function Submissions({
 								/>
 							</Td>
 							<Td kind="strong">
-								<Link to={`/admin/submissions/${s.id}`}>{s.title}</Link>
+								<Link to={detailHref(s.id)}>{s.title}</Link>
 							</Td>
 							<Td>
 								<StatusCell id={s.id} title={s.title} status={s.status} />

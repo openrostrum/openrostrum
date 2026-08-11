@@ -135,17 +135,37 @@ export default function EmbedPage({
 		<AccentScope color={accentColor}>
 			<EmbedShell event={event}>
 				{surface.type === "sessions" && (
-					<SessionsSurface data={surface.data} base={base} hidden={hidden} />
+					<SessionsSurface
+						data={surface.data}
+						base={base}
+						sessionsBase={`/sessions/${event.slug}`}
+						speakersBase={`/speakers/${event.slug}`}
+						hidden={hidden}
+					/>
 				)}
 				{surface.type === "speakers" && (
-					<SpeakersSurface data={surface.data} base={base} />
+					<SpeakersSurface
+						data={surface.data}
+						base={base}
+						sessionsBase={`/sessions/${event.slug}`}
+					/>
 				)}
 				{surface.type === "gallery" && (
-					<GallerySurface data={surface.data} base={base} />
+					<GallerySurface
+						data={surface.data}
+						base={base}
+						sessionsBase={`/sessions/${event.slug}`}
+					/>
 				)}
 				{surface.type === "agenda" &&
 					(surface.data ? (
-						<AgendaSurface data={surface.data} base={base} hidden={hidden} />
+						<AgendaSurface
+							data={surface.data}
+							base={base}
+							sessionsBase={`/sessions/${event.slug}`}
+							speakersBase={`/speakers/${event.slug}`}
+							hidden={hidden}
+						/>
 					) : (
 						<AgendaUnpublished event={event} />
 					))}
@@ -154,6 +174,7 @@ export default function EmbedPage({
 						<ItinerarySurface
 							data={surface.data}
 							base={base}
+							sessionsBase={`/sessions/${event.slug}`}
 							eventId={event.id}
 							icsBase={`/feeds/${event.slug}/agenda.ics`}
 							hidden={hidden}
