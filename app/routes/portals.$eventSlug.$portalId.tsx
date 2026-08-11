@@ -11,7 +11,7 @@ import { ThemeToggle } from "~/components/theme-toggle";
 import { getPortalContext, portalPath } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { useBusy } from "~/lib/use-busy";
-import { Button, PageHeader, Tab, Tabs } from "~/ui";
+import { Button, Input, PageHeader, Panel, StatusBadge, Tab, Tabs } from "~/ui";
 import type { Route } from "./+types/portals.$eventSlug.$portalId";
 
 /**
@@ -21,7 +21,7 @@ import type { Route } from "./+types/portals.$eventSlug.$portalId";
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const ctx = await getPortalContext(env, user, params);
+	const ctx = await getPortalContext(env, user, params, request);
 	return {
 		base: portalPath(ctx),
 		portal: {
@@ -31,6 +31,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		},
 		eventName: ctx.event.name,
 		user: { name: ctx.contact?.firstName ?? user.name, email: user.email },
+		preview: ctx.preview,
 	};
 }
 
@@ -43,13 +44,30 @@ const TABS = [
 ] as const;
 
 export default function PortalShell({ loaderData }: Route.ComponentProps) {
-	const { base, portal, eventName, user } = loaderData;
+	const { base, portal, eventName, user, preview } = loaderData;
 	const { pathname } = useLocation();
 	const busy = useBusy();
 	return (
-		<div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col px-4 py-5 sm:px-7">
+		<div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-6 sm:px-8">
+			{preview && (
+				<Panel>
+					<div className="flex flex-wrap items-center gap-4">
+						<StatusBadge tone="warning">Preview</StatusBadge>
+						<span className="flex-1">
+							Previewing this portal as <strong>{preview.contactName}</strong> —
+							actions are disabled.
+						</span>
+						<Form method="post" action="/admin/portals">
+							<Input type="hidden" name="intent" value="exit-preview" />
+							<Button type="submit" variant="ghost" disabled={busy}>
+								Exit preview
+							</Button>
+						</Form>
+					</div>
+				</Panel>
+			)}
 			<header className="flex flex-col gap-4">
-				<div className="flex flex-wrap items-center justify-between gap-3">
+				<div className="flex flex-wrap items-center justify-between gap-4">
 					<PortalBrand
 						name={portal.name}
 						eventName={eventName}
@@ -76,10 +94,15 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 					</Tabs>
 				</div>
 			</header>
-			<main className="flex-1 py-5">
-				<Outlet />
+			<main className="flex-1 py-6">
+				{/* fieldset[disabled] disables all child controls without coupling each page
+				    to preview mode; the server chokepoint still blocks crafted POSTs.
+				    min-w-0 cancels fieldset's min-content default on narrow layouts. */}
+				<fieldset disabled={preview !== null} className="min-w-0">
+					<Outlet />
+				</fieldset>
 			</main>
-			<footer className="flex flex-wrap items-center justify-between gap-3">
+			<footer className="flex flex-wrap items-center justify-between gap-4">
 				<FooterNote>
 					<span>
 						You are logged in as {user.name ?? user.email} ({user.email}).
@@ -102,15 +125,24 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 export function ErrorBoundary() {
 	const error = useRouteError();
 	const notFound = isRouteErrorResponse(error) && error.status === 404;
+	const previewBlocked = isRouteErrorResponse(error) && error.status === 403;
 	// Generic copy only — a denial page must carry zero foreign data.
 	return (
-		<div className="mx-auto max-w-4xl px-7 py-16">
+		<div className="mx-auto max-w-4xl px-8 py-16">
 			<PageHeader
-				title={notFound ? "This page isn't available" : "Something went wrong"}
+				title={
+					previewBlocked
+						? "Actions are disabled in preview"
+						: notFound
+							? "This page isn't available"
+							: "Something went wrong"
+				}
 				subtitle={
-					notFound
-						? "The link may be wrong, or you may not have access to this content. Check the portal link from your email, or log in with the account you submitted with."
-						: "Please refresh the page or try again in a moment."
+					previewBlocked
+						? "You are viewing this portal as a speaker — nothing can be submitted or changed while previewing. Go back to the portal, or end the preview from the admin Portals page."
+						: notFound
+							? "The link may be wrong, or you may not have access to this content. Check the portal link from your email, or log in with the account you submitted with."
+							: "Please refresh the page or try again in a moment."
 				}
 			/>
 		</div>

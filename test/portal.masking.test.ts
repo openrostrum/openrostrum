@@ -129,6 +129,34 @@ describe("portal submission scoping", () => {
 		expect(JSON.stringify(data)).not.toContain("Foreign talk");
 	});
 
+	it("caps growing submission lists and reports truncation", async () => {
+		await seedSpeakerWithStatuses();
+		const db = getDb(env);
+		const owned = Array.from({ length: 101 }, (_, index) => ({
+			id: `s_owned_${index}`,
+			eventId: "e1",
+			title: `Owned submission ${index}`,
+			status: "draft" as const,
+			submitterId: "u_priya",
+		}));
+		for (let index = 0; index < owned.length; index += 5) {
+			await db.insert(submissions).values(owned.slice(index, index + 5));
+		}
+
+		const result = await listLoader({
+			context: CONTEXT,
+			request: await authedRequest("u_priya", `${BASE}/submissions`),
+			params: PORTAL_PARAMS,
+		} as unknown as ListArgs);
+		const data = unwrap<{
+			submissions: Array<{ id: string }>;
+			truncated: boolean;
+		}>(result);
+
+		expect(data.submissions).toHaveLength(100);
+		expect(data.truncated).toBe(true);
+	});
+
 	it("404s a direct detail URL for someone else's submission, with no data in the throw", async () => {
 		await seedSpeakerWithStatuses();
 		await makeUser("u_dana", "dana@example.com");

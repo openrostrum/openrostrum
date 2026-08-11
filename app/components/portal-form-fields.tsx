@@ -1,4 +1,26 @@
-import { Checkbox, Field, Input, Select, Textarea } from "~/ui";
+import { Checkbox, ErrorText, Field, Input, Select, Textarea } from "~/ui";
+
+export const PORTAL_FIELD_TYPES = [
+	"text",
+	"textarea",
+	"dropdown",
+	"checkbox",
+	"number",
+	"date",
+] as const;
+
+export type PortalFieldType = (typeof PORTAL_FIELD_TYPES)[number];
+
+/** Builder-facing labels — keyed off the PORTAL type union, not the CFP
+ * fields schema, so a portal-only field type never needs a CFP change. */
+export const PORTAL_FIELD_TYPE_LABELS: Record<PortalFieldType, string> = {
+	text: "Text",
+	textarea: "Text area",
+	dropdown: "Dropdown",
+	checkbox: "Checkbox",
+	number: "Number",
+	date: "Date",
+};
 
 export type PortalFormFieldDef = {
 	name: string;
@@ -7,7 +29,6 @@ export type PortalFormFieldDef = {
 	options?: string[];
 };
 
-/** Renders a portal form's schema-declared fields (hotel/flight forms etc.). */
 export function PortalFormFields({
 	schema,
 	defaults = {},
@@ -18,7 +39,7 @@ export function PortalFormFields({
 	errors?: Record<string, string>;
 }) {
 	return (
-		<div className="flex flex-col gap-3">
+		<div className="flex flex-col gap-[13px]">
 			{schema.map((field) => {
 				const label = field.required ? `${field.name} *` : field.name;
 				const defaultValue = String(defaults[field.name] ?? "");
@@ -50,18 +71,19 @@ export function PortalFormFields({
 				}
 				if (field.type === "checkbox") {
 					return (
-						<div key={field.name} className="flex flex-col gap-1">
+						<div key={field.name} className="flex flex-col gap-2">
 							<Checkbox
 								name={`answer:${field.name}`}
 								value="Yes"
 								defaultChecked={defaultValue === "Yes"}
 								label={label}
 							/>
-							{error && (
-								<span className="text-[11.5px] text-danger">{error}</span>
-							)}
+							{error && <ErrorText>{error}</ErrorText>}
 						</div>
 					);
+				}
+				if (!PORTAL_FIELD_TYPES.includes(field.type as PortalFieldType)) {
+					throw new Error(`Unsupported portal field type: ${field.type}`);
 				}
 				const inputType =
 					field.type === "date"

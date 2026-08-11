@@ -24,7 +24,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Email templates | `admin.emails.tsx` · `admin.emails_.$key.tsx` (underscore: the editor must not nest inside the list route) | `/admin/emails` · `/admin/emails/:key` | 1 | done |
 | Event settings | `admin.settings.tsx` (shell: header+tabs) · `admin.settings._index.tsx` (details + images) | `/admin/settings` | 1 | done |
 | Library (taxonomies + fields) | `admin.settings.library.tsx` | `/admin/settings/library` | 0/1 | done |
-| Portals admin | `admin.portals.tsx` · `admin.portal-forms.tsx` · `admin.file-requests.tsx` | `/admin/portals` … | 3 | todo |
+| Portals admin | `admin.portals.tsx` (list + "View portal as" preview) · `admin.portal-forms.tsx` (portal-form builder) | `/admin/portals` · `/admin/portal-forms` | 3 | done — `admin.file-requests.tsx` proposed dropped: file requests already ship as `isFileRequest` task definitions (owner ratifies by merging the portal-admin PR that carries this row) |
 | Public CFP | `submit.$eventSlug.$formId.tsx` (+ `.step.*`) | `/submit/:eventSlug/:formId` | 2 | done |
 | Speaker portal | `portals.$eventSlug.$portalId.tsx` (+ `_index/home/submissions/submissions_.$submissionId/profile/tasks/tasks_.$assignmentId/files/files_.$fileId/headshot/logo` children) | `/portals/:eventSlug/:portalId/*` | 2 | done |
 | Portal resolver (speaker login landing) | `portal.tsx` | `/portal` (resolves the user's portal, else designed empty state) | 2 | done |
