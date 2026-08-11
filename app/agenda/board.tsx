@@ -118,6 +118,14 @@ export function InfoBar({ children }: { children: ReactNode }) {
 	);
 }
 
+export function InfoBarActionRow({ children }: { children: ReactNode }) {
+	return (
+		<div className="flex flex-wrap items-center justify-between gap-3">
+			{children}
+		</div>
+	);
+}
+
 export function Strong({ children }: { children: ReactNode }) {
 	return <span className="font-semibold text-fg">{children}</span>;
 }

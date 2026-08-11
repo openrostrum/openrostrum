@@ -17,6 +17,7 @@ import {
 	ConflictClock,
 	FilterChip,
 	InfoBar,
+	InfoBarActionRow,
 	SectionLabel,
 	Strong,
 	ToggleChips,
@@ -960,7 +961,7 @@ export default function Agenda({
 			)}
 			{event.staleSpeakers > 0 && (
 				<InfoBar>
-					<div className="flex flex-wrap items-center justify-between gap-3">
+					<InfoBarActionRow>
 						<span>
 							<Strong>{event.staleSpeakers}</Strong>{" "}
 							{event.staleSpeakers === 1 ? "speaker has" : "speakers have"}{" "}
@@ -980,7 +981,7 @@ export default function Agenda({
 									: "Sending…"}
 							</Button>
 						</updatesFetcher.Form>
-					</div>
+					</InfoBarActionRow>
 				</InfoBar>
 			)}
 			{event.staleSpeakers === 0 && event.scheduleScanTruncated && (

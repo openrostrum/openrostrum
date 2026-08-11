@@ -621,7 +621,6 @@ describe("send decisions", () => {
 		expect(marcoMail?.icsAttachment).toContain("BEGIN:VCALENDAR");
 		expect(marcoMail?.icsAttachment).toContain("DTSTART:20261013T170000Z");
 		expect(marcoMail?.icsAttachment).toContain("LOCATION:Room A");
-		// The body names the session the decision covers.
 		expect(marcoMail?.html).toContain("Edge-Native Vector Search on D1");
 		const danaMail = outbox.find((o) => o.to === "dana.kim@example.com");
 		// Unscheduled session → save-the-date hold through October 14 at 23:59
