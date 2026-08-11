@@ -14,7 +14,7 @@ import { escapeHtml } from "~/lib/html";
 import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";
 import { type Clock, systemClock } from "~/ports/clock";
-import { getEmailSender } from "~/ports/email";
+import { type EmailSender, getEmailSender } from "~/ports/email";
 import { DAILY_CRON } from "./cadence";
 import type { ScheduledJob } from "./registry";
 
@@ -78,6 +78,7 @@ function resumeDraftHtml(row: {
 export async function runDraftCloseReminders(
 	env: Env,
 	clock: Clock,
+	injectedSender?: EmailSender,
 ): Promise<{ sent: number; deduped: number; failed: number }> {
 	const db = getDb(env);
 	// Resolved up front: a prod deployment missing APP_ORIGIN must fail loudly
@@ -164,7 +165,7 @@ export async function runDraftCloseReminders(
 	);
 	const portalByEvent = await firstPortalsByEvent(db);
 
-	const sender = getEmailSender(env);
+	const sender = injectedSender ?? getEmailSender(env);
 	let sent = 0;
 	let deduped = 0;
 	let failed = 0;
@@ -274,6 +275,11 @@ export async function runDraftCloseReminders(
 				});
 			}
 		}
+	}
+	if (failed > 0) {
+		throw new Error(
+			`Draft close reminders failed: ${failed} ${failed === 1 ? "recipient" : "recipients"}.`,
+		);
 	}
 	return { sent, deduped, failed };
 }

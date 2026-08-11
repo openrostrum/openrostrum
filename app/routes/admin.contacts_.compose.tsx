@@ -190,7 +190,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 	};
 	// Echoed through every re-render so a retry after a partial failure keeps
 	// the SAME dedupe scope — already-delivered recipients are never re-sent.
-	const sendKey = String(form.get("sendKey") ?? crypto.randomUUID());
+	const postedSendKey = String(form.get("sendKey") ?? "").trim();
+	const sendKey = postedSendKey || crypto.randomUUID();
 	const formStep = (
 		fields: Partial<{
 			fieldErrors: Record<string, string[] | undefined>;
@@ -341,6 +342,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 		suppressed,
 		failed,
 	});
+	if (failed > 0) {
+		return formStep({
+			formError: `${failed} ${failed === 1 ? "recipient" : "recipients"} failed. Retry to send only to recipients who have not received it yet.`,
+		});
+	}
 	return {
 		step: "sent" as const,
 		sent,

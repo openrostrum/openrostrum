@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import {
 	contacts,
@@ -75,11 +75,9 @@ async function seedRoster(): Promise<void> {
 	]);
 }
 
-const CONTEXT = { cloudflare: { env, ctx: {} } };
-
-function run(request: Request) {
+function run(request: Request, actionEnv: Env = env) {
 	return action({
-		context: CONTEXT,
+		context: { cloudflare: { env: actionEnv, ctx: {} } },
 		request,
 		params: {},
 	} as unknown as Parameters<typeof action>[0]);
@@ -97,6 +95,8 @@ function sendBody(overrides: Record<string, string> = {}): URLSearchParams {
 		...overrides,
 	});
 }
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("compose bulk email", () => {
 	it("resolves recipients from the roster filter, personalizes per recipient, and skips the unsubscribed", async () => {
@@ -199,6 +199,105 @@ describe("compose bulk email", () => {
 		expect(replay.sent).toBe(0);
 		expect(replay.duplicates).toBe(2);
 		expect(await db.select().from(emailOutbox)).toHaveLength(2);
+	});
+
+	it("returns the same send key after a partial provider failure, then retries only the failed recipient", async () => {
+		const db = getDb(env);
+		const sendKey = "partial-provider-send";
+		const first = await adminRequest(
+			"http://localhost/admin/contacts/compose",
+			{ method: "POST", body: sendBody({ sendKey }) },
+		);
+		await seedRoster();
+
+		let carolAttempts = 0;
+		const providerFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body)) as { to: string[] };
+			if (body.to[0] === "carol@example.com" && carolAttempts++ === 0) {
+				return new Response(JSON.stringify({ message: "temporary outage" }), {
+					status: 503,
+				});
+			}
+			return new Response(
+				JSON.stringify({ id: `provider-${body.to[0]}-${carolAttempts}` }),
+				{ status: 200 },
+			);
+		});
+		vi.stubGlobal("fetch", providerFetch);
+		const providerEnv = {
+			...env,
+			RESEND_API_KEY: "re_test",
+			EMAIL_FROM: "OpenRostrum <noreply@test.example>",
+			UNSUBSCRIBE_SECRET: "test-unsubscribe-secret",
+		} as unknown as Env;
+
+		const partial = (await run(first, providerEnv)) as {
+			step: string;
+			sendKey?: string;
+			formError?: string;
+		};
+		expect(partial).toMatchObject({ step: "form", sendKey });
+		expect(partial.formError).toMatch(/1 recipient failed.*retry/i);
+
+		const setCookie = await createSession(env, "u_admin");
+		const retryRequest = new Request(
+			"http://localhost/admin/contacts/compose",
+			{
+				method: "POST",
+				body: sendBody({ sendKey }),
+				headers: { Cookie: setCookie.split(";")[0] ?? "" },
+			},
+		);
+		const retry = (await run(retryRequest, providerEnv)) as {
+			step: string;
+			sent: number;
+			duplicates: number;
+			failed: number;
+		};
+		expect(retry).toMatchObject({
+			step: "sent",
+			sent: 1,
+			duplicates: 1,
+			failed: 0,
+		});
+
+		const providerRecipients = providerFetch.mock.calls.map(([, init]) => {
+			const body = JSON.parse(String(init?.body)) as { to: string[] };
+			return body.to[0];
+		});
+		expect(
+			providerRecipients.filter((to) => to === "alice@example.com"),
+		).toHaveLength(1);
+		expect(
+			providerRecipients.filter((to) => to === "carol@example.com"),
+		).toHaveLength(2);
+		const rows = await db.select().from(emailOutbox);
+		expect(rows).toHaveLength(2);
+		expect(rows.every((row) => row.status === "sent")).toBe(true);
+		expect(rows.map((row) => row.dedupeKey).sort()).toEqual([
+			`bulk:${sendKey}:c_alice`,
+			`bulk:${sendKey}:c_carol`,
+		]);
+	});
+
+	it("replaces a whitespace send key with a nonblank server key", async () => {
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/compose",
+			{
+				method: "POST",
+				body: sendBody({
+					intent: "preview",
+					previewContact: "c_alice",
+					sendKey: "  \t  ",
+				}),
+			},
+		);
+		await seedRoster();
+
+		const result = (await run(request)) as { step: string; sendKey?: string };
+		expect(result.step).toBe("form");
+		expect(result.sendKey?.trim()).not.toBe("");
+		expect(result.sendKey).not.toBe("  \t  ");
 	});
 
 	it("previews the resolved merge fields for one recipient without sending", async () => {

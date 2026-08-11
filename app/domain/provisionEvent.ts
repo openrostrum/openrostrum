@@ -104,6 +104,7 @@ export function provisionEventDefaults(db: Db, eventId: string) {
 				schema: [
 					{ name: "Hotel name", type: "text", required: true },
 					{ name: "Check-in date", type: "date", required: true },
+					{ name: "Check-out date", type: "date", required: true },
 				],
 			},
 			{

@@ -17,6 +17,7 @@ import {
 	runDraftCloseReminders,
 } from "../app/jobs/draft-reminders.scheduled";
 import { fixedClock } from "../app/ports/clock";
+import type { EmailSender } from "../app/ports/email";
 
 // Contract under test: reminders fire five days and one day before the form's
 // close date, counted in CALENDAR DAYS IN THE EVENT'S TIMEZONE (close
@@ -271,6 +272,35 @@ describe("draft-close reminder job", () => {
 		const result = await runDraftCloseReminders(env, fixedClock(FIVE_DAY_TICK));
 		expect(result.sent).toBe(1);
 		expect(await db.select().from(emailOutbox)).toHaveLength(1);
+	});
+
+	it("reports an aggregate failure only after attempting every due recipient", async () => {
+		const db = await seedBaseline();
+		await db.insert(submissions).values({
+			id: "s_priya_draft",
+			eventId: "e1",
+			formId: "form1",
+			title: "Second Draft Holder",
+			status: "draft",
+			submitterId: "u_priya",
+		});
+		const attempted: string[] = [];
+		const sender: EmailSender = {
+			async send(message) {
+				attempted.push(message.to);
+				if (attempted.length === 1) throw new Error("provider unavailable");
+				return { id: "sent-after-failure", deduped: false, suppressed: false };
+			},
+		};
+
+		await expect(
+			runDraftCloseReminders(env, fixedClock(FIVE_DAY_TICK), sender),
+		).rejects.toThrow("Draft close reminders failed: 1 recipient.");
+		expect(attempted).toHaveLength(2);
+		expect(attempted.sort()).toEqual([
+			"dana.wu@example.com",
+			"priya@example.com",
+		]);
 	});
 
 	it("an extended close date re-arms the occurrence under a new dedupe key", async () => {
