@@ -88,11 +88,11 @@ export type SyncRunResult =
 
 type DecisionTarget = (typeof DECISION_STATUS)[number];
 
-// Run state lives in reserved tableName='$sync' rows (design doc, Decision
-// 5): it must survive across ticks/isolates, and every reconciliation select
-// filters tableName to SYNCED_TABLES so these rows never enter a plan. The
-// webhook high-water mark has its OWN row: its writer (the route) does not
-// hold the run lock, so it must never share a blob with the runner's state.
+// Reserved tableName='$sync' rows survive across ticks/isolates; every
+// reconciliation select filters tableName to SYNCED_TABLES so these rows never
+// enter a plan. The webhook high-water mark has its OWN row: its writer (the
+// route) does not hold the run lock, so it must never share a blob with the
+// runner's state.
 const STATE_TABLE = "$sync";
 const STATE_RECORD = "state";
 const LOCK_RECORD = "lock";
