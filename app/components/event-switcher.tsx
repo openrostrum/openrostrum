@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Form, Link, useNavigation } from "react-router";
+import { Form, Link } from "react-router";
+import { useBusy } from "~/lib/use-busy";
 import { useDismiss } from "~/lib/use-dismiss";
 import { cn } from "~/ui/cn";
 import { Icon } from "~/ui";
@@ -24,7 +25,7 @@ export type SwitcherEvent = {
 export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
-	const busy = useNavigation().state !== "idle";
+	const busy = useBusy();
 	// The current event is always an element of the list (getActiveEvent and
 	// listMyEvents share one membership predicate), so no separate field.
 	const current = events.find((event) => event.isCurrent) ?? null;

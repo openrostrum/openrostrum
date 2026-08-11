@@ -10,6 +10,7 @@ import { escapeHtml } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { getEmailSender } from "~/ports/email";
 import { track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { Button, ErrorText, Field, Input, TextLink } from "~/ui";
 import type { Route } from "./+types/forgot-password";
 
@@ -109,6 +110,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 }
 
 export default function ForgotPassword({ actionData }: Route.ComponentProps) {
+	const busy = useBusy();
 	if (actionData?.sent) {
 		return (
 			<AuthPage
@@ -148,7 +150,9 @@ export default function ForgotPassword({ actionData }: Route.ComponentProps) {
 						invalid={Boolean(actionData?.fieldError)}
 					/>
 				</Field>
-				<Button type="submit">Send reset link</Button>
+				<Button type="submit" disabled={busy}>
+					Send reset link
+				</Button>
 				{actionData?.formError && (
 					<div role="alert">
 						<ErrorText>{actionData.formError}</ErrorText>

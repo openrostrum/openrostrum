@@ -13,6 +13,7 @@ export function ConfirmButton({
 	name,
 	value,
 	variant = "ghost",
+	disabled = false,
 	children,
 }: {
 	label: string;
@@ -21,13 +22,19 @@ export function ConfirmButton({
 	name: string;
 	value: string;
 	variant?: "primary" | "ghost";
+	disabled?: boolean;
 	/** Extra fields revealed while confirming (e.g. a reason input). */
 	children?: ReactNode;
 }) {
 	const [arming, setArming] = useState(false);
 	if (!arming) {
 		return (
-			<Button type="button" variant={variant} onClick={() => setArming(true)}>
+			<Button
+				type="button"
+				variant={variant}
+				disabled={disabled}
+				onClick={() => setArming(true)}
+			>
 				{label}
 			</Button>
 		);
@@ -36,7 +43,7 @@ export function ConfirmButton({
 		<div className="flex flex-wrap items-center gap-2">
 			<span className="text-[12.5px] text-fg-muted">{prompt}</span>
 			{children}
-			<Button type="submit" name={name} value={value}>
+			<Button type="submit" name={name} value={value} disabled={disabled}>
 				{confirmLabel}
 			</Button>
 			<Button type="button" variant="ghost" onClick={() => setArming(false)}>

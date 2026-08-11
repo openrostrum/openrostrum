@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Form, NavLink } from "react-router";
+import { useBusy } from "~/lib/use-busy";
 import { Avatar } from "./avatar";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icon";
@@ -57,6 +58,7 @@ export function Sidebar({
 	themeControl?: ReactNode;
 	children: ReactNode;
 }) {
+	const busy = useBusy();
 	return (
 		<aside className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-hair px-3 pb-[14px] pt-[18px]">
 			<div className="px-[10px]">
@@ -78,6 +80,7 @@ export function Sidebar({
 					<button
 						type="submit"
 						aria-label="Log out"
+						disabled={busy}
 						className="flex h-7 w-7 items-center justify-center rounded-control text-fg-faint transition-colors duration-150 hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
 					>
 						<Icon name="logout" size={15} />

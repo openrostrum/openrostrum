@@ -1,6 +1,6 @@
 // @public — the invite / password-reset landing; it must work logged out.
 import { and, eq, isNull, ne } from "drizzle-orm";
-import { Form, data, redirect, useNavigation } from "react-router";
+import { Form, data, redirect } from "react-router";
 import { z } from "zod";
 import { AuthNote, AuthPage } from "~/marketing/auth";
 import { getDb } from "~/db";
@@ -20,6 +20,7 @@ import {
 } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
+import { useBusy } from "~/lib/use-busy";
 import { Button, ErrorText, Field, Input, TextLink } from "~/ui";
 import type { Route } from "./+types/set-password.$token";
 
@@ -200,8 +201,7 @@ export default function SetPassword({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const navigation = useNavigation();
-	const busy = navigation.state !== "idle";
+	const busy = useBusy();
 
 	if (loaderData.state === "invalid") {
 		return (

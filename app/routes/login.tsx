@@ -14,6 +14,7 @@ import {
 	safeRedirect,
 	verifyPasswordTimingEqual,
 } from "~/lib/auth";
+import { useBusy } from "~/lib/use-busy";
 import { Button, ErrorText, Field, Input, TextLink } from "~/ui";
 import type { Route } from "./+types/login";
 
@@ -63,6 +64,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 }
 
 export default function Login({ actionData }: Route.ComponentProps) {
+	const busy = useBusy();
 	return (
 		<AuthPage
 			title="Sign in to OpenRostrum"
@@ -91,7 +93,9 @@ export default function Login({ actionData }: Route.ComponentProps) {
 						required
 					/>
 				</Field>
-				<Button type="submit">Sign in</Button>
+				<Button type="submit" disabled={busy}>
+					Sign in
+				</Button>
 				{actionData?.error && (
 					<div role="alert">
 						<ErrorText>{actionData.error}</ErrorText>
