@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
-import { crmNotes } from "../app/db/schema";
+import { contactAnswers, crmNotes, fields } from "../app/db/schema";
 import { action, loader } from "../app/routes/admin.crm.person.$email";
 import { CONTEXT, requestAs, seedCrmBaseline } from "./crm-fixtures";
 import { catchThrown, thrownStatus } from "./thrown";
@@ -33,6 +33,34 @@ async function runLoader(userId: string, email: string): Promise<LoaderResult> {
 }
 
 describe("CRM person profile", () => {
+	it("stores person custom-field answers at organization scope", async () => {
+		await seedCrmBaseline();
+		const db = getDb(env);
+		await db.insert(fields).values({
+			id: "person-field-1",
+			organizationId: "org1",
+			eventId: null,
+			recordType: "contact",
+			name: "Dietary requirements",
+			type: "text",
+		});
+		await db.insert(contactAnswers).values({
+			id: "person-answer-1",
+			organizationId: "org1",
+			email: "priya@example.com",
+			fieldId: "person-field-1",
+			value: "Vegetarian",
+		});
+
+		const [answer] = await db.select().from(contactAnswers);
+		expect(answer).toMatchObject({
+			organizationId: "org1",
+			email: "priya@example.com",
+			fieldId: "person-field-1",
+			value: "Vegetarian",
+		});
+	});
+
 	it("shows the union of appearances, surfaces the same-name duplicate, and offers only missing events", async () => {
 		await seedCrmBaseline();
 		const { data } = await runLoader("u_admin1", "priya@example.com");
