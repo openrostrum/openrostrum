@@ -71,6 +71,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					position: participants.position,
 					firstName: contacts.firstName,
 					lastName: contacts.lastName,
+					contactUserId: contacts.userId,
 				})
 				.from(participants)
 				.innerJoin(contacts, eq(contacts.id, participants.contactId))
@@ -152,17 +153,22 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				tracks: subTracks.map((t) => ({ name: t.name, color: t.color })),
 				tags: subTags.map((t) => ({ name: t.name, color: t.color })),
 			},
-			participants: sortedPeople.map((p) => ({
-				id: p.id,
-				name: `${p.firstName} ${p.lastName}`,
-				role: p.role,
-				isMe: p.id === myParticipant?.id,
-				acceptance:
-					isAccepted && p.role !== "secondary"
-						? PARTICIPATION_PROJECTION[p.acceptance]
-						: null,
-				removable: p.id !== myParticipant?.id,
-			})),
+			participants: sortedPeople.map((p) => {
+				const isMe =
+					p.id === myParticipant?.id ||
+					(ctx.subjectUserId !== null && p.contactUserId === ctx.subjectUserId);
+				return {
+					id: p.id,
+					name: `${p.firstName} ${p.lastName}`,
+					role: p.role,
+					isMe,
+					acceptance:
+						isAccepted && p.role !== "secondary"
+							? PARTICIPATION_PROJECTION[p.acceptance]
+							: null,
+					removable: !isMe,
+				};
+			}),
 			myParticipation: myParticipant
 				? {
 						id: myParticipant.id,

@@ -13,22 +13,22 @@ import {
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
+import { loader as shellLoader } from "../app/routes/portals.$eventSlug.$portalId";
+import { loader as submissionsLoader } from "../app/routes/portals.$eventSlug.$portalId.submissions";
 import {
 	action as submissionDetailAction,
 	loader as submissionDetailLoader,
 } from "../app/routes/portals.$eventSlug.$portalId.submissions_.$submissionId";
-import { loader as submissionsLoader } from "../app/routes/portals.$eventSlug.$portalId.submissions";
+import { loader as tasksLoader } from "../app/routes/portals.$eventSlug.$portalId.tasks";
 import {
 	action as taskDetailAction,
 	loader as taskDetailLoader,
 } from "../app/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
-import { loader as tasksLoader } from "../app/routes/portals.$eventSlug.$portalId.tasks";
-import { loader as shellLoader } from "../app/routes/portals.$eventSlug.$portalId";
 import {
 	authedRequest,
 	BASE,
-	catchThrown,
 	CONTEXT,
+	catchThrown,
 	makeContact,
 	makeUser,
 	PORTAL_PARAMS,
@@ -304,6 +304,44 @@ describe("admin portal preview (View portal as)", () => {
 			isMe: true,
 			removable: false,
 		});
+	});
+
+	it("protects every participant contact linked to the selected speaker's account", async () => {
+		const db = await seedPreviewWorld();
+		await makeContact(
+			"c_priya_alias",
+			"e1",
+			"priya-alias@example.com",
+			"u_priya",
+			"Priya",
+			"Alias",
+		);
+		await db.insert(participants).values({
+			id: "p_priya_alias",
+			submissionId: "s_panel",
+			contactId: "c_priya_alias",
+		});
+
+		const detail = unwrap<{
+			participants: Array<{ id: string; isMe: boolean; removable: boolean }>;
+		}>(
+			await submissionDetailLoader({
+				context: CONTEXT,
+				request: await requestWithPreview(
+					"u_admin",
+					`${BASE}/submissions/s_panel`,
+				),
+				params: { ...PORTAL_PARAMS, submissionId: "s_panel" },
+			} as unknown as Parameters<typeof submissionDetailLoader>[0]),
+		);
+
+		expect(detail.participants.find((p) => p.id === "p_priya")).toMatchObject({
+			isMe: true,
+			removable: false,
+		});
+		expect(
+			detail.participants.find((p) => p.id === "p_priya_alias"),
+		).toMatchObject({ isMe: true, removable: false });
 	});
 
 	it("404s an unrelated ownerless submission for an unlinked preview contact", async () => {
