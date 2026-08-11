@@ -58,33 +58,34 @@ const WIDTH = {
 	trigger: "w-full",
 } as const;
 
-export function PopoverSurface({
-	children,
-	side,
-	align = "start",
-	width = "sm",
-}: {
-	children: ReactNode;
+type PopoverSurfaceOptions = {
 	side: keyof typeof SIDE;
 	align?: keyof typeof ALIGN;
 	width?: keyof typeof WIDTH;
-}) {
-	return (
-		<div
-			className={cn(
-				"absolute z-30 flex flex-col overflow-hidden rounded-card bg-surface shadow-card",
-				SIDE[side],
-				ALIGN[align],
-				ORIGIN[side][align],
-				WIDTH[width],
-				ENTER,
-				"starting:translate-y-0.5 starting:scale-[0.98] starting:opacity-0",
-				"motion-reduce:starting:translate-y-0 motion-reduce:starting:scale-100 motion-reduce:starting:opacity-100",
-			)}
-		>
-			{children}
-		</div>
+};
+
+export function popoverSurfaceClassName({
+	side,
+	align = "start",
+	width = "sm",
+}: PopoverSurfaceOptions): string {
+	return cn(
+		"absolute z-30 flex flex-col overflow-hidden rounded-card bg-surface shadow-card",
+		SIDE[side],
+		ALIGN[align],
+		ORIGIN[side][align],
+		WIDTH[width],
+		ENTER,
+		"starting:translate-y-0.5 starting:scale-[0.98] starting:opacity-0",
+		"motion-reduce:starting:translate-y-0 motion-reduce:starting:scale-100 motion-reduce:starting:opacity-100",
 	);
+}
+
+export function PopoverSurface({
+	children,
+	...options
+}: { children: ReactNode } & PopoverSurfaceOptions) {
+	return <div className={popoverSurfaceClassName(options)}>{children}</div>;
 }
 
 const DIALOG_SIZE = {

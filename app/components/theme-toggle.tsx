@@ -12,8 +12,9 @@ import {
 import { parseTheme, THEMES, type Theme } from "~/lib/theme";
 import { useBusy } from "~/lib/use-busy";
 import { useDismiss } from "~/lib/use-dismiss";
-import { Icon, PopoverSurface, type IconName } from "~/ui";
+import { Icon, type IconName } from "~/ui";
 import { cn } from "~/ui/cn";
+import { popoverSurfaceClassName } from "~/ui/motion";
 import type { loader as rootLoader } from "~/root";
 
 /**
@@ -50,42 +51,43 @@ export function ThemeMenuForm({
 	onSubmit,
 }: ThemeMenuFormProps) {
 	return (
-		<PopoverSurface side="top" align="end" width="sm">
-			<Form
-				method="post"
-				action="/theme"
-				onSubmit={onSubmit}
-				className="flex flex-col py-1"
-			>
-				{THEMES.map((option) => (
-					<button
-						key={option}
-						type="submit"
-						name="theme"
-						value={option}
-						disabled={busy}
-						aria-current={option === theme || undefined}
+		<Form
+			method="post"
+			action="/theme"
+			onSubmit={onSubmit}
+			className={cn(
+				popoverSurfaceClassName({ side: "top", align: "end", width: "sm" }),
+				"py-1",
+			)}
+		>
+			{THEMES.map((option) => (
+				<button
+					key={option}
+					type="submit"
+					name="theme"
+					value={option}
+					disabled={busy}
+					aria-current={option === theme || undefined}
+					className={cn(
+						"flex h-[34px] w-full items-center gap-[10px] px-[12px] text-left text-[13px] font-medium text-fg-muted",
+						"transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-row-hover hover:text-fg",
+						"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
+						option === theme &&
+							"bg-row-selected text-fg shadow-[inset_2px_0_0_var(--color-petrol)]",
+					)}
+				>
+					<span
 						className={cn(
-							"flex h-[34px] w-full items-center gap-[10px] px-[12px] text-left text-[13px] font-medium text-fg-muted",
-							"transition-colors [transition-duration:var(--motion-duration-feedback)] [transition-timing-function:var(--ease-gallery-responsive)] motion-reduce:transition-none hover:bg-row-hover hover:text-fg",
-							"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
-							option === theme &&
-								"bg-row-selected text-fg shadow-[inset_2px_0_0_var(--color-petrol)]",
+							"opacity-70",
+							option === theme && "text-petrol opacity-100",
 						)}
 					>
-						<span
-							className={cn(
-								"opacity-70",
-								option === theme && "text-petrol opacity-100",
-							)}
-						>
-							<Icon name={ICONS[option]} size={15} />
-						</span>
-						{LABELS[option]}
-					</button>
-				))}
-			</Form>
-		</PopoverSurface>
+						<Icon name={ICONS[option]} size={15} />
+					</span>
+					{LABELS[option]}
+				</button>
+			))}
+		</Form>
 	);
 }
 

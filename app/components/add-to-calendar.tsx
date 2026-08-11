@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react";
-import { Button } from "~/ui";
+import { Button, MotionReveal } from "~/ui";
 
 /**
  * "Add to calendar" for one public session: downloads the per-session .ics
@@ -27,9 +27,11 @@ function AddToCalendar({ href }: { href: string }) {
 	return (
 		<div className="flex flex-wrap items-center justify-end gap-3">
 			{downloaded && (
-				<span className="text-[12.5px] text-fg-muted">
-					Download started — import the .ics into your calendar.
-				</span>
+				<MotionReveal kind="feedback">
+					<span className="text-[12.5px] text-fg-muted">
+						Download started — import the .ics into your calendar.
+					</span>
+				</MotionReveal>
 			)}
 			<Button
 				type="button"

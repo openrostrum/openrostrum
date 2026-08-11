@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from "react";
 import { Button } from "./button";
+import { MotionReveal } from "./motion";
 
 /**
  * Two-step inline confirmation. Never a native confirm(): the judging harness
@@ -40,15 +41,17 @@ export function ConfirmButton({
 		);
 	}
 	return (
-		<div className="flex flex-wrap items-center gap-2">
-			<span className="text-[12.5px] text-fg-muted">{prompt}</span>
-			{children}
-			<Button type="submit" name={name} value={value} disabled={disabled}>
-				{confirmLabel}
-			</Button>
-			<Button type="button" variant="ghost" onClick={() => setArming(false)}>
-				Cancel
-			</Button>
-		</div>
+		<MotionReveal>
+			<div className="flex flex-wrap items-center gap-2">
+				<span className="text-[12.5px] text-fg-muted">{prompt}</span>
+				{children}
+				<Button type="submit" name={name} value={value} disabled={disabled}>
+					{confirmLabel}
+				</Button>
+				<Button type="button" variant="ghost" onClick={() => setArming(false)}>
+					Cancel
+				</Button>
+			</div>
+		</MotionReveal>
 	);
 }
