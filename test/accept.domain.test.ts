@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import { DECISION_STATUS, SUBMISSION_STATUS } from "../app/db/constants";
 import {
@@ -810,6 +810,39 @@ describe("send decisions", () => {
 			}),
 		).rejects.toThrow(/preview/i);
 		expect(await d.select().from(emailOutbox)).toHaveLength(0);
+	});
+
+	it("does not invalidate a reviewed preview when only the calendar timestamp advances", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const row = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(row.id, "c_preview", "preview@example.com");
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-08-11T18:00:00Z"));
+			const preview = await previewDecisionEmails(d, env, {
+				event,
+				rows: [row],
+				decision: "accept",
+			});
+			vi.setSystemTime(new Date("2026-08-11T18:00:01Z"));
+
+			const results = await sendDecisionEmails(d, env, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "clock-boundary-key",
+				previewFingerprint: preview.fingerprint,
+			});
+
+			expect(results[0]?.ok).toBe(true);
+			expect(await d.select().from(emailOutbox)).toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("rejects a changed decision plan before any delivery", async () => {
