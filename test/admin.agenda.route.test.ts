@@ -15,6 +15,7 @@ import {
 	submissions,
 	users,
 } from "../app/db/schema";
+import { inviteRecipients } from "../app/domain/accept";
 import { createSession, hashPassword } from "../app/lib/auth";
 import { buildIcs, parseIcsAttachment } from "../app/lib/ics";
 import { action, loader } from "../app/routes/admin.agenda";
@@ -661,13 +662,16 @@ const HISTORIC_NPM_ICS_INVITE =
 async function invitedBaseline() {
 	const db = await seedBaseline();
 	await db.insert(emailOutbox).values({
+		id: "accept-keynote-initial",
 		eventId: "e1",
+		dedupeKey: "decision:accept:initial:s_keynote",
 		to: "marco@test.co",
 		subject: "Your session was accepted",
 		html: "<p>you're in</p>",
 		icsAttachment: HISTORIC_NPM_ICS_INVITE,
 		status: "sent",
-		sentAt: new Date(),
+		createdAt: new Date("2026-08-10T20:00:00Z"),
+		sentAt: new Date("2026-08-10T20:01:00Z"),
 	});
 	await db
 		.update(submissions)
@@ -693,7 +697,62 @@ async function latestUpdateInvite(
 	return { row, vevent: parseIcsAttachment(row?.icsAttachment ?? "")[0] };
 }
 
+function keynoteIcs(options: {
+	start: Date;
+	end: Date;
+	location?: string;
+	sequence: number;
+}): string {
+	return buildIcs({
+		calendarName: "AI.Engineer Sandbox Event",
+		method: "PUBLISH",
+		events: [
+			{
+				uid: "submission-s_keynote@openrostrum",
+				start: options.start,
+				end: options.end,
+				title:
+					"Closing Keynote: The Post-SaaS Stack — AI.Engineer Sandbox Event",
+				location: options.location,
+				sequence: options.sequence,
+				status: "CONFIRMED",
+			},
+		],
+	});
+}
+
 describe("schedule-update emails (stale speaker calendars)", () => {
+	it("resolves recipients beyond D1's 100-bound-parameter limit", async () => {
+		const db = await seedBaseline();
+		const inserted = await env.DB.prepare(`
+			WITH RECURSIVE candidate(n) AS (
+				SELECT 1
+				UNION ALL
+				SELECT n + 1 FROM candidate WHERE n < 101
+			)
+			INSERT INTO submissions (
+				id, event_id, type, title, status, submitter_id, created_at, updated_at
+			)
+			SELECT
+				'bulk-' || n,
+				'e1',
+				'session',
+				'Bulk candidate ' || n,
+				'accepted',
+				'u_admin',
+				unixepoch(),
+				unixepoch()
+			FROM candidate
+		`).run();
+		expect(inserted.meta.changes).toBe(101);
+		const ids = Array.from({ length: 101 }, (_, index) => `bulk-${index + 1}`);
+
+		const recipients = await inviteRecipients(db, ids);
+
+		expect(recipients.size).toBe(101);
+		expect(new Set(recipients.values())).toEqual(new Set(["admin@test.co"]));
+	});
+
 	it("accept-then-schedule-later: flags the change, sends the same UID with a higher SEQUENCE, then goes quiet", async () => {
 		const db = await invitedBaseline();
 		// The save-the-date hold still matches the event dates — nothing stale.
@@ -725,6 +784,125 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		expect((await callLoader()).event?.staleSpeakers).toBe(0);
 		const repeat = await callAction({ intent: "schedule-updates" });
 		expect(repeat.updates).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+	});
+
+	it("surfaces incomplete history instead of treating a notified session as never invited", async () => {
+		const db = await seedBaseline();
+		await db
+			.update(submissions)
+			.set({ notifiedAt: new Date() })
+			.where(eq(submissions.id, "s_keynote"));
+		await db.insert(participants).values({
+			id: "p_keynote",
+			submissionId: "s_keynote",
+			contactId: "c_marco",
+		});
+
+		expect((await callLoader()).event).toMatchObject({
+			staleSpeakers: 0,
+			scheduleScanTruncated: true,
+		});
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.ok).toBe(false);
+		expect(result.formError).toMatch(/history/i);
+	});
+
+	it("keeps the earliest delivered snapshot at an equal SEQUENCE and updates at SEQUENCE 1", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		await db.insert(emailOutbox).values({
+			id: "accept-keynote-resend",
+			eventId: "e1",
+			dedupeKey: "decision:accept:resend:s_keynote",
+			to: "marco@test.co",
+			subject: "Your session was accepted",
+			html: "<p>you're still in</p>",
+			icsAttachment: keynoteIcs({
+				start: utc(2026, 10, 12, 16, 30),
+				end: utc(2026, 10, 12, 17, 15),
+				location: "Main Hall",
+				sequence: 0,
+			}),
+			status: "sent",
+			createdAt: new Date("2026-08-10T19:59:00Z"),
+			sentAt: new Date("2026-08-10T20:03:00Z"),
+		});
+
+		expect((await callLoader()).event?.staleSpeakers).toBe(1);
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
+		const { vevent } = await latestUpdateInvite(
+			db,
+			"schedule-update:s_keynote@1",
+		);
+		expect(vevent?.sequence).toBe(1);
+	});
+
+	it("flags a recipient change and delivers the current invite at the next SEQUENCE", async () => {
+		const db = await invitedBaseline();
+		await db
+			.update(contacts)
+			.set({ email: "marco.new@test.co" })
+			.where(eq(contacts.id, "c_marco"));
+
+		expect((await callLoader()).event?.staleSpeakers).toBe(1);
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
+		const { row, vevent } = await latestUpdateInvite(
+			db,
+			"schedule-update:s_keynote@1:to:marco.new%40test.co",
+		);
+		expect(row?.to).toBe("marco.new@test.co");
+		expect(vevent?.sequence).toBe(1);
+		expect((await callLoader()).event?.staleSpeakers).toBe(0);
+	});
+
+	it("reuses the last delivered SEQUENCE and sends after a bounced recipient changes", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		await db.insert(emailOutbox).values({
+			id: "bounced-keynote-update",
+			eventId: "e1",
+			dedupeKey: "schedule-update:s_keynote@1",
+			to: "marco@test.co",
+			subject: "Schedule update",
+			html: "<p>update</p>",
+			icsAttachment: keynoteIcs({
+				start: utc(2026, 10, 12, 16, 30),
+				end: utc(2026, 10, 12, 17, 15),
+				location: "Main Hall",
+				sequence: 1,
+			}),
+			status: "bounced",
+			createdAt: new Date("2026-08-10T20:02:00Z"),
+			sentAt: new Date("2026-08-10T20:03:00Z"),
+		});
+		await db
+			.update(contacts)
+			.set({ email: "marco.new@test.co" })
+			.where(eq(contacts.id, "c_marco"));
+
+		expect((await callLoader()).event?.staleSpeakers).toBe(1);
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, deduped: 0, failed: 0 });
+		const { row, vevent } = await latestUpdateInvite(
+			db,
+			"schedule-update:s_keynote@1:to:marco.new%40test.co",
+		);
+		expect(row?.to).toBe("marco.new@test.co");
+		expect(vevent?.sequence).toBe(1);
 	});
 
 	it("finds an affected session's old invite behind 1001 newer unrelated invites", async () => {
@@ -792,6 +970,65 @@ END:VCALENDAR
 		});
 	});
 
+	it("does not infer or send a lower SEQUENCE when matching history exceeds the scan cap", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+
+		const history = await env.DB.prepare(`
+			WITH RECURSIVE invite_history(n) AS (
+				SELECT 0
+				UNION ALL
+				SELECT n + 1 FROM invite_history WHERE n < 1000
+			)
+			INSERT INTO email_outbox (
+				id, event_id, dedupe_key, "to", subject, html, ics_attachment,
+				status, created_at, sent_at
+			)
+			SELECT
+				'history-' || n,
+				'e1',
+				'schedule-update:s_keynote@' || CASE WHEN n = 0 THEN 5000 ELSE n END,
+				'marco@test.co',
+				'Prior schedule update',
+				'<p>prior update</p>',
+				'BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:submission-s_keynote@openrostrum
+DTSTART:20261012T150000Z
+DTEND:20261015T010000Z
+SEQUENCE:' || CASE WHEN n = 0 THEN 5000 ELSE n END || '
+END:VEVENT
+END:VCALENDAR
+',
+				'sent',
+				1800000000 + n,
+				1800000000 + n
+			FROM invite_history
+		`).run();
+		expect(history.meta.changes).toBe(1001);
+
+		const data = await callLoader();
+		expect(data.event).toMatchObject({
+			staleSpeakers: 0,
+			scheduleScanTruncated: true,
+		});
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.ok).toBe(false);
+		expect(result.formError).toMatch(/history/i);
+		const [unsafeSend] = await db
+			.select({ id: emailOutbox.id })
+			.from(emailOutbox)
+			.where(eq(emailOutbox.dedupeKey, "schedule-update:s_keynote@1001"))
+			.limit(1);
+		expect(unsafeSend).toBeUndefined();
+	});
+
 	it("SEQUENCE increases monotonically across successive moves", async () => {
 		const db = await invitedBaseline();
 		await callAction({
@@ -856,6 +1093,7 @@ END:VCALENDAR
 		const db = await invitedBaseline();
 		await db.insert(emailOutbox).values({
 			eventId: "e1",
+			dedupeKey: "decision:accept:initial:s_live",
 			to: "marco@test.co",
 			subject: "Your session was accepted",
 			html: "<p>you're in</p>",

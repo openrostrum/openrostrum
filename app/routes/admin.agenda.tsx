@@ -564,11 +564,19 @@ export async function action({ context, request }: Route.ActionArgs) {
 		}
 
 		if (intent === "schedule-updates") {
-			const { changes } = await timings.time("db", () =>
+			const changeSet = await timings.time("db", () =>
 				computeScheduleChanges(db, event),
 			);
+			if (changeSet.truncated) {
+				return data(
+					fail(
+						"Invite history could not be checked completely — no schedule updates were sent.",
+					),
+					{ headers: { "Server-Timing": timings.header() } },
+				);
+			}
 			const outcome = await timings.time("send", () =>
-				sendScheduleUpdates(db, env, event, changes),
+				sendScheduleUpdates(db, env, event, changeSet.changes),
 			);
 			track("agenda.schedule_updates_sent", {
 				eventId: event.id,

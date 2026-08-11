@@ -672,6 +672,8 @@ export function icsUidForSubmission(submissionId: string): string {
 	return `submission-${submissionId}@openrostrum`;
 }
 
+const INVITE_RECIPIENT_QUERY_CHUNK = 80;
+
 /**
  * THE invite recipient rule, shared by decision and schedule-update emails:
  * the primary speaker contact first, the submitter account as fallback.
@@ -683,35 +685,50 @@ export async function inviteRecipients(
 ): Promise<Map<string, string>> {
 	if (submissionIds.length === 0) return new Map();
 	const ids = [...submissionIds];
-	const [speakerRows, submitterRows] = await Promise.all([
-		db
-			.select({
-				submissionId: participants.submissionId,
-				email: contacts.email,
-			})
-			.from(participants)
-			.innerJoin(contacts, eq(contacts.id, participants.contactId))
-			.where(
-				and(
-					inArray(participants.submissionId, ids),
-					eq(participants.role, "speaker"),
-				),
-			)
-			.orderBy(desc(participants.isPrimary), asc(participants.position)),
-		db
-			.select({ submissionId: submissions.id, email: users.email })
-			.from(submissions)
-			.innerJoin(users, eq(users.id, submissions.submitterId))
-			.where(inArray(submissions.id, ids)),
-	]);
+	const speakerRows: { submissionId: string; email: string }[] = [];
+	const submitterRows: { submissionId: string; email: string }[] = [];
+	for (
+		let offset = 0;
+		offset < ids.length;
+		offset += INVITE_RECIPIENT_QUERY_CHUNK
+	) {
+		const chunk = ids.slice(offset, offset + INVITE_RECIPIENT_QUERY_CHUNK);
+		const [speakers, submitters] = await Promise.all([
+			db
+				.select({
+					submissionId: participants.submissionId,
+					email: contacts.email,
+				})
+				.from(participants)
+				.innerJoin(contacts, eq(contacts.id, participants.contactId))
+				.where(
+					and(
+						inArray(participants.submissionId, chunk),
+						eq(participants.role, "speaker"),
+					),
+				)
+				.orderBy(desc(participants.isPrimary), asc(participants.position)),
+			db
+				.select({ submissionId: submissions.id, email: users.email })
+				.from(submissions)
+				.innerJoin(users, eq(users.id, submissions.submitterId))
+				.where(inArray(submissions.id, chunk)),
+		]);
+		speakerRows.push(...speakers);
+		submitterRows.push(...submitters);
+	}
+	const speakerEmail = new Map<string, string>();
+	for (const row of speakerRows) {
+		if (!speakerEmail.has(row.submissionId)) {
+			speakerEmail.set(row.submissionId, row.email);
+		}
+	}
 	const submitterEmail = new Map(
 		submitterRows.map((r) => [r.submissionId, r.email]),
 	);
 	const out = new Map<string, string>();
 	for (const id of ids) {
-		const email =
-			speakerRows.find((s) => s.submissionId === id)?.email ??
-			submitterEmail.get(id);
+		const email = speakerEmail.get(id) ?? submitterEmail.get(id);
 		if (email) out.set(id, email);
 	}
 	return out;
