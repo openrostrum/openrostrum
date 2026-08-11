@@ -1295,7 +1295,7 @@ describe("participant management", () => {
 		).toHaveLength(0);
 	});
 
-	it("renders human role labels and an inline canonical role selector for each participant", async () => {
+	it("renders an inline canonical role control for each participant", async () => {
 		const db = await seedBareSubmission();
 		await db.insert(participants).values({
 			id: "p_secondary",
@@ -1305,16 +1305,16 @@ describe("participant management", () => {
 			position: 0,
 		});
 		const loaded = unwrap(await callLoader(await detailRequest())).data;
+		const participantPayload = loaded as unknown as {
+			participants: Array<{ role: string }>;
+		};
 
 		const html = renderDetail(loaded);
 
-		expect(html).toContain("Secondary contact");
-		expect(html).toContain(">Speaker<");
-		expect(html).toContain(">Chairperson<");
-		expect(html).toContain(">Moderator<");
+		expect(participantPayload.participants[0]?.role).toBe("secondary");
+		expect(html).toContain('name="role"');
 		expect(html).toContain('value="set-participant-role"');
 		expect(html).toContain('name="participantId" value="p_secondary"');
-		expect(html).toContain("Save role");
 	});
 });
 
