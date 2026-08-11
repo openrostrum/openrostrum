@@ -3,21 +3,16 @@ import { useState } from "react";
 import { Form, data, redirect, useNavigation } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
-import {
-	organizationMembers,
-	organizations,
-	passwordResets,
-	users,
-} from "~/db/schema";
+import { organizationMembers, passwordResets, users } from "~/db/schema";
 import {
 	destroySession,
-	getActiveEvent,
 	mintSentinelHash,
 	normalizeEmail,
 	requireAdmin,
 	SENTINEL_HASH_PREFIX,
 } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { type Org, resolveOrg } from "~/lib/org.server";
 import { createTimings, track } from "~/lib/track";
 import { getEmailSender } from "~/ports/email";
 import {
@@ -48,34 +43,6 @@ const InviteSchema = z.object({
 
 type Db = ReturnType<typeof getDb>;
 type AppUser = typeof users.$inferSelect;
-type Org = typeof organizations.$inferSelect;
-
-// The org an admin manages: the active event's org (getActiveEvent is the
-// membership chokepoint — it only returns the caller's orgs' events), else
-// their first membership (an org can predate its first event). Null = none.
-async function resolveOrg(env: Env, user: AppUser): Promise<Org | null> {
-	const db = getDb(env);
-	const event = await getActiveEvent(env, user);
-	if (event) {
-		const [org] = await db
-			.select()
-			.from(organizations)
-			.where(eq(organizations.id, event.organizationId))
-			.limit(1);
-		if (org) return org;
-	}
-	const [first] = await db
-		.select({ org: organizations })
-		.from(organizationMembers)
-		.innerJoin(
-			organizations,
-			eq(organizations.id, organizationMembers.organizationId),
-		)
-		.where(eq(organizationMembers.userId, user.id))
-		.orderBy(organizationMembers.createdAt)
-		.limit(1);
-	return first?.org ?? null;
-}
 
 function escapeHtml(value: string): string {
 	return value
