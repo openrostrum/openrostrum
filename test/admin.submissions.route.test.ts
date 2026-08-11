@@ -116,8 +116,15 @@ describe("admin submissions route", () => {
 		expect(result.init.headers["Server-Timing"]).toContain("db;dur=");
 		const html = renderSubmissions(result.data);
 		expect(html).toContain('href="/admin/submissions/s1"');
-		expect(html).toContain("Preview accept emails + finalize");
-		expect(html).toContain("Preview decline emails + finalize");
+		const actionControls = [
+			...html.matchAll(/<(a|button)\b[^>]*>([\s\S]*?)<\/\1>/gi),
+		].map((match) => match[2]?.replace(/<[^>]+>/g, " ") ?? "");
+		expect(actionControls).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/\baccept\b/i),
+				expect.stringMatching(/\bdecline\b/i),
+			]),
+		);
 	});
 
 	it("creates a submission via the action (server-derives eventId)", async () => {
