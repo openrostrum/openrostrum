@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { events, fileComments, files, taskAssignments } from "../app/db/schema";
+import { insertDirectUpload, insertTaskUpload } from "../app/domain/files";
 import { loader as libraryLoader } from "../app/routes/admin.files";
 import {
 	action as detailAction,
@@ -74,6 +75,8 @@ async function loadLibrary(query = "") {
 			submissionTitle: string | null;
 			speakerName: string | null;
 			reviewStatus: string;
+			sharedToPortal: boolean;
+			createdAt: Date;
 		}>;
 		total: number;
 		timezone: string;
@@ -91,6 +94,14 @@ async function loadDetail(fileId: string) {
 	return unwrap<{
 		commentKey: string;
 		latest: { id: string; version: number; reviewStatus: string };
+		reviewFile: {
+			id: string;
+			version: number;
+			reviewStatus: string;
+		} | null;
+		canonicalSharedToPortal: boolean;
+		contact: { id: string } | null;
+		assignment: { id: string } | null;
 		versions: Array<{ id: string; version: number; uploadedOn: string }>;
 		comments: Array<{
 			author: string;
@@ -141,6 +152,217 @@ describe("central files library", () => {
 		expect(rows.find((r) => r.fileName === "speaker-kit.pdf")).toMatchObject({
 			versionCount: 1,
 		});
+	});
+
+	it("shows one session-linked row with an upload date after direct v1 and portal v2", async () => {
+		const db = await seedFilesWorld();
+		await insertDirectUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			r2Key: "t/admin-v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 8,
+			sharedToPortal: false,
+		});
+		await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/portal-v2",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+
+		const { rows, total } = await loadLibrary();
+		expect(total).toBe(1);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			fileName: "slides.pdf",
+			version: 2,
+			versionCount: 2,
+			submissionTitle: "Talk A",
+			speakerName: "Priya Sharma",
+		});
+		expect(rows[0]?.createdAt).toBeInstanceOf(Date);
+		expect(rows[0]?.createdAt.getTime()).not.toBeNaN();
+	});
+
+	it("keeps an established direct history together when it joins one task chain", async () => {
+		const db = await seedFilesWorld();
+		await db.insert(files).values([
+			{
+				id: "f_direct_history_v1",
+				eventId: "e1",
+				submissionId: "s1",
+				r2Key: "t/direct-history-v1",
+				fileName: "slides.pdf",
+				kind: "slides",
+				version: 1,
+			},
+			{
+				id: "f_direct_history_v2",
+				eventId: "e1",
+				submissionId: "s1",
+				r2Key: "t/direct-history-v2",
+				fileName: "slides.pdf",
+				kind: "slides",
+				version: 2,
+			},
+			{
+				id: "f_task_history_v1",
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: "ta_priya_slides",
+				r2Key: "t/task-history-v1",
+				fileName: "slides.pdf",
+				kind: "slides",
+				version: 1,
+			},
+		]);
+
+		const { rows, total } = await loadLibrary();
+		expect(total).toBe(1);
+		expect(rows[0]).toMatchObject({ version: 2, versionCount: 2 });
+		expect(
+			(await loadDetail("f_direct_history_v1")).versions.map(
+				(version) => version.version,
+			),
+		).toEqual([2, 1]);
+	});
+
+	it("hides a duplicate direct row when an established task chain receives the same deliverable", async () => {
+		const db = await seedFilesWorld();
+		await db.insert(files).values({
+			id: "f_existing_task_v1",
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/existing-task-v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			version: 1,
+			reviewStatus: "pending",
+		});
+		await db.insert(files).values({
+			id: "f_direct_slides_v1",
+			eventId: "e1",
+			submissionId: "s1",
+			r2Key: "t/direct-slides-v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 8,
+			version: 1,
+		});
+		await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/task-slides-v2",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+
+		const { rows, total } = await loadLibrary();
+		expect(total).toBe(1);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			fileName: "slides.pdf",
+			version: 2,
+			versionCount: 2,
+			submissionTitle: "Talk A",
+			speakerName: "Priya Sharma",
+		});
+		const fromDirectAlias = await loadDetail("f_direct_slides_v1");
+		expect(fromDirectAlias.versions.map((version) => version.version)).toEqual([
+			2, 1,
+		]);
+		expect(fromDirectAlias.latest.id).toBeDefined();
+	});
+
+	it("keeps a same-name direct file separate from a one-version task chain", async () => {
+		const db = await seedFilesWorld();
+		await db.insert(files).values([
+			{
+				id: "f_single_task_v1",
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: "ta_priya_slides",
+				r2Key: "t/single-task-v1",
+				fileName: "slides.pdf",
+				kind: "slides",
+				version: 1,
+			},
+			{
+				id: "f_independent_direct_v1",
+				eventId: "e1",
+				submissionId: "s1",
+				r2Key: "t/independent-direct-v1",
+				fileName: "slides.pdf",
+				kind: "slides",
+				version: 1,
+			},
+		]);
+
+		const { rows, total } = await loadLibrary();
+		expect(total).toBe(2);
+		expect(rows).toHaveLength(2);
+	});
+
+	it("keeps a direct upload visible when multiple task assignments make identity ambiguous", async () => {
+		const db = await seedFilesWorld();
+		await db.insert(taskAssignments).values({
+			id: "ta_priya_other",
+			taskId: "t_hotel",
+			contactId: "c_priya",
+			submissionId: "s1",
+		});
+		await db.insert(files).values([
+			{
+				id: "f_task_a",
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: "ta_priya_slides",
+				r2Key: "t/task-a",
+				fileName: "slides.pdf",
+				kind: "slides",
+			},
+			{
+				id: "f_task_b",
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: "ta_priya_other",
+				r2Key: "t/task-b",
+				fileName: "slides.pdf",
+				kind: "slides",
+			},
+			{
+				id: "f_direct_ambiguous",
+				eventId: "e1",
+				submissionId: "s1",
+				r2Key: "t/direct-ambiguous",
+				fileName: "slides.pdf",
+				kind: "slides",
+			},
+		]);
+
+		const { rows, total } = await loadLibrary();
+		expect(total).toBe(3);
+		expect(rows).toHaveLength(3);
+		expect(rows.every((row) => row.fileName === "slides.pdf")).toBe(true);
 	});
 
 	it("search matches file name, session title, and speaker name; review filter narrows", async () => {
@@ -284,6 +506,121 @@ describe("file detail — versions, review, comments", () => {
 		});
 		const thrown = await catchThrown(() => loadDetail("f_foreign"));
 		expect(thrownStatus(thrown)).toBe(404);
+	});
+
+	it("keeps pending task ownership reviewable when a direct upload is canonical latest", async () => {
+		const db = await seedFilesWorld();
+		const task = await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/pending-task-v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+		const direct = await insertDirectUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			r2Key: "t/direct-v2",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+			sharedToPortal: false,
+		});
+
+		const detail = await loadDetail(direct.id);
+		expect(detail.latest).toMatchObject({ id: direct.id, version: 2 });
+		expect(detail.contact?.id).toBe("c_priya");
+		expect(detail.assignment?.id).toBe("ta_priya_slides");
+		expect(detail.reviewFile).toMatchObject({
+			id: task.id,
+			version: 1,
+			reviewStatus: "pending",
+		});
+
+		await postDetail(direct.id, { intent: "approve" });
+		const [reviewed] = await db
+			.select()
+			.from(files)
+			.where(eq(files.id, task.id));
+		expect(reviewed?.reviewStatus).toBe("approved");
+		const [assignment] = await db
+			.select()
+			.from(taskAssignments)
+			.where(eq(taskAssignments.id, "ta_priya_slides"));
+		expect(assignment?.status).toBe("complete");
+	});
+
+	it("shows and clears portal sharing across canonical physical members", async () => {
+		const db = await seedFilesWorld();
+		const direct = await insertDirectUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			r2Key: "t/shared-direct-v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+			sharedToPortal: true,
+		});
+		const task = await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/task-v2",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+
+		expect((await loadLibrary()).rows[0]?.sharedToPortal).toBe(true);
+		expect((await loadDetail(task.id)).canonicalSharedToPortal).toBe(true);
+		await postDetail(task.id, { intent: "unshare" });
+		expect(
+			(
+				await db
+					.select({ shared: files.sharedToPortal })
+					.from(files)
+					.where(eq(files.submissionId, "s1"))
+			).map((row) => row.shared),
+		).toEqual([false, false]);
+		expect(direct.version).toBe(1);
+	});
+
+	it("loads more than D1's bound-variable cap of versions and comments", async () => {
+		const db = await seedFilesWorld();
+		const values = Array.from({ length: 101 }, (_, index) => ({
+			id: `f_long_${index + 1}`,
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: `t/long-${index + 1}`,
+			fileName: "long-lived.pdf",
+			kind: "slides" as const,
+			version: index + 1,
+		}));
+		for (let index = 0; index < values.length; index += 5) {
+			await db.insert(files).values(values.slice(index, index + 5));
+		}
+		await db.insert(fileComments).values({
+			id: "fc_long",
+			fileId: "f_long_1",
+			authorName: "Priya Sharma",
+			body: "Still in this thread.",
+		});
+
+		const detail = await loadDetail("f_long_1");
+		expect(detail.versions).toHaveLength(101);
+		expect(detail.versions[0]?.version).toBe(101);
+		expect(detail.comments).toHaveLength(1);
+		expect(detail.comments[0]?.version).toBe(1);
 	});
 
 	it("approve marks the latest version approved AND completes the speaker's task", async () => {
