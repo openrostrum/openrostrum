@@ -2,8 +2,13 @@ import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { events, fileComments, files, taskAssignments } from "../app/db/schema";
-import { insertDirectUpload, insertTaskUpload } from "../app/domain/files";
+import {
+	addFileComment,
+	insertDirectUpload,
+	insertTaskUpload,
+} from "../app/domain/files";
 import { loader as libraryLoader } from "../app/routes/admin.files";
+import { action as uploadAction } from "../app/routes/files.upload";
 import {
 	action as detailAction,
 	loader as detailLoader,
@@ -16,6 +21,7 @@ import {
 	seedFilesWorld,
 	thrownStatus,
 	unwrap,
+	uploadForm,
 } from "./files.helpers";
 
 type LibraryArgs = Parameters<typeof libraryLoader>[0];
@@ -152,6 +158,67 @@ describe("central files library", () => {
 		expect(rows.find((r) => r.fileName === "speaker-kit.pdf")).toMatchObject({
 			versionCount: 1,
 		});
+	});
+
+	it("admin session upload then speaker re-upload is one session row with combined versions and comments", async () => {
+		const db = await seedFilesWorld();
+		const uploaded = (await uploadAction({
+			context: CONTEXT,
+			request: await authedRequest(
+				"http://localhost/files/upload",
+				{},
+				{
+					method: "POST",
+					body: uploadForm(
+						{ name: "slides.pdf", content: "admin v1" },
+						{ destination: "session", submissionId: "s1" },
+					),
+				},
+			),
+			params: {},
+		} as unknown as Parameters<typeof uploadAction>[0])) as Response;
+		expect(uploaded.headers.get("Location") ?? "").toContain("notice=uploaded");
+
+		const [adminRow] = await db.select().from(files);
+		expect(adminRow?.submissionId).toBe("s1");
+		await addFileComment(db, {
+			key: crypto.randomUUID(),
+			fileId: adminRow?.id ?? "",
+			authorId: null,
+			authorName: "Jordan Alvarez",
+			body: "Please export 16:9.",
+		});
+
+		await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/portal-v2",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+
+		const { rows, total } = await loadLibrary();
+		expect(total).toBe(1);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			fileName: "slides.pdf",
+			version: 2,
+			versionCount: 2,
+			submissionTitle: "Talk A",
+			speakerName: "Priya Sharma",
+		});
+		expect(rows[0]?.createdAt).toBeInstanceOf(Date);
+		expect(rows[0]?.createdAt.getTime()).not.toBeNaN();
+
+		const detail = await loadDetail(rows[0]?.id ?? "");
+		expect(detail.versions.map((version) => version.version)).toEqual([2, 1]);
+		expect(detail.comments.map((comment) => comment.body)).toEqual([
+			"Please export 16:9.",
+		]);
 	});
 
 	it("shows one session-linked row with an upload date after direct v1 and portal v2", async () => {

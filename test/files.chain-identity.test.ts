@@ -3,7 +3,9 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { files, submissions } from "../app/db/schema";
 import {
+	addFileComment,
 	insertDirectUpload,
+	insertTaskUpload,
 	SESSION_OPTION_LIMIT,
 	uploadHeadshot,
 } from "../app/domain/files";
@@ -218,6 +220,72 @@ describe("an event-level upload chain can be filed against its session", () => {
 			.from(files)
 			.where(eq(files.submissionId, "s1"));
 		expect(versions.map((v) => v.version).sort()).toEqual([1, 2, 3, 4]);
+	});
+
+	it("refiling an event-level deck onto a session that already has the speaker's upload keeps one history", async () => {
+		const db = await seedFilesWorld();
+		const ids = await seedLooseDeck(db);
+		await addFileComment(db, {
+			key: crypto.randomUUID(),
+			fileId: ids[2] ?? "",
+			authorId: null,
+			authorName: "Jordan Alvarez",
+			body: "Use the widescreen export.",
+		});
+		await env.BLOBS.put("t/task-v1", "speaker v1");
+		const speaker = await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/task-v1",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 10,
+		});
+		await addFileComment(db, {
+			key: crypto.randomUUID(),
+			fileId: speaker.id,
+			authorId: null,
+			authorName: "Priya Sharma",
+			body: "Draft deck - final version coming Friday.",
+		});
+		expect((await library()).total).toBe(2);
+
+		const result = (await postDetail(ids[2] ?? "", {
+			intent: "assign-session",
+			submissionId: "s1",
+		})) as { data?: { formError?: string } };
+		expect(result.data?.formError).toBeUndefined();
+
+		const after = await library();
+		expect(after.total).toBe(1);
+		expect(after.rows[0]).toMatchObject({
+			fileName: "slides.pdf",
+			version: 4,
+			versionCount: 4,
+			submissionTitle: "Talk A",
+			speakerName: "Priya Sharma",
+		});
+		const versions = await db
+			.select({ version: files.version })
+			.from(files)
+			.where(eq(files.submissionId, "s1"));
+		expect(versions.map((v) => v.version).sort()).toEqual([1, 2, 3, 4]);
+		const shown = unwrap<{ comments: Array<{ body: string }> }>(
+			await detailLoader({
+				context: CONTEXT,
+				request: await authedRequest(
+					`http://localhost/admin/files/${after.rows[0]?.id ?? ""}`,
+				),
+				params: { id: after.rows[0]?.id ?? "" },
+			} as unknown as Parameters<typeof detailLoader>[0]),
+		);
+		expect(shown.comments.map((c) => c.body)).toEqual([
+			"Use the widescreen export.",
+			"Draft deck - final version coming Friday.",
+		]);
 	});
 
 	it("files a chain back to event level", async () => {

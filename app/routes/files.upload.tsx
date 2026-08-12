@@ -5,6 +5,7 @@ import { submissions } from "~/db/schema";
 import {
 	checkUpload,
 	insertDirectUpload,
+	parseUploadDestination,
 	type UploadErrorCode,
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin, safeRedirect } from "~/lib/auth";
@@ -42,9 +43,15 @@ export async function action({ context, request }: Route.ActionArgs) {
 	const check = checkUpload(file);
 	if (!check.ok) return fail(check.code);
 
+	const destination = parseUploadDestination(
+		String(form.get("destination") ?? ""),
+		String(form.get("submissionId") ?? ""),
+	);
+	if (!destination.ok) return fail(destination.code);
+
 	// The attachment target resolves INSIDE the active event or not at all —
 	// a foreign submission id is refused, never silently dropped.
-	const submissionId = String(form.get("submissionId") ?? "") || null;
+	const submissionId = destination.submissionId;
 	if (submissionId) {
 		const [row] = await db
 			.select({ id: submissions.id })
@@ -59,7 +66,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 		if (!row) return fail("foreign-submission");
 	}
 
-	const shared = form.get("sharedToPortal") === "on";
+	const shared =
+		destination.shareByDefault || form.get("sharedToPortal") === "on";
 	const timings = createTimings();
 	try {
 		const target = submissionId ?? "event";

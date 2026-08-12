@@ -132,12 +132,36 @@ export const UPLOAD_ACCEPT = Object.keys(EXT_KIND)
  * pages map codes to copy — free text never rides a URL. */
 export const UPLOAD_ERRORS = {
 	"choose-file": "Choose a file first.",
+	"choose-destination":
+		"Choose whether this is a session deliverable or an event resource.",
+	"choose-session": "Choose the session this deliverable belongs to.",
 	"bad-type": UPLOAD_CONSTRAINTS,
 	"too-large": "Keep the file under 25 MB.",
 	"foreign-submission": "That submission does not belong to this event.",
 	"no-event": "No event is configured yet.",
 	failed: "The upload failed — please try again.",
 } as const;
+
+export type UploadDestination =
+	| { ok: true; submissionId: string | null; shareByDefault: boolean }
+	| { ok: false; code: "choose-destination" | "choose-session" };
+
+/** Empty session used to mean "event-level" and forked a second chain.
+ * Destination is required; event resources ignore a leftover session id. */
+export function parseUploadDestination(
+	destination: string,
+	submissionId: string,
+): UploadDestination {
+	if (destination === "event") {
+		return { ok: true, submissionId: null, shareByDefault: true };
+	}
+	if (destination === "session") {
+		return submissionId
+			? { ok: true, submissionId, shareByDefault: false }
+			: { ok: false, code: "choose-session" };
+	}
+	return { ok: false, code: "choose-destination" };
+}
 
 /** One rule for how long a deny note / file comment may be, every caller. */
 export const REVIEW_NOTE_MAX = 2000;
@@ -666,29 +690,8 @@ export async function refileChain(
 			return { ok: false, error: "That session isn't part of this event." };
 		}
 		submissionTitle = target.title;
-		// A task upload of the same name on the destination would absorb these
-		// rows into the speaker's review loop (see canonicalRowsSql) and take
-		// their version numbers with it. Refuse rather than silently merge.
-		const [clash] = await db
-			.select({ id: files.id })
-			.from(files)
-			.where(
-				and(
-					eq(files.eventId, chain.eventId),
-					eq(files.submissionId, targetSubmissionId),
-					isNotNull(files.taskAssignmentId),
-					sql`lower(${files.fileName}) = lower(${chain.fileName})`,
-				),
-			)
-			.limit(1);
-		if (clash) {
-			return {
-				ok: false,
-				error: `A speaker already uploaded ${chain.fileName} to that session through a task — that history stays with them.`,
-			};
-		}
 	}
-	const scope = (submissionId: string | null) =>
+	const adminScope = (submissionId: string | null) =>
 		and(
 			eq(files.eventId, chain.eventId),
 			isNull(files.taskAssignmentId),
@@ -698,6 +701,16 @@ export async function refileChain(
 				: isNull(files.submissionId),
 			sql`lower(${files.fileName}) = lower(${chain.fileName})`,
 		) as SQL;
+	// Same-named task uploads on the destination are this deliverable —
+	// fold them in and renumber so the library cannot keep two histories.
+	const destTaskScope = targetSubmissionId
+		? (and(
+				eq(files.eventId, chain.eventId),
+				eq(files.submissionId, targetSubmissionId),
+				isNotNull(files.taskAssignmentId),
+				sql`lower(${files.fileName}) = lower(${chain.fileName})`,
+			) as SQL)
+		: undefined;
 	const merged = await db
 		.select({
 			id: files.id,
@@ -705,7 +718,13 @@ export async function refileChain(
 			sharedToPortal: files.sharedToPortal,
 		})
 		.from(files)
-		.where(or(scope(chain.submissionId), scope(targetSubmissionId)) as SQL);
+		.where(
+			or(
+				adminScope(chain.submissionId),
+				adminScope(targetSubmissionId),
+				...(destTaskScope ? [destTaskScope] : []),
+			) as SQL,
+		);
 	merged.sort(
 		(a, b) =>
 			a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),

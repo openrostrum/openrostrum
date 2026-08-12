@@ -48,19 +48,58 @@ function locationOf(response: Response): string {
 }
 
 describe("admin file upload", () => {
+	it("refuses an upload that does not name a destination", async () => {
+		const db = await seedFilesWorld();
+		const response = await upload(
+			uploadForm({ name: "slides.pdf", content: "deck" }),
+		);
+		expect(locationOf(response)).toContain("uploadError=choose-destination");
+		expect(await db.select().from(files)).toHaveLength(0);
+	});
+
+	it("refuses a session destination that does not name a session", async () => {
+		const db = await seedFilesWorld();
+		const response = await upload(
+			uploadForm(
+				{ name: "slides.pdf", content: "deck" },
+				{ destination: "session" },
+			),
+		);
+		expect(locationOf(response)).toContain("uploadError=choose-session");
+		expect(await db.select().from(files)).toHaveLength(0);
+	});
+
+	it("keeps an explicit event resource off every session even if a session id is posted", async () => {
+		const db = await seedFilesWorld();
+		const response = await upload(
+			uploadForm(
+				{ name: "speaker-kit.pdf", content: "kit" },
+				{ destination: "event", submissionId: "s1" },
+			),
+		);
+		expect(locationOf(response)).toContain("notice=uploaded");
+		const rows = await db.select().from(files);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			fileName: "speaker-kit.pdf",
+			submissionId: null,
+			sharedToPortal: true,
+		});
+	});
+
 	it("re-uploading the same name to the same session continues the chain at version+1", async () => {
 		const db = await seedFilesWorld();
 		const first = await upload(
 			uploadForm(
 				{ name: "speaker-kit.pdf", content: "kit v1" },
-				{ submissionId: "s1" },
+				{ destination: "session", submissionId: "s1" },
 			),
 		);
 		expect(locationOf(first)).toContain("notice=uploaded");
 		const second = await upload(
 			uploadForm(
 				{ name: "speaker-kit.pdf", content: "kit v2 — updated" },
-				{ submissionId: "s1" },
+				{ destination: "session", submissionId: "s1" },
 			),
 		);
 		expect(locationOf(second)).toContain("notice=uploaded");
@@ -111,7 +150,7 @@ describe("admin file upload", () => {
 		const response = await upload(
 			uploadForm(
 				{ name: "deck.pdf", content: "deck" },
-				{ submissionId: "s_e2" },
+				{ destination: "session", submissionId: "s_e2" },
 			),
 		);
 		expect(locationOf(response)).toContain("uploadError=foreign-submission");
@@ -123,11 +162,14 @@ describe("admin file upload", () => {
 		await upload(
 			uploadForm(
 				{ name: "template.pptx", content: "old template" },
-				{ sharedToPortal: "on" },
+				{ destination: "event", sharedToPortal: "on" },
 			),
 		);
 		await upload(
-			uploadForm({ name: "template.pptx", content: "new template" }),
+			uploadForm(
+				{ name: "template.pptx", content: "new template" },
+				{ destination: "event" },
+			),
 		);
 		const rows = await db
 			.select()
@@ -147,7 +189,7 @@ describe("cross-path deliverable identity", () => {
 		await upload(
 			uploadForm(
 				{ name: "slides.pdf", content: "admin v1" },
-				{ submissionId: "s1" },
+				{ destination: "session", submissionId: "s1" },
 			),
 		);
 
@@ -203,7 +245,7 @@ describe("cross-path deliverable identity", () => {
 		await upload(
 			uploadForm(
 				{ name: "slides.pdf", content: "admin v2" },
-				{ submissionId: "s1" },
+				{ destination: "session", submissionId: "s1" },
 			),
 		);
 
@@ -245,7 +287,7 @@ describe("cross-path deliverable identity", () => {
 		await upload(
 			uploadForm(
 				{ name: "slides.pdf", content: "admin v2" },
-				{ submissionId: "s1" },
+				{ destination: "session", submissionId: "s1" },
 			),
 		);
 
@@ -294,7 +336,7 @@ describe("cross-path deliverable identity", () => {
 		await upload(
 			uploadForm(
 				{ name: "slides.pdf", content: "admin replacement" },
-				{ submissionId: "s1" },
+				{ destination: "session", submissionId: "s1" },
 			),
 		);
 
