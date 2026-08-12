@@ -740,7 +740,9 @@ Wave B/C/D commitment, cited per step. One prior gap is resolved by the migratio
 
 **Gate trigger.** Branch `fix/schedule-scale-hardening` changes `app/db/schema.ts`, `app/ports/email.ts`,
 `app/domain/accept.ts`, `app/domain/schedule-update.ts`, `app/lib/ics.ts` and `app/routes/admin.agenda.tsx`.
-This file's `touches:` names `emailOutbox` and `ports: [EmailSender]`, so the gate selects it. Every one of
+This file's `touches:` names `emailOutbox` and `ports: [EmailSender]`, so the gate selects it. The schema and
+migration edits are integration-owned: they were authored under the sanctioned `ALLOW_SCHEMA_CHANGE=1`
+override and ship from `integration/schedule-scale-hardening`, which is why this gate runs at all. Every one of
 the 37 steps is walked below — none pre-filtered — and each gets either the changed concrete artifact or the
 reason it is unchanged.
 
