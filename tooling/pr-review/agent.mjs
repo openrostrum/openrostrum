@@ -159,10 +159,9 @@ function createFindingSink(agent, changedPaths) {
 	};
 }
 
-// A reviewer that ends in prose has said neither "I finished" nor "I stopped",
-// and this PR's own reviewer did exactly that with 8995 characters of reasoning
-// about a violation it never submitted. One re-ask costs a turn; the bank is
-// already safe, so the second answer is the signal or the same failure.
+// A reviewer that ends in prose has said neither "I finished" nor "I stopped".
+// The bank is already safe and the budgets are shared, so one more ask is either
+// the signal or the same failure — never a second chance at the contract.
 const TERMINAL_RETRIES = 1;
 
 function retryPrompt(failure) {

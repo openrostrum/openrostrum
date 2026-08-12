@@ -679,9 +679,11 @@ test("submissions past the per-response cap are refused and can be re-issued", a
 
 	assert.equal(result.status, "complete", result.reason);
 	assert.equal(result.findings.length, 3);
-	const capped = seen[0].filter((text) => /per response/.test(text));
-	assert.equal(capped.length, 1, JSON.stringify(seen[0]));
-	assert.match(capped[0], /at most 2/);
+	const refused = seen[0].filter((text) => !/"ok":true/.test(text));
+	assert.equal(refused.length, 1, JSON.stringify(seen[0]));
+	// The refusal has to name the cap actually in force. Told "at most 10" under a
+	// cap of 2, a reviewer re-issues into the same refusal forever.
+	assert.match(refused[0], /\b2\b/);
 });
 
 // ---------------------------------------------------------------------------
@@ -697,9 +699,9 @@ const userTexts = (messages) =>
 				: message.content,
 		);
 
-// This PR's own reviewer ended with 8995 characters of reasoning about a
-// violation it never submitted: neither a review nor a signal, and the whole
-// session was thrown away. Asking costs one turn and recovers the review.
+// A reviewer that ends in reasoning has said neither "I finished" nor "I stopped",
+// so discarding the session throws a proved review away over a formatting miss
+// that one more ask recovers.
 test("a reviewer that ends in prose is asked once more for the signal", async () => {
 	const contexts = [];
 	const { runtime, faux } = fauxRuntime([
