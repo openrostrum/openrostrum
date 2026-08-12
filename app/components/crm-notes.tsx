@@ -14,15 +14,19 @@ interface Note {
 /**
  * The person-level internal-note thread — one surface shared by the directory
  * profile and the pipeline card detail. Posts `intent=add-note` with `body`
- * to the hosting route's action.
+ * to the hosting route's action. `timeZone` is the event's: "called them
+ * Tuesday evening" has to still read as Tuesday evening to the person who
+ * wrote it, and it comes from the loader so hydration cannot move it.
  */
 export function CrmNotesPanel({
 	notes,
 	total,
+	timeZone,
 	error,
 }: {
 	notes: Note[];
 	total: number;
+	timeZone: string;
 	error?: string;
 }) {
 	const busy = useBusy();
@@ -60,7 +64,7 @@ export function CrmNotesPanel({
 							<li key={n.id} className="flex flex-col gap-1">
 								<span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-faint">
 									{n.authorName} ·{" "}
-									{formatInTimeZone(n.createdAt, "UTC", "datetime-zone")}
+									{formatInTimeZone(n.createdAt, timeZone, "datetime-zone")}
 								</span>
 								<p className="whitespace-pre-wrap text-[13px] text-fg">
 									{n.body}
