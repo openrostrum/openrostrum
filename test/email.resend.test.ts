@@ -6,12 +6,9 @@ import { emailOutbox } from "../app/db/schema";
 import { createResendEmailSender } from "../app/ports/email";
 
 // Oracle: the Resend Send API contract (endpoint, payload field names, the
-// Idempotency-Key header) — from Resend's docs, not read off the adapter —
-// PLUS the outbox ledger contract: every prod attempt is a queryable
-// email_outbox row, resolved to `sent` (provider id) or `failed` (reason).
-// `/admin/emails/history` is the delivery evidence in prod, so a provider
-// rejection must be a `failed` row, never a vanished send. fetch (the process
-// boundary) is the only thing mocked; the outbox asserts run on real D1.
+// Idempotency-Key header) — from Resend's docs, not read off the adapter — PLUS
+// the outbox ledger contract: every prod attempt is a queryable email_outbox row
+// resolved to `sent` (provider id) or `failed` (reason), never a vanished send.
 const FROM = "OpenRostrum <noreply@test.example>";
 const env = {
 	...workerEnv,
@@ -19,6 +16,8 @@ const env = {
 	EMAIL_FROM: FROM,
 } as unknown as Env;
 
+// fetch (the process boundary) is the only thing mocked — every outbox
+// assertion below runs against real D1.
 function mockFetch(status: number, json: unknown) {
 	return vi.fn(async () => new Response(JSON.stringify(json), { status }));
 }

@@ -6,9 +6,9 @@ import { MERGE_FIELD } from "../app/ports/airtable";
 // Contracts from docs/airtable-sync-design.md Decisions 2 + 3: per field and
 // against the last-synced snapshot — only-local-changed pushes, only-remote-
 // changed pulls, both-changed follows the field class (Airtable wins on
-// team-editable, the app wins on app-owned). A synthetic map keeps these
-// pinned to the ENGINE, not to any real table's field list.
+// team-editable, the app wins on app-owned).
 
+// Synthetic, so these stay pinned to the ENGINE, not to a real table's fields.
 const MAP: TableMap = {
 	table: "submissions",
 	airtableTable: "T",
