@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { CONTACT_STATUS } from "~/db/constants";
 
 /**
@@ -17,12 +18,9 @@ export interface DirectoryFilters {
 
 export type CrmContactStatus = (typeof CONTACT_STATUS)[number];
 
-export function isCrmContactStatus(value: unknown): value is CrmContactStatus {
-	return (
-		typeof value === "string" &&
-		(CONTACT_STATUS as readonly string[]).includes(value)
-	);
-}
+/** Both sources of a status here are untrusted text: a URL param and stored
+ * segment JSON. Anything that isn't a status parses to undefined = no filter. */
+const crmContactStatus = z.enum(CONTACT_STATUS);
 
 export function hasDirectoryFilters(f: DirectoryFilters): boolean {
 	return Boolean(f.q || f.company || f.title || f.eventId || f.status);
@@ -37,7 +35,7 @@ export function directoryFiltersFromParams(
 		company: params.get("company") || undefined,
 		title: params.get("title") || undefined,
 		eventId: params.get("event") || undefined,
-		status: isCrmContactStatus(status) ? status : undefined,
+		status: crmContactStatus.safeParse(status).data,
 	};
 }
 
@@ -65,7 +63,7 @@ export function sanitizeStoredFilters(stored: {
 		company: stored.company || undefined,
 		title: stored.title || undefined,
 		eventId: stored.eventId || undefined,
-		status: isCrmContactStatus(stored.status) ? stored.status : undefined,
+		status: crmContactStatus.safeParse(stored.status).data,
 	};
 }
 

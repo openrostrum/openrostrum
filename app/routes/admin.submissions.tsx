@@ -650,23 +650,15 @@ function StatusCell({
 	title: string;
 	status: (typeof SUBMISSION_STATUS)[number];
 }) {
-	const fetcher = useFetcher();
+	const fetcher = useFetcher<DecisionFetcherData>();
 	const busy = useBusy();
 	const pending = fetcher.formData?.get("status");
-	const shown =
-		typeof pending === "string" &&
-		(SUBMISSION_STATUS as readonly string[]).includes(pending)
-			? (pending as (typeof SUBMISSION_STATUS)[number])
-			: status;
+	// The pill flips optimistically to what this cell just submitted. That value
+	// crossed FormData, so parse it back with the schema the action uses.
+	const optimistic = SetStatus.shape.status.safeParse(pending);
+	const shown = optimistic.success ? optimistic.data : status;
 	// A refused flip snaps the pill back — say why instead of failing silently.
-	const inlineError =
-		!pending &&
-		fetcher.data &&
-		typeof fetcher.data === "object" &&
-		"formError" in fetcher.data &&
-		typeof fetcher.data.formError === "string"
-			? fetcher.data.formError
-			: undefined;
+	const inlineError = pending ? undefined : fetcher.data?.formError;
 	if (status === "draft") {
 		return <StatusBadge tone={SUBMISSION_STATUS_TONE.draft}>draft</StatusBadge>;
 	}
