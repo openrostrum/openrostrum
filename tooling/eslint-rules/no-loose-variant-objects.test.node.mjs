@@ -67,6 +67,23 @@ test("TypeBox schemas are read too", () => {
 	});
 });
 
+// A yes/no `<Select>` parsed into a boolean is a setting, not a tag: nothing
+// downstream can branch on a literal the parsed object no longer carries.
+test("an enum parsed into something else is not a discriminant", () => {
+	ruleTester.run("no-loose-variant-objects", noLooseVariantObjects, {
+		valid: [
+			"z.object({ on: z.enum(['yes','no']).transform((v) => v === 'yes'), a: z.string().optional(), b: z.string().optional() })",
+			"z.object({ on: z.union([z.literal('a'), z.literal('b')]).pipe(Flag), a: z.string().optional(), b: z.string().optional() })",
+		],
+		invalid: [
+			{
+				code: "z.object({ type: z.enum(['a','b']), rows: z.array(z.string()).transform((r) => r), a: z.string().optional(), b: z.string().optional() })",
+				errors: looseVariant,
+			},
+		],
+	});
+});
+
 // A lone literal is the tag of a union that already exists, and an optional
 // nested inside an array element belongs to the element — flagging either
 // would flag the fix rather than the defect.

@@ -53,17 +53,23 @@ function isUnionOfLiterals(args, isLiteralCall) {
 	);
 }
 
+// `z.enum(["yes","no"]).transform((v) => v === "yes")` is a setting parsed into
+// a boolean, not a tag: the parsed object never carries the literal, so no
+// branch downstream could switch on it.
+const PARSED_AWAY = new Set(["transform", "pipe"]);
+
 function classifyZodField(value) {
 	const { base, methods, variantArgs } = readZodChain(value);
 	if (base !== "z" || methods.length === 0) return null;
 
 	const head = methods[0];
 	const isEnum =
-		head === "enum" ||
-		(head === "union" &&
-			isUnionOfLiterals(variantArgs, (element) =>
-				isCallOn(element, "z", new Set(["literal"])),
-			));
+		!methods.some((method) => PARSED_AWAY.has(method)) &&
+		(head === "enum" ||
+			(head === "union" &&
+				isUnionOfLiterals(variantArgs, (element) =>
+					isCallOn(element, "z", new Set(["literal"])),
+				)));
 	if (isEnum) return "enum";
 
 	return methods.includes("optional") || methods.includes("nullish")
