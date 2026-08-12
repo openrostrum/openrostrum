@@ -6,11 +6,42 @@ import { createModels } from "@earendil-works/pi-ai";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { loadAgents, REPO_ROOT } from "./agents.mjs";
 
-// Per-field ceilings for one finding. The prompt states these numbers and
-// validateFindings enforces them, so a reviewer is never told one contract and
-// held to another. Only these five fields reach GitHub; everything else a
+// Per-field ceilings for one finding. The prompt states these numbers and the
+// submit_finding boundary enforces them, so a reviewer is never told one contract
+// and held to another. Only these five fields reach GitHub; everything else a
 // reviewer writes is spent budget that buys no review.
 export const FINDING_LIMITS = { quote: 240, rule: 100, why: 240 };
+
+// How many findings one response may submit. Enforced in agent.mjs, so it is a
+// property of this contract rather than a guess about the provider: past the
+// cap, the extra submissions are refused with a reason and re-issued next turn.
+export const SUBMISSIONS_PER_RESPONSE = 10;
+
+const PATH_BUDGET = 256; // longest repository path, comfortably
+const CALL_SCAFFOLD = 96; // keys, quotes, escapes, line number
+const PROSE_SHARE = 2; // the model's own words get as much room as the payload
+const CHARS_PER_TOKEN = 3; // conservative for JSON carrying code and prose
+
+// No response carries the review any more: findings arrive one per tool call
+// and the terminal answer is two fields. So the ceiling to request is the
+// largest response this contract can require, derived from the limits that
+// bound one — not the catalog's 384000, which asks a provider that honours 8192
+// for 47x what a response could ever hold, and not a hand-picked number that
+// drifts the moment those limits change.
+export const RESPONSE_CEILING = Math.ceil(
+	((FINDING_LIMITS.quote +
+		FINDING_LIMITS.rule +
+		FINDING_LIMITS.why +
+		PATH_BUDGET +
+		CALL_SCAFFOLD) *
+		SUBMISSIONS_PER_RESPONSE *
+		PROSE_SHARE) /
+		CHARS_PER_TOKEN,
+);
+
+export function requestCeiling(model) {
+	return Math.min(model?.maxTokens ?? RESPONSE_CEILING, RESPONSE_CEILING);
+}
 
 export const WRAPPER = `You are a strict senior code reviewer for the OpenRostrum repository. Below is ONE of the repo's rule documents — it is your sole source of truth. Review the entire pull request for violations of rules stated IN THIS DOCUMENT ONLY. Other reviewers independently own the other rule documents; lint and CI own mechanical checks. Do not comment on style or taste.
 
@@ -18,7 +49,7 @@ Your review gates merges, so a false positive is expensive. Investigate reposito
 
 Choose your own investigation order and breadth. Use the read-only repository tools to inspect changed diffs, changed or unchanged files, definitions, callers, tests, and schema. The changed-file index is orientation, not source evidence. Finish only after you have reviewed the pull request as a whole under this document.
 
-Everything you write shares one output budget, and running out of it destroys the whole review rather than shortening it. Every turn you take is either tool calls or the final JSON answer — never a plan, a status note, a running commentary, or a summary of what you just read. Never restate, paraphrase, or quote back this rule document: the reader already has it. Files you inspected and cleared are not part of the answer; only violations are. Nothing you write outside the final JSON object is read by anyone. Investigate as widely as the pull request demands — the budget is spent by writing, not by reading.`;
+Report each violation with a submit_finding call the moment you are sure of it, and never hold findings back to list them at the end. Submissions are banked as you make them, so a review cut short still delivers everything it had already proved. Every turn you take is either tool calls or the final completion signal — never a plan, a status note, a running commentary, or a summary of what you just read. Never restate, paraphrase, or quote back this rule document: the reader already has it. Files you inspected and cleared are not part of the review; only violations are. Nothing you write outside submit_finding calls and the final signal is read by anyone. Investigate as widely as the pull request demands.`;
 
 export function extractJson(text) {
 	try {
@@ -53,15 +84,14 @@ export async function loadSystems() {
 const REQ_TIMEOUT_MS = Number(process.env.REQ_TIMEOUT_MS ?? 60000);
 
 // Pi forwards a max-output value only when maxTokens is set; with none, the
-// provider's own small default truncates a reviewer mid-answer, which the
-// completion contract can only report as incomplete. The ceiling belongs to the
-// model, so take it from the catalog entry rather than inventing a number.
+// provider's own small default truncates a reviewer mid-response. Ask for what
+// a response can need, or for everything the model has when that is less.
 export function streamOptions({ key, temperature, model, options = {} }) {
 	return {
 		...options,
 		apiKey: key,
 		temperature,
-		maxTokens: options.maxTokens ?? model?.maxTokens,
+		maxTokens: options.maxTokens ?? requestCeiling(model),
 		timeoutMs: REQ_TIMEOUT_MS,
 		maxRetries: 3,
 	};

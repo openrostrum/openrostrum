@@ -254,7 +254,7 @@ const incomplete = results.filter((result) => result.status !== "complete");
 const reviewComplete = incomplete.length === 0;
 for (const result of results) {
 	console.log(
-		`${result.agent}: ${result.status}; turns=${result.turns}; tools=${result.toolCalls}` +
+		`${result.agent}: ${result.status}; turns=${result.turns}; tools=${result.toolCalls}; findings=${result.findings.length}` +
 			(result.reason ? `; reason=${result.reason}` : ""),
 	);
 }
@@ -327,12 +327,23 @@ if (skipped.length)
 		`_${skipped.length} of ${total} already posted on an earlier run — see the existing threads._`,
 	);
 const notes = [];
-if (incomplete.length)
+if (incomplete.length) {
+	// Findings submitted before a session failed are posted with the rest, so say
+	// so: otherwise a reader cannot tell whether an incomplete owner contributed
+	// nothing or stopped partway through contributing.
+	const banked = incomplete.reduce(
+		(sum, result) => sum + result.findings.length,
+		0,
+	);
 	notes.push(
 		`${incomplete.length} rule reviewer(s) incomplete: ${incomplete
 			.map((result) => result.agent)
-			.join(", ")}; this is not a clean review`,
+			.join(", ")}; this is not a clean review` +
+			(banked
+				? ` (the ${banked} finding(s) they submitted before stopping are included above)`
+				: ""),
 	);
+}
 const footer =
 	(notes.length ? `\n> ⚠️ ${notes.join("; ")}.\n` : "") +
 	`\n<sub>model: ${MODEL} · whole-PR sessions: ${agents.map((a) => a.id).join(", ")}</sub>`;

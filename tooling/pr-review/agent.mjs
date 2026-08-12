@@ -1,24 +1,39 @@
 import { Agent } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { Value } from "typebox/value";
-import { extractJson, FINDING_LIMITS } from "./core.mjs";
+import {
+	extractJson,
+	FINDING_LIMITS,
+	requestCeiling,
+	SUBMISSIONS_PER_RESPONSE,
+} from "./core.mjs";
 import { createRepositoryTools } from "./repository.mjs";
 
+const SUBMIT_TOOL = "submit_finding";
+
+// One finding, validated where it is submitted. Pi checks a tool call against
+// its own parameter schema before the tool runs, so this is the boundary: a
+// submission that misses it is refused with a reason the reviewer can act on
+// and never enters the bank.
+const FINDING = Type.Object(
+	{
+		file: Type.String({ minLength: 1 }),
+		line: Type.Integer({ minimum: 1 }),
+		quote: Type.String({ minLength: 1 }),
+		rule: Type.String({ minLength: 1 }),
+		why: Type.String({ minLength: 1 }),
+	},
+	{ additionalProperties: false },
+);
+
+// The review no longer travels in the terminal response — the findings are
+// already banked — so all it has to do is separate "I finished reviewing" from
+// "I stopped". The count is what makes it an assertion rather than a formality:
+// a reviewer that has lost track of its own review cannot state it correctly.
 const TERMINAL_RESPONSE = Type.Object(
 	{
 		status: Type.Literal("complete"),
-		findings: Type.Array(
-			Type.Object(
-				{
-					file: Type.String({ minLength: 1 }),
-					line: Type.Integer({ minimum: 1 }),
-					quote: Type.String({ minLength: 1 }),
-					rule: Type.String({ minLength: 1 }),
-					why: Type.String({ minLength: 1 }),
-				},
-				{ additionalProperties: false },
-			),
-		),
+		submitted: Type.Integer({ minimum: 0 }),
 	},
 	{ additionalProperties: false },
 );
@@ -29,6 +44,7 @@ const TERMINAL_RESPONSE = Type.Object(
 const DEFAULT_LIMITS = {
 	maxTurns: 60,
 	maxToolCalls: 200,
+	maxSubmissionsPerResponse: SUBMISSIONS_PER_RESPONSE,
 	timeoutMs: 15 * 60 * 1000,
 };
 
@@ -44,7 +60,7 @@ function manifest(changes) {
 	return `${changes.length} changed files\n${entries.join("\n")}`;
 }
 
-function userPrompt(repository, agent) {
+function userPrompt(repository, agent, limits) {
 	return `Review the entire pull request against only ${agent.doc}.
 
 You own this rule document across the whole PR. Investigate autonomously: choose which changed files, unchanged context, definitions, callers, tests, and schemas to inspect with the repository tools. Do not assume the changed-file index contains source or diffs. Retrieve evidence on demand. Do not stop after inspecting one file, and do not flag anything outside your assigned rule document.
@@ -52,19 +68,25 @@ You own this rule document across the whole PR. Investigate autonomously: choose
 Changed-file index (${repository.baseSha}..${repository.headSha}):
 ${manifest(repository.changes)}
 
-A finding must identify a changed file, an absolute new-file line, an exact quote from that changed line, the violated rule, and why it is a concrete violation. Quote that one line and nothing else — never a block, never surrounding context, at most ${FINDING_LIMITS.quote} characters. Name the rule in at most ${FINDING_LIMITS.rule} characters and defend it in one sentence of at most ${FINDING_LIMITS.why}. Anything longer is cut to those limits before posting, so spend them on evidence rather than restatement.
+Report each violation with a ${SUBMIT_TOOL} call as soon as you are sure of it — one call per violation, at most ${limits.maxSubmissionsPerResponse} calls in any one response. A finding must identify a changed file, an absolute new-file line, an exact quote from that changed line, the violated rule, and why it is a concrete violation. Quote that one line and nothing else — never a block, never surrounding context, at most ${FINDING_LIMITS.quote} characters. Name the rule in at most ${FINDING_LIMITS.rule} characters and defend it in one sentence of at most ${FINDING_LIMITS.why}. Anything longer is cut to those limits before posting, so spend them on evidence rather than restatement.
+
+Every ${SUBMIT_TOOL} result carries the running total recorded for you. A refused call is not recorded: fix what its error names and call again. A finding you already submitted comes back marked duplicate and leaves the total unchanged.
 
 When your investigation is finished, emit one JSON object and nothing else — no preface, no reasoning, no code fence, no trailing remarks:
-{"status":"complete","findings":[{"file":"path","line":1,"quote":"exact changed line text","rule":"rule from this document","why":"one defensible sentence"}]}
-If no violations remain after investigation, return {"status":"complete","findings":[]}. Never claim complete if tool or provider failures prevented a trustworthy review.`;
+{"status":"complete","submitted":N}
+where N is the running total from your last ${SUBMIT_TOOL} result, or 0 if you submitted nothing. Never claim complete if tool or provider failures prevented a trustworthy review.`;
 }
 
-function incomplete(agent, reason, details = {}) {
+// Whatever a session submitted before it died, it proved. Discarding that to
+// signal failure buys no safety — the status stays incomplete, so the required
+// check still fails, stale threads are still left alone, and zero findings still
+// cannot render as a clean review — and it would delete real review.
+function incomplete(agent, reason, findings, details = {}) {
 	return {
 		agent: agent.id,
 		doc: agent.doc,
 		status: "incomplete",
-		findings: [],
+		findings,
 		reason,
 		...details,
 	};
@@ -82,26 +104,77 @@ function clamp(text, limit, { ellipsis = false } = {}) {
 	return `${whole || cut.slice(0, limit - 1)}…`;
 }
 
-function validateFindings(value, changedPaths, agent, answer) {
+// Exact repeats only. A retried turn or a reviewer that loses its place must not
+// inflate the running total it reads back, but near-duplicates are the posting
+// layer's problem: inline.mjs already merges them across rule owners with
+// evidence this boundary does not have.
+const submissionKey = (finding) =>
+	[
+		finding.file,
+		finding.line,
+		finding.quote.trim(),
+		finding.rule.trim().toLowerCase().replace(/\s+/g, " "),
+	].join("\0");
+
+// The bank. Every finding enters the review through this one tool call, so this
+// is where the boundary lives: Pi checks the arguments against FINDING before
+// execute runs, and what survives both is clamped, stamped, and counted.
+function createFindingSink(agent, changedPaths) {
+	const findings = [];
+	const seen = new Set();
+
+	return {
+		findings,
+		tool: {
+			name: SUBMIT_TOOL,
+			label: SUBMIT_TOOL,
+			description:
+				"Record one violation of your rule document. Call it once per violation, as soon as you are sure of it. The result carries the running total recorded for you.",
+			parameters: FINDING,
+			async execute(_toolCallId, params) {
+				if (!changedPaths.has(params.file))
+					throw new Error(
+						`this finding cites ${params.file}, which this pull request does not change; quote a line from a changed file instead`,
+					);
+				const finding = {
+					...params,
+					quote: clamp(params.quote, FINDING_LIMITS.quote),
+					rule: clamp(params.rule, FINDING_LIMITS.rule, { ellipsis: true }),
+					why: clamp(params.why, FINDING_LIMITS.why, { ellipsis: true }),
+					agent: agent.id,
+				};
+				const key = submissionKey(finding);
+				const duplicate = seen.has(key);
+				if (!duplicate) {
+					seen.add(key);
+					findings.push(finding);
+				}
+				const result = { ok: true, duplicate, submitted: findings.length };
+				return {
+					content: [{ type: "text", text: JSON.stringify(result) }],
+					details: result,
+				};
+			},
+		},
+	};
+}
+
+// The terminal response no longer carries the review, so all it has to prove is
+// that the reviewer knows it finished — and the count is what makes that an
+// assertion. A reviewer whose tally disagrees with the bank has lost track of
+// its own review, and the disagreement fails in the safe direction: the banked
+// findings still post, the session is still incomplete, the check still fails.
+function terminalCount(value, banked, answer) {
 	if (!Value.Check(TERMINAL_RESPONSE, value)) {
 		const [first] = [...Value.Errors(TERMINAL_RESPONSE, value)];
 		throw new Error(
-			`terminal response is not a complete review: ${first?.path || "/"} ${first?.message ?? "invalid shape"} (${answer})`,
+			`terminal response is not a completion signal: ${first?.path || "/"} ${first?.message ?? "invalid shape"} (${answer})`,
 		);
 	}
-	return value.findings.map((finding, index) => {
-		if (!changedPaths.has(finding.file))
-			throw new Error(
-				`finding ${index + 1} cites ${finding.file}, which this pull request does not change`,
-			);
-		return {
-			...finding,
-			quote: clamp(finding.quote, FINDING_LIMITS.quote),
-			rule: clamp(finding.rule, FINDING_LIMITS.rule, { ellipsis: true }),
-			why: clamp(finding.why, FINDING_LIMITS.why, { ellipsis: true }),
-			agent: agent.id,
-		};
-	});
+	if (value.submitted !== banked)
+		throw new Error(
+			`terminal signal claims ${value.submitted} finding(s) submitted, but ${banked} reached the boundary`,
+		);
 }
 
 // Truncation is the failure this contract exists to catch, and "stopped with
@@ -117,9 +190,8 @@ function stopDetail(terminal, model) {
 		parts.push(`${usage.output} output tokens`);
 	if (Number.isFinite(usage.reasoning))
 		parts.push(`${usage.reasoning} of them reasoning`);
-	if (Number.isFinite(model?.maxTokens))
-		parts.push(`ceiling requested ${model.maxTokens}`);
-	return parts.length ? `length: ${parts.join(", ")}` : "length";
+	parts.push(`ceiling requested ${requestCeiling(model)}`);
+	return `length: ${parts.join(", ")}`;
 }
 
 function assistantText(message) {
@@ -151,6 +223,11 @@ export async function runRuleReviewer({
 }) {
 	const limits = { ...DEFAULT_LIMITS, ...suppliedLimits };
 	const changedPaths = new Set(repository.changes.map((change) => change.path));
+	const sink = createFindingSink(agent, changedPaths);
+	// Keyed by the assistant message that requested the calls, so the count is
+	// per response by construction. Pi prepares a response's tool calls in order
+	// before executing them, so which submissions land past the cap is settled.
+	const submissionsPerResponse = new WeakMap();
 	let turns = 0;
 	let toolCalls = 0;
 	let limitReason;
@@ -160,14 +237,26 @@ export async function runRuleReviewer({
 			systemPrompt: system,
 			model: runtime.model,
 			thinkingLevel: "off",
-			tools: createRepositoryTools(repository),
+			tools: [...createRepositoryTools(repository), sink.tool],
 		},
 		streamFn: runtime.streamFn,
 		toolExecution: "parallel",
-		beforeToolCall: async () => {
-			if (toolCalls <= limits.maxToolCalls) return undefined;
-			limitReason = "tool call budget exhausted";
-			return { block: true, reason: limitReason, terminate: true };
+		beforeToolCall: async ({ assistantMessage, toolCall }) => {
+			if (toolCalls > limits.maxToolCalls) {
+				limitReason = "tool call budget exhausted";
+				return { block: true, reason: limitReason, terminate: true };
+			}
+			if (toolCall.name !== SUBMIT_TOOL) return undefined;
+			// Refused, not fatal: the reviewer is told to re-issue it, and the next
+			// response is a fresh allowance. This is the cap RESPONSE_CEILING is
+			// derived from, which is why it is enforced rather than merely asked for.
+			const used = (submissionsPerResponse.get(assistantMessage) ?? 0) + 1;
+			submissionsPerResponse.set(assistantMessage, used);
+			if (used <= limits.maxSubmissionsPerResponse) return undefined;
+			return {
+				block: true,
+				reason: `submit at most ${limits.maxSubmissionsPerResponse} findings per response; this one was not recorded — re-issue it in your next response`,
+			};
 		},
 		shouldStopAfterTurn: async ({ message }) => {
 			const requestedTools = message.content.some(
@@ -191,9 +280,9 @@ export async function runRuleReviewer({
 		reviewer.abort();
 	}, limits.timeoutMs);
 	try {
-		await reviewer.prompt(userPrompt(repository, agent));
+		await reviewer.prompt(userPrompt(repository, agent, limits));
 	} catch (error) {
-		return incomplete(agent, String(error?.message ?? error), {
+		return incomplete(agent, String(error?.message ?? error), sink.findings, {
 			turns,
 			toolCalls,
 		});
@@ -201,9 +290,13 @@ export async function runRuleReviewer({
 		clearTimeout(timer);
 	}
 
-	if (limitReason) return incomplete(agent, limitReason, { turns, toolCalls });
+	if (limitReason)
+		return incomplete(agent, limitReason, sink.findings, { turns, toolCalls });
 	if (reviewer.state.errorMessage)
-		return incomplete(agent, reviewer.state.errorMessage, { turns, toolCalls });
+		return incomplete(agent, reviewer.state.errorMessage, sink.findings, {
+			turns,
+			toolCalls,
+		});
 
 	const terminal = reviewer.state.messages.findLast(
 		(message) => message.role === "assistant",
@@ -212,26 +305,29 @@ export async function runRuleReviewer({
 		return incomplete(
 			agent,
 			`provider stopped with ${stopDetail(terminal, runtime.model)}`,
+			sink.findings,
 			{ turns, toolCalls },
 		);
 
 	try {
-		const findings = validateFindings(
+		terminalCount(
 			extractJson(assistantText(terminal)),
-			changedPaths,
-			agent,
+			sink.findings.length,
 			answerDetail(terminal),
 		);
 		return {
 			agent: agent.id,
 			doc: agent.doc,
 			status: "complete",
-			findings,
+			findings: sink.findings,
 			turns,
 			toolCalls,
 		};
 	} catch (error) {
-		return incomplete(agent, error.message, { turns, toolCalls });
+		return incomplete(agent, error.message, sink.findings, {
+			turns,
+			toolCalls,
+		});
 	}
 }
 

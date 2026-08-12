@@ -7,12 +7,39 @@ import {
 	fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { runRuleReviewer, runRuleReviewers } from "./agent.mjs";
-import { FINDING_LIMITS, loadSystems } from "./core.mjs";
+import { FINDING_LIMITS, loadSystems, RESPONSE_CEILING } from "./core.mjs";
 import { anchorFinding } from "./inline.mjs";
 
 const stop = (value) => fauxAssistantMessage(JSON.stringify(value));
 
 const ENGINEERING = { id: "engineering", doc: "docs/rules/engineering.md" };
+
+// One submitted finding, one response's worth of submissions, and the terminal
+// completion signal — the three moves the incremental contract is made of.
+const submit = (finding, id) => fauxToolCall("submit_finding", finding, { id });
+const submits = (findings, tag) =>
+	fauxAssistantMessage(
+		findings.map((finding, index) => submit(finding, `${tag}-${index}`)),
+		{ stopReason: "toolUse" },
+	);
+const done = (submitted) => stop({ status: "complete", submitted });
+
+const toolResultTexts = (messages) =>
+	messages
+		.filter((message) => message.role === "toolResult")
+		.map((message) =>
+			(Array.isArray(message.content) ? message.content : [])
+				.map((block) => block.text ?? "")
+				.join(""),
+		);
+
+const violation = (index) => ({
+	file: `app/f${index % 3}.ts`,
+	line: index + 1,
+	quote: `unsafeCall(${index})`,
+	rule: `Rule ${index}`,
+	why: `Call ${index} bypasses the helper this document requires.`,
+});
 
 function promptText(messages) {
 	const content = messages[0].content;
@@ -61,7 +88,7 @@ test("starts exactly one Pi agent per discovered rule document", async () => {
 	const { runtime, faux } = fauxRuntime(
 		agents.map(() => (context) => {
 			contexts.push({ messages: structuredClone(context.messages) });
-			return stop({ status: "complete", findings: [] });
+			return done(0);
 		}),
 	);
 
@@ -116,9 +143,8 @@ test("Pi keeps one session across model-selected changed and unchanged reads", a
 		},
 		(context) => {
 			contexts.push({ messages: structuredClone(context.messages) });
-			return stop({
-				status: "complete",
-				findings: [
+			return submits(
+				[
 					{
 						file: "app/changed.ts",
 						line: 7,
@@ -127,7 +153,12 @@ test("Pi keeps one session across model-selected changed and unchanged reads", a
 						why: "The changed caller bypasses the required helper used by its unchanged callee.",
 					},
 				],
-			});
+				"finding",
+			);
+		},
+		(context) => {
+			contexts.push({ messages: structuredClone(context.messages) });
+			return done(1);
 		},
 	]);
 	const repo = repository(
@@ -159,7 +190,7 @@ test("Pi keeps one session across model-selected changed and unchanged reads", a
 		],
 		result.reason,
 	);
-	assert.equal(contexts.length, 2);
+	assert.equal(contexts.length, 3);
 	assert.deepEqual(
 		contexts[1].messages
 			.filter((message) => message.role === "toolResult")
@@ -170,17 +201,20 @@ test("Pi keeps one session across model-selected changed and unchanged reads", a
 	assert.equal(result.findings[0].agent, "engineering");
 });
 
-test("a malformed terminal response is incomplete, not a clean review", async () => {
+// A reviewer that ends with a review-shaped object instead of the completion
+// signal has not submitted anything, so reading it as a clean review would post
+// "no issues found" on a pull request nobody reviewed.
+test("a terminal response that is not the completion signal is incomplete, not a clean review", async () => {
 	const { runtime } = fauxRuntime([
 		stop({
 			status: "complete",
 			findings: [
 				{
 					file: "app/x.ts",
-					line: 0,
-					quote: "",
+					line: 4,
+					quote: "unsafeCall()",
 					rule: "Some rule",
-					why: "Missing a real anchor.",
+					why: "Reported in the answer instead of submitted.",
 				},
 			],
 		}),
@@ -194,7 +228,7 @@ test("a malformed terminal response is incomplete, not a clean review", async ()
 	});
 
 	assert.equal(result.status, "incomplete");
-	assert.match(result.reason, /complete review/i);
+	assert.match(result.reason, /completion signal/i);
 	assert.deepEqual(result.findings, []);
 });
 
@@ -232,33 +266,6 @@ test("an unparseable terminal answer names what the model emitted", async () => 
 	assert.match(silent.reason, /0 chars of text, no text emitted/);
 });
 
-test("a finding outside the pull request is incomplete", async () => {
-	const { runtime } = fauxRuntime([
-		stop({
-			status: "complete",
-			findings: [
-				{
-					file: "app/never-changed.ts",
-					line: 4,
-					quote: "unsafeCall()",
-					rule: "Some rule",
-					why: "Cites a file this PR does not change.",
-				},
-			],
-		}),
-	]);
-
-	const result = await runRuleReviewer({
-		agent: { id: "engineering", doc: "docs/rules/engineering.md" },
-		system: "SYSTEM RULE",
-		repository: repository([{ status: "M", path: "app/x.ts" }]),
-		runtime,
-	});
-
-	assert.equal(result.status, "incomplete");
-	assert.match(result.reason, /does not change/i);
-});
-
 // The output budget is what truncated three of five reviewers on a 2700-line
 // pull request, so the prompt now states a per-field ceiling. It has to be the
 // same ceiling the boundary applies, or reviewers are held to a contract they
@@ -268,7 +275,7 @@ test("the finding budget the prompt states is the budget enforced", async () => 
 	const { runtime } = fauxRuntime([
 		(context) => {
 			contexts.push(structuredClone(context.messages));
-			return stop({ status: "complete", findings: [] });
+			return done(0);
 		},
 	]);
 
@@ -290,9 +297,8 @@ test("the finding budget the prompt states is the budget enforced", async () => 
 test("an over-long finding is trimmed to the budget and still anchors", async () => {
 	const changedLine = `const value = compute(${"argument".repeat(50)});`;
 	const { runtime } = fauxRuntime([
-		stop({
-			status: "complete",
-			findings: [
+		submits(
+			[
 				{
 					file: "app/x.ts",
 					line: 12,
@@ -301,7 +307,9 @@ test("an over-long finding is trimmed to the budget and still anchors", async ()
 					why: `This line ${"repeats itself ".repeat(40)}unnecessarily.`,
 				},
 			],
-		}),
+			"long",
+		),
+		done(1),
 	]);
 
 	const result = await runRuleReviewer({
@@ -351,9 +359,7 @@ function withUsage(runtime, usage) {
 // provider ceiling below the one we asked for; the numbers can.
 test("a truncated answer reports its size against the ceiling requested", async () => {
 	const { runtime } = fauxRuntime([
-		fauxAssistantMessage('{"status":"complete","findings":[', {
-			stopReason: "length",
-		}),
+		fauxAssistantMessage('{"status":"comp', { stopReason: "length" }),
 	]);
 	const measured = withUsage(runtime, {
 		input: 40_000,
@@ -377,7 +383,13 @@ test("a truncated answer reports its size against the ceiling requested", async 
 	assert.match(result.reason, /length/);
 	assert.match(result.reason, /8192 output tokens/);
 	assert.match(result.reason, /0 of them reasoning/);
-	assert.match(result.reason, /ceiling requested 262144/);
+	// The diagnostic must report what was actually asked for. Reporting the
+	// catalog's 262144 while sending far less is how "ceiling requested 384000"
+	// sent three runs chasing a limit nobody had requested.
+	assert.match(
+		result.reason,
+		new RegExp(`ceiling requested ${RESPONSE_CEILING}`),
+	);
 });
 
 test("provider failure and turn exhaustion are incomplete", async () => {
@@ -421,4 +433,247 @@ test("provider failure and turn exhaustion are incomplete", async () => {
 	});
 	assert.equal(exhausted.status, "incomplete");
 	assert.match(exhausted.reason, /turn budget/i);
+});
+
+// ---------------------------------------------------------------------------
+// Incremental submission
+// ---------------------------------------------------------------------------
+
+const THREE_FILES = Array.from({ length: 3 }, (_, index) => ({
+	status: "M",
+	path: `app/f${index}.ts`,
+	additions: 5,
+	deletions: 0,
+}));
+
+// The defect this contract replaces: one terminal JSON had to carry every
+// finding, and DeepSeek truncates a completion at 8192 output tokens whatever
+// ceiling is requested, so a reviewer with a lot to say about a large diff was
+// cut off mid-answer and its entire review was discarded. Findings now arrive
+// one per tool call, and the response that ends the session carries none of them.
+test("a reviewer reports many findings without any response carrying them all", async () => {
+	const findings = Array.from({ length: 24 }, (_, index) => violation(index));
+	const terminal = JSON.stringify({ status: "complete", submitted: 24 });
+	const { runtime } = fauxRuntime([
+		submits(findings.slice(0, 10), "a"),
+		submits(findings.slice(10, 20), "b"),
+		submits(findings.slice(20), "c"),
+		fauxAssistantMessage(terminal),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+		limits: { maxSubmissionsPerResponse: 10 },
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.findings.length, 24);
+	assert.deepEqual(
+		result.findings.map((finding) => finding.quote),
+		findings.map((finding) => finding.quote),
+	);
+	assert.ok(
+		result.findings.every((finding) => finding.agent === "engineering"),
+	);
+	// The whole point: the answer that completes the review is a fixed-size
+	// signal, so the number of findings can no longer overflow a response.
+	assert.ok(
+		terminal.length < 64,
+		`terminal signal is ${terminal.length} chars`,
+	);
+});
+
+// A session that dies mid-review has already proved whatever it submitted.
+// Discarding that evidence to signal failure throws away real review for no
+// safety gain: the session is still reported incomplete, so the required check
+// still fails, stale threads are still left alone, and "no issues found" is
+// still impossible. Only the findings survive.
+test("findings banked before a session dies still post, and the session still fails", async () => {
+	const { runtime } = fauxRuntime([
+		submits([violation(0), violation(1)], "a"),
+		fauxAssistantMessage("", {
+			stopReason: "error",
+			errorMessage: "provider unavailable",
+		}),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /provider unavailable/);
+	assert.equal(result.findings.length, 2);
+	assert.ok(
+		result.findings.every((finding) => finding.agent === "engineering"),
+	);
+});
+
+// Reaching the last turn without the completion signal is the case the contract
+// exists for: the reviewer stopped, it did not finish. Its banked findings post
+// and it is still not a clean review.
+test("a session that never reaches the terminal signal is incomplete with its findings", async () => {
+	const { runtime } = fauxRuntime([
+		submits([violation(0)], "a"),
+		submits([violation(1)], "b"),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+		limits: { maxTurns: 2, maxToolCalls: 10, timeoutMs: 10_000 },
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /turn budget/i);
+	assert.equal(result.findings.length, 2);
+});
+
+// Retries and re-reports are normal agent behaviour. The exact-duplicate guard
+// belongs at submission because the running total the reviewer reads back has to
+// be true; near-duplicates stay the posting layer's job.
+test("submitting the same finding twice records it once", async () => {
+	const repeated = violation(0);
+	const seen = [];
+	const { runtime } = fauxRuntime([
+		submits([repeated], "a"),
+		(context) => {
+			seen.push(toolResultTexts(context.messages));
+			return submits([repeated], "b");
+		},
+		(context) => {
+			seen.push(toolResultTexts(context.messages));
+			return done(1);
+		},
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.findings.length, 1);
+	const [afterFirst, afterSecond] = seen;
+	assert.match(afterFirst.at(-1), /"submitted":1/);
+	assert.match(afterSecond.at(-1), /"duplicate":true/);
+	assert.match(afterSecond.at(-1), /"submitted":1/);
+});
+
+// Still rejected, but rejected per submission rather than by voiding the whole
+// review: the reviewer is told what it got wrong and can submit a real finding
+// in its place, and everything it proved beforehand survives.
+test("a finding citing a file the pull request does not change is refused, not banked", async () => {
+	const outside = { ...violation(0), file: "app/never-changed.ts" };
+	const seen = [];
+	const { runtime } = fauxRuntime([
+		submits([outside, violation(1)], "a"),
+		(context) => {
+			seen.push(toolResultTexts(context.messages));
+			return done(1);
+		},
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.findings.length, 1);
+	assert.equal(result.findings[0].file, "app/f1.ts");
+	assert.ok(
+		seen[0].some((text) => /does not change/.test(text)),
+		`no rejection reached the model: ${JSON.stringify(seen[0])}`,
+	);
+});
+
+// Every field is validated at the submission boundary, so a finding that cannot
+// anchor never enters the bank — and the reviewer hears about it in time to fix it.
+test("a submission that fails the finding schema is refused, not banked", async () => {
+	const seen = [];
+	const { runtime } = fauxRuntime([
+		submits([{ ...violation(0), line: 0 }], "a"),
+		(context) => {
+			seen.push(toolResultTexts(context.messages));
+			return done(0);
+		},
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.deepEqual(result.findings, []);
+	assert.ok(
+		seen[0].some((text) => /line/i.test(text)),
+		`no schema rejection reached the model: ${JSON.stringify(seen[0])}`,
+	);
+});
+
+// The completion signal has to mean "I finished", not "I emitted a JSON object".
+// A count that disagrees with the bank means the reviewer lost track of its own
+// review, which is exactly the state the fail-closed contract must not bless.
+test("a terminal count that disagrees with what was submitted is incomplete", async () => {
+	const { runtime } = fauxRuntime([
+		submits([violation(0), violation(1)], "a"),
+		done(5),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /5/);
+	assert.match(result.reason, /2/);
+	assert.equal(result.findings.length, 2);
+});
+
+// The per-response cap is what makes the requested output ceiling an honest
+// number rather than a guess: a response can only ever hold this many findings,
+// and the rest are re-issued on the next turn instead of being lost.
+test("submissions past the per-response cap are refused and can be re-issued", async () => {
+	const seen = [];
+	const { runtime } = fauxRuntime([
+		submits([violation(0), violation(1), violation(2)], "a"),
+		(context) => {
+			seen.push(toolResultTexts(context.messages));
+			return submits([violation(2)], "b");
+		},
+		() => done(3),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+		limits: { maxSubmissionsPerResponse: 2 },
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.findings.length, 3);
+	const capped = seen[0].filter((text) => /per response/.test(text));
+	assert.equal(capped.length, 1, JSON.stringify(seen[0]));
+	assert.match(capped[0], /at most 2/);
 });

@@ -9,16 +9,21 @@ under its assigned rule document and decides what repository evidence to inspect
 - `agents.mjs` discovers and sorts every rule document; there is no maintained
   reviewer list.
 - `core.mjs` loads each document verbatim, configures Pi's native DeepSeek provider
-  for `deepseek-v4-flash`, and sends the active model's own output ceiling with every
-  request, so no answer is truncated by a provider default or by a number we picked.
-  It also owns the answer-volume contract: the shared prompt preamble bans narration,
-  progress notes, and restating the rule document, and `FINDING_LIMITS` fixes the
-  per-field size of a finding. Reading is free; only writing spends the budget.
+  for `deepseek-v4-flash`, and owns the answer-volume contract: the shared prompt
+  preamble bans narration, progress notes, and restating the rule document, and
+  `FINDING_LIMITS` fixes the per-field size of a finding. Reading is free; only
+  writing spends the budget. `RESPONSE_CEILING` is the output ceiling every request
+  asks for, derived from that contract rather than chosen: no response carries more
+  than `SUBMISSIONS_PER_RESPONSE` findings of at most `FINDING_LIMITS` each, doubled
+  to leave the model room for its own words. A model whose own ceiling is lower is
+  asked for that instead.
 - `agent.mjs` gives each rule owner its own `@earendil-works/pi-agent-core`
   `Agent`. Its initial context is a compact changed-file index (status, path,
   rename, and line counts), never concatenated diffs. Pi owns the persistent
   conversation, provider streaming, validated tool execution, and continuation;
-  the model controls investigation order and breadth.
+  the model controls investigation order and breadth. Findings are submitted one
+  per `submit_finding` tool call as the reviewer proves them, so the number of
+  findings never bounds what a session can report.
 - `repository.mjs` exposes read-only, paginated tools for changed-file diffs,
   changed or unchanged file contents at base/head, literal repository search,
   and tracked-path listing. Git is invoked with argument arrays and paths must be
@@ -38,29 +43,56 @@ The launcher does not rank files, create clusters, prescribe traversal order, or
 encode a delegation workflow. Its only orchestration is independent rule-owner
 parallelism and safety limits.
 
-## Completion semantics
+## Incremental submission
 
-A session is complete only after the provider stops normally and its terminal JSON
-passes a TypeBox schema at the boundary — no hand-rolled shape checks. Provider
-errors, timeouts, malformed tool calls, aborted runs, findings that fail the schema
-or cite an unchanged file, and exhausted budgets are **incomplete**, never clean.
+A reviewer reports each violation with a `submit_finding` call the moment it is
+sure of it, one finding per call, and the response that ends the session carries
+none of them — it is the fixed-size signal `{"status":"complete","submitted":N}`.
+No response therefore grows with the size of the review. This exists because
+DeepSeek caps a single completion at 8192 output tokens whatever ceiling is
+requested: under the previous contract, where one terminal JSON had to carry every
+finding, a reviewer with a lot to say about a large diff was cut off mid-answer and
+its entire review was discarded.
+
+`submit_finding` is the validation boundary. Pi checks the arguments against the
+finding schema before the tool runs, so a malformed submission comes back as an
+error the reviewer can act on. Beyond the schema, submissions are refused — never
+silently accepted, never fatal — when they cite a file the pull request does not
+change, or when they exceed `SUBMISSIONS_PER_RESPONSE` in one response, in which
+case the reviewer is told to re-issue them next turn. An exact repeat of an
+already-banked finding is answered `duplicate: true` and does not change the total;
+near-duplicates remain `inline.mjs`'s job, since it merges across rule owners with
+evidence this boundary does not have. Every result carries the authoritative
+running total, which is what the terminal `submitted` count is checked against.
 
 A finding whose fields exceed `FINDING_LIMITS` is trimmed at that boundary, never
 rejected: a real violation stated too verbosely is still a real violation, and
 dropping it would delete signal to enforce a budget. `quote` is trimmed bare, since
 anchoring tests whether the cited changed line contains it; `rule` and `why` only
-render as prose and are elided. A truncated answer (`stopReason: "length"`) stays
-incomplete and additionally reports the output tokens the provider says it produced,
-how many were reasoning, and the ceiling the request asked for — enough to tell an
-oversized answer from a provider ceiling below the one we sent. A session that stops
-normally without the contracted JSON object reports the block types, text length, and
-opening of what did arrive, which separates narrating instead of answering from
-answering with reasoning only or with nothing.
+render as prose and are elided.
 
-Incomplete runs are named in the summary and fail the required AI-review check.
-Findings from completed sessions still post, but zero findings cannot render as “no
-issues found” and all stale-thread resolution is deferred until every rule owner
-completes.
+## Completion semantics
+
+A session is complete only after the provider stops normally, its terminal answer
+passes a TypeBox schema at the boundary — no hand-rolled shape checks — and its
+`submitted` count equals what actually reached the bank. Provider errors, timeouts,
+aborted runs, exhausted budgets, an answer that is not the completion signal, and a
+count that disagrees with the bank are **incomplete**, never clean.
+
+A truncated answer (`stopReason: "length"`) stays incomplete and additionally
+reports the output tokens the provider says it produced, how many were reasoning,
+and the ceiling the request actually asked for — enough to tell an oversized answer
+from a provider ceiling below the one we sent. A session that stops normally without
+the contracted signal reports the block types, text length, and opening of what did
+arrive, which separates narrating instead of answering from answering with reasoning
+only or with nothing.
+
+**A session that dies mid-review still posts what it banked.** Those findings were
+proved before the failure, and discarding them buys no safety: the session is still
+reported incomplete, so it is named in the summary, it fails the required AI-review
+check, all stale-thread resolution is deferred, and zero findings still cannot render
+as “no issues found”. Only real review would be lost. What an incomplete session can
+never do is assert that the pull request is clean.
 
 ## Deterministic posting
 
@@ -97,9 +129,13 @@ They cover dynamic one-session-per-rule launch over a 240-file index, multi-turn
 changed and unchanged reads, Git-backed repository access and path safety,
 provider/tool/budget failure states, truncation and unparseable-answer
 diagnostics, a stated finding budget that matches the enforced one, a trimmed
-quote that still anchors,
-anchoring, fingerprints, dedupe, reconciliation, stale deferral, and posting
-payloads. CI runs this complete set in its unconditional quality job.
+quote that still anchors, a derived output ceiling that still holds a full
+response, 24 findings reported across several responses, a session that dies with
+findings banked, a session that never reaches the completion signal, duplicate
+submission, a submission citing an unchanged file, a submission that fails the
+schema, a terminal count that disagrees with the bank, the per-response cap and
+its re-issue, anchoring, fingerprints, dedupe, reconciliation, stale deferral, and
+posting payloads. CI runs this complete set in its unconditional quality job.
 
 A local production dry run performs real DeepSeek sessions but no GitHub writes:
 
