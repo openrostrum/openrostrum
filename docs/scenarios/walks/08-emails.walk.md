@@ -1087,6 +1087,24 @@ from earlier walks remain in force.
     state_hash = excluded.state_hash, updated_at = ?
   RETURNING sequence;   -- batched, so two concurrent claimants cannot tie
   ```
+- **Two attempts at one SEQUENCE describing different states are treated as
+  stale, never as a baseline.** RFC 5545 §3.8.7.4 makes SEQUENCE the revision
+  counter, so an equal-SEQUENCE redelivery is exactly the payload a client is
+  entitled to discard: one speaker kept the first, another kept the second, and
+  no row order can tell them apart. Acceptance re-sends make this reachable —
+  every one mints SEQUENCE 0. Picking either side lets today's slot "match" a
+  state half the speakers never saw, and that silence is unrecoverable: no
+  speaker can ask the product for a corrected invite. So the ambiguity itself is
+  the stale signal, and the update resolving it goes out at a HIGHER sequence,
+  which every client applies. The deliberate trade is a redundant invite for
+  some speakers instead of no invite for others.
+- **The provider idempotency key is scoped to the message content, and an ICS
+  enters it as normalized text rather than as the base64 attachment.** DTSTAMP
+  is re-minted on every render, so the raw attachment differs between two
+  renders of one unchanged invite; hashing it raw would give a resumed send a
+  brand-new key, Resend's 24h replay would not recognise it, and the speaker
+  would receive the invite twice. The digest covers the full dedupeKey, so
+  truncating the readable prefix cannot make two different keys collide.
 - Schedule-update candidates are ordered **deliverable first**, then by id:
   `ORDER BY CASE WHEN <primary-speaker-or-submitter email> IS NULL THEN 1 ELSE 0 END,
   submissions.id`. Without this, a run of sessions whose speaker contact is gone

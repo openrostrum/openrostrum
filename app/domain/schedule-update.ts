@@ -380,18 +380,10 @@ async function staleScheduleCandidates(db: Db, event: EventRow) {
 			location: calendarInviteRevisions.location,
 			to: emailOutbox.to,
 			status: emailOutbox.status,
-			// Two attempts at the SAME sequence describing DIFFERENT states leave
-			// us unable to name what the speaker is looking at: RFC 5545 §3.8.7.4
-			// makes SEQUENCE the revision counter, so an equal-SEQUENCE redelivery
-			// is exactly the payload a client is entitled to discard as a duplicate
-			// — one speaker kept the first, another kept the second, and the row
-			// order here cannot tell them apart. Acceptance re-sends make this
-			// reachable: every one of them mints SEQUENCE 0. Picking either side as
-			// the baseline lets today's slot "match" a state half the speakers
-			// never saw, and silence is unrecoverable — no speaker can ask the
-			// product for a corrected invite. So ambiguity itself is the stale
-			// signal, and the update that resolves it goes out at a HIGHER
-			// sequence, which every client applies.
+			// Two attempts at one SEQUENCE describing different states leave us
+			// unable to name what the speaker's calendar shows, and an equal-SEQUENCE
+			// redelivery is one a client may discard. So ambiguity is itself the
+			// stale signal, resolved by a send at a higher, unambiguous sequence.
 			divergentAtSequence:
 				sql<number>`case when min(${calendarInviteRevisions.stateHash}) over (
 				partition by ${calendarInviteRevisions.submissionId}, ${calendarInviteRevisions.sequence}

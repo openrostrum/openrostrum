@@ -274,16 +274,10 @@ async function reconcileSendClaim(
 }
 
 /**
- * Provider idempotency key: readable dedupeKey prefix (so a Resend log entry
- * still names the send) plus a digest of the key AND the message's CONTENT.
- * The digest covers the full dedupeKey, so truncating the prefix cannot make
- * two different keys collide. Bounded well under Resend's 256-char limit.
- *
- * An ICS is hashed as normalized text rather than as the base64 attachment: its
- * DTSTAMP is re-minted on every render (see `icsContentFingerprint`), so the
- * raw attachment differs between two renders of one unchanged invite. Hashing
- * it raw would give a resumed send a brand-new key, Resend's 24h replay would
- * not recognise it, and the speaker would receive the invite twice.
+ * Idempotency key: a readable dedupeKey prefix plus a digest of the full key
+ * and the message content, so truncation cannot collide two keys. The ICS
+ * enters the digest as normalized text — its DTSTAMP is re-minted per render,
+ * so hashing raw bytes gives a resumed send a new key and a second delivery.
  */
 async function payloadScopedIdempotencyKey(
 	dedupeKey: string,
