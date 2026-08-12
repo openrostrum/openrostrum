@@ -199,6 +199,50 @@ describe("Resend email adapter", () => {
 		expect((await outboxRows())[0]).toMatchObject({ status: "queued" });
 	});
 
+	// A POST with no deadline can outlive the 5-minute delivery lease. Once it
+	// does, the row is reclaimable while our request is still holding an open
+	// socket to Resend, and two POSTs for the same message can be in the air at
+	// once. The send must give up before the lease it holds does.
+	it("abandons a provider POST that outlives its delivery lease", async () => {
+		const deadline = vi.spyOn(AbortSignal, "timeout");
+		// Fire at once: what matters is what happens WHEN the deadline lands,
+		// not sitting through the real wait.
+		deadline.mockReturnValue(AbortSignal.abort(new Error("send timed out")));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				(_url: string, init: RequestInit) =>
+					new Promise((_resolve, reject) => {
+						const signal = init.signal;
+						if (signal?.aborted) return reject(signal.reason);
+						signal?.addEventListener("abort", () => reject(signal.reason));
+					}),
+			),
+		);
+
+		const sending = createResendEmailSender(env).send({
+			to: "a@b.com",
+			subject: "s",
+			html: "h",
+			dedupeKey: "provider-hang",
+		});
+
+		await expect(sending).rejects.toBeInstanceOf(EmailDeliveryError);
+		// Falls back to 0 so "never asked for a deadline" fails the same assertion.
+		const requestedMs = deadline.mock.calls[0]?.[0] ?? 0;
+		// Below the 5-minute send-claim lease, or the race it prevents is back.
+		expect(requestedMs).toBeGreaterThan(0);
+		expect(requestedMs).toBeLessThan(5 * 60 * 1000);
+		// Abandoning the POST must release the lease, not strand the row: the
+		// operator retries from Email history and the stable idempotency key
+		// makes the provider replay rather than duplicate.
+		expect((await outboxRows())[0]).toMatchObject({
+			status: "failed",
+			sendClaimId: null,
+			sendClaimExpiresAt: null,
+		});
+	});
+
 	it("propagates D1 failure while recording provider rejection", async () => {
 		await workerEnv.DB.prepare(`
 			CREATE TRIGGER fail_failed_reconciliation
@@ -929,6 +973,76 @@ describe("Local email sink adapter", () => {
 			.from(emailOutbox)
 			.where(eq(emailOutbox.dedupeKey, "l1"));
 		expect(rows).toHaveLength(1);
+	});
+
+	// `onInFlight: "reject"` is how the acceptance and schedule-update paths
+	// refuse to pile a second send onto one already going out. A self-hosted
+	// deployment with no provider key runs THIS adapter, so if it ignores the
+	// flag those callers silently lose the guarantee they asked for.
+	it("rejects a claimed send instead of delivering a second copy", async () => {
+		const db = getDb(localEnv);
+		await db.insert(emailOutbox).values({
+			id: "local-inflight",
+			dedupeKey: "l3",
+			to: "local@b.com",
+			subject: "s",
+			html: "h",
+			status: "queued",
+			sendClaimId: "another-request",
+			sendClaimExpiresAt: new Date(Date.now() + 60_000),
+		});
+
+		await expect(
+			getEmailSender(localEnv).send({
+				to: "local@b.com",
+				subject: "s",
+				html: "h",
+				dedupeKey: "l3",
+				onInFlight: "reject",
+			}),
+		).rejects.toBeInstanceOf(EmailSendInFlightError);
+		expect(
+			(
+				await db
+					.select()
+					.from(emailOutbox)
+					.where(eq(emailOutbox.dedupeKey, "l3"))
+			)[0],
+		).toMatchObject({ status: "queued", sendClaimId: "another-request" });
+	});
+
+	// Fail-closed, not a dead end: an abandoned claim must not lock the row out
+	// of every future retry.
+	it("retries a row whose claim has already expired", async () => {
+		const db = getDb(localEnv);
+		await db.insert(emailOutbox).values({
+			id: "local-expired-claim",
+			dedupeKey: "l4",
+			to: "local@b.com",
+			subject: "s",
+			html: "h",
+			status: "queued",
+			sendClaimId: "abandoned-request",
+			sendClaimExpiresAt: new Date(Date.now() - 60_000),
+		});
+
+		const retry = await getEmailSender(localEnv).send({
+			to: "local@b.com",
+			subject: "s",
+			html: "h",
+			dedupeKey: "l4",
+			onInFlight: "reject",
+		});
+
+		expect(retry).toMatchObject({ id: "local-expired-claim", deduped: false });
+		expect(
+			(
+				await db
+					.select()
+					.from(emailOutbox)
+					.where(eq(emailOutbox.dedupeKey, "l4"))
+			)[0],
+		).toMatchObject({ status: "sent", sendClaimId: null });
 	});
 
 	it("retries a `failed` row in place instead of reporting it as delivered", async () => {

@@ -103,7 +103,12 @@ export function createLocalEmailSender(env: Env): EmailSender {
 			// Dedupe hit → return the existing row's real id.
 			const existing = msg.dedupeKey
 				? await db
-						.select({ id: emailOutbox.id, status: emailOutbox.status })
+						.select({
+							id: emailOutbox.id,
+							status: emailOutbox.status,
+							providerId: emailOutbox.providerId,
+							sendClaimExpiresAt: emailOutbox.sendClaimExpiresAt,
+						})
 						.from(emailOutbox)
 						.where(eq(emailOutbox.dedupeKey, msg.dedupeKey))
 						.limit(1)
@@ -111,6 +116,17 @@ export function createLocalEmailSender(env: Env): EmailSender {
 			const prior = existing[0];
 			if (!prior) {
 				return { id: crypto.randomUUID(), deduped: true, suppressed: false };
+			}
+			// `onInFlight` is a caller guarantee, not a Resend feature: a
+			// deployment with no provider key runs this adapter and must refuse
+			// the same second send the prod adapter refuses. An EXPIRED claim is
+			// an abandoned one — honouring it forever would turn a crashed
+			// request into a row nobody can ever retry.
+			if (
+				prior.sendClaimExpiresAt !== null &&
+				prior.sendClaimExpiresAt.getTime() > Date.now()
+			) {
+				return inFlightOutcome(msg.onInFlight, prior);
 			}
 			// Only a row that REACHED the recipient dedupes. A failed or abandoned
 			// attempt is retried on its own row — as the Resend adapter does — so a
@@ -175,6 +191,8 @@ function withSuppression(env: Env, sender: EmailSender): EmailSender {
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 const SEND_CLAIM_LEASE_MS = 5 * 60 * 1000;
+/** Must stay under SEND_CLAIM_LEASE_MS — see the fetch that uses it. */
+const PROVIDER_TIMEOUT_MS = 30 * 1000;
 
 function createSendClaim(now = Date.now()): { id: string; expiresAt: Date } {
 	return {
@@ -440,6 +458,12 @@ export function createResendEmailSender(env: Env): EmailSender {
 					method: "POST",
 					headers,
 					body: JSON.stringify(body),
+					// Bounded well under SEND_CLAIM_LEASE_MS: past the lease the row
+					// is reclaimable, so a POST still in the air would race a second
+					// POST for the same message. Giving up early is safe because the
+					// Idempotency-Key is stable across retries — the provider replays
+					// the first result rather than sending twice.
+					signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
 				});
 				if (!res.ok) {
 					throw new EmailDeliveryError(
