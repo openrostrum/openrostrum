@@ -16,6 +16,7 @@ import {
 	EmptyState,
 	Icon,
 	Input,
+	MenuItem,
 	PageHeader,
 	Panel,
 	PopoverSurface,
@@ -248,46 +249,31 @@ function FormActionsMenu({
 			>
 				<Icon name="dots" />
 			</summary>
-			<PopoverSurface side="bottom" align="end" width="md">
-				<div className="flex flex-col items-stretch gap-1 p-1">
-					<ButtonLink variant="ghost" to={adminFormPath(form.id)}>
-						Edit
-					</ButtonLink>
-					{form.rawStatus !== "open" && (
-						<Form method="post" action={adminFormPath(form.id)}>
-							<Input type="hidden" name="intent" value="publish" readOnly />
-							<Button variant="ghost" type="submit" disabled={busy}>
-								Open form
-							</Button>
-						</Form>
-					)}
-					<ButtonLink
-						variant="ghost"
-						to={`${adminFormPath(form.id)}?view=results`}
-					>
-						View results
-					</ButtonLink>
-					<ButtonLink
-						variant="ghost"
-						to={`${adminFormPath(form.id)}?view=drafts`}
-					>
-						View draft submissions
-					</ButtonLink>
+			<PopoverSurface side="bottom" align="end" width="md" padding="menu">
+				<MenuItem to={adminFormPath(form.id)}>Edit</MenuItem>
+				{form.rawStatus !== "open" && (
 					<Form method="post" action={adminFormPath(form.id)}>
-						<Input type="hidden" name="intent" value="duplicate" readOnly />
-						<Button variant="ghost" type="submit" disabled={busy}>
-							Duplicate
-						</Button>
+						<Input type="hidden" name="intent" value="publish" readOnly />
+						<MenuItem type="submit" disabled={busy}>
+							Open form
+						</MenuItem>
 					</Form>
-					<Button
-						variant="ghost"
-						type="button"
-						disabled={busy}
-						onClick={onDelete}
-					>
-						Delete
-					</Button>
-				</div>
+				)}
+				<MenuItem to={`${adminFormPath(form.id)}?view=results`}>
+					View results
+				</MenuItem>
+				<MenuItem to={`${adminFormPath(form.id)}?view=drafts`}>
+					View draft submissions
+				</MenuItem>
+				<Form method="post" action={adminFormPath(form.id)}>
+					<Input type="hidden" name="intent" value="duplicate" readOnly />
+					<MenuItem type="submit" disabled={busy}>
+						Duplicate
+					</MenuItem>
+				</Form>
+				<MenuItem type="button" disabled={busy} onClick={onDelete}>
+					Delete
+				</MenuItem>
 			</PopoverSurface>
 		</details>
 	);

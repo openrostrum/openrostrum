@@ -52,7 +52,7 @@ An ink letter **O standing on a petrol platform** — the name drawn literally: 
 
 ## Primitive inventory (`app/ui`)
 
-`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` · `SearchInput` · `TextLink` · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState` · `Skeleton`/`SkeletonRows` · `MotionReveal`/`PopoverSurface`/`DialogSurface` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Mark`/`Wordmark`. New primitive = integration-owner request, like a schema column.
+`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` · `SearchInput` · `TextLink` (petrol prose links) · `MenuItem` (THE row inside a `PopoverSurface` menu) · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState` · `Skeleton`/`SkeletonRows` · `MotionReveal`/`PopoverSurface`/`DialogSurface` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Mark`/`Wordmark`. New primitive = integration-owner request, like a schema column.
 
 ## Motion law
 
