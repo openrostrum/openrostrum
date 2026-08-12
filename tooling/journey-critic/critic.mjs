@@ -3,11 +3,18 @@ import { Value } from "typebox/value";
 import { terminalSchema } from "./charter.mjs";
 
 export const DEFAULT_LIMITS = {
-	maxTurns: 48,
-	maxToolCalls: 150,
-	maxLooks: 26,
-	timeoutMs: 14 * 60 * 1000,
+	maxTurns: 64,
+	maxToolCalls: 200,
+	maxLooks: 30,
+	timeoutMs: 18 * 60 * 1000,
+	// Turns held back from walking so a journey that runs long still gets to
+	// report. A walk that hits the ceiling mid-stride has already collected the
+	// evidence; losing all of it to the clock is the most expensive failure here.
+	wrapMargin: 8,
 };
+
+const WRAP_BLOCK =
+	"Your budget for this journey is spent — you cannot look or act again. Answer with the JSON report now, covering only what you already walked.";
 
 export function extractJson(text) {
 	try {
@@ -35,7 +42,7 @@ export function journeyPrompt({ journey, entry, brief, limits }) {
 
 You start at ${entry}. Open it and begin.
 
-Work the loop: look, say what you expect, act, look again. You have ${limits.maxLooks} screenshots and roughly ${limits.maxTurns} turns for this whole journey — enough to finish the goal properly, not enough to wander. Spend them on the path this person would take.
+Work the loop: look, say what you expect, act, look again. You have ${limits.maxLooks} screenshots and roughly ${limits.maxTurns - limits.wrapMargin} turns of walking before the harness stops you and takes your report — enough to finish the goal properly, not enough to wander. Spend them on the path this person would take.
 
 When the journey is over — goal reached, or abandoned the way this person would abandon it — reply with JSON only, in exactly this shape:
 
@@ -49,6 +56,12 @@ When the journey is over — goal reached, or abandoned the way this person woul
 Rules for that JSON: every finding cites at least one screenshot id you actually took (the "screenshot: shot-NN" line in a look result). "abandonment" is 0–10, how close this finding brought you to closing the tab. "blocker" means a real person with this goal stops or does the wrong thing; "major" means they get through but pay for it in confusion, rework, or lost confidence; "minor" means it reads as unfinished. An empty findings list is a claim that nothing cost this person anything — make it only if that is true.
 
 Never answer "complete" if the browser, the network, or your own budget stopped you from actually walking this journey. Say what went wrong in plain text instead.`;
+}
+
+export function wrapPrompt(reason) {
+	return `Stop where you are — ${reason}. This is the harness running out of room, not this person giving up.
+
+Report the journey as far as you actually walked it, using only what you already saw. Reply with the JSON report now, in the shape you were given. Set "outcome" to what was true at the moment you stopped, and say plainly in the narrative where you had got to and what you never reached. Do not invent anything you did not see and do not pad the findings to look thorough.`;
 }
 
 export function repairPrompt(problem) {
@@ -108,6 +121,8 @@ export async function runJourney({
 	let turns = 0;
 	let toolCalls = 0;
 	let limitReason;
+	let spent;
+	let wrapping = false;
 
 	const critic = new Agent({
 		initialState: {
@@ -119,19 +134,25 @@ export async function runJourney({
 		streamFn: runtime.streamFn,
 		toolExecution: "sequential",
 		beforeToolCall: async () => {
+			if (wrapping) return { block: true, reason: WRAP_BLOCK };
 			if (toolCalls <= limits.maxToolCalls) return undefined;
-			limitReason = "tool call budget exhausted";
-			return { block: true, reason: limitReason, terminate: true };
+			spent ??= "tool call budget exhausted";
+			return { block: true, reason: WRAP_BLOCK };
 		},
 		shouldStopAfterTurn: async ({ message }) => {
+			if (wrapping) {
+				if (turns < limits.maxTurns) return false;
+				limitReason = "turn budget exhausted while wrapping up";
+				return true;
+			}
 			const wantsMore = message.content.some(
 				(block) => block.type === "toolCall",
 			);
-			if (wantsMore && turns >= limits.maxTurns) {
-				limitReason = "turn budget exhausted";
+			if (wantsMore && turns >= limits.maxTurns - limits.wrapMargin) {
+				spent ??= "turn budget exhausted";
 				return true;
 			}
-			return Boolean(limitReason);
+			return Boolean(spent);
 		},
 	});
 
@@ -151,6 +172,24 @@ export async function runJourney({
 		shots: session.shots,
 		blocked: session.blocked,
 	});
+
+	function walked(result) {
+		return {
+			journey: journey.id,
+			title: journey.title,
+			status: "complete",
+			outcome: result.outcome,
+			narrative: result.narrative,
+			toll: result.toll,
+			findings: result.findings.map((finding) => ({
+				...finding,
+				journey: journey.id,
+			})),
+			handoff: result.handoff,
+			...(spent ? { truncated: spent } : {}),
+			...stats(),
+		};
+	}
 
 	function terminalMessage() {
 		if (limitReason) throw new Error(limitReason);
@@ -172,6 +211,13 @@ export async function runJourney({
 
 	try {
 		await critic.prompt(journeyPrompt({ journey, entry, brief, limits }));
+		// A journey stopped by its own budget has already collected the evidence.
+		// It is asked for the report it can honestly give, and the run records that
+		// the rest of the arc was never walked.
+		if (spent && !critic.state.errorMessage) {
+			wrapping = true;
+			await critic.prompt(wrapPrompt(spent));
+		}
 		let result;
 		try {
 			result = readReport(terminalMessage());
@@ -184,20 +230,7 @@ export async function runJourney({
 			await critic.prompt(repairPrompt(error.message));
 			result = readReport(terminalMessage());
 		}
-		return {
-			journey: journey.id,
-			title: journey.title,
-			status: "complete",
-			outcome: result.outcome,
-			narrative: result.narrative,
-			toll: result.toll,
-			findings: result.findings.map((finding) => ({
-				...finding,
-				journey: journey.id,
-			})),
-			handoff: result.handoff,
-			...stats(),
-		};
+		return walked(result);
 	} catch (error) {
 		return incomplete(journey, String(error?.message ?? error), stats());
 	} finally {

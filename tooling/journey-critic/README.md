@@ -108,6 +108,15 @@ Incomplete runs exit non-zero, banner the report with what was not covered, and
 suppress every resolution — nothing can be called fixed by a run that did not look.
 Zero findings from an incomplete run never renders as "no problems found".
 
+A journey that runs out of budget mid-walk is a third state. The first real run
+lost its most important journey that way: the organizer walked signup, onboarding
+and half a CFP form, hit turn 48, and every one of those 16 screenshots was thrown
+away. So the budget now holds back `wrapMargin` turns, and a journey that reaches
+the ceiling is told the clock stopped it and asked for the report it can honestly
+give. That report is `truncated`: its findings are real, its coverage of the rest
+of the arc is not, and the run says so in a banner, in the coverage table, and by
+refusing to call anything fixed.
+
 One exception, deliberate: if the report parses but fails validation, the agent is
 shown the exact error once and asked to re-serialize the same report. A walked
 journey is expensive and dropping one over a missing field is worse than one extra
@@ -117,10 +126,11 @@ opinion.
 
 ## Cost
 
-Per journey: 48 turns, 150 tool calls, 26 screenshots, 14 minutes. Screenshots are
-JPEG q62. The Anthropic provider sets `cache_control` automatically, so the charter
-and the growing image-heavy transcript are cached across turns. Five journeys in
-four dependency waves land around $2–4 per run at `claude-sonnet-5`.
+Per journey: 64 turns (the last 8 reserved for wrapping up), 200 tool calls, 30
+screenshots, 18 minutes. Screenshots are JPEG q62. The Anthropic provider sets
+`cache_control` automatically, so the charter and the growing image-heavy
+transcript are cached across turns. Five journeys in four dependency waves land
+around $3–6 per run at `claude-sonnet-5`.
 
 Weekly, not daily. Experience defects do not appear hourly and the report is only
 useful if someone reads it.

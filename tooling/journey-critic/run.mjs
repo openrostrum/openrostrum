@@ -13,6 +13,7 @@ import {
 } from "./journeys.mjs";
 import { createGithub } from "./publish.mjs";
 import {
+	hasFullCoverage,
 	isComplete,
 	parseLedger,
 	renderIssueBody,
@@ -99,7 +100,9 @@ async function main() {
 			const started = await Promise.all(
 				wave.map(async (journey) => {
 					const missing = missingNeeds(journey, handoff);
-					if (missing.length)
+					if (missing.length) {
+						const reason = `could not start: ${missing.join(", ")} was never produced by an earlier journey`;
+						console.error(`  ${journey.id}: incomplete (${reason})`);
 						return {
 							journey: journey.id,
 							title: journey.title,
@@ -107,8 +110,9 @@ async function main() {
 							findings: [],
 							toll: [],
 							handoff: {},
-							reason: `could not start: ${missing.join(", ")} was never produced by an earlier journey`,
+							reason,
 						};
+					}
 
 					const shotDir = join(outDir, "shots", journey.id);
 					const session = await createSession({
@@ -133,7 +137,7 @@ async function main() {
 							runtime,
 						});
 						console.error(
-							`  ${journey.id}: ${result.status}${result.outcome ? ` / ${result.outcome}` : ""} — ${result.findings.length} findings, ${result.turns ?? 0} turns${result.reason ? ` (${result.reason})` : ""}`,
+							`  ${journey.id}: ${result.status}${result.outcome ? ` / ${result.outcome}` : ""} — ${result.findings.length} findings, ${result.turns ?? 0} turns${result.reason ? ` (${result.reason})` : ""}${result.truncated ? ` (cut short: ${result.truncated})` : ""}`,
 						);
 						return result;
 					} finally {
@@ -165,6 +169,7 @@ async function main() {
 		tokens,
 	).map((finding) => ({ ...finding, seenAt: startedAt.slice(0, 10) }));
 	const complete = isComplete(results);
+	const covered = hasFullCoverage(results);
 
 	await mkdir(outDir, { recursive: true });
 	const report = renderReport({
@@ -181,7 +186,7 @@ async function main() {
 	await writeFile(join(outDir, "report.md"), report);
 	await writeFile(
 		join(outDir, "findings.json"),
-		`${JSON.stringify({ runId, origin, startedAt, complete, results, findings, blocked }, null, 2)}\n`,
+		`${JSON.stringify({ runId, origin, startedAt, complete, covered, results, findings, blocked }, null, 2)}\n`,
 	);
 	console.log(report);
 
@@ -198,7 +203,7 @@ async function main() {
 		const reconciliation = reconcile({
 			current: findings,
 			previous: ledger,
-			complete,
+			complete: covered,
 		});
 		const body = renderIssueBody({
 			runId,
@@ -229,6 +234,10 @@ async function main() {
 
 	console.error(`artifacts in ${outDir}`);
 	if (!complete) fail("run incomplete — coverage below is not a clean result");
+	// A truncated journey still reported, so the run is not a failure. It is also
+	// not full coverage, and the console is where that gets noticed.
+	if (!covered)
+		console.error("run partial — some journeys were cut short by the harness");
 }
 
 main().catch((error) => fail(String(error?.stack ?? error)));

@@ -59,7 +59,7 @@ function coverageTable(results) {
 	const rows = results.map((result) => {
 		const state =
 			result.status === "complete"
-				? result.outcome
+				? `${result.outcome}${result.truncated ? ` · **cut short** — ${result.truncated}` : ""}`
 				: `**incomplete** — ${result.reason}`;
 		return `| ${result.title} | ${state} | ${result.findings.length} | ${result.turns ?? 0} | ${result.shots?.length ?? 0} |`;
 	});
@@ -91,6 +91,18 @@ function incompleteBanner(results) {
 		)}.\n> Findings below are only from the journeys that completed. Absence of a finding here is not evidence of absence.\n\n`;
 }
 
+function truncationBanner(results) {
+	const cut = results.filter(
+		(result) => result.status === "complete" && result.truncated,
+	);
+	if (!cut.length) return "";
+	return `> **${cut.length} of ${results.length} journeys were stopped by the harness, not by the person.** ${cut
+		.map((result) => `${result.title} (${result.truncated})`)
+		.join(
+			"; ",
+		)}.\n> What they report is what they walked. The rest of their arc was never reached, so nothing below speaks for it.\n\n`;
+}
+
 function engineLine(engine) {
 	if (!engine?.model) return "_unrecorded_";
 	const via = engine.endpoint ? ` via ${engine.endpoint}` : "";
@@ -104,6 +116,15 @@ export function isComplete(results) {
 	return results.every((result) => result.status === "complete");
 }
 
+// Every journey reported *and* every journey finished its arc. A journey the
+// harness cut short delivered real findings but never reached the rest of its
+// path, so it cannot vouch for a clean bill of health or for a fix.
+export function hasFullCoverage(results) {
+	return results.every(
+		(result) => result.status === "complete" && !result.truncated,
+	);
+}
+
 export function renderReport({
 	runId,
 	origin,
@@ -115,7 +136,7 @@ export function renderReport({
 	blocked,
 	engine,
 }) {
-	const complete = isComplete(results);
+	const covered = hasFullCoverage(results);
 	const header = `# Journey critic — run ${runId}
 
 Walked \`${origin}\` on ${startedAt}. ${results.length} journeys, ${findings.length} findings.
@@ -136,7 +157,7 @@ Walked \`${origin}\` on ${startedAt}. ${results.length} journeys, ${findings.len
 					}),
 				)
 				.join("\n\n")
-		: complete
+		: covered
 			? "_Every journey completed and none of them cost the person anything worth reporting._"
 			: "_No findings from the journeys that completed — see the coverage warning above._";
 
@@ -159,7 +180,7 @@ Walked \`${origin}\` on ${startedAt}. ${results.length} journeys, ${findings.len
 				.join("\n")
 		: "_Nothing was blocked._";
 
-	return `${header}${incompleteBanner(results)}## Coverage
+	return `${header}${incompleteBanner(results)}${truncationBanner(results)}## Coverage
 
 ${coverageTable(results)}
 
@@ -195,7 +216,7 @@ export function renderIssueBody({
 	ledger,
 	artifactUrl,
 }) {
-	const complete = isComplete(results);
+	const covered = hasFullCoverage(results);
 	const firstSeenOf = new Map(
 		ledger.map((entry) => [entry.fingerprint, entry.firstSeen]),
 	);
@@ -210,7 +231,7 @@ export function renderIssueBody({
 
 	const body = findings.length
 		? sections.join("\n\n")
-		: complete
+		: covered
 			? "_Every journey completed and none of them cost the person anything worth reporting._"
 			: "_No findings from the journeys that completed — coverage was incomplete, so this is not a clean bill of health._";
 
@@ -219,7 +240,7 @@ Open experience findings from the scheduled journey critic. Rewritten on every r
 
 Last run \`${runId}\` walked ${origin} on ${startedAt}.${artifactUrl ? ` [Screenshots and full report](${artifactUrl})` : ""}
 
-${incompleteBanner(results)}${coverageTable(results)}
+${incompleteBanner(results)}${truncationBanner(results)}${coverageTable(results)}
 
 ---
 
@@ -234,7 +255,7 @@ export function renderRunComment({
 	reconciliation,
 	artifactUrl,
 }) {
-	const complete = isComplete(results);
+	const covered = hasFullCoverage(results);
 	const list = (entries) =>
 		entries.length
 			? entries
@@ -246,7 +267,7 @@ export function renderRunComment({
 		? "_Resolution deferred: this run did not cover every journey, so nothing can be called fixed._"
 		: list(reconciliation.resolved);
 
-	return `**Journey critic run \`${runId}\`** — ${startedAt}${complete ? "" : " · ⚠️ incomplete coverage"}
+	return `**Journey critic run \`${runId}\`** — ${startedAt}${covered ? "" : " · ⚠️ incomplete coverage"}
 
 **New this run**
 ${list(reconciliation.fresh)}

@@ -7,7 +7,12 @@ import {
 	fauxToolCall,
 	Type,
 } from "@earendil-works/pi-ai";
-import { extractJson, journeyPrompt, runJourney } from "./critic.mjs";
+import {
+	extractJson,
+	journeyPrompt,
+	runJourney,
+	wrapPrompt,
+} from "./critic.mjs";
 
 const journey = {
 	id: "organizer-first-run",
@@ -191,26 +196,42 @@ test("a journey that says it could not finish is not recorded as finished", asyn
 	assert.deepEqual(result.findings, []);
 });
 
-test("exhausting the turn budget is incomplete even though the agent kept working", async () => {
+test("a journey stopped by the turn budget still reports what it walked, and says it was cut short", async () => {
+	const result = await run([look(), look(), look(), look(), stop(report)], {
+		limits: {
+			maxTurns: 6,
+			wrapMargin: 2,
+			maxToolCalls: 100,
+			maxLooks: 10,
+			timeoutMs: 30_000,
+		},
+	});
+	assert.equal(result.status, "complete");
+	assert.match(result.truncated, /turn budget/);
+	assert.equal(result.findings.length, 1);
+});
+
+test("a journey that will not stop when its budget is spent is incomplete, not half-reported", async () => {
 	const result = await run(
-		Array.from({ length: 10 }, () => look()),
+		Array.from({ length: 12 }, () => look()),
 		{
 			limits: {
-				maxTurns: 3,
+				maxTurns: 6,
+				wrapMargin: 2,
 				maxToolCalls: 100,
-				maxLooks: 10,
+				maxLooks: 20,
 				timeoutMs: 30_000,
 			},
 		},
 	);
 	assert.equal(result.status, "incomplete");
 	assert.match(result.reason, /turn budget/);
-	assert.ok(result.turns <= 4, `ran ${result.turns} turns past a budget of 3`);
+	assert.deepEqual(result.findings, []);
 });
 
-test("exhausting the tool budget stops the journey rather than truncating silently", async () => {
+test("exhausting the tool budget also takes the report rather than throwing the walk away", async () => {
 	const result = await run(
-		Array.from({ length: 20 }, () => look()),
+		[look(), look(), look(), look(), look(), stop(report)],
 		{
 			limits: {
 				maxTurns: 50,
@@ -220,8 +241,17 @@ test("exhausting the tool budget stops the journey rather than truncating silent
 			},
 		},
 	);
-	assert.equal(result.status, "incomplete");
-	assert.match(result.reason, /tool call budget/);
+	assert.equal(result.status, "complete");
+	assert.match(result.truncated, /tool call budget/);
+	assert.equal(result.findings.length, 1);
+});
+
+test("the wrap-up asks for the walk that happened, not a story about the whole arc", () => {
+	const prompt = wrapPrompt("turn budget exhausted");
+	assert.match(prompt, /turn budget exhausted/);
+	assert.match(prompt, /not this person giving up/);
+	assert.match(prompt, /only what you already saw/);
+	assert.match(prompt, /do not pad the findings/);
 });
 
 test("a journey that outruns its clock is incomplete", async () => {
@@ -241,9 +271,10 @@ test("the prompt tells the persona where to start and what shape to answer in", 
 		journey,
 		entry: "https://openrostrum.com/",
 		brief: "You are Priya Raman.",
-		limits: { maxLooks: 26, maxTurns: 48 },
+		limits: { maxLooks: 26, maxTurns: 48, wrapMargin: 8 },
 	});
 	assert.match(prompt, /You are Priya Raman\./);
+	assert.match(prompt, /roughly 40 turns of walking/);
 	assert.match(prompt, /You start at https:\/\/openrostrum\.com\//);
 	assert.match(prompt, /"cfpUrl":"…"\|null/);
 	assert.match(prompt, /cites at least one screenshot id you actually took/);

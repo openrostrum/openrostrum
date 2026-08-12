@@ -83,6 +83,28 @@ test("a complete run with no findings may say so; an incomplete one may not", ()
 	assert.doesNotMatch(partial, /none of them cost the person anything/);
 });
 
+test("a journey the harness cut short is not allowed to read as a full walk", () => {
+	const cutShort = [
+		{ ...completeRun[0], truncated: "turn budget exhausted", findings: [] },
+	];
+	const report = renderReport({ ...args, results: cutShort, findings: [] });
+	assert.match(report, /stopped by the harness, not by the person/);
+	assert.match(report, /cut short.*turn budget exhausted/);
+	assert.doesNotMatch(report, /none of them cost the person anything/);
+
+	const comment = renderRunComment({
+		...args,
+		results: cutShort,
+		reconciliation: {
+			fresh: [],
+			recurring: [],
+			resolved: [],
+			deferredResolution: true,
+		},
+	});
+	assert.match(comment, /incomplete coverage/);
+});
+
 test("a run where nobody got anywhere says so instead of leaving a blank section", () => {
 	const report = renderReport({
 		...args,
