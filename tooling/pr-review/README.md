@@ -9,9 +9,8 @@ under its assigned rule document and decides what repository evidence to inspect
 - `agents.mjs` discovers and sorts every rule document; there is no maintained
   reviewer list.
 - `core.mjs` loads each document verbatim, configures Pi's native DeepSeek provider
-  for `deepseek-v4-flash`, and sends an explicit output ceiling with every request
-  (`MAX_OUTPUT_TOKENS`, default 16000) so no answer is truncated by a provider
-  default.
+  for `deepseek-v4-flash`, and sends the active model's own output ceiling with every
+  request, so no answer is truncated by a provider default or by a number we picked.
 - `agent.mjs` gives each rule owner its own `@earendil-works/pi-agent-core`
   `Agent`. Its initial context is a compact changed-file index (status, path,
   rename, and line counts), never concatenated diffs. Pi owns the persistent

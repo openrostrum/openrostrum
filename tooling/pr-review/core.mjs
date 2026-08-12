@@ -43,17 +43,17 @@ export async function loadSystems() {
 }
 
 const REQ_TIMEOUT_MS = Number(process.env.REQ_TIMEOUT_MS ?? 60000);
-// DeepSeek's own default output cap truncated a reviewer mid-answer, which the
-// completion contract can only report as incomplete. Ask for a cap wide enough
-// for a full findings list and still far below a runaway response.
-const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 16000);
 
-export function streamOptions({ key, temperature, options = {} }) {
+// Pi forwards a max-output value only when maxTokens is set; with none, the
+// provider's own small default truncates a reviewer mid-answer, which the
+// completion contract can only report as incomplete. The ceiling belongs to the
+// model, so take it from the catalog entry rather than inventing a number.
+export function streamOptions({ key, temperature, model, options = {} }) {
 	return {
 		...options,
 		apiKey: key,
 		temperature,
-		maxTokens: options.maxTokens ?? MAX_OUTPUT_TOKENS,
+		maxTokens: options.maxTokens ?? model?.maxTokens,
 		timeoutMs: REQ_TIMEOUT_MS,
 		maxRetries: 3,
 	};
@@ -97,7 +97,12 @@ export function makeRuntime({ key, base, model, temperature }) {
 			return models.streamSimple(
 				selectedModel,
 				context,
-				streamOptions({ key, temperature, options }),
+				streamOptions({
+					key,
+					temperature,
+					model: selectedModel ?? activeModel,
+					options,
+				}),
 			);
 		},
 	};
