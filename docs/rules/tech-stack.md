@@ -53,6 +53,8 @@ Everything that differs between local and cloud sits behind a typed interface wi
 
 **Not ports:** Calendar (`ics` is a pure function — identical everywhere) and Storage (R2 emulates locally via Miniflare — use a thin wrapper only, not a swappable adapter).
 
+**Every outbound adapter states its retry and timeout policy in a comment, including "none, because ___".** A third party that answers with an error is the outage shape everyone handles; one that accepts the connection and then says nothing is the one that gets forgotten, and an unbounded `fetch` hands the only limit to the platform. `turnstile.ts` fails closed on a 5s deadline because a speaker is waiting on it, `email.ts` bounds its POST under the send-claim lease, `airtable.ts` times out per attempt so the retry loop treats it like a 5xx. The value is in having to write the sentence — no lint rule can tell a call that needs a bound from one that does not.
+
 ## Platform rules (mandatory)
 
 - **D1 has no interactive transactions.** Use `db.batch()` for atomic multi-writes. Never `db.transaction()` — it throws at runtime.
