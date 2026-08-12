@@ -17,28 +17,12 @@ export const FINDING_LIMITS = { quote: 240, rule: 100, why: 240 };
 // cap, the extra submissions are refused with a reason and re-issued next turn.
 export const SUBMISSIONS_PER_RESPONSE = 10;
 
-const PATH_BUDGET = 256; // longest repository path, comfortably
-const CALL_SCAFFOLD = 96; // keys, quotes, escapes, line number
-const PROSE_SHARE = 2; // the model's own words get as much room as the payload
-const CHARS_PER_TOKEN = 3; // conservative for JSON carrying code and prose
-
-// No response carries the review any more, so the ceiling to request is the
-// largest one this contract can require — derived from the limits that bound a
-// response rather than picked, and never the catalog's 384000, which asks a
-// provider honouring 8192 for 47x what a response can hold.
-export const RESPONSE_CEILING = Math.ceil(
-	((FINDING_LIMITS.quote +
-		FINDING_LIMITS.rule +
-		FINDING_LIMITS.why +
-		PATH_BUDGET +
-		CALL_SCAFFOLD) *
-		SUBMISSIONS_PER_RESPONSE *
-		PROSE_SHARE) /
-		CHARS_PER_TOKEN,
-);
-
+// The catalog's own output ceiling, not a number invented here. The 8192 that
+// looked like a provider limit was our own bug: pi-ai sends max_completion_tokens
+// for DeepSeek, DeepSeek's API only reads max_tokens, so the value never arrived
+// and its 8192 default applied — asking for 6214 still stopped at 8192.
 export function requestCeiling(model) {
-	return Math.min(model?.maxTokens ?? RESPONSE_CEILING, RESPONSE_CEILING);
+	return model?.maxTokens;
 }
 
 export const WRAPPER = `You are a strict senior code reviewer for the OpenRostrum repository. Below is ONE of the repo's rule documents — it is your sole source of truth. Review the entire pull request for violations of rules stated IN THIS DOCUMENT ONLY. Other reviewers independently own the other rule documents; lint and CI own mechanical checks. Do not comment on style or taste.
@@ -82,8 +66,7 @@ export async function loadSystems() {
 const REQ_TIMEOUT_MS = Number(process.env.REQ_TIMEOUT_MS ?? 60000);
 
 // Pi forwards a max-output value only when maxTokens is set; with none, the
-// provider's own small default truncates a reviewer mid-response. Ask for what
-// a response can need, or for everything the model has when that is less.
+// provider's own default truncates a reviewer mid-response.
 export function streamOptions({ key, temperature, model, options = {} }) {
 	return {
 		...options,
@@ -107,6 +90,11 @@ export function makeRuntime({ key, base, model, temperature }) {
 		id: model,
 		name: catalogModel?.name ?? model,
 		baseUrl: base,
+		// pi-ai picks max_completion_tokens for every OpenAI-compatible provider
+		// not on its allow-list, and DeepSeek is not on it. DeepSeek's API reads
+		// max_tokens only, so the ceiling silently never arrived and its 8192
+		// default stood in for it. Name the field DeepSeek actually reads.
+		compat: { ...template.compat, maxTokensField: "max_tokens" },
 	};
 
 	async function api(path, init) {
