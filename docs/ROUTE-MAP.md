@@ -72,6 +72,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Speaker CRM shell (org-level) | `admin.crm.tsx` | `/admin/crm/*` (header + module tabs; children below) | 3 | done |
 | CRM overview dashboard | `admin.crm._index.tsx` | `/admin/crm` (org KPIs + widgets, CRM-12) | 3 | done |
 | CRM directory | `admin.crm.directory.tsx` | `/admin/crm/directory` (cross-event union by email; filters, add-to-event, enroll, save-segment; CRM-01/02/06/09/10) | 3 | done |
+| CRM directory import | `admin.crm.directory_.import.tsx` (trailing `_`: sits in the CRM shell, not inside the directory table) | `/admin/crm/directory/import` (org-scoped CSV import; picks the target event, links people the directory already knows; shares the engine in `~/domain/contact-import` with `admin.contacts_.import.tsx`; CRM-05) | 3 | done |
 | CRM person profile | `admin.crm.person.$email.tsx` | `/admin/crm/person/:email` (appearances, notes, duplicates, enroll, add-to-event; CRM-03) | 3 | done |
 | CRM sourcing pipeline | `admin.crm.pipeline.tsx` | `/admin/crm/pipeline` (kanban board + enroll + move; CRM-07) | 3 | done |
 | CRM pipeline card detail | `admin.crm.pipeline_.$cardId.tsx` (trailing `_`: renders beside the board, not nested in it) | `/admin/crm/pipeline/:cardId` (notes + stage history + assign-to-event; CRM-08) | 3 | done |
