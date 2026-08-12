@@ -176,7 +176,10 @@ async function callAction(fields: Record<string, string>): Promise<ActionData> {
 async function finishScheduleUpdateAction(): Promise<ActionData> {
 	for (let request = 0; request < 100; request += 1) {
 		const result = await callAction({ intent: "schedule-updates" });
-		if (!result.normalization) return result;
+		// Only an unfinished scan asks for another click. A finished one
+		// reports what it checked AND sends in the same request, so keying on
+		// the mere presence of `normalization` would click past the send.
+		if (!result.normalization?.remaining) return result;
 	}
 	throw new Error("Schedule-update normalization did not converge");
 }
@@ -704,8 +707,11 @@ const HISTORIC_NPM_ICS_INVITE =
  * slot existed — the outbox ledger holds the historic npm-ics save-the-date
  * invite (prod rows are in that format), and Marco is its speaker so the
  * update email has a recipient.
+ *
+ * `indexed: false` is the install that upgraded INTO the ledger: the same real
+ * invite history, none of it indexed yet.
  */
-async function invitedBaseline() {
+async function invitedBaseline(options: { indexed?: boolean } = {}) {
 	const db = await seedBaseline();
 	await db.insert(emailOutbox).values({
 		id: "accept-keynote-initial",
@@ -728,7 +734,7 @@ async function invitedBaseline() {
 		submissionId: "s_keynote",
 		contactId: "c_marco",
 	});
-	await normalizeCalendarInviteHistory(db, "e1");
+	if (options.indexed !== false) await normalizeCalendarInviteHistory(db, "e1");
 	return db;
 }
 
@@ -971,7 +977,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		).toEqual([]);
 	});
 
-	it("finishes history normalization before a later request sends updates", async () => {
+	it("finishes history normalization before the same request sends updates", async () => {
 		const db = await seedBaseline();
 		await db.insert(emailOutbox).values({
 			id: "accept-two-phase",
@@ -1000,24 +1006,24 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			startMinutes: "570",
 		});
 
-		const normalized = await callAction({ intent: "schedule-updates" });
+		const delivered = await callAction({ intent: "schedule-updates" });
 
-		expect(normalized).toMatchObject({
+		expect(delivered).toMatchObject({
 			ok: true,
 			normalization: { processed: 1, remaining: false },
 		});
-		expect(normalized.updates).toBeUndefined();
-		expect(
-			(await db.select().from(emailOutbox)).filter((row) =>
-				row.dedupeKey?.startsWith("schedule-update:"),
-			),
-		).toEqual([]);
-
-		const delivered = await callAction({ intent: "schedule-updates" });
 		expect(delivered.updates).toMatchObject({
 			sent: 1,
 			failed: 0,
 			inFlight: 0,
+		});
+		// The send read the sequence frontier that the SAME request had just
+		// indexed: anything below 1 would land under the historic invite the
+		// speaker's client already holds and be dropped as stale.
+		const { vevent } = await latestUpdateInvite(db);
+		expect(vevent).toMatchObject({
+			uid: "submission-s_keynote@openrostrum",
+			sequence: 1,
 		});
 	});
 
@@ -1816,6 +1822,74 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			deduped: 0,
 			failed: 0,
 		});
+	});
+
+	// The history scan exists for invites that predate the ledger. A send that
+	// leaves its OWN outbox row unindexed makes that scan permanent: every round
+	// of updates re-arms it, and while it is armed the agenda cannot count stale
+	// speakers at all — it only offers to go check history again.
+	it("indexes the update it just sent, so the next move still counts stale speakers", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		expect(
+			(await callAction({ intent: "schedule-updates" })).updates,
+		).toMatchObject({ sent: 1, deduped: 0, failed: 0 });
+
+		// No normalizeCalendarInviteHistory() here on purpose: the send owns its
+		// own ledger entry, written in the same request that wrote the outbox row.
+		const sent = await latestUpdateInvite(db);
+		if (!sent.row) throw new Error("Expected a schedule update");
+		expect(
+			(
+				await db
+					.select()
+					.from(calendarInviteProcessedOutbox)
+					.where(eq(calendarInviteProcessedOutbox.outboxId, sent.row.id))
+			).map((marker) => marker.invalid),
+		).toEqual([false]);
+		expect(
+			(
+				await db
+					.select()
+					.from(calendarInviteRevisions)
+					.where(eq(calendarInviteRevisions.outboxId, sent.row.id))
+			).map((revision) => [revision.submissionId, revision.sequence]),
+		).toEqual([["s_keynote", 1]]);
+
+		// Move it again: the agenda must be able to say "1 speaker is stale"
+		// instead of hiding the count behind another history check.
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_305",
+			day: "2026-10-12",
+			startMinutes: "630",
+		});
+		const moved = await callLoader();
+		expect(moved.event?.scheduleScanTruncated).toBe(false);
+		expect(moved.event?.staleSpeakers).toBe(1);
+	});
+
+	// Deploy day on an install with real invite history: indexing it is this
+	// request's job, not a separate errand the operator has to click through.
+	it("indexes pre-ledger invite history and sends in the same request", async () => {
+		await invitedBaseline({ indexed: false });
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		expect(
+			(await callAction({ intent: "schedule-updates" })).updates,
+		).toMatchObject({ sent: 1, deduped: 0, failed: 0 });
 	});
 
 	it("finds an affected session's old invite behind 1001 newer unrelated invites", async () => {

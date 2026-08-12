@@ -16,6 +16,10 @@ import {
 	users,
 } from "~/db/schema";
 import {
+	icsUidForSubmission,
+	recordSentCalendarInvites,
+} from "~/domain/calendar-ledger";
+import {
 	claimInviteSequences,
 	deliveredInviteFrontiers,
 	inviteStateHash,
@@ -916,6 +920,7 @@ export async function sendDecisionEmails(
 	const results: DecisionSendResult[] = [];
 	const newlySent: string[] = [];
 	const dedupedIds: string[] = [];
+	const attemptedInviteKeys: string[] = [];
 	// Stamping is its own step because it also has to run on the way out of an
 	// unexpected failure: a speaker who already received their decision must stay
 	// marked notified, or a null stamp silently drops their session from every
@@ -939,6 +944,10 @@ export async function sendDecisionEmails(
 					),
 				);
 		}
+		// The invite this request just sent belongs in the delivery ledger now.
+		// Leaving it for the history scan re-arms that scan on every acceptance,
+		// and while it is armed the agenda cannot count stale speakers at all.
+		await recordSentCalendarInvites(db, event.id, attemptedInviteKeys);
 	};
 	for (const item of plan.items) {
 		const { row, to, subject, html, reason } = item;
@@ -964,6 +973,10 @@ export async function sendDecisionEmails(
 			continue;
 		}
 		let result: EmailResult;
+		// The decision is part of the identity: an accept then a corrective
+		// decline on the SAME untouched selection must both deliver.
+		const dedupeKey = `decision:${decision}:${idempotencyKey}:${row.id}`;
+		if (decision === "accept") attemptedInviteKeys.push(dedupeKey);
 		try {
 			result = await sender.send({
 				to,
@@ -971,9 +984,7 @@ export async function sendDecisionEmails(
 				subject,
 				html,
 				ics,
-				// The decision is part of the identity: an accept then a corrective
-				// decline on the SAME untouched selection must both deliver.
-				dedupeKey: `decision:${decision}:${idempotencyKey}:${row.id}`,
+				dedupeKey,
 				eventId: event.id,
 				templateId: template.id,
 				kind: "transactional",
@@ -1039,19 +1050,6 @@ export async function sendDecisionEmails(
 	}
 	await finalizeNotified();
 	return results;
-}
-
-/** Stable identity shared by acceptance and schedule-update calendar revisions. */
-export function icsUidForSubmission(submissionId: string): string {
-	return `submission-${submissionId}@openrostrum`;
-}
-
-export function submissionIdFromIcsUid(uid: string): string | null {
-	const prefix = "submission-";
-	const suffix = "@openrostrum";
-	if (!uid.startsWith(prefix) || !uid.endsWith(suffix)) return null;
-	const submissionId = uid.slice(prefix.length, -suffix.length);
-	return submissionId.length > 0 ? submissionId : null;
 }
 
 const INVITE_RECIPIENT_QUERY_CHUNK = 80;

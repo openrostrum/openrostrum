@@ -384,12 +384,15 @@ function ScheduleHistoryNormalizationOutcome({
 			<InfoBarActionRow>
 				<span>
 					{result.processed} invite-history{" "}
-					{result.processed === 1 ? "record" : "records"} normalized.{" "}
+					{result.processed === 1 ? "record" : "records"} checked.{" "}
 					{result.remaining
 						? "More history remains; continue before any email is sent."
-						: "History is ready; continue to send the pending updates."}
+						: "All invite history is now accounted for."}
 				</span>
-				{continuation}
+				{/* Only an unfinished scan leaves something for the operator to
+				    do. A finished one already sent in the same request, so a
+				    "continue" button here would invite a pointless second send. */}
+				{result.remaining ? continuation : null}
 			</InfoBarActionRow>
 		</InfoBar>
 	);
@@ -649,6 +652,11 @@ export async function action({ context, request }: Route.ActionArgs) {
 					processed: normalization.processed,
 					remaining: normalization.remaining,
 				});
+			}
+			// Only an unfinished scan needs a second click. Finishing one — the
+			// normal deploy-day case — must not cost the operator an extra round
+			// trip before the update they actually asked for goes out.
+			if (normalization.remaining) {
 				return data(ok({ normalization }), {
 					headers: { "Server-Timing": timings.header() },
 				});
@@ -683,9 +691,16 @@ export async function action({ context, request }: Route.ActionArgs) {
 				inFlight: outcome.inFlight,
 				remaining: outcome.remaining,
 			});
-			return data(ok({ updates: outcome }), {
-				headers: { "Server-Timing": timings.header() },
-			});
+			// Reported alongside the send it paid for: a first-run scan can add
+			// seconds to a click that normally returns at once, and an operator
+			// with no explanation for that reads it as the send hanging.
+			return data(
+				ok({
+					updates: outcome,
+					...(normalization.processed > 0 ? { normalization } : {}),
+				}),
+				{ headers: { "Server-Timing": timings.header() } },
+			);
 		}
 
 		if (intent === "publish" || intent === "unpublish") {
@@ -1126,14 +1141,14 @@ export default function Agenda({
 				event.scheduleScanTruncated && (
 					<InfoBar>
 						<InfoBarActionRow>
+							{/* The loader knows only that unchecked invite history exists —
+							    never that a limit was exceeded. Naming a limit here would
+							    send the operator hunting for one that may not exist. */}
 							<span>
-								Matching invite history exceeded the check limit, so
-								schedule-update counts may be incomplete.
+								Some invite history has not been checked yet, so the
+								stale-speaker count is incomplete.
 							</span>
-							{scheduleUpdateForm(
-								"Continue checking invite history",
-								"Checking…",
-							)}
+							{scheduleUpdateForm("Check invite history", "Checking…")}
 						</InfoBarActionRow>
 					</InfoBar>
 				)}

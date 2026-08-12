@@ -1,14 +1,4 @@
-import {
-	and,
-	asc,
-	eq,
-	inArray,
-	isNotNull,
-	isNull,
-	like,
-	or,
-	sql,
-} from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "~/db";
 import {
 	calendarInviteProcessedOutbox,
@@ -24,9 +14,26 @@ import {
 	icsForInvites,
 	inviteForSubmission,
 	inviteRecipients,
-	submissionIdFromIcsUid,
 	type SubmissionInvite,
 } from "~/domain/accept";
+import {
+	ATTEMPT_INSERT_CHUNK,
+	calendarInviteOutboxFilter,
+	chunkCount,
+	D1_QUERY_CHUNK,
+	ledgerWriteStatementUpperBound,
+	MARKER_INSERT_CHUNK,
+	MAX_ICS_ATTACHMENT_BYTES,
+	MAX_NORMALIZATION_ATTACHMENT_BYTES,
+	NORMALIZATION_METADATA_COLUMNS,
+	type NormalizationMetadataRow,
+	normalizationRowsWithBodies,
+	type ParsedNormalizationRow,
+	parseNormalizationRows,
+	recordSentCalendarInvites,
+	SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT,
+	writeParsedInviteRows,
+} from "~/domain/calendar-ledger";
 import {
 	claimInviteSequences,
 	deliveredInviteFrontiers,
@@ -39,7 +46,6 @@ import { normalizeEmail } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatScheduleRange } from "~/lib/format-date";
 import { escapeHtml } from "~/lib/html";
-import { inspectIcsAttachment, type ParsedIcsEvent } from "~/lib/ics";
 import { track } from "~/lib/track";
 import {
 	EmailDeliveryError,
@@ -88,20 +94,9 @@ const EMPTY: ScheduleChangeSet = {
 };
 
 const OUTBOX_NORMALIZE_PAGE = 200;
-const SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT = 200;
-const D1_QUERY_CHUNK = 80;
-const ATTEMPT_INSERT_CHUNK = 8;
-const MARKER_INSERT_CHUNK = 25;
 // Normalization runs in its own action phase. Keep each pass below D1's
 // per-invocation statement ceiling so continuation requests always have room.
 const NORMALIZATION_STATEMENT_BUDGET = 600;
-// Attachment metadata is read before any body. Large individual bodies are
-// quarantined, while the aggregate cap bounds each Worker's response memory.
-const MAX_ICS_ATTACHMENT_BYTES = 512 * 1024;
-const MAX_NORMALIZATION_ATTACHMENT_BYTES = 1024 * 1024;
-// The only multi-event producer is schedule updates, which select at most this
-// many submissions. Larger historical attachments cannot be product output.
-const MAX_ICS_EVENTS_PER_OUTBOX = SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT;
 
 /** Correlated SQL form of inviteRecipients' primary-speaker/fallback rule. */
 function inviteRecipientEmailSql() {
@@ -115,40 +110,6 @@ function inviteRecipientEmailSql() {
 		(select u.email from users u where u.id = ${submissions.submitterId})
 	)`;
 }
-
-const NORMALIZATION_METADATA_COLUMNS = {
-	id: emailOutbox.id,
-	dedupeKey: emailOutbox.dedupeKey,
-	to: emailOutbox.to,
-	createdAt: emailOutbox.createdAt,
-	hasIcs: sql<number>`case when ${emailOutbox.icsAttachment} is null then 0 else 1 end`,
-	icsBytes: sql<number>`coalesce(length(cast(${emailOutbox.icsAttachment} as blob)), 0)`,
-};
-
-type NormalizationMetadataRow = {
-	id: string;
-	dedupeKey: string | null;
-	to: string;
-	createdAt: Date;
-	hasIcs: number;
-	icsBytes: number;
-};
-
-type NormalizationRow = {
-	id: string;
-	dedupeKey: string | null;
-	to: string;
-	ics: string | null;
-	attachmentOversized: boolean;
-	createdAt: Date;
-};
-
-type ParsedNormalizationRow = NormalizationRow & {
-	invites: ParsedIcsEvent[];
-	acceptanceSubmissionId: string | null;
-	associatedSubmissionIds: Set<string>;
-	icsEventCount: number;
-};
 
 type NormalizationMetadataPrefix = {
 	rows: NormalizationMetadataRow[];
@@ -190,62 +151,6 @@ function normalizationMetadataPrefix(
 	};
 }
 
-async function normalizationRowsWithBodies(
-	db: Db,
-	metadataRows: readonly NormalizationMetadataRow[],
-): Promise<NormalizationRow[]> {
-	const bodyIds = metadataRows
-		.filter(
-			(row) =>
-				row.hasIcs !== 0 && Number(row.icsBytes) <= MAX_ICS_ATTACHMENT_BYTES,
-		)
-		.map((row) => row.id);
-	const bodies = new Map<string, string | null>();
-	for (let offset = 0; offset < bodyIds.length; offset += D1_QUERY_CHUNK) {
-		const rows = await db
-			.select({ id: emailOutbox.id, ics: emailOutbox.icsAttachment })
-			.from(emailOutbox)
-			.where(
-				inArray(emailOutbox.id, bodyIds.slice(offset, offset + D1_QUERY_CHUNK)),
-			);
-		for (const row of rows) bodies.set(row.id, row.ics);
-	}
-
-	return metadataRows.map((row) => ({
-		id: row.id,
-		dedupeKey: row.dedupeKey,
-		to: row.to,
-		ics:
-			row.hasIcs !== 0 && Number(row.icsBytes) <= MAX_ICS_ATTACHMENT_BYTES
-				? (bodies.get(row.id) ?? null)
-				: null,
-		attachmentOversized: Number(row.icsBytes) > MAX_ICS_ATTACHMENT_BYTES,
-		createdAt: row.createdAt,
-	}));
-}
-
-function chunkCount(rows: number, chunkSize: number): number {
-	return Math.ceil(rows / chunkSize);
-}
-
-function normalizationStatementUpperBound(
-	rows: readonly ParsedNormalizationRow[],
-): number {
-	const associatedSubmissionIds = new Set<string>();
-	let attemptUpperBound = 0;
-	for (const row of rows) {
-		attemptUpperBound += row.associatedSubmissionIds.size;
-		for (const submissionId of row.associatedSubmissionIds) {
-			associatedSubmissionIds.add(submissionId);
-		}
-	}
-	return (
-		chunkCount(associatedSubmissionIds.size, D1_QUERY_CHUNK) +
-		chunkCount(attemptUpperBound, ATTEMPT_INSERT_CHUNK) +
-		chunkCount(rows.length, MARKER_INSERT_CHUNK)
-	);
-}
-
 function normalizationPrefixWithinBudget(
 	rows: readonly ParsedNormalizationRow[],
 	statementBudget: number,
@@ -277,235 +182,6 @@ function normalizationPrefixWithinBudget(
 	return rows.slice(0, length);
 }
 
-type RevisionInsert = typeof calendarInviteRevisions.$inferInsert;
-type ProcessedOutboxInsert = typeof calendarInviteProcessedOutbox.$inferInsert;
-
-function acceptanceSubmissionId(dedupeKey: string | null): string | null {
-	if (!dedupeKey?.startsWith("decision:accept:")) return null;
-	const submissionId = dedupeKey.slice(dedupeKey.lastIndexOf(":") + 1);
-	return submissionId.length > 0 ? submissionId : null;
-}
-
-function parseNormalizationRows(
-	rows: readonly NormalizationRow[],
-): ParsedNormalizationRow[] {
-	return rows.map((row) => {
-		const inspection = row.attachmentOversized
-			? { events: [], eventCount: 0 }
-			: inspectIcsAttachment(row.ics ?? "", MAX_ICS_EVENTS_PER_OUTBOX);
-		const acceptedId = acceptanceSubmissionId(row.dedupeKey);
-		const tooManyEvents = inspection.eventCount > MAX_ICS_EVENTS_PER_OUTBOX;
-		const invites = tooManyEvents ? [] : inspection.events;
-		const associatedSubmissionIds = new Set<string>();
-		if (acceptedId) associatedSubmissionIds.add(acceptedId);
-		for (const invite of invites) {
-			const submissionId = submissionIdFromIcsUid(invite.uid);
-			if (submissionId) associatedSubmissionIds.add(submissionId);
-		}
-		return {
-			...row,
-			invites,
-			acceptanceSubmissionId: acceptedId,
-			associatedSubmissionIds,
-			icsEventCount: row.ics === null ? 0 : inspection.eventCount,
-		};
-	});
-}
-
-type SubmissionIdScopes = {
-	currentEvent: Set<string>;
-	known: Set<string>;
-};
-
-async function submissionIdScopes(
-	db: Db,
-	eventId: string,
-	ids: readonly string[],
-): Promise<SubmissionIdScopes> {
-	const currentEvent = new Set<string>();
-	const known = new Set<string>();
-	for (let offset = 0; offset < ids.length; offset += D1_QUERY_CHUNK) {
-		const rows = await db
-			.select({ id: submissions.id, eventId: submissions.eventId })
-			.from(submissions)
-			.where(
-				inArray(submissions.id, ids.slice(offset, offset + D1_QUERY_CHUNK)),
-			);
-		for (const row of rows) {
-			known.add(row.id);
-			if (row.eventId === eventId) currentEvent.add(row.id);
-		}
-	}
-	return { currentEvent, known };
-}
-
-function normalizationRowIsInvalid(
-	row: ParsedNormalizationRow,
-	validSubmissionIds: ReadonlySet<string>,
-	knownSubmissionIds: ReadonlySet<string>,
-): boolean {
-	if (row.attachmentOversized) return true;
-	if (row.icsEventCount > MAX_ICS_EVENTS_PER_OUTBOX) return true;
-	const submissionIds = row.invites.map((invite) =>
-		submissionIdFromIcsUid(invite.uid),
-	);
-	const parsedCompletely =
-		row.ics !== null &&
-		row.icsEventCount > 0 &&
-		row.icsEventCount === row.invites.length;
-	const allInvitesUsable = row.invites.every((invite, index) => {
-		const submissionId = submissionIds[index];
-		return (
-			invite.title !== null &&
-			submissionId !== null &&
-			submissionId !== undefined &&
-			(validSubmissionIds.has(submissionId) ||
-				!knownSubmissionIds.has(submissionId))
-		);
-	});
-	const uniqueSubmissions = new Set(submissionIds.filter((id) => id !== null));
-	const hasDuplicateSubmission =
-		uniqueSubmissions.size !== submissionIds.length;
-
-	if (row.dedupeKey?.startsWith("decision:accept:")) {
-		const acceptedId = row.acceptanceSubmissionId;
-		if (
-			!acceptedId ||
-			(knownSubmissionIds.has(acceptedId) &&
-				!validSubmissionIds.has(acceptedId))
-		) {
-			return true;
-		}
-		if (row.ics === null) return false;
-		return (
-			!parsedCompletely ||
-			!allInvitesUsable ||
-			hasDuplicateSubmission ||
-			!submissionIds.includes(acceptedId)
-		);
-	}
-
-	return !parsedCompletely || !allInvitesUsable || hasDuplicateSubmission;
-}
-
-async function normalizationAttemptsForRow(
-	row: ParsedNormalizationRow,
-	eventId: string,
-	validSubmissionIds: ReadonlySet<string>,
-	knownSubmissionIds: ReadonlySet<string>,
-): Promise<{ attempts: RevisionInsert[]; invalid: boolean }> {
-	const invalid = normalizationRowIsInvalid(
-		row,
-		validSubmissionIds,
-		knownSubmissionIds,
-	);
-	const attempts = new Map<string, RevisionInsert>();
-
-	for (const invite of row.invites) {
-		const submissionId = submissionIdFromIcsUid(invite.uid);
-		if (!submissionId || !validSubmissionIds.has(submissionId)) continue;
-		if (attempts.has(submissionId)) continue;
-		attempts.set(submissionId, {
-			id: crypto.randomUUID(),
-			submissionId,
-			sequence: invite.sequence,
-			stateHash: await inviteStateHash(eventId, submissionId, row.to, invite),
-			recipient: row.to,
-			startsAt: invite.start,
-			endsAt: invite.end,
-			location: invite.location ?? null,
-			title: invite.title,
-			outboxId: row.id,
-			invalid,
-			createdAt: row.createdAt,
-		});
-	}
-
-	const acceptedId = row.acceptanceSubmissionId;
-	if (
-		acceptedId &&
-		validSubmissionIds.has(acceptedId) &&
-		!attempts.has(acceptedId)
-	) {
-		const markerKind =
-			row.ics === null && !row.attachmentOversized
-				? "acceptance-without-ics"
-				: "invalid-acceptance-ics";
-		attempts.set(acceptedId, {
-			id: crypto.randomUUID(),
-			submissionId: acceptedId,
-			sequence: null,
-			stateHash: await sha256Hex(
-				JSON.stringify({
-					eventId,
-					submissionId: acceptedId,
-					recipient: normalizeEmail(row.to),
-					markerKind,
-				}),
-			),
-			recipient: row.to,
-			startsAt: null,
-			endsAt: null,
-			location: null,
-			title: null,
-			outboxId: row.id,
-			invalid,
-			createdAt: row.createdAt,
-		});
-	}
-
-	return { attempts: [...attempts.values()], invalid };
-}
-
-async function insertNormalizationAttempts(
-	db: Db,
-	attempts: readonly RevisionInsert[],
-): Promise<void> {
-	const statements = [];
-	for (
-		let offset = 0;
-		offset < attempts.length;
-		offset += ATTEMPT_INSERT_CHUNK
-	) {
-		const chunk = attempts.slice(offset, offset + ATTEMPT_INSERT_CHUNK);
-		if (chunk.length === 0) continue;
-		statements.push(
-			db
-				.insert(calendarInviteRevisions)
-				.values(chunk)
-				.onConflictDoNothing({
-					target: [
-						calendarInviteRevisions.outboxId,
-						calendarInviteRevisions.submissionId,
-					],
-				}),
-		);
-	}
-	const [first, ...rest] = statements;
-	if (first) await db.batch([first, ...rest]);
-}
-
-async function insertProcessedOutboxMarkers(
-	db: Db,
-	markers: readonly ProcessedOutboxInsert[],
-): Promise<void> {
-	const statements = [];
-	for (let offset = 0; offset < markers.length; offset += MARKER_INSERT_CHUNK) {
-		const chunk = markers.slice(offset, offset + MARKER_INSERT_CHUNK);
-		if (chunk.length === 0) continue;
-		statements.push(
-			db
-				.insert(calendarInviteProcessedOutbox)
-				.values(chunk)
-				.onConflictDoNothing({
-					target: calendarInviteProcessedOutbox.outboxId,
-				}),
-		);
-	}
-	const [first, ...rest] = statements;
-	if (first) await db.batch([first, ...rest]);
-}
-
 export type CalendarHistoryNormalizationResult = {
 	processed: number;
 	remaining: boolean;
@@ -531,10 +207,7 @@ export async function normalizeCalendarInviteHistory(
 			.where(
 				and(
 					eq(emailOutbox.eventId, eventId),
-					or(
-						like(emailOutbox.dedupeKey, "decision:accept:%"),
-						like(emailOutbox.dedupeKey, "schedule-update:%"),
-					),
+					calendarInviteOutboxFilter(),
 					isNull(calendarInviteProcessedOutbox.outboxId),
 				),
 			)
@@ -557,34 +230,8 @@ export async function normalizeCalendarInviteHistory(
 			remainingStatements - 1,
 		);
 		if (parsed.length === 0) return { processed, remaining: true };
-		remainingStatements -= normalizationStatementUpperBound(parsed);
-		const associatedIds = [
-			...new Set(parsed.flatMap((row) => [...row.associatedSubmissionIds])),
-		];
-		const scopes = await submissionIdScopes(db, eventId, associatedIds);
-		const attempts: RevisionInsert[] = [];
-		const markers: ProcessedOutboxInsert[] = [];
-		const processedAt = new Date();
-
-		for (const row of parsed) {
-			const normalized = await normalizationAttemptsForRow(
-				row,
-				eventId,
-				scopes.currentEvent,
-				scopes.known,
-			);
-			attempts.push(...normalized.attempts);
-			markers.push({
-				outboxId: row.id,
-				eventId,
-				invalid: normalized.invalid,
-				processedAt,
-			});
-		}
-
-		await insertNormalizationAttempts(db, attempts);
-		await insertProcessedOutboxMarkers(db, markers);
-		processed += markers.length;
+		remainingStatements -= ledgerWriteStatementUpperBound(parsed);
+		processed += await writeParsedInviteRows(db, eventId, parsed);
 		if (parsed.length < parsedPage.length || metadataPrefix.deferred) {
 			return { processed, remaining: true };
 		}
@@ -612,10 +259,7 @@ async function hasUnprocessedCalendarInviteHistory(
 		.where(
 			and(
 				eq(emailOutbox.eventId, eventId),
-				or(
-					like(emailOutbox.dedupeKey, "decision:accept:%"),
-					like(emailOutbox.dedupeKey, "schedule-update:%"),
-				),
+				calendarInviteOutboxFilter(),
 				isNull(calendarInviteProcessedOutbox.outboxId),
 			),
 		)
@@ -1242,6 +886,7 @@ export async function sendScheduleUpdates(
 	const batch = [...byRecipient.keys()].sort();
 
 	const sender = getEmailSender(env);
+	const attemptedKeys: string[] = [];
 	for (const recipient of batch) {
 		const group = byRecipient.get(recipient);
 		if (!group) continue;
@@ -1280,6 +925,10 @@ export async function sendScheduleUpdates(
 			})),
 		});
 		const dedupeKey = `schedule-update:${await sha256Hex(state)}`;
+		// Recorded whatever the provider answers: the outbox row exists from the
+		// attempt onwards, and an unindexed row re-arms the history scan, which
+		// hides the stale-speaker count until an operator clicks through it.
+		attemptedKeys.push(dedupeKey);
 		try {
 			const sent = await sender.send({
 				to,
@@ -1323,5 +972,6 @@ export async function sendScheduleUpdates(
 			});
 		}
 	}
+	await recordSentCalendarInvites(db, event.id, attemptedKeys);
 	return result;
 }

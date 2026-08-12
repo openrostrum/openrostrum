@@ -26,7 +26,11 @@ export type InviteState = {
 	start: Date;
 	end: Date;
 	location?: string | null;
-	title: string;
+	// Nullable because a parsed historical invite may carry no SUMMARY, and
+	// its hash was already computed over that null. Requiring a string here
+	// would force a substitute value at the one call site that can hit it,
+	// changing every stored hash and re-sending every session it covers.
+	title: string | null;
 };
 
 export type InviteFrontier = {
