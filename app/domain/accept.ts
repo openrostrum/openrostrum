@@ -15,6 +15,12 @@ import {
 	tasks,
 	users,
 } from "~/db/schema";
+import {
+	claimInviteSequences,
+	deliveredInviteFrontiers,
+	inviteStateHash,
+	proposedSequence,
+} from "~/domain/calendar-sequence";
 import { normalizeEmail } from "~/lib/auth";
 import { formatInTimeZone } from "~/lib/dates";
 import {
@@ -24,7 +30,7 @@ import {
 } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { formatScheduleRange } from "~/lib/format-date";
-import { buildIcs, icsContentFingerprint } from "~/lib/ics";
+import { buildIcs, icsEntryFingerprint } from "~/lib/ics";
 import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";
 import {
@@ -538,6 +544,8 @@ type DecisionPlanItem = {
 	html?: string;
 	ics?: string;
 	reason?: string;
+	/** Accept only: what the attached invite says, for claiming its revision. */
+	calendar?: { invite: SubmissionInvite; stateHash: string };
 };
 
 type DecisionEmailPlan = {
@@ -580,7 +588,10 @@ async function fingerprintDecisionPlan(
 				to: item.to,
 				subject: item.subject,
 				html: item.html,
-				ics: item.ics && icsContentFingerprint(item.ics),
+				// Revision-independent: the sequence this invite ships at is claimed
+				// at send, so an unrelated schedule update landing between preview and
+				// send must not read as "the admin reviewed something else".
+				ics: item.ics && icsEntryFingerprint(item.ics),
 				reason: item.reason,
 			})),
 		}),
@@ -690,6 +701,36 @@ async function buildDecisionEmailPlan(
 		origin && portalPublicId
 			? portalUrl(origin, event.slug, portalPublicId)
 			: null;
+	// An acceptance invite carries the same calendar UID as every schedule update
+	// that follows it, so it shares that UID's revision counter. Reading the
+	// counter here — rather than assuming a re-send is the first invite anyone has
+	// seen — is what stops a re-issued acceptance from landing below what the
+	// speaker's calendar already applied and being discarded as stale. The
+	// number is only proposed at this point; `sendDecisionEmails` takes it.
+	const calendarByRow = new Map<
+		string,
+		{ invite: SubmissionInvite; stateHash: string; sequence: number }
+	>();
+	if (decision === "accept") {
+		const frontiers = await deliveredInviteFrontiers(db, ids);
+		for (const row of rows) {
+			const to = recipientById.get(row.id);
+			if (!to) continue;
+			const invite = inviteForSubmission(
+				row,
+				event,
+				row.roomId ? roomName.get(row.roomId) : undefined,
+			);
+			if (!invite) continue;
+			const stateHash = await inviteStateHash(event.id, row.id, to, invite);
+			calendarByRow.set(row.id, {
+				invite,
+				stateHash,
+				sequence: proposedSequence(stateHash, frontiers.get(row.id)),
+			});
+		}
+	}
+
 	const items: DecisionPlanItem[] = rows.map((row) => {
 		const to = recipientById.get(row.id);
 		if (!to) {
@@ -733,6 +774,7 @@ async function buildDecisionEmailPlan(
 				? formatInTimeZone(form.closeAt, event.timezone)
 				: null,
 		};
+		const calendar = calendarByRow.get(row.id);
 		return {
 			row,
 			to,
@@ -741,7 +783,18 @@ async function buildDecisionEmailPlan(
 				renderBody(template.bodyHtml, context) +
 				decisionDetailsHtml(row, event, decision, room),
 			ics:
-				decision === "accept" ? buildDecisionIcs(row, event, room) : undefined,
+				calendar &&
+				icsForInvites(event, [
+					{
+						submissionId: row.id,
+						invite: calendar.invite,
+						sequence: calendar.sequence,
+					},
+				]),
+			calendar: calendar && {
+				invite: calendar.invite,
+				stateHash: calendar.stateHash,
+			},
 		};
 	});
 	return {
@@ -834,6 +887,31 @@ export async function sendDecisionEmails(
 	}
 	const { template } = plan;
 
+	// Only now — past the confirmation gate — is the revision actually taken.
+	// Claiming during the preview would burn a number on a send the admin then
+	// abandons, and every later invite would carry a gap the speaker's client
+	// reads as a revision it missed. The claim is a compare-and-set, so two
+	// admins accepting the same session concurrently cannot mint one number
+	// twice: whoever describes a different slot is forced strictly above.
+	const calendarItems = plan.items.flatMap((item) =>
+		item.calendar ? [{ id: item.row.id, ...item.calendar }] : [],
+	);
+	const sendFrontiers = await deliveredInviteFrontiers(
+		db,
+		calendarItems.map((item) => item.id),
+	);
+	const claimedSequences = await claimInviteSequences(
+		db,
+		calendarItems.map((item) => ({
+			submissionId: item.id,
+			stateHash: item.stateHash,
+			proposedSequence: proposedSequence(
+				item.stateHash,
+				sendFrontiers.get(item.id),
+			),
+		})),
+	);
+
 	const sender = getEmailSender(env);
 	const results: DecisionSendResult[] = [];
 	const newlySent: string[] = [];
@@ -863,7 +941,20 @@ export async function sendDecisionEmails(
 		}
 	};
 	for (const item of plan.items) {
-		const { row, to, subject, html, ics, reason } = item;
+		const { row, to, subject, html, reason } = item;
+		const claimed = claimedSequences.get(row.id);
+		// Re-render at the revision this send owns, not the one the preview
+		// guessed: between the two, another request may have advanced the counter.
+		const ics =
+			item.calendar && claimed !== undefined
+				? icsForInvites(event, [
+						{
+							submissionId: row.id,
+							invite: item.calendar.invite,
+							sequence: claimed,
+						},
+					])
+				: item.ics;
 		if (reason || !to || subject === undefined || html === undefined) {
 			results.push({
 				submissionId: row.id,
@@ -1086,16 +1177,6 @@ export function icsForInvites(
 			status: "CONFIRMED",
 		})),
 	});
-}
-
-function buildDecisionIcs(
-	row: Submission,
-	event: typeof events.$inferSelect,
-	room: string | undefined,
-): string | undefined {
-	const invite = inviteForSubmission(row, event, room);
-	if (!invite) return undefined;
-	return icsForInvites(event, [{ submissionId: row.id, invite, sequence: 0 }]);
 }
 
 /** Appended below the template body so the recipient knows WHICH submission the decision covers (a speaker can have several in flight). */

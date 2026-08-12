@@ -27,6 +27,13 @@ import {
 	submissionIdFromIcsUid,
 	type SubmissionInvite,
 } from "~/domain/accept";
+import {
+	claimInviteSequences,
+	deliveredInviteFrontiers,
+	type InviteFrontier,
+	inviteStateHash,
+	proposedSequence,
+} from "~/domain/calendar-sequence";
 import { sha256Hex } from "~/lib/api-token";
 import { normalizeEmail } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
@@ -332,25 +339,6 @@ async function submissionIdScopes(
 	return { currentEvent, known };
 }
 
-async function normalizedInviteStateHash(
-	eventId: string,
-	submissionId: string,
-	to: string,
-	invite: Pick<ParsedIcsEvent, "start" | "end" | "location" | "title">,
-): Promise<string> {
-	return sha256Hex(
-		JSON.stringify({
-			eventId,
-			submissionId,
-			recipient: normalizeEmail(to),
-			start: invite.start.toISOString(),
-			end: invite.end.toISOString(),
-			location: invite.location ?? null,
-			title: invite.title,
-		}),
-	);
-}
-
 function normalizationRowIsInvalid(
 	row: ParsedNormalizationRow,
 	validSubmissionIds: ReadonlySet<string>,
@@ -421,12 +409,7 @@ async function normalizationAttemptsForRow(
 			id: crypto.randomUUID(),
 			submissionId,
 			sequence: invite.sequence,
-			stateHash: await normalizedInviteStateHash(
-				eventId,
-				submissionId,
-				row.to,
-				invite,
-			),
+			stateHash: await inviteStateHash(eventId, submissionId, row.to, invite),
 			recipient: row.to,
 			startsAt: invite.start,
 			endsAt: invite.end,
@@ -1030,11 +1013,9 @@ function updateEmailHtml(
 	].join("");
 }
 
-type AttemptFrontier = { sequence: number; stateHash: string };
-
 type CurrentInviteSnapshot = {
 	stateHash: string;
-	frontier: AttemptFrontier | null;
+	frontier: InviteFrontier | null;
 };
 
 async function currentInviteSnapshots(
@@ -1084,7 +1065,7 @@ async function currentInviteSnapshots(
 			const invite = inviteForSubmission(row, event, row.roomName ?? undefined);
 			if (!invite) continue;
 			snapshots.set(row.id, {
-				stateHash: await normalizedInviteStateHash(
+				stateHash: await inviteStateHash(
 					event.id,
 					row.id,
 					row.recipient,
@@ -1117,64 +1098,6 @@ async function currentInviteStateHashes(
 			snapshot.stateHash,
 		]),
 	);
-}
-
-async function latestAttemptFrontiers(
-	db: Db,
-	submissionIds: readonly string[],
-): Promise<Map<string, AttemptFrontier>> {
-	const frontiers = new Map<string, AttemptFrontier>();
-	for (
-		let offset = 0;
-		offset < submissionIds.length;
-		offset += D1_QUERY_CHUNK
-	) {
-		const ranked = db
-			.select({
-				submissionId: calendarInviteRevisions.submissionId,
-				sequence: calendarInviteRevisions.sequence,
-				stateHash: calendarInviteRevisions.stateHash,
-				frontierRank: sql<number>`row_number() over (
-					partition by ${calendarInviteRevisions.submissionId}
-					order by ${calendarInviteRevisions.sequence} desc,
-						${calendarInviteRevisions.createdAt} desc,
-						${calendarInviteRevisions.id} desc
-				)`.as("frontier_rank"),
-			})
-			.from(calendarInviteRevisions)
-			.innerJoin(
-				emailOutbox,
-				eq(emailOutbox.id, calendarInviteRevisions.outboxId),
-			)
-			.where(
-				and(
-					inArray(
-						calendarInviteRevisions.submissionId,
-						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
-					),
-					inArray(emailOutbox.status, ["sent", "queued", "failed"]),
-					eq(calendarInviteRevisions.invalid, false),
-					isNotNull(calendarInviteRevisions.sequence),
-				),
-			)
-			.as("ranked_calendar_attempt_frontiers");
-		const rows = await db
-			.select({
-				submissionId: ranked.submissionId,
-				sequence: ranked.sequence,
-				stateHash: ranked.stateHash,
-			})
-			.from(ranked)
-			.where(eq(ranked.frontierRank, 1));
-		for (const row of rows) {
-			if (row.sequence === null) continue;
-			frontiers.set(row.submissionId, {
-				sequence: row.sequence,
-				stateHash: row.stateHash,
-			});
-		}
-	}
-	return frontiers;
 }
 
 type ClaimedScheduleChange = ScheduleChange & { stateHash: string };
@@ -1225,76 +1148,46 @@ async function claimScheduleSequences(
 ): Promise<ClaimedScheduleChange[]> {
 	if (changes.length === 0) return [];
 	const [priorFrontiers, currentStateHashes] = await Promise.all([
-		latestAttemptFrontiers(
+		deliveredInviteFrontiers(
 			db,
 			changes.map((change) => change.submissionId),
 		),
 		currentInviteStateHashes(db, event, changes),
 	]);
-	type ClaimPlan = {
-		change: ScheduleChange;
-		stateHash: string;
-		proposedSequence: number;
-	};
-	const claimPlans: ClaimPlan[] = [];
+	const claimPlans: { change: ScheduleChange; stateHash: string }[] = [];
 	for (const change of changes) {
 		if (change.to === null) continue;
-		const stateHash = await normalizedInviteStateHash(
+		const stateHash = await inviteStateHash(
 			event.id,
 			change.submissionId,
 			change.to,
 			change.invite,
 		);
 		if (currentStateHashes.get(change.submissionId) !== stateHash) continue;
-		const prior = priorFrontiers.get(change.submissionId);
-		claimPlans.push({
-			change,
-			stateHash,
-			proposedSequence:
-				prior?.stateHash === stateHash
-					? Math.max(change.nextSequence, prior.sequence)
-					: Math.max(change.nextSequence, (prior?.sequence ?? -1) + 1),
-		});
+		claimPlans.push({ change, stateHash });
 	}
 
-	const claimed: ClaimedScheduleChange[] = [];
-	for (let offset = 0; offset < claimPlans.length; offset += D1_QUERY_CHUNK) {
-		const chunk = claimPlans.slice(offset, offset + D1_QUERY_CHUNK);
-		const statements = chunk.map(({ change, stateHash, proposedSequence }) =>
-			db
-				.insert(calendarInviteSequenceFrontiers)
-				.values({
-					submissionId: change.submissionId,
-					sequence: proposedSequence,
-					stateHash,
-				})
-				.onConflictDoUpdate({
-					target: calendarInviteSequenceFrontiers.submissionId,
-					set: {
-						sequence: sql<number>`case
-							when ${calendarInviteSequenceFrontiers.stateHash} = excluded.state_hash
-								then max(${calendarInviteSequenceFrontiers.sequence}, excluded.sequence)
-							else max(${calendarInviteSequenceFrontiers.sequence} + 1, excluded.sequence)
-						end`,
-						stateHash: sql`excluded.state_hash`,
-						updatedAt: new Date(),
-					},
-				})
-				.returning({ sequence: calendarInviteSequenceFrontiers.sequence }),
-		);
-		const first = statements[0];
-		if (!first) continue;
-		const frontiers = await db.batch([first, ...statements.slice(1)]);
-		for (const [index, plan] of chunk.entries()) {
-			const frontier = frontiers[index]?.[0];
-			if (!frontier) throw new Error("Calendar sequence claim returned no row");
-			claimed.push({
-				...plan.change,
-				nextSequence: frontier.sequence,
-				stateHash: plan.stateHash,
-			});
-		}
-	}
+	const sequences = await claimInviteSequences(
+		db,
+		claimPlans.map(({ change, stateHash }) => ({
+			submissionId: change.submissionId,
+			stateHash,
+			proposedSequence: proposedSequence(
+				stateHash,
+				priorFrontiers.get(change.submissionId),
+				change.nextSequence,
+			),
+		})),
+	);
+	const claimed: ClaimedScheduleChange[] = claimPlans.map(
+		({ change, stateHash }) => {
+			const sequence = sequences.get(change.submissionId);
+			if (sequence === undefined) {
+				throw new Error("Calendar sequence claim returned no row");
+			}
+			return { ...change, nextSequence: sequence, stateHash };
+		},
+	);
 
 	// Per-recipient revalidation immediately before the provider effect is the
 	// relevant race closure; a global pass here would duplicate those reads.

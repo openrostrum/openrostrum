@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import { DECISION_STATUS, SUBMISSION_STATUS } from "../app/db/constants";
 import {
+	calendarInviteRevisions,
+	calendarInviteSequenceFrontiers,
 	contacts,
 	emailOutbox,
 	emailSuppressions,
@@ -943,6 +945,219 @@ describe("send decisions", () => {
 			// The send itself never flips status — that is the caller's second step.
 			expect(s.status).toBe("accept_queue");
 		}
+	});
+
+	// Acceptance re-sends carry the SAME calendar UID as every schedule update
+	// that has already reached the speaker. RFC 5545 §3.8.7.4 makes SEQUENCE the
+	// revision counter for that UID, so a re-send minted below the delivered
+	// frontier is a revision the client is entitled to ignore — the speaker
+	// re-reads the accept mail, sees the right time in the body, and their
+	// calendar quietly keeps the old slot.
+	it("re-sends an acceptance above the delivered calendar frontier, not at zero", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		await d
+			.insert(rooms)
+			.values({ id: "room_a", eventId: "e1", name: "Room A" });
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Edge-Native Vector Search on D1",
+			startsAt: new Date("2026-10-13T17:00:00Z"),
+			endsAt: new Date("2026-10-13T17:30:00Z"),
+			roomId: "room_a",
+			notifiedAt: new Date("2026-08-10T20:00:00Z"),
+		});
+		await addSpeaker(row.id, "c_marco", "marco.silva@example.com", {
+			isPrimary: true,
+		});
+		// Two schedule updates already landed on this speaker's calendar, so the
+		// live revision counter for this UID stands at 2.
+		await d.insert(emailOutbox).values(
+			[0, 1, 2].map((sequence) => ({
+				id: `outbox-seq-${sequence}`,
+				eventId: "e1",
+				dedupeKey: `schedule-update:${sequence}`,
+				to: "marco.silva@example.com",
+				subject: "Schedule update",
+				html: "<p>moved</p>",
+				status: "sent" as const,
+			})),
+		);
+		await d.insert(calendarInviteRevisions).values(
+			[0, 1, 2].map((sequence) => ({
+				submissionId: row.id,
+				sequence,
+				// An earlier slot than today's — the re-send is a genuine revision.
+				stateHash: `state-${sequence}`,
+				recipient: "marco.silva@example.com",
+				startsAt: new Date("2026-10-13T15:00:00Z"),
+				endsAt: new Date("2026-10-13T15:30:00Z"),
+				location: "Room A",
+				title: "Edge-Native Vector Search on D1",
+				outboxId: `outbox-seq-${sequence}`,
+			})),
+		);
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		await sendPreviewedDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "resend-after-updates",
+		});
+
+		const [mail] = await d
+			.select()
+			.from(emailOutbox)
+			.where(
+				eq(
+					emailOutbox.dedupeKey,
+					`decision:accept:resend-after-updates:${row.id}`,
+				),
+			);
+		expect(mail?.icsAttachment).toContain("SEQUENCE:3");
+		// The claim is durable, so the next update starts from here rather than
+		// re-issuing 3 for a different slot.
+		const [frontier] = await d
+			.select()
+			.from(calendarInviteSequenceFrontiers)
+			.where(eq(calendarInviteSequenceFrontiers.submissionId, row.id));
+		expect(frontier?.sequence).toBe(3);
+	});
+
+	// An admin reviewing an accept preview is not holding a lock on the agenda.
+	// If a schedule update claims a revision while they read, sending at the
+	// number the preview computed hands one UID two different revisions — and the
+	// speaker's client keeps whichever it saw first. Confirming a preview whose
+	// wording still matches must not be refused either, or the accept becomes
+	// unsendable for as long as anyone else is touching the schedule.
+	it("ships the revision it claims at send, not the one the preview guessed", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		await d
+			.insert(rooms)
+			.values({ id: "room_a", eventId: "e1", name: "Room A" });
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Edge-Native Vector Search on D1",
+			startsAt: new Date("2026-10-13T17:00:00Z"),
+			endsAt: new Date("2026-10-13T17:30:00Z"),
+			roomId: "room_a",
+		});
+		await addSpeaker(row.id, "c_marco", "marco.silva@example.com", {
+			isPrimary: true,
+		});
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		const preview = await previewDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+		});
+
+		// While the preview sits on screen, a schedule update takes revision 7 for
+		// this session's UID and delivers it — claim first, then the ledger row.
+		await d.insert(calendarInviteSequenceFrontiers).values({
+			submissionId: row.id,
+			sequence: 7,
+			stateHash: "claimed-by-a-concurrent-schedule-update",
+		});
+		await d.insert(emailOutbox).values({
+			id: "outbox-concurrent",
+			eventId: "e1",
+			dedupeKey: "schedule-update:concurrent",
+			to: "marco.silva@example.com",
+			subject: "Schedule update",
+			html: "<p>moved</p>",
+			status: "sent",
+		});
+		await d.insert(calendarInviteRevisions).values({
+			submissionId: row.id,
+			sequence: 7,
+			stateHash: "claimed-by-a-concurrent-schedule-update",
+			recipient: "marco.silva@example.com",
+			startsAt: new Date("2026-10-13T19:00:00Z"),
+			endsAt: new Date("2026-10-13T19:30:00Z"),
+			location: "Room A",
+			title: "Edge-Native Vector Search on D1",
+			outboxId: "outbox-concurrent",
+		});
+
+		const results = await sendDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "concurrent-claim",
+			previewFingerprint: preview.fingerprint,
+		});
+
+		expect(results[0]?.ok).toBe(true);
+		const [mail] = await d
+			.select()
+			.from(emailOutbox)
+			.where(
+				eq(emailOutbox.dedupeKey, `decision:accept:concurrent-claim:${row.id}`),
+			);
+		expect(mail?.icsAttachment).toContain("SEQUENCE:8");
+	});
+
+	// A schedule update takes its revision number before its email is recorded,
+	// so there is a window where the counter has moved but the delivery ledger
+	// still looks untouched. An accept landing in that window computes a number
+	// from the ledger that is already spoken for; only the claim itself knows
+	// better. Shipping the computed number would put two different invites on one
+	// revision of one UID, and the speaker's client keeps whichever arrived first.
+	it("ships the revision the claim returns, even when the ledger has not caught up", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		await d
+			.insert(rooms)
+			.values({ id: "room_a", eventId: "e1", name: "Room A" });
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Durable Objects for Live Agendas",
+			startsAt: new Date("2026-10-13T21:00:00Z"),
+			endsAt: new Date("2026-10-13T21:30:00Z"),
+			roomId: "room_a",
+		});
+		await addSpeaker(row.id, "c_marco", "marco.silva@example.com", {
+			isPrimary: true,
+		});
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		// Claimed, not yet delivered: no outbox row, no ledger row. Every read of
+		// delivered history still says "nothing has gone out for this session".
+		await d.insert(calendarInviteSequenceFrontiers).values({
+			submissionId: row.id,
+			sequence: 7,
+			stateHash: "in-flight-schedule-update",
+		});
+
+		const results = await sendPreviewedDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "in-flight-claim",
+		});
+
+		expect(results[0]?.ok).toBe(true);
+		const [mail] = await d
+			.select()
+			.from(emailOutbox)
+			.where(
+				eq(emailOutbox.dedupeKey, `decision:accept:in-flight-claim:${row.id}`),
+			);
+		// 8, not 0: the ledger proposed 0 and the claim overruled it.
+		expect(mail?.icsAttachment).toContain("SEQUENCE:8");
+		expect(mail?.icsAttachment).not.toContain("SEQUENCE:0");
+		const [frontier] = await d
+			.select()
+			.from(calendarInviteSequenceFrontiers)
+			.where(eq(calendarInviteSequenceFrontiers.submissionId, row.id));
+		expect(frontier?.sequence).toBe(8);
 	});
 
 	// The template editor previews rendered merge tags, so the send must run

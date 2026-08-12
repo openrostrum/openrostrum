@@ -107,6 +107,19 @@ export function icsContentFingerprint(ics: string): string {
 	return ics.replace(/^DTSTAMP:[^\r\n]*\r?\n/gm, "");
 }
 
+/**
+ * The same question minus the revision number — what to hash when asking "is
+ * this the same calendar entry?" across a gap in time. SEQUENCE is claimed at
+ * send, so an invite previewed before an unrelated update lands would otherwise
+ * read as edited when nothing a human reviewed has changed. Use this ONLY where
+ * a bumped revision of an identical entry should compare equal; the provider
+ * idempotency key must keep SEQUENCE, since a different revision really is a
+ * different payload on the wire.
+ */
+export function icsEntryFingerprint(ics: string): string {
+	return icsContentFingerprint(ics).replace(/^SEQUENCE:[^\r\n]*\r?\n/gm, "");
+}
+
 export type ParsedIcsEvent = {
 	uid: string;
 	start: Date;
