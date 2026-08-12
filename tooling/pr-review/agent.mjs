@@ -1,7 +1,7 @@
 import { Agent } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { Value } from "typebox/value";
-import { extractJson } from "./core.mjs";
+import { extractJson, FINDING_LIMITS } from "./core.mjs";
 import { createRepositoryTools } from "./repository.mjs";
 
 const TERMINAL_RESPONSE = Type.Object(
@@ -52,7 +52,9 @@ You own this rule document across the whole PR. Investigate autonomously: choose
 Changed-file index (${repository.baseSha}..${repository.headSha}):
 ${manifest(repository.changes)}
 
-A finding must identify a changed file, an absolute new-file line, an exact quote from that changed line, the violated rule, and why it is a concrete violation. Return only JSON in this shape when your investigation is finished:
+A finding must identify a changed file, an absolute new-file line, an exact quote from that changed line, the violated rule, and why it is a concrete violation. Quote that one line and nothing else — never a block, never surrounding context, at most ${FINDING_LIMITS.quote} characters. Name the rule in at most ${FINDING_LIMITS.rule} characters and defend it in one sentence of at most ${FINDING_LIMITS.why}. Anything longer is cut to those limits before posting, so spend them on evidence rather than restatement.
+
+When your investigation is finished, emit one JSON object and nothing else — no preface, no reasoning, no code fence, no trailing remarks:
 {"status":"complete","findings":[{"file":"path","line":1,"quote":"exact changed line text","rule":"rule from this document","why":"one defensible sentence"}]}
 If no violations remain after investigation, return {"status":"complete","findings":[]}. Never claim complete if tool or provider failures prevented a trustworthy review.`;
 }
@@ -68,11 +70,23 @@ function incomplete(agent, reason, details = {}) {
 	};
 }
 
-function validateFindings(value, changedPaths, agent) {
+// Trimmed, never rejected: a verbosely stated violation is still a violation,
+// and rejecting it would delete signal to enforce a budget. `quote` is trimmed
+// bare because anchoring tests whether the changed line contains it, so an
+// appended ellipsis would match nothing; `rule` and `why` only render as prose.
+function clamp(text, limit, { ellipsis = false } = {}) {
+	if (text.length <= limit) return text;
+	const cut = text.slice(0, limit);
+	if (!ellipsis) return cut;
+	const whole = cut.slice(0, limit - 1).replace(/\s+\S*$/, "");
+	return `${whole || cut.slice(0, limit - 1)}…`;
+}
+
+function validateFindings(value, changedPaths, agent, answer) {
 	if (!Value.Check(TERMINAL_RESPONSE, value)) {
 		const [first] = [...Value.Errors(TERMINAL_RESPONSE, value)];
 		throw new Error(
-			`terminal response is not a complete review: ${first?.path || "/"} ${first?.message ?? "invalid shape"}`,
+			`terminal response is not a complete review: ${first?.path || "/"} ${first?.message ?? "invalid shape"} (${answer})`,
 		);
 	}
 	return value.findings.map((finding, index) => {
@@ -80,8 +94,32 @@ function validateFindings(value, changedPaths, agent) {
 			throw new Error(
 				`finding ${index + 1} cites ${finding.file}, which this pull request does not change`,
 			);
-		return { ...finding, agent: agent.id };
+		return {
+			...finding,
+			quote: clamp(finding.quote, FINDING_LIMITS.quote),
+			rule: clamp(finding.rule, FINDING_LIMITS.rule, { ellipsis: true }),
+			why: clamp(finding.why, FINDING_LIMITS.why, { ellipsis: true }),
+			agent: agent.id,
+		};
 	});
+}
+
+// Truncation is the failure this contract exists to catch, and "stopped with
+// length" alone cannot tell an enormous answer from a provider ceiling smaller
+// than the one we asked for. Report what the provider says it produced against
+// what we requested, so the next run answers that question with evidence.
+function stopDetail(terminal, model) {
+	if (!terminal) return "no assistant response";
+	if (terminal.stopReason !== "length") return terminal.stopReason;
+	const usage = terminal.usage ?? {};
+	const parts = [];
+	if (Number.isFinite(usage.output))
+		parts.push(`${usage.output} output tokens`);
+	if (Number.isFinite(usage.reasoning))
+		parts.push(`${usage.reasoning} of them reasoning`);
+	if (Number.isFinite(model?.maxTokens))
+		parts.push(`ceiling requested ${model.maxTokens}`);
+	return parts.length ? `length: ${parts.join(", ")}` : "length";
 }
 
 function assistantText(message) {
@@ -89,6 +127,19 @@ function assistantText(message) {
 		.filter((block) => block.type === "text")
 		.map((block) => block.text)
 		.join("");
+}
+
+// Narrating instead of answering, emitting only reasoning, and emitting nothing
+// all fail with the same schema error, which names no cause anyone can act on.
+// Report the shape of what arrived, bounded so a runaway answer cannot flood the
+// CI summary with the review it failed to deliver.
+const ANSWER_EXCERPT = 200;
+
+function answerDetail(message) {
+	const blocks = message.content.map((block) => block.type);
+	const text = assistantText(message);
+	const opening = text.replace(/\s+/g, " ").trim().slice(0, ANSWER_EXCERPT);
+	return `blocks ${blocks.join("+") || "none"}, ${text.length} chars of text, ${opening ? `starting "${opening}"` : "no text emitted"}`;
 }
 
 export async function runRuleReviewer({
@@ -160,7 +211,7 @@ export async function runRuleReviewer({
 	if (!terminal || terminal.stopReason !== "stop")
 		return incomplete(
 			agent,
-			`provider stopped with ${terminal?.stopReason ?? "no assistant response"}`,
+			`provider stopped with ${stopDetail(terminal, runtime.model)}`,
 			{ turns, toolCalls },
 		);
 
@@ -169,6 +220,7 @@ export async function runRuleReviewer({
 			extractJson(assistantText(terminal)),
 			changedPaths,
 			agent,
+			answerDetail(terminal),
 		);
 		return {
 			agent: agent.id,
