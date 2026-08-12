@@ -26,11 +26,8 @@ const personEmail = sql<string>`lower(${contacts.email})`;
 const personName = sql<string>`lower(trim(${contacts.firstName}) || ' ' || trim(${contacts.lastName}))`;
 
 /**
- * Appearance-level predicate: a person matches when at least ONE of their
- * event appearances satisfies every criterion (single-appearance AND
- * semantics — "company=Acme, event=X" means they appeared at X as Acme).
- * Every consumer of the directory filters goes through this, so the list, the
- * counts, and segment membership can never diverge.
+ * One appearance must satisfy EVERY criterion ("Acme + event X" = at X as
+ * Acme). List, counts, and segments all route here, so they can't disagree.
  */
 function appearanceMatch(orgId: string, f: DirectoryFilters): SQL {
 	const conditions: SQL[] = [eq(events.organizationId, orgId)];
@@ -108,11 +105,10 @@ type AppearanceRow = {
 	eventName: string;
 };
 
-/** Every appearance for the given person emails, newest contact row first —
- * the first row per email is the identity the directory presents. Content-
- * sized columns (bio) and per-row aggregates (session counts) stay OUT: the
- * directory fetches up to 50 people's appearances per load, and only the
- * one-person profile renders those — it fetches them itself. */
+/**
+ * Newest row per email wins as the presented identity. Bio and session counts
+ * stay OUT — 50 people load at once; the profile page fetches them itself.
+ */
 function appearancesFor(db: Db, orgId: string, emails: string[]) {
 	return db
 		.select({
@@ -424,12 +420,8 @@ export interface AddPeopleResult {
 }
 
 /**
- * Push directory people into an event as contacts: copies each latest
- * appearance's profile fields; idempotent — an existing contact with that
- * email is counted, never duplicated. The target event is verified to belong
- * to the org ONCE here, so a cross-tenant insert is impossible by
- * construction no matter what a caller passes (null = refused), and the
- * per-request work is bounded by the caller's capped, deduped email set.
+ * Idempotent by email: an existing contact is counted, never duplicated. The
+ * org check on the target event (null = refused) blocks cross-tenant inserts.
  */
 export async function addPeopleToEvent(
 	db: Db,

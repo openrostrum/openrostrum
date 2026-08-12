@@ -89,9 +89,5 @@ export async function authedRequest(
 	return new Request(url, { ...init, headers });
 }
 
-/** Unwraps a loader/action data() result. */
-export function unwrap<T>(result: unknown): T {
-	return (result as { data: T }).data;
-}
-
+export { unwrap } from "./route-data";
 export { catchThrown, thrownStatus } from "./thrown";

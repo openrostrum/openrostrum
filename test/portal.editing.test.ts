@@ -110,13 +110,6 @@ function updateRequest(body: Record<string, string>) {
 
 const detailParams = { ...PORTAL_PARAMS, submissionId: "s1" };
 
-function actionBody<T>(result: unknown): T {
-	if (result && typeof result === "object" && "data" in result) {
-		return unwrap<T>(result);
-	}
-	return result as T;
-}
-
 function contextWith(overrides: Record<string, unknown>) {
 	return {
 		cloudflare: { env: { ...env, ...overrides } as unknown as Env, ctx: {} },
@@ -455,7 +448,7 @@ describe("edit-until-close (portal View Submission)", () => {
 	it("refuses a role disabled on the source form without creating a contact", async () => {
 		await seedEditableSubmission(FUTURE);
 		const db = getDb(env);
-		const result = actionBody<{ formError?: string }>(
+		const result = unwrap<{ formError?: string }>(
 			await detailAction({
 				context: CONTEXT,
 				request: await updateRequest({
@@ -481,7 +474,7 @@ describe("edit-until-close (portal View Submission)", () => {
 	it("refuses speaker additions above the source-form maximum", async () => {
 		await seedEditableSubmission(FUTURE, { roleSpeakerMax: 1 });
 		const db = getDb(env);
-		const result = actionBody<{ formError?: string }>(
+		const result = unwrap<{ formError?: string }>(
 			await detailAction({
 				context: CONTEXT,
 				request: await updateRequest({
@@ -528,7 +521,7 @@ describe("edit-until-close (portal View Submission)", () => {
 			},
 		];
 		for (const body of mutations) {
-			const result = actionBody<{ formError?: string }>(
+			const result = unwrap<{ formError?: string }>(
 				await detailAction({
 					context: CONTEXT,
 					request: await updateRequest(body),
@@ -644,7 +637,7 @@ describe("edit-until-close (portal View Submission)", () => {
 			),
 		);
 
-		const result = actionBody<{ ok?: boolean; warning?: string }>(
+		const result = unwrap<{ ok?: boolean; warning?: string }>(
 			await detailAction({
 				context: contextWith({
 					RESEND_API_KEY: "re_test",
@@ -706,7 +699,7 @@ describe("edit-until-close (portal View Submission)", () => {
 			{ intent: "remove-participant", participantId: "p_dana" },
 		];
 		for (const body of mutations) {
-			const result = actionBody<{ formError?: string }>(
+			const result = unwrap<{ formError?: string }>(
 				await detailAction({
 					context: CONTEXT,
 					request: await updateRequest(body),
@@ -913,7 +906,7 @@ describe("edit-until-close (portal View Submission)", () => {
 			}),
 			params: detailParams,
 		} as unknown as ActionArgs);
-		expect(actionBody<{ ok?: boolean }>(response).ok).toBe(true);
+		expect(unwrap<{ ok?: boolean }>(response).ok).toBe(true);
 
 		const afterModerator = await db
 			.select({
@@ -938,7 +931,7 @@ describe("edit-until-close (portal View Submission)", () => {
 			}),
 			params: detailParams,
 		} as unknown as ActionArgs);
-		expect(actionBody<{ ok?: boolean }>(speakerResponse).ok).toBe(true);
+		expect(unwrap<{ ok?: boolean }>(speakerResponse).ok).toBe(true);
 
 		const acceptance = await db
 			.select({

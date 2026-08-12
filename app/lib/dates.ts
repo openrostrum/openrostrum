@@ -1,10 +1,8 @@
 /**
- * The one way an instant is rendered — admin, portal, public program, email,
- * CSV. The timezone is a required argument because the alternative is the
- * runtime's own: UTC in the worker, the viewer's on the client, so the same
- * row renders one time server-side and a different one after hydration.
- * Stored UTC calendar dates (task due dates) are the deliberate exception and
- * live in `format.ts` as `formatDateUTC`.
+ * The one way an instant is rendered — admin, portal, program, email, CSV. The
+ * timezone is required because the alternative is the runtime's own: UTC in the
+ * worker, the viewer's on the client, so a row would render one time server-side
+ * and another after hydration. Stored calendar dates use `formatDateUTC`.
  */
 
 /**

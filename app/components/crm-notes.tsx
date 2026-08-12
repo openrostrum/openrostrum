@@ -12,11 +12,10 @@ interface Note {
 }
 
 /**
- * The person-level internal-note thread — one surface shared by the directory
- * profile and the pipeline card detail. Posts `intent=add-note` with `body`
- * to the hosting route's action. `timeZone` is the event's: "called them
- * Tuesday evening" has to still read as Tuesday evening to the person who
- * wrote it, and it comes from the loader so hydration cannot move it.
+ * The person-level internal-note thread, shared by the directory profile and
+ * the pipeline card. Posts `intent=add-note` to the hosting route's action.
+ * `timeZone` is the event's and comes from the loader, so "called them Tuesday
+ * evening" still reads as Tuesday evening and hydration cannot move it.
  */
 export function CrmNotesPanel({
 	notes,

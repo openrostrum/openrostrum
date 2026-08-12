@@ -114,11 +114,11 @@ jobs:
         run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
-      # Node-only tests for PR-review tooling. Outside `pnpm test` (workerd has
-      # no node:test) and in THIS unconditional job, not the secret-gated
-      # ai-review — see tooling/pr-review/README.md.
-      - name: Test PR-review tooling
-        run: node --test tooling/pr-review/*.test.node.mjs
+      # Node-only tests for tooling (PR-review runtime, ESLint rules). Outside
+      # `pnpm test` (workerd has no node:test) and in THIS unconditional job,
+      # not the secret-gated ai-review — see tooling/pr-review/README.md.
+      - name: Test tooling
+        run: pnpm test:tooling
       - name: Build
         run: pnpm build
 

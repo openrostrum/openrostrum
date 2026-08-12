@@ -20,11 +20,10 @@ export function escapeHtmlText(text: string): string {
 }
 
 /**
- * Rich-text HTML → plain text (tags removed, common entities decoded). For
- * surfaces that must never render user-authored markup (reviewer projections,
- * public feeds, system emails). The output is arbitrary TEXT that may itself
- * contain angle brackets — markup safety lives at the sinks (React, the feeds'
- * escapeHtml, JSON.stringify), never here.
+ * Rich-text HTML → plain text, for surfaces that must never render user markup
+ * (reviewer projections, public feeds, system emails). The output is arbitrary
+ * TEXT that may contain angle brackets: markup safety lives at the sinks
+ * (React, the feeds' escapeHtml, JSON.stringify), never here.
  */
 export function stripHtml(html: string): string {
 	return (
@@ -46,11 +45,10 @@ export function stripHtml(html: string): string {
 }
 
 /**
- * THE server-side rich-text sanitizer — public CFP posts, portal profiles and
- * admin edits all write the same columns, so they all pass through this one
- * policy at WRITE time. Speaker-authored HTML renders in ADMIN browsers, so an
- * unsanitized bio is a stored-XSS path to an organizer session. Built on
- * workerd's native HTMLRewriter (streaming parser), not regex.
+ * THE server-side rich-text sanitizer: CFP posts, portal profiles and admin
+ * edits write the same columns, so one policy guards them all at WRITE time.
+ * Speaker HTML renders in ADMIN browsers, so an unsanitized bio is stored XSS
+ * against an organizer session. Built on workerd's HTMLRewriter, not regex.
  */
 
 const KEEP_CONTENT = new Set([

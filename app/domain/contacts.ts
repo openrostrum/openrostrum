@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
+import { z } from "zod";
 import type { Db } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import { contacts } from "~/db/schema";
@@ -6,12 +7,9 @@ import { likeContains } from "~/lib/like";
 
 export type ContactStatus = (typeof CONTACT_STATUS)[number];
 
-export function isContactStatus(value: unknown): value is ContactStatus {
-	return (
-		typeof value === "string" &&
-		(CONTACT_STATUS as readonly string[]).includes(value)
-	);
-}
+/** Parses a status off the wire (URL param, CSV cell) — `.data` is undefined
+ * for anything that isn't one, which every caller reads as "no filter". */
+export const contactStatus = z.enum(CONTACT_STATUS);
 
 /** "Ada Lovelace" splits on the last space; "Watson, Mary Jane" is
  * "Last, First"; a mononym becomes the first name only, so a merge never

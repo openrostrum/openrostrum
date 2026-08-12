@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { TableMap } from "../app/lib/airtable-map";
+import { normalizeRemoteDate, type TableMap } from "../app/lib/airtable-map";
 import { diffFields, planTableSync } from "../app/sync/engine";
 import { MERGE_FIELD } from "../app/ports/airtable";
 
 // Contracts from docs/airtable-sync-design.md Decisions 2 + 3: per field and
 // against the last-synced snapshot — only-local-changed pushes, only-remote-
 // changed pulls, both-changed follows the field class (Airtable wins on
-// team-editable, the app wins on app-owned). A synthetic map keeps these
-// pinned to the ENGINE, not to any real table's field list.
+// team-editable, the app wins on app-owned).
 
+// Synthetic, so these stay pinned to the ENGINE, not to a real table's fields.
 const MAP: TableMap = {
 	table: "submissions",
 	airtableTable: "T",
@@ -16,11 +16,9 @@ const MAP: TableMap = {
 		Owned: { class: "app-owned" },
 		Desc: { class: "descriptive" },
 		Flow: { class: "workflow" },
-		When: {
-			class: "descriptive",
-			normalizeRemote: (v) =>
-				typeof v === "string" ? new Date(v).toISOString() : v,
-		},
+		// The shipped normalizer, not a copy — the engine's contract is that it
+		// applies whatever a field declares, and a copy here could drift from it.
+		When: { class: "descriptive", normalizeRemote: normalizeRemoteDate },
 	},
 };
 

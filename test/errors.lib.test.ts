@@ -8,15 +8,13 @@ import {
 	isUniqueViolation,
 } from "../app/lib/errors";
 
-// Regression pin for the signup race branch (and every other constraint
-// catch): drizzle wraps the real D1 constraint text on the ERROR CAUSE CHAIN,
-// not the top-level message. The old signup check —
-// `errorMessage(error).includes("UNIQUE constraint failed: users.email")` —
-// read only the top message, so the caught duplicate-insert race 500'd
-// instead of steering to sign-in. This test throws the REAL drizzle/D1 error
-// (an actual duplicate insert) and proves the chain-walking predicates see
-// what the top-level read misses.
+// Regression pin for the signup race branch (and every other constraint catch):
+// drizzle wraps the real D1 constraint text on the ERROR CAUSE CHAIN, not the
+// top-level message. The old signup check read only the top message, so a caught
+// duplicate-insert race 500'd instead of steering to sign-in.
 
+/** The REAL drizzle/D1 error, from an actual duplicate insert — a hand-built
+ * Error would only pin what we ASSUME the cause chain looks like. */
 async function realUniqueViolation(): Promise<unknown> {
 	const db = getDb(env);
 	const row = {

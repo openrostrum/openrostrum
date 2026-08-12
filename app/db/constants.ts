@@ -1,10 +1,8 @@
 /**
- * CLIENT-FACING enum tuples — pure data, NO drizzle imports. A route COMPONENT
- * imports enums from here so it never pulls app/db/schema.ts (and with it the
- * whole drizzle-orm runtime + every table definition) into the CLIENT bundle.
- * schema.ts imports these for its column `{ enum }` unions and re-exports them
- * for server code. When a feature needs an enum on the client, define it HERE,
- * not in schema.ts.
+ * CLIENT-FACING enum tuples — pure data, NO drizzle imports, so a route
+ * COMPONENT can read an enum without pulling schema.ts (and with it the whole
+ * drizzle-orm runtime) into the client bundle. schema.ts imports these for its
+ * `{ enum }` unions: a new client-visible enum is defined HERE, not there.
  */
 export const SUBMISSION_STATUS = [
 	"draft",
