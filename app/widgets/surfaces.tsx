@@ -13,6 +13,7 @@ import type {
 import {
 	Button,
 	ButtonLink,
+	Caps,
 	Chip,
 	EmptyState,
 	InkLink,
@@ -157,9 +158,7 @@ function SpeakerDetail({
 				</div>
 				{speaker.bio && <ShowMoreText text={speaker.bio} limit={420} />}
 				<div className="flex flex-col gap-2 border-t border-hair pt-4">
-					<h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-						Sessions ({speaker.sessions.length})
-					</h3>
+					<Caps as="h3">Sessions ({speaker.sessions.length})</Caps>
 					{speaker.sessions.map((session) => (
 						<div key={session.id} className="flex flex-col text-[13.5px]">
 							<InkLink
@@ -440,9 +439,7 @@ function SessionDetail({
 				)}
 				{show("speakers") && session.speakers.length > 0 && (
 					<div className="flex flex-col gap-2.5 border-t border-hair pt-4">
-						<h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-							Speakers ({session.speakers.length})
-						</h3>
+						<Caps as="h3">Speakers ({session.speakers.length})</Caps>
 						{session.speakers.map((speaker) => (
 							<SpeakerRow
 								key={speaker.id}
@@ -567,8 +564,8 @@ export function AgendaSurface({
 								),
 							}}
 						>
-							<div className="flex h-9 items-center justify-center border-b border-hair px-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-								{room.name}
+							<div className="flex h-9 items-center justify-center border-b border-hair px-2">
+								<Caps>{room.name}</Caps>
 							</div>
 							<div className="relative" style={{ height }}>
 								{data.hourMarks.map((mark) => (
@@ -769,9 +766,7 @@ export function ItinerarySurface({
 						</div>
 						{starredDays.map((day) => (
 							<div key={day.key} className="flex flex-col gap-3">
-								<h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-									{day.dateLabel}
-								</h3>
+								<Caps as="h3">{day.dateLabel}</Caps>
 								{day.sessions.map((session) => (
 									<SessionCard
 										key={session.id}

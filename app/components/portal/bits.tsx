@@ -1,6 +1,6 @@
 import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import type { ReactNode } from "react";
-import { Panel } from "~/ui";
+import { Caps, Panel } from "~/ui";
 import { cn } from "~/ui/cn";
 
 /**
@@ -119,9 +119,9 @@ export function MetaGrid({
 		<dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
 			{visible.map((item) => (
 				<div key={item.label} className="flex flex-col gap-0.5">
-					<dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-faint">
+					<Caps as="dt" tone="faint">
 						{item.label}
-					</dt>
+					</Caps>
 					<dd className="text-[13px] text-fg">{item.value}</dd>
 				</div>
 			))}

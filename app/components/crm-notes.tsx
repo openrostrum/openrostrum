@@ -1,7 +1,7 @@
 import { Form } from "react-router";
 import { formatInTimeZone } from "~/lib/dates";
 import { useBusy } from "~/lib/use-busy";
-import { Button, Field, Panel, Textarea } from "~/ui";
+import { Button, Caps, Field, Panel, Textarea } from "~/ui";
 import { SectionHeading } from "./section-heading";
 
 interface Note {
@@ -62,10 +62,10 @@ export function CrmNotesPanel({
 					<ul className="flex flex-col gap-3">
 						{notes.map((n) => (
 							<li key={n.id} className="flex flex-col gap-1">
-								<span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-faint">
+								<Caps tone="faint">
 									{n.authorName} ·{" "}
 									{formatInTimeZone(n.createdAt, timeZone, "datetime-zone")}
-								</span>
+								</Caps>
 								<p className="whitespace-pre-wrap text-[13px] text-fg">
 									{n.body}
 								</p>

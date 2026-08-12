@@ -17,6 +17,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
 	Button,
+	Caps,
 	Chip,
 	DialogSurface,
 	EmptyState,
@@ -756,8 +757,8 @@ function GridColumn({
 			className="min-w-[148px] flex-1 border-l border-hair"
 			style={{ minWidth: Math.max(148, peakLaneCount * 140) }}
 		>
-			<div className="sticky top-0 z-10 h-[34px] truncate border-b border-hair bg-thead px-2 text-[11px] font-semibold uppercase leading-[34px] tracking-[0.06em] text-fg-muted">
-				{header}
+			<div className="sticky top-0 z-10 h-[34px] truncate border-b border-hair bg-thead px-2 leading-[34px]">
+				<Caps>{header}</Caps>
 			</div>
 			<div className="relative">
 				{slots.map((m) =>
@@ -826,9 +827,13 @@ function Tray({
 				isOver && "bg-petrol-wash outline-2 -outline-offset-2 outline-petrol",
 			)}
 		>
-			<div className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-				Unscheduled{" "}
-				<span className="font-mono text-fg-faint">({unscheduled.length})</span>
+			<div className="px-1 pt-1">
+				<Caps>
+					Unscheduled{" "}
+					<span className="font-mono text-fg-faint">
+						({unscheduled.length})
+					</span>
+				</Caps>
 			</div>
 			{unscheduled.length === 0 && (
 				<p className="px-1 text-[12px] text-fg-faint">
@@ -847,9 +852,11 @@ function Tray({
 					/>
 				))}
 			</div>
-			<div className="px-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-				Scheduled{" "}
-				<span className="font-mono text-fg-faint">({scheduled.length})</span>
+			<div className="px-1 pt-2">
+				<Caps>
+					Scheduled{" "}
+					<span className="font-mono text-fg-faint">({scheduled.length})</span>
+				</Caps>
 			</div>
 			<div className="flex min-h-0 flex-1 flex-col gap-[6px] overflow-y-auto">
 				{scheduled.map((s) => (

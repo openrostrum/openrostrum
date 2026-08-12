@@ -1,5 +1,6 @@
 export { Avatar, AvatarStack } from "./avatar";
 export { Button, ButtonLink } from "./button";
+export { Caps } from "./caps";
 export { Checkbox } from "./checkbox";
 export { Chip } from "./chip";
 export { ConfirmButton } from "./confirm-button";

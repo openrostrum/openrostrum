@@ -4,9 +4,8 @@ import {
 	renderBody,
 	renderSubject,
 } from "~/lib/email-render";
-import { Panel } from "~/ui";
+import { Caps, Panel } from "~/ui";
 import { EmailPreview } from "./email-preview";
-import { PanelHeading } from "./text";
 
 export function TemplatePreview({
 	subject,
@@ -21,9 +20,9 @@ export function TemplatePreview({
 		<div className="flex flex-col gap-5">
 			<Panel>
 				<div className="flex flex-col gap-2">
-					<PanelHeading>
+					<Caps as="h2">
 						Preview — merge fields resolved against a sample record
-					</PanelHeading>
+					</Caps>
 					<p className="text-[13px] font-medium text-fg">
 						{renderSubject(subject, ctx) || "(no subject)"}
 					</p>
@@ -35,7 +34,7 @@ export function TemplatePreview({
 			</Panel>
 			<Panel>
 				<div className="flex flex-col gap-2">
-					<PanelHeading>Merge fields</PanelHeading>
+					<Caps as="h2">Merge fields</Caps>
 					<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
 						{MERGE_TAGS.map((t) => (
 							<div key={t.tag} className="contents">

@@ -27,7 +27,7 @@ All chrome colors resolve via `light-dark()`, and the document's scheme is the *
 ## Type & grid
 
 - **Bricolage Grotesque 600** (`font-display`): page titles 23px/-0.01em, wordmark, empty-state headings. Tool scale, never poster.
-- **IBM Plex Sans** (`font-sans`): 13px body · 12.5px secondary · 11px/600 caps labels (+0.06em) · weights 400/500/600 only. **No weight changes between states** (layout shift).
+- **IBM Plex Sans** (`font-sans`): 13px body · 12.5px secondary · 11px/600 caps labels (+0.06em, and that recipe is `Caps` — never hand-rolled) · weights 400/500/600 only. **No weight changes between states** (layout shift).
 - **IBM Plex Mono 500** (`font-mono`): data literals only — IDs, counts, dates, pagination — always `tabular-nums`. Never headings (terminal cosplay).
 - **Grid**: 34px controls · 46px table rows · 8px spacing steps.
 - **Form-stack rhythm** (sanctioned exception to the 8px steps): vertical field stacks inside a form use `gap-[13px]`; page-level stacks on the focused auth/onboarding screens (login, signup, set-password, unsubscribe) use `gap-7` (28px). 13px sits between "fields are one unit" (8px reads cramped with 34px controls + 5px label gaps) and "fields are separate cards" (16px) — shipped house-wide, so treat it as the rule, not a drift.
@@ -52,7 +52,7 @@ An ink letter **O standing on a petrol platform** — the name drawn literally: 
 
 ## Primitive inventory (`app/ui`)
 
-`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` · `SearchInput` · `TextLink` (petrol prose links) · `InkLink` (everything else — card titles, row links; ink, underline on hover) · `MenuItem` (THE row inside a `PopoverSurface` menu) · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState` · `Skeleton`/`SkeletonRows` · `MotionReveal`/`PopoverSurface`/`DialogSurface` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Mark`/`Wordmark`. New primitive = integration-owner request, like a schema column.
+`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` · `SearchInput` · `TextLink` (petrol prose links) · `InkLink` (everything else — card titles, row links; ink, underline on hover) · `MenuItem` (THE row inside a `PopoverSurface` menu) · `Caps` (THE 11px caps label voice — column, section, field, lane; the caller owns the box) · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState` · `Skeleton`/`SkeletonRows` · `MotionReveal`/`PopoverSurface`/`DialogSurface` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Mark`/`Wordmark`. New primitive = integration-owner request, like a schema column.
 
 ## Motion law
 

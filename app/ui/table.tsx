@@ -1,5 +1,6 @@
 import { MOTION_FEEDBACK } from "./motion-classes";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import { Caps } from "./caps";
 import { cn } from "./cn";
 
 export function Table({ children }: { children: ReactNode }) {
@@ -20,8 +21,8 @@ export function THead({ children }: { children: ReactNode }) {
 
 export function Th({ children }: { children?: ReactNode }) {
 	return (
-		<th className="whitespace-nowrap border-b border-hair px-[14px] py-[10px] text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-			{children}
+		<th className="whitespace-nowrap border-b border-hair px-[14px] py-[10px]">
+			<Caps>{children}</Caps>
 		</th>
 	);
 }

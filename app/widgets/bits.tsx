@@ -1,6 +1,6 @@
 import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import { type ReactNode, useState } from "react";
-import { Avatar, ButtonLink, Icon } from "~/ui";
+import { Avatar, ButtonLink, Caps, Icon } from "~/ui";
 import { cn } from "~/ui/cn";
 
 export function makeHref(
@@ -191,8 +191,8 @@ export function MetaRow({
 }) {
 	return (
 		<div className="flex gap-3 text-[13px]">
-			<span className="w-20 shrink-0 text-[11px] font-semibold uppercase leading-6 tracking-[0.06em] text-fg-faint">
-				{label}
+			<span className="w-20 shrink-0 leading-6">
+				<Caps tone="faint">{label}</Caps>
 			</span>
 			<span className="leading-6 text-fg">{children}</span>
 		</div>
