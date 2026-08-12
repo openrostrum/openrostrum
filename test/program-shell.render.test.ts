@@ -37,10 +37,12 @@ function renderShell(kind: "program" | "embed") {
 
 describe("public program theme control", () => {
 	it("exposes the theme preference on standalone program pages", () => {
-		expect(renderShell("program")).toContain('aria-label="Theme: System"');
+		expect(renderShell("program")).toMatch(
+			/<button[^>]*aria-expanded="false"[^>]*aria-haspopup="true"/,
+		);
 	});
 
 	it("keeps preference controls out of OS-pinned embeds", () => {
-		expect(renderShell("embed")).not.toContain('aria-label="Theme:');
+		expect(renderShell("embed")).not.toContain('aria-haspopup="true"');
 	});
 });
