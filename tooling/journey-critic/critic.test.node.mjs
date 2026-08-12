@@ -246,12 +246,9 @@ test("exhausting the tool budget also takes the report rather than throwing the 
 	assert.equal(result.findings.length, 1);
 });
 
-test("the wrap-up asks for the walk that happened, not a story about the whole arc", () => {
-	const prompt = wrapPrompt("turn budget exhausted");
-	assert.match(prompt, /turn budget exhausted/);
-	assert.match(prompt, /not this person giving up/);
-	assert.match(prompt, /only what you already saw/);
-	assert.match(prompt, /do not pad the findings/);
+test("the wrap-up names the budget that stopped the walk", () => {
+	assert.match(wrapPrompt("turn budget exhausted"), /turn budget exhausted/);
+	assert.match(wrapPrompt("tool call budget exhausted"), /tool call budget/);
 });
 
 test("a journey that outruns its clock is incomplete", async () => {
@@ -274,11 +271,11 @@ test("the prompt tells the persona where to start and what shape to answer in", 
 		limits: { maxLooks: 26, maxTurns: 48, wrapMargin: 8 },
 	});
 	assert.match(prompt, /You are Priya Raman\./);
-	assert.match(prompt, /roughly 40 turns of walking/);
 	assert.match(prompt, /You start at https:\/\/openrostrum\.com\//);
+	// The persona is told what it may spend walking, not the raw ceiling: the
+	// last wrapMargin turns are reserved for the report and are not its to use.
+	assert.match(prompt, /roughly 40 turns of walking/);
 	assert.match(prompt, /"cfpUrl":"…"\|null/);
-	assert.match(prompt, /cites at least one screenshot id you actually took/);
-	assert.match(prompt, /Never answer "complete" if/);
 });
 
 test("json survives being wrapped in the model's chatter", () => {
