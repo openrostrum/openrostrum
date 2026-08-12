@@ -157,12 +157,35 @@ function parseChanges(nameStatus, numstat) {
 	return changes;
 }
 
+// `repoRoot` is the repository to read, so an inherited GIT_DIR must not
+// redirect these commands elsewhere. Git exports it to hook children, and
+// `pnpm verify` runs from pre-push: every read then resolved against the
+// repository being pushed, which cannot name the revisions it was asked for.
+const INHERITED_GIT_VARS = [
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_COMMON_DIR",
+	"GIT_NAMESPACE",
+	"GIT_CEILING_DIRECTORIES",
+	"GIT_PREFIX",
+];
+
+function gitEnv() {
+	const env = { ...process.env };
+	for (const name of INHERITED_GIT_VARS) delete env[name];
+	return env;
+}
+
 export function createGitRepository({ repoRoot, baseSha, headSha }) {
 	function git(...args) {
 		return execFileSync("git", args, {
 			cwd: repoRoot,
 			encoding: "utf8",
 			maxBuffer: MAX_BUFFER,
+			env: gitEnv(),
 		});
 	}
 
@@ -220,6 +243,7 @@ export function createGitRepository({ repoRoot, baseSha, headSha }) {
 					cwd: repoRoot,
 					encoding: "utf8",
 					maxBuffer: MAX_BUFFER,
+					env: gitEnv(),
 				});
 				if (result.status !== 0 && result.status !== 1)
 					throw new Error(result.stderr || "git grep failed");
