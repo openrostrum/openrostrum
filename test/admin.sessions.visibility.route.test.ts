@@ -122,6 +122,17 @@ describe("sessions admin speaker visibility", () => {
 			.from(contacts)
 			.where(eq(contacts.id, "c_hidden"));
 		expect(row?.publicVisible).toBe(true);
+
+		// The half this stopped short of, and the half the organizer cares about:
+		// the eval reported a speaker still missing from the public program after
+		// repeated "Show on public program" actions that each reported success. A
+		// flag flipped in the database is not the promise the button makes.
+		const [event] = await db.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("fixture event missing");
+		const sessions = await loadPublicSessions(db, event);
+		expect(sessions.flatMap((s) => s.speakers.map((sp) => sp.id))).toContain(
+			"c_hidden",
+		);
 	});
 
 	it("refuses a contact of another event AND writes nothing", async () => {
