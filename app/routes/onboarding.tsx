@@ -15,8 +15,11 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 }
 
 export default function OnboardingLayout() {
+	// Top-anchored, not vertically centred: the three steps differ in height, and
+	// centring slid the wordmark and rail up the moment a taller step loaded —
+	// the chrome that tracks progress must not move as progress is made.
 	return (
-		<main className="mx-auto flex min-h-screen w-full max-w-[560px] flex-col justify-center gap-7 px-6 py-16">
+		<main className="mx-auto flex min-h-screen w-full max-w-[560px] flex-col gap-7 px-6 py-16">
 			<div className="flex flex-col items-center gap-4">
 				<Wordmark size={21} />
 				<OnboardingSteps />
