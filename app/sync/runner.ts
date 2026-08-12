@@ -1,5 +1,6 @@
 import { and, eq, inArray, lt } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { z } from "zod";
 import { type Db, getDb } from "~/db";
 import { DECISION_STATUS } from "~/db/constants";
 import {
@@ -31,6 +32,7 @@ import {
 	type AirtableFields,
 	getAirtableBase,
 	MERGE_FIELD,
+	recordKey,
 } from "~/ports/airtable";
 import {
 	diffFields,
@@ -89,13 +91,13 @@ export type SyncRunResult =
 type DecisionTarget = (typeof DECISION_STATUS)[number];
 
 // Reserved tableName='$sync' rows survive across ticks/isolates; every
-// reconciliation select filters tableName to SYNCED_TABLES so these rows never
-// enter a plan. The webhook high-water mark has its OWN row: its writer (the
-// route) does not hold the run lock, so it must never share a blob with the
-// runner's state.
+// reconciliation select filters tableName to SYNCED_TABLES, so these rows never
+// enter a plan.
 const STATE_TABLE = "$sync";
 const STATE_RECORD = "state";
 const LOCK_RECORD = "lock";
+// The webhook high-water mark gets its OWN row: its writer (the route) does not
+// hold the run lock, so it must never share a blob with the runner's state.
 const WEBHOOK_RECORD = "webhook";
 // A tick is seconds of wall time; a lock this old belongs to a crashed run.
 const LOCK_TTL_MS = 5 * 60_000;
@@ -120,6 +122,10 @@ export interface SyncState {
 }
 
 const MAX_RECENT_CONFLICTS = 50;
+
+/** The webhook state row's snapshot is stored JSON, so reading it is a parse:
+ * anything but a recorded timestamp means "no ping seen yet". */
+const WebhookState = z.object({ lastWebhookAt: z.string() });
 
 export async function readSyncState(db: Db): Promise<SyncState> {
 	const [row] = await db
@@ -170,9 +176,7 @@ export async function readLastWebhookPing(db: Db): Promise<string | null> {
 			),
 		)
 		.limit(1);
-	const at = (row?.snapshot as { lastWebhookAt?: string } | null)
-		?.lastWebhookAt;
-	return typeof at === "string" ? at : null;
+	return WebhookState.safeParse(row?.snapshot).data?.lastWebhookAt ?? null;
 }
 
 /**
@@ -232,11 +236,10 @@ async function releaseRunLock(db: Db): Promise<void> {
 		);
 }
 
-// Snapshot marker for a link whose base row the team deleted: the local row
-// was archived (or has no archive state) and must NOT be re-pushed — the
-// delete is honored, recreation is the zombie-row failure mode. Cleared
-// automatically when the row is restored from Airtable's trash (snapshots are
-// rebuilt from the live projection).
+// Snapshot marker for a link whose base row the team deleted: the local row was
+// archived (or has no archive state) and must NOT be re-pushed — the delete is
+// honored, recreation is the zombie-row failure mode. Cleared when the row is
+// restored from Airtable's trash (snapshots rebuild from the live projection).
 const REMOTE_DELETED_MARKER = "$remoteDeleted";
 // >20% of linked rows absent in one tick = a probable select-all accident:
 // pause and alert instead of mass-archiving.
@@ -514,11 +517,13 @@ async function reconcileAll(
 			// re-count the same deletion against the breaker.
 			return loaded.submissionRows.get(a.recordId)?.status !== "withdrawn";
 		});
-		const remoteRecordIds = new Set(
-			remotes
-				.map((r) => r.fields[MERGE_FIELD])
-				.filter((v): v is string => typeof v === "string"),
-		);
+		// One keyed view of the remotes — a record with no usable merge key is
+		// not something this mirror tracks, for either reader below.
+		const keyed = remotes.flatMap((r) => {
+			const key = recordKey(r);
+			return key === null ? [] : [[key, r.fields] as const];
+		});
+		const remoteRecordIds = new Set(keyed.map(([key]) => key));
 		const resurfaced = usable
 			.filter(
 				(l) =>
@@ -532,11 +537,7 @@ async function reconcileAll(
 			map,
 			plan,
 			loaded,
-			remoteFieldsById: new Map(
-				remotes
-					.filter((r) => typeof r.fields[MERGE_FIELD] === "string")
-					.map((r) => [r.fields[MERGE_FIELD] as string, r.fields]),
-			),
+			remoteFieldsById: new Map(keyed),
 			newArchives,
 			resurfaced,
 			refused,
@@ -836,8 +837,8 @@ async function applyTable(
 			})),
 		);
 		for (const record of created) {
-			const key = record.fields[MERGE_FIELD];
-			if (typeof key === "string") createdIds.set(key, record.airtableId);
+			const key = recordKey(record);
+			if (key) createdIds.set(key, record.airtableId);
 		}
 		stats.created = plan.creates.length;
 	}

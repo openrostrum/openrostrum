@@ -272,10 +272,18 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	return withTimings({ formError: "Unknown action." });
 }
 
-function answerText(value: unknown): string {
+/**
+ * An answer is whatever JSON the portal form stored, and old rows predate every
+ * later schema change: text renders as itself, anything else as readable JSON.
+ */
+const AnswerText = z.union([
+	z.string().min(1),
+	z.unknown().transform((value) => JSON.stringify(value)),
+]);
+
+export function answerText(value: unknown): string {
 	if (value == null || value === "") return "—";
-	if (typeof value === "object") return JSON.stringify(value);
-	return String(value);
+	return AnswerText.parse(value);
 }
 
 export default function TaskAssignmentDetail({
@@ -293,7 +301,7 @@ export default function TaskAssignmentDetail({
 		overdue,
 	} = loaderData;
 	const schemaFields = portalForm?.schema ?? [];
-	const response = (assignment.response ?? {}) as Record<string, unknown>;
+	const response = assignment.response ?? {};
 	const extraAnswers = Object.entries(response).filter(
 		([key]) => !schemaFields.some((f) => f.name === key),
 	);

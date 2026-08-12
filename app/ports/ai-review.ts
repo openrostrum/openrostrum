@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 const DEEPSEEK_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_ENDPOINT = "https://api.deepseek.com/anthropic/v1/messages";
 
@@ -55,11 +57,8 @@ export function createDeepseekProvider(apiKey: string): AiChatProvider {
 			if (!res.ok) {
 				throw new Error(`DeepSeek request failed (${res.status})`);
 			}
-			const data = (await res.json()) as { model?: unknown };
-			return {
-				text: responseText(data),
-				model: typeof data.model === "string" ? data.model : undefined,
-			};
+			const data = await res.json();
+			return { text: responseText(data), model: EchoedModel.parse(data).model };
 		},
 	};
 }
@@ -95,30 +94,42 @@ export function getAiProvider(env: Env): AiChatProvider | null {
 		: null;
 }
 
-function responseText(result: unknown): string {
-	if (typeof result === "string") return result;
-	if (result && typeof result === "object") {
-		const content = (result as { content?: unknown }).content;
-		if (Array.isArray(content)) {
-			return content
-				.filter(
-					(block): block is { type: "text"; text: string } =>
-						block != null &&
-						typeof block === "object" &&
-						(block as { type?: unknown }).type === "text" &&
-						typeof (block as { text?: unknown }).text === "string",
-				)
-				.map((block) => block.text)
-				.join("");
-		}
-		const response = (result as { response?: unknown }).response;
-		if (typeof response === "string") return response;
-		const choices = (result as { choices?: unknown }).choices;
-		if (Array.isArray(choices)) {
-			const text = (choices[0] as { message?: { content?: unknown } })?.message
-				?.content;
-			if (typeof text === "string") return text;
-		}
+/** Anthropic interleaves text with tool/thinking blocks; only text is answer. */
+const TextBlock = z.object({ type: z.literal("text"), text: z.string() });
+
+/**
+ * The dialects a chat completion arrives in, most specific first: Anthropic
+ * content blocks, Workers AI `response`, OpenAI `choices`. A provider is free
+ * to change dialect between calls, so all of them are always accepted.
+ */
+const Envelope = z.union([
+	z.string(),
+	z
+		.object({ content: z.array(z.unknown()) })
+		.transform(({ content }) =>
+			content
+				.flatMap((block) => TextBlock.safeParse(block).data?.text ?? [])
+				.join(""),
+		),
+	z.object({ response: z.string() }).transform(({ response }) => response),
+	z
+		.object({
+			choices: z.tuple(
+				[z.object({ message: z.object({ content: z.string() }) })],
+				z.unknown(),
+			),
+		})
+		.transform(({ choices }) => choices[0].message.content),
+]);
+
+/** Which model actually answered, when the provider says — never load-bearing. */
+const EchoedModel = z.object({ model: z.string().optional() }).catch({});
+
+/** Exported so the envelope contract is pinned against a real body, not a mock. */
+export function responseText(result: unknown): string {
+	const parsed = Envelope.safeParse(result);
+	if (!parsed.success) {
+		throw new Error("AI provider returned an unknown response envelope");
 	}
-	throw new Error("AI provider returned an unknown response envelope");
+	return parsed.data;
 }

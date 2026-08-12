@@ -33,12 +33,10 @@ export async function firstPortalsByEvent(
 }
 
 /**
- * Origin for links in emails sent OUTSIDE a request (cron). Request-driven
- * senders derive it from `request.url` instead. When a real mail provider is
- * configured, a missing APP_ORIGIN is a deployment misconfiguration — fail
- * loudly rather than ship link-less emails forever (the EMAIL_FROM precedent).
- * Without a provider (local dev/test outbox), null is fine: register the var
- * in .dev.vars to get full links locally.
+ * Origin for links in emails sent OUTSIDE a request (cron); request-driven
+ * senders derive it from `request.url`. With a real mail provider configured, a
+ * missing APP_ORIGIN is a deployment misconfiguration — fail loudly rather than
+ * ship link-less emails (the EMAIL_FROM precedent). Without one, null is fine.
  */
 export function emailOrigin(env: Env): string | null {
 	if (env.APP_ORIGIN) return env.APP_ORIGIN;

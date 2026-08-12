@@ -1,3 +1,4 @@
+import { createCookie } from "react-router";
 import { describe, expect, it } from "vitest";
 import {
 	deriveGettingStarted,
@@ -191,5 +192,51 @@ describe("getting-started dismissal cookie", () => {
 			true,
 		);
 		expect(secure).toContain("Secure");
+	});
+
+	/** Whatever a hand-edited cookie carries, encoded the way the app reads it. */
+	async function forged(value: unknown): Promise<string> {
+		return replay(await createCookie("or_gs_dismissed").serialize(value));
+	}
+
+	it("honours the real pairs in a hand-edited cookie and drops the rest", async () => {
+		// The cookie is HttpOnly but not signed, so its contents are the
+		// visitor's to rewrite: one junk entry must not void the real ones.
+		const mixed = await forged(["user-1.event-1", 42, null, { a: 1 }, ""]);
+		expect(
+			await isGettingStartedDismissed(
+				requestWithCookie(mixed),
+				"user-1",
+				"event-1",
+			),
+		).toBe(true);
+		for (const junk of [
+			"user-1.event-1",
+			{ pairs: ["user-1.event-1"] },
+			42,
+			null,
+		]) {
+			expect(
+				await isGettingStartedDismissed(
+					requestWithCookie(await forged(junk)),
+					"user-1",
+					"event-1",
+				),
+			).toBe(false);
+		}
+	});
+
+	it("never writes the junk back out", async () => {
+		const mixed = await forged(["user-1.event-1", 42, { a: 1 }]);
+		const next = await dismissGettingStartedCookie(
+			requestWithCookie(mixed),
+			"user-1",
+			"event-2",
+			false,
+		);
+		expect(await createCookie("or_gs_dismissed").parse(replay(next))).toEqual([
+			"user-1.event-1",
+			"user-1.event-2",
+		]);
 	});
 });

@@ -70,47 +70,16 @@ import type { Route } from "./+types/admin.evaluation.$planId";
 const TABS = ["rounds", "assign", "progress", "results", "settings"] as const;
 type TabName = (typeof TABS)[number];
 
+/** Every yes/no `<Select>` on this page — a boolean once it is parsed. */
+const yesNo = z.enum(["yes", "no"]).transform((v) => v === "yes");
+
 const RoundInput = z.object({
 	name: z.string().min(1, "Round name is required"),
 	opensAt: z.string().optional(),
 	closesAt: z.string().optional(),
-	anonymized: z.enum(["yes", "no"]),
-	showOtherScores: z.enum(["yes", "no"]),
+	anonymized: yesNo,
+	showOtherScores: yesNo,
 });
-
-const QuestionInput = z
-	.object({
-		label: z.string().min(1, "Question label is required"),
-		type: z.enum(["rating", "dropdown", "text"]),
-		min: z.coerce.number().int().optional(),
-		max: z.coerce.number().int().optional(),
-		options: z.string().optional(),
-		weight: z.coerce.number().min(0, "Weight can't be negative"),
-		required: z.enum(["yes", "no"]),
-	})
-	.superRefine((q, ctx) => {
-		if (q.type === "rating") {
-			const min = q.min ?? 1;
-			const max = q.max ?? 5;
-			if (min >= max) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["max"],
-					message: "Scale max must be greater than min",
-				});
-			}
-		}
-		if (q.type === "dropdown") {
-			const options = parseOptions(q.options);
-			if (options.length < 2) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["options"],
-					message: "Give at least two comma-separated choices",
-				});
-			}
-		}
-	});
 
 function parseOptions(raw: string | undefined): string[] {
 	return (raw ?? "")
@@ -119,11 +88,49 @@ function parseOptions(raw: string | undefined): string[] {
 		.filter(Boolean);
 }
 
-function questionConfig(q: z.infer<typeof QuestionInput>) {
-	if (q.type === "rating") return { min: q.min ?? 1, max: q.max ?? 5 };
-	if (q.type === "dropdown") return { options: parseOptions(q.options) };
-	return null;
-}
+const questionBase = {
+	label: z.string().min(1, "Question label is required"),
+	weight: z.coerce.number().min(0, "Weight can't be negative"),
+	required: yesNo,
+};
+
+/**
+ * The form posts every input on the row whatever the type, so each variant
+ * declares only the fields its own type uses and drops the rest — and carries
+ * the `config` the round question is stored with, so no branch downstream has
+ * to re-ask which type this was.
+ */
+const QuestionInput = z.discriminatedUnion("type", [
+	z
+		.object({
+			...questionBase,
+			type: z.literal("rating"),
+			min: z.coerce.number().int().optional(),
+			max: z.coerce.number().int().optional(),
+		})
+		.refine((q) => (q.min ?? 1) < (q.max ?? 5), {
+			message: "Scale max must be greater than min",
+			path: ["max"],
+		})
+		.transform((q) => ({ ...q, config: { min: q.min ?? 1, max: q.max ?? 5 } })),
+	z
+		.object({
+			...questionBase,
+			type: z.literal("dropdown"),
+			options: z
+				.string()
+				.optional()
+				.transform(parseOptions)
+				.refine(
+					(options) => options.length >= 2,
+					"Give at least two comma-separated choices",
+				),
+		})
+		.transform((q) => ({ ...q, config: { options: q.options } })),
+	z
+		.object({ ...questionBase, type: z.literal("text") })
+		.transform((q) => ({ ...q, config: null })),
+]);
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
@@ -652,8 +659,8 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				name: parsed.data.name,
 				opensAt,
 				closesAt,
-				anonymized: parsed.data.anonymized === "yes",
-				showOtherScores: parsed.data.showOtherScores === "yes",
+				anonymized: parsed.data.anonymized,
+				showOtherScores: parsed.data.showOtherScores,
 			};
 			if (intent === "add-round") {
 				await db.insert(evaluationRounds).values({
@@ -705,9 +712,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			const values = {
 				label: parsed.data.label,
 				type: parsed.data.type,
-				config: questionConfig(parsed.data),
+				config: parsed.data.config,
 				weight: parsed.data.weight,
-				required: parsed.data.required === "yes",
+				required: parsed.data.required,
 			};
 			if (intent === "add-question") {
 				const [{ n }] = (await db

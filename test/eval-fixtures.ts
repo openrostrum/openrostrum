@@ -19,12 +19,10 @@ import {
 import { createSession } from "../app/lib/auth";
 
 /**
- * Shared review-lane fixture: three submissions, a reviewer covering ONE
- * track, an anonymized round whose scorecard has weighted questions
- * (Originality w2, Relevance w1, Recommendation dropdown, Comments text),
- * and exactly ONE assignment (s1) — so "queue = assigned set" stays
- * distinguishable from track routing (s1+s2 share the reviewer's track;
- * s3 does not).
+ * Shared review-lane fixture: three submissions, a reviewer covering ONE track,
+ * an anonymized round whose scorecard has weighted questions (Originality w2,
+ * Relevance w1, Recommendation dropdown, Comments text), and exactly ONE
+ * assignment.
  */
 export async function seedEvalBase(
 	env: Env,
@@ -118,6 +116,9 @@ export async function seedEvalBase(
 			status: "pending",
 		},
 	]);
+	// s1+s2 share the reviewer's track and s3 does not, while only s1 is
+	// assigned — so "queue = assigned set" stays distinguishable from track
+	// routing.
 	await db.insert(submissionTracks).values([
 		{ submissionId: "s1", trackId: "t_ai" },
 		{ submissionId: "s2", trackId: "t_ai" },

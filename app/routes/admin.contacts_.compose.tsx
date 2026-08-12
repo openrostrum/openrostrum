@@ -2,7 +2,7 @@ import { data, Form } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import {
-	isContactStatus,
+	contactStatus,
 	type RecipientSelection,
 	resolveRecipients,
 } from "~/domain/contacts";
@@ -95,7 +95,7 @@ function selectionFromParams(params: URLSearchParams): ComposerSelection {
 	return {
 		ids: ids.length > 0 ? ids : undefined,
 		q: params.get("q"),
-		status: isContactStatus(statusParam) ? statusParam : null,
+		status: contactStatus.safeParse(statusParam).data ?? null,
 		directoryEmails,
 	};
 }

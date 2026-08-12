@@ -18,13 +18,10 @@ export interface EmailMessage {
 	eventId?: string;
 	templateId?: string;
 	/**
-	 * "transactional" (default) = every email that is a consequence of the
-	 * recipient's own submission/account: confirmations, ACCEPT/DECLINE
-	 * decisions, invites, password resets, task-due + draft-close reminders,
-	 * schedule updates — ALWAYS delivered (unsubscribing must never hide an
-	 * acceptance). "bulk" = general announcements only (the compose-to-speakers
-	 * blast) — SKIPPED for suppressed (unsubscribed) recipients and carries the
-	 * unsubscribe footer. Callers of announcement sends MUST set "bulk".
+	 * "transactional" (default) = a consequence of the recipient's own
+	 * submission/account (confirmations, decisions, invites, resets, reminders,
+	 * schedule updates) — ALWAYS delivered; unsubscribing must never hide an
+	 * acceptance. "bulk" = announcements, set by `sendAnnouncement`: suppressible.
 	 */
 	kind?: "transactional" | "bulk";
 }
@@ -123,15 +120,10 @@ function base64Utf8(s: string): string {
 }
 
 /**
- * Prod adapter: real mail via Resend from the verified openrostrum.com domain.
- *
- * Every attempt is recorded in `email_outbox` BEFORE the provider call and
- * resolved to `sent` (with the provider id) or `failed` (with the reason)
- * after it — `/admin/emails/history` is the delivery evidence in prod exactly
- * as it is locally (docs/observability.md), and a provider rejection is a
- * queryable `failed` row, never a vanished send. The outbox row is also the
- * dedupe ledger: a retry of a `sent` dedupeKey short-circuits without calling
- * the provider, while a `failed` row stays retryable in place.
+ * Prod adapter: real mail via Resend from the verified sender domain. Every
+ * attempt is recorded in `email_outbox` BEFORE the provider call and resolved to
+ * `sent` or `failed` after it, so `/admin/emails/history` is the delivery
+ * evidence in prod exactly as it is locally (docs/observability.md).
  */
 export function createResendEmailSender(env: Env): EmailSender {
 	// The verified sender, e.g. "OpenRostrum <noreply@yourdomain.com>". Set per
@@ -146,9 +138,10 @@ export function createResendEmailSender(env: Env): EmailSender {
 	const db = getDb(env);
 	return {
 		async send(msg) {
-			// 1. Claim the outbox row. A dedupeKey conflict means a prior attempt
-			// exists: already sent/bounced → done (idempotent), failed/queued →
-			// retry on the SAME row so history shows one attempt per key.
+			// 1. Claim the outbox row — it is also the dedupe ledger. A dedupeKey
+			// conflict means a prior attempt exists: already sent/bounced → done
+			// (no provider call), failed/queued → retry on the SAME row, so
+			// history shows one attempt per key and a rejection stays queryable.
 			const [inserted] = await db
 				.insert(emailOutbox)
 				.values({
@@ -264,11 +257,10 @@ export function hasRealEmailProvider(env: Env): boolean {
 }
 
 /**
- * Resolve the adapter by CAPABILITY, not by APP_ENV. The local D1 sink is used
- * only when there is no real provider key configured; prod (with RESEND_API_KEY)
- * always sends real mail, local/test (no key) log to `email_outbox`. This is
- * fail-safe independent of APP_ENV, so a misconfigured env string can never make
- * production silently swallow mail into a table nobody reads.
+ * Resolve the adapter by CAPABILITY, not by APP_ENV: with RESEND_API_KEY prod
+ * always sends real mail; without one, local/test log to `email_outbox`. Being
+ * independent of APP_ENV is the fail-safe — a misconfigured env string can never
+ * make production silently swallow mail into a table nobody reads.
  */
 export function getEmailSender(env: Env): EmailSender {
 	const adapter = hasRealEmailProvider(env)

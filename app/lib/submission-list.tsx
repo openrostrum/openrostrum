@@ -191,12 +191,10 @@ function hrefFor(tab: ListTab, q: string, page = 1): string {
 }
 
 /**
- * The manual "+ Add Submission / Add Session" drawer. It POSTs to the ONE
- * create action on /admin/submissions (never a second create path); the
- * `drawer` field makes that action answer with data instead of redirecting,
- * so errors render in place and success closes the drawer after the fetcher's
- * revalidation refreshes the list. Controlled: the trigger lives in the page
- * header while this panel renders as its own full-width block.
+ * The manual "+ Add Submission / Add Session" drawer, controlled by the page
+ * header that owns its trigger. POSTs to the ONE create action on
+ * /admin/submissions (never a second create path); its `drawer` field makes
+ * that action answer with data, so errors render in place instead of redirecting.
  */
 export function AddSubmissionDrawer({
 	kind,
