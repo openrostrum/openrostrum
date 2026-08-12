@@ -7,6 +7,8 @@
  * matching each endpoint, never normalizing.
  */
 
+import { z } from "zod";
+
 export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
 export const MAX_PAGE = 999;
@@ -17,13 +19,17 @@ function clamp(value: number, min: number, max: number): number {
 	return Math.min(Math.max(Math.trunc(value), min), max);
 }
 
+/**
+ * A page number reaches us as a query string or as JSON, so both spellings are
+ * one schema. Anything that doesn't read as a finite number — blank, absent,
+ * `"abc"`, `Infinity`, an object — means "not supplied", never 0.
+ */
+const PageNumber = z
+	.union([z.number(), z.string().trim().min(1).transform(Number)])
+	.refine(Number.isFinite);
+
 function toNumber(value: unknown): number | undefined {
-	if (typeof value === "number" && Number.isFinite(value)) return value;
-	if (typeof value === "string" && value.trim() !== "") {
-		const n = Number(value);
-		if (Number.isFinite(n)) return n;
-	}
-	return undefined;
+	return PageNumber.safeParse(value).data;
 }
 
 export function parsePageParams(
