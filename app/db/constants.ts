@@ -1,8 +1,8 @@
 /**
  * CLIENT-FACING enum tuples — pure data, NO drizzle imports, so a route
- * COMPONENT can read an enum without pulling schema.ts (and with it the whole
- * drizzle-orm runtime) into the client bundle. schema.ts imports these for its
- * `{ enum }` unions: a new client-visible enum is defined HERE, not there.
+ * COMPONENT can read an enum without pulling schema.ts (and its drizzle
+ * runtime) into the client bundle. A new client-visible enum is defined HERE;
+ * schema.ts imports it, or keeps a copy a lockstep test pins equal.
  */
 export const SUBMISSION_STATUS = [
 	"draft",
@@ -31,8 +31,9 @@ export const DECISION_STATUS = [
 
 /**
  * Content approval — SEPARATE from the decision pipeline: public surfaces
- * render only `approved` content. schema.ts currently carries its own copy
- * (integration-owned); the compiler flags any drift at the comparison sites.
+ * render only `approved` content. Same lockstep contract as CONTACT_STATUS:
+ * schema.ts keeps its own integration-owned copy, and a test pins the two
+ * equal, because `satisfies` at the comparison site would let it widen.
  */
 export const CONTENT_STATUS = ["draft", "in_review", "approved"] as const;
 
