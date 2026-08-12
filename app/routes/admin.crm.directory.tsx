@@ -616,7 +616,6 @@ export default function CrmDirectory({
 						<Button type="submit" icon="plus" disabled={busy}>
 							Add person
 						</Button>
-						{/* One person by hand, or a whole list — same directory. */}
 						<ButtonLink
 							to="/admin/crm/directory/import"
 							variant="ghost"

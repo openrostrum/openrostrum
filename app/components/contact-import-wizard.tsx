@@ -79,7 +79,7 @@ export function ContactImportWizard({
 					<Form
 						method="post"
 						encType="multipart/form-data"
-						className="flex flex-col gap-3"
+						className="flex flex-col gap-[13px]"
 					>
 						{uploadFields}
 						<Field label="CSV file">
