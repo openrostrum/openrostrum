@@ -31,8 +31,10 @@ export function OnboardingSteps() {
 					/>
 					<span
 						className={cn(
-							"text-[12.5px]",
-							index === current ? "font-medium text-fg" : "text-fg-muted",
+							// Constant weight, colour alone carries the state — a rail that
+							// re-weights its labels reflows every time the step advances.
+							"text-[12.5px] font-medium",
+							index === current ? "text-fg" : "text-fg-muted",
 						)}
 					>
 						{step.label}
