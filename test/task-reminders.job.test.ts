@@ -7,8 +7,12 @@ import {
 	emailSuppressions,
 	taskAssignments,
 } from "../app/db/schema";
-import { runTaskDueReminders } from "../app/jobs/task-reminders.scheduled";
+import { runScheduledJobs } from "../app/jobs/registry";
+import taskReminderJob, {
+	runTaskDueReminders,
+} from "../app/jobs/task-reminders.scheduled";
 import { fixedClock } from "../app/ports/clock";
+import type { EmailSender } from "../app/ports/email";
 import { DAY_MS, seedTasksBaseline } from "./tasks-fixtures";
 
 // Contract under test: reminderSentAt guards double-fire; an edited dueAt
@@ -185,6 +189,44 @@ describe("task-due reminder cron", () => {
 			.from(emailOutbox)
 			.where(eq(emailOutbox.to, "priya.sharma@example.com"));
 		expect(priyaMail).toHaveLength(1);
+	});
+
+	// A daily cron is the one place nobody is watching, so a send that fails has
+	// to fail the invocation. Counting failures and returning them is invisible:
+	// the job dropped that return value, so an expired provider key meant no
+	// speaker was reminded and the tick was still green, every day, silently.
+	it("fails the run when a recipient's send fails, after trying the rest", async () => {
+		await seedJobFixture();
+		const attempted: string[] = [];
+		const sender: EmailSender = {
+			async send(message) {
+				attempted.push(message.to);
+				if (attempted.length === 1) throw new Error("provider unavailable");
+				return { id: "sent-after-failure", deduped: false, suppressed: false };
+			},
+		};
+
+		await expect(
+			runTaskDueReminders(env, fixedClock(NOW), sender),
+		).rejects.toThrow("Task due reminders failed: 1 recipient.");
+		// One failure does not abandon the others — the second recipient still got
+		// their reminder before the run reported the failure.
+		expect(attempted).toHaveLength(2);
+	});
+
+	// The property the organizer actually depends on: a reminder job that throws
+	// turns the whole daily invocation red, so Cloudflare shows it instead of a
+	// green tick that reminded nobody. Uses the misconfiguration that throws
+	// before any send, so the test needs no provider and no network.
+	it("a throwing reminder job fails the daily invocation it runs under", async () => {
+		await seedJobFixture();
+		const misconfigured = { ...env, RESEND_API_KEY: "re_test" } as typeof env;
+		await expect(
+			runScheduledJobs(taskReminderJob.cron, misconfigured, {
+				waitUntil() {},
+				passThroughOnException() {},
+			} as unknown as ExecutionContext),
+		).rejects.toThrow(AggregateError);
 	});
 
 	it("fails loudly when a real mail provider is configured without APP_ORIGIN", async () => {

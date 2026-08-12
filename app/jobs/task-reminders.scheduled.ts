@@ -6,7 +6,7 @@ import { formatDateUTC } from "~/lib/format";
 import { escapeHtml } from "~/lib/html";
 import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { type Clock, systemClock } from "~/ports/clock";
-import { getEmailSender } from "~/ports/email";
+import { type EmailSender, getEmailSender } from "~/ports/email";
 import { track } from "~/lib/track";
 import { DAILY_CRON } from "./cadence";
 import type { ScheduledJob } from "./registry";
@@ -46,6 +46,7 @@ function reminderEmail(row: {
 export async function runTaskDueReminders(
 	env: Env,
 	clock: Clock,
+	injectedSender?: EmailSender,
 ): Promise<{ sent: number; failed: number }> {
 	const db = getDb(env);
 	// Resolved up front: a prod deployment missing APP_ORIGIN must fail loudly
@@ -85,7 +86,7 @@ export async function runTaskDueReminders(
 
 	const portalByEvent = await firstPortalsByEvent(db);
 
-	const sender = getEmailSender(env);
+	const sender = injectedSender ?? getEmailSender(env);
 	let sent = 0;
 	let failed = 0;
 	for (const row of due) {
@@ -134,6 +135,15 @@ export async function runTaskDueReminders(
 				error: errorMessage(error),
 			});
 		}
+	}
+	// Nobody watches a cron tick, so a failed send has to fail the invocation:
+	// counting failures and returning them meant an expired provider key reminded
+	// nobody and stayed green, every day. Failures go unstamped above, so
+	// tomorrow's tick retries them. Same ending as the draft-close job.
+	if (failed > 0) {
+		throw new Error(
+			`Task due reminders failed: ${failed} ${failed === 1 ? "recipient" : "recipients"}.`,
+		);
 	}
 	return { sent, failed };
 }
