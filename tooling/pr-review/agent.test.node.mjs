@@ -947,6 +947,17 @@ test("a reviewer still reading at its budget is asked to close, and does", async
 	// many findings as it had closing turns. The ask has to carry the allowance,
 	// or the drip rate decides how much of the review survives.
 	assert.match(close, new RegExp(`${SUBMISSIONS_PER_RESPONSE} `));
+	// "Submit anything you have proved" read as including proved-compliant: asked
+	// to empty its notes, a closing reviewer submitted its per-rule checklist, so
+	// 4 of 7 findings on one production PR were sentences ending "no violation".
+	// The ask has to name violations and exclude the rules it cleared.
+	assert.match(close, /violation/i);
+	assert.match(close, /satisfied|cleared/i);
+	assert.doesNotMatch(
+		close,
+		/submit .{0,20}anything/i,
+		"the closing ask still invites everything the reviewer has, not its violations",
+	);
 });
 
 // Telling a reviewer to stop reading was not enough in production — four of five
