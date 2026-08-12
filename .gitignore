@@ -224,3 +224,6 @@ docs/coverage-map.html
 
 ### Deployer-specific config (real D1 id / sender) — never commit ###
 .deploy.env
+
+### Journey-critic run output (screenshots + report) — CI uploads it as an artifact ###
+tooling/journey-critic/.out/
