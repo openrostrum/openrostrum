@@ -20,17 +20,38 @@ test("the runtime carries Pi's DeepSeek provider contract, not a hand-built mode
 	assert.ok(runtime.model.contextWindow > 0);
 });
 
-// A reviewer truncated by the provider's default output cap can only be reported
-// as incomplete, so every request must carry an explicit ceiling of its own.
-test("every provider request asks for an explicit output ceiling", () => {
-	const sent = streamOptions({ key: "test-key", temperature: 0 });
-	assert.ok(sent.maxTokens >= 8000);
+// A hand-picked ceiling of 16000 truncated four of five reviewers on a
+// 2700-line pull request, which the completion contract could only report as
+// incomplete. The ceiling has to track the model's real limit.
+test("the output ceiling comes from the model, not a hardcoded number", () => {
+	const runtime = makeRuntime({
+		key: "test-key",
+		base: "https://api.deepseek.test",
+		model: "deepseek-v4-flash",
+		temperature: 0,
+	});
 
+	const sent = streamOptions({
+		key: "test-key",
+		temperature: 0,
+		model: runtime.model,
+	});
+
+	assert.equal(sent.maxTokens, runtime.model.maxTokens);
+	assert.ok(
+		sent.maxTokens > 16000,
+		`ceiling ${sent.maxTokens} is no better than the cap that truncated reviewers`,
+	);
+});
+
+test("a caller may still narrow the ceiling below the model's limit", () => {
 	const caller = streamOptions({
 		key: "test-key",
 		temperature: 0,
+		model: { maxTokens: 384000 },
 		options: { maxTokens: 4096 },
 	});
+
 	assert.equal(caller.maxTokens, 4096);
 });
 
