@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import { DECISION_STATUS, SUBMISSION_STATUS } from "../app/db/constants";
 import {
+	calendarInviteRevisions,
+	calendarInviteSequenceFrontiers,
 	contacts,
 	emailOutbox,
 	emailSuppressions,
@@ -27,6 +29,7 @@ import {
 	transitionSubmissions,
 	withdrawSubmission,
 } from "../app/domain/accept";
+import { EmailDeliveryError } from "../app/ports/email";
 
 const db = () => getDb(env);
 
@@ -944,6 +947,213 @@ describe("send decisions", () => {
 		}
 	});
 
+	// An acceptance re-send shares its calendar UID with every schedule update
+	// already delivered, and SEQUENCE is that UID's revision counter: minted below
+	// the delivered frontier, the client ignores the revision — the speaker reads
+	// the right time in the mail body while their calendar keeps the old slot.
+	it("re-sends an acceptance above the delivered calendar frontier, not at zero", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		await d
+			.insert(rooms)
+			.values({ id: "room_a", eventId: "e1", name: "Room A" });
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Edge-Native Vector Search on D1",
+			startsAt: new Date("2026-10-13T17:00:00Z"),
+			endsAt: new Date("2026-10-13T17:30:00Z"),
+			roomId: "room_a",
+			notifiedAt: new Date("2026-08-10T20:00:00Z"),
+		});
+		await addSpeaker(row.id, "c_marco", "marco.silva@example.com", {
+			isPrimary: true,
+		});
+		// Two schedule updates already landed on this speaker's calendar, so the
+		// live revision counter for this UID stands at 2.
+		await d.insert(emailOutbox).values(
+			[0, 1, 2].map((sequence) => ({
+				id: `outbox-seq-${sequence}`,
+				eventId: "e1",
+				dedupeKey: `schedule-update:${sequence}`,
+				to: "marco.silva@example.com",
+				subject: "Schedule update",
+				html: "<p>moved</p>",
+				status: "sent" as const,
+			})),
+		);
+		await d.insert(calendarInviteRevisions).values(
+			[0, 1, 2].map((sequence) => ({
+				submissionId: row.id,
+				sequence,
+				// An earlier slot than today's — the re-send is a genuine revision.
+				stateHash: `state-${sequence}`,
+				recipient: "marco.silva@example.com",
+				startsAt: new Date("2026-10-13T15:00:00Z"),
+				endsAt: new Date("2026-10-13T15:30:00Z"),
+				location: "Room A",
+				title: "Edge-Native Vector Search on D1",
+				outboxId: `outbox-seq-${sequence}`,
+			})),
+		);
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		await sendPreviewedDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "resend-after-updates",
+		});
+
+		const [mail] = await d
+			.select()
+			.from(emailOutbox)
+			.where(
+				eq(
+					emailOutbox.dedupeKey,
+					`decision:accept:resend-after-updates:${row.id}`,
+				),
+			);
+		expect(mail?.icsAttachment).toContain("SEQUENCE:3");
+		// The claim is durable, so the next update starts from here rather than
+		// re-issuing 3 for a different slot.
+		const [frontier] = await d
+			.select()
+			.from(calendarInviteSequenceFrontiers)
+			.where(eq(calendarInviteSequenceFrontiers.submissionId, row.id));
+		expect(frontier?.sequence).toBe(3);
+	});
+
+	// An admin reading an accept preview holds no lock on the agenda. Sending at
+	// the number the preview computed hands one UID two revisions, and the client
+	// keeps whichever it saw first. Refusing a still-matching preview is no fix
+	// either: the accept becomes unsendable while anyone touches the schedule.
+	it("ships the revision it claims at send, not the one the preview guessed", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		await d
+			.insert(rooms)
+			.values({ id: "room_a", eventId: "e1", name: "Room A" });
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Edge-Native Vector Search on D1",
+			startsAt: new Date("2026-10-13T17:00:00Z"),
+			endsAt: new Date("2026-10-13T17:30:00Z"),
+			roomId: "room_a",
+		});
+		await addSpeaker(row.id, "c_marco", "marco.silva@example.com", {
+			isPrimary: true,
+		});
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		const preview = await previewDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+		});
+
+		// While the preview sits on screen, a schedule update takes revision 7 for
+		// this session's UID and delivers it — claim first, then the ledger row.
+		await d.insert(calendarInviteSequenceFrontiers).values({
+			submissionId: row.id,
+			sequence: 7,
+			stateHash: "claimed-by-a-concurrent-schedule-update",
+		});
+		await d.insert(emailOutbox).values({
+			id: "outbox-concurrent",
+			eventId: "e1",
+			dedupeKey: "schedule-update:concurrent",
+			to: "marco.silva@example.com",
+			subject: "Schedule update",
+			html: "<p>moved</p>",
+			status: "sent",
+		});
+		await d.insert(calendarInviteRevisions).values({
+			submissionId: row.id,
+			sequence: 7,
+			stateHash: "claimed-by-a-concurrent-schedule-update",
+			recipient: "marco.silva@example.com",
+			startsAt: new Date("2026-10-13T19:00:00Z"),
+			endsAt: new Date("2026-10-13T19:30:00Z"),
+			location: "Room A",
+			title: "Edge-Native Vector Search on D1",
+			outboxId: "outbox-concurrent",
+		});
+
+		const results = await sendDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "concurrent-claim",
+			previewFingerprint: preview.fingerprint,
+		});
+
+		expect(results[0]?.ok).toBe(true);
+		const [mail] = await d
+			.select()
+			.from(emailOutbox)
+			.where(
+				eq(emailOutbox.dedupeKey, `decision:accept:concurrent-claim:${row.id}`),
+			);
+		expect(mail?.icsAttachment).toContain("SEQUENCE:8");
+	});
+
+	// A schedule update claims its revision before its email is recorded, so the
+	// counter can have moved while the ledger still looks untouched. An accept
+	// landing there computes a number already spoken for; shipping it would put
+	// two invites on one revision and the client keeps whichever arrived first.
+	it("ships the revision the claim returns, even when the ledger has not caught up", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		await d
+			.insert(rooms)
+			.values({ id: "room_a", eventId: "e1", name: "Room A" });
+		const row = await insertSubmission({
+			status: "accept_queue",
+			title: "Durable Objects for Live Agendas",
+			startsAt: new Date("2026-10-13T21:00:00Z"),
+			endsAt: new Date("2026-10-13T21:30:00Z"),
+			roomId: "room_a",
+		});
+		await addSpeaker(row.id, "c_marco", "marco.silva@example.com", {
+			isPrimary: true,
+		});
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+
+		// Claimed, not yet delivered: no outbox row, no ledger row. Every read of
+		// delivered history still says "nothing has gone out for this session".
+		await d.insert(calendarInviteSequenceFrontiers).values({
+			submissionId: row.id,
+			sequence: 7,
+			stateHash: "in-flight-schedule-update",
+		});
+
+		const results = await sendPreviewedDecisionEmails(d, env, {
+			event,
+			rows: [row],
+			decision: "accept",
+			idempotencyKey: "in-flight-claim",
+		});
+
+		expect(results[0]?.ok).toBe(true);
+		const [mail] = await d
+			.select()
+			.from(emailOutbox)
+			.where(
+				eq(emailOutbox.dedupeKey, `decision:accept:in-flight-claim:${row.id}`),
+			);
+		// 8, not 0: the ledger proposed 0 and the claim overruled it.
+		expect(mail?.icsAttachment).toContain("SEQUENCE:8");
+		expect(mail?.icsAttachment).not.toContain("SEQUENCE:0");
+		const [frontier] = await d
+			.select()
+			.from(calendarInviteSequenceFrontiers)
+			.where(eq(calendarInviteSequenceFrontiers.submissionId, row.id));
+		expect(frontier?.sequence).toBe(8);
+	});
+
 	// The template editor previews rendered merge tags, so the send must run
 	// the same renderer — shipping the raw template means a speaker receives
 	// a literal {{first_name}} in a delivered email.
@@ -1252,6 +1462,118 @@ describe("send decisions", () => {
 		expect(failed?.ok).toBe(false);
 		expect(failed?.reason).toMatch(/no speaker or submitter/i);
 		expect(await d.select().from(emailOutbox)).toHaveLength(1);
+	});
+
+	it("reports a concurrent identical send as in flight, not as a delivery failure", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const row = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(row.id, "c_x", "x@example.com");
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+		let releaseProvider: (() => void) | undefined;
+		let providerStarted: (() => void) | undefined;
+		const started = new Promise<void>((resolve) => {
+			providerStarted = resolve;
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				() =>
+					new Promise<Response>((resolve) => {
+						releaseProvider = () =>
+							resolve(
+								new Response(JSON.stringify({ id: "resend-decision" }), {
+									status: 200,
+								}),
+							);
+						providerStarted?.();
+					}),
+			),
+		);
+		const resendEnv = {
+			...env,
+			RESEND_API_KEY: "re_test",
+			EMAIL_FROM: "OpenRostrum <noreply@test.example>",
+			APP_ORIGIN: "https://test.example",
+		} as unknown as Env;
+		try {
+			const first = sendPreviewedDecisionEmails(d, resendEnv, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "key-1",
+			});
+			await started;
+			const second = await sendPreviewedDecisionEmails(d, resendEnv, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "key-1",
+			});
+
+			// A double-clicked "Send decisions" must not tell the admin the speaker
+			// could not be reached — the email is on its way out right now, and
+			// "retry" copy would send them chasing a delivery that already happened.
+			expect(second[0]?.reason).toMatch(/already (being sent|in flight)/i);
+			expect(second[0]?.reason).not.toMatch(/failed/i);
+			releaseProvider?.();
+			await expect(first).resolves.toMatchObject([{ ok: true }]);
+		} finally {
+			releaseProvider?.();
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("propagates an unexpected D1 failure after finalizing what already sent", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const delivered = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(delivered.id, "c_a", "a@example.com");
+		const broken = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(broken.id, "c_b", "b@example.com");
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+		await env.DB.prepare(`
+			CREATE TRIGGER fail_second_decision_insert
+			BEFORE INSERT ON email_outbox
+			WHEN NEW."to" = 'b@example.com'
+			BEGIN
+				SELECT RAISE(ABORT, 'forced D1 failure');
+			END
+		`).run();
+
+		let failure: unknown;
+		try {
+			// A database fault is not a recipient problem: reporting it per row would
+			// tell the admin to retry one speaker while the real fault repeats. It
+			// has to reach the batch-level handler, which says the send stopped
+			// partway and that a retry will not double-send.
+			failure = await sendPreviewedDecisionEmails(d, env, {
+				event,
+				rows: [delivered, broken],
+				decision: "accept",
+				idempotencyKey: "key-1",
+			}).then(
+				(results) => {
+					throw new Error(
+						`Expected the database fault to propagate, got ${JSON.stringify(results)}`,
+					);
+				},
+				(error) => error,
+			);
+		} finally {
+			await env.DB.prepare("DROP TRIGGER fail_second_decision_insert").run();
+		}
+		expect(failure).toBeInstanceOf(Error);
+		expect(failure).not.toBeInstanceOf(EmailDeliveryError);
+		// The speaker who DID receive the decision stays marked notified, so a
+		// later schedule change still reaches their calendar.
+		const [row] = await d
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, delivered.id));
+		expect(row?.notifiedAt).not.toBeNull();
 	});
 
 	it("refuses loudly when the event has no matching template", async () => {

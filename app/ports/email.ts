@@ -1,7 +1,9 @@
-import { eq } from "drizzle-orm";
-import { getDb } from "~/db";
+import { and, eq, isNull, ne } from "drizzle-orm";
+import { getDb, type Db } from "~/db";
 import { emailOutbox, emailSuppressions } from "~/db/schema";
+import { sha256Hex } from "~/lib/api-token";
 import { errorMessage } from "~/lib/errors";
+import { icsContentFingerprint } from "~/lib/ics";
 import { track } from "~/lib/track";
 
 /** Callers depend on this interface, never on Resend directly. */
@@ -24,6 +26,13 @@ export interface EmailMessage {
 	 * acceptance. "bulk" = announcements, set by `sendAnnouncement`: suppressible.
 	 */
 	kind?: "transactional" | "bulk";
+	/**
+	 * What a LIVE claimant on the same `dedupeKey` means to this caller. "dedupe"
+	 * (default) reports it as a duplicate, so a double-clicked button stays a
+	 * no-op. "reject" throws `EmailSendInFlightError` — required where the caller
+	 * would otherwise stamp durable delivered-state for a send it did not finish.
+	 */
+	onInFlight?: "dedupe" | "reject";
 }
 
 export interface EmailResult {
@@ -37,6 +46,22 @@ export interface EmailResult {
 
 export interface EmailSender {
 	send(msg: EmailMessage): Promise<EmailResult>;
+}
+
+/** A provider or network outcome the caller may report as a delivery failure. */
+export class EmailDeliveryError extends Error {
+	constructor(message: string, cause?: unknown) {
+		super(message, { cause });
+		this.name = "EmailDeliveryError";
+	}
+}
+
+/** A matching provider send still owns the outbox row; retry after its lease. */
+export class EmailSendInFlightError extends Error {
+	constructor() {
+		super("An email with this delivery key is already in flight.");
+		this.name = "EmailSendInFlightError";
+	}
 }
 
 /**
@@ -71,16 +96,63 @@ export function createLocalEmailSender(env: Env): EmailSender {
 			// Dedupe hit → return the existing row's real id.
 			const existing = msg.dedupeKey
 				? await db
-						.select({ id: emailOutbox.id })
+						.select({
+							id: emailOutbox.id,
+							status: emailOutbox.status,
+							providerId: emailOutbox.providerId,
+							sendClaimExpiresAt: emailOutbox.sendClaimExpiresAt,
+						})
 						.from(emailOutbox)
 						.where(eq(emailOutbox.dedupeKey, msg.dedupeKey))
 						.limit(1)
 				: [];
-			return {
-				id: existing[0]?.id ?? crypto.randomUUID(),
-				deduped: true,
-				suppressed: false,
-			};
+			const prior = existing[0];
+			if (!prior) {
+				return { id: crypto.randomUUID(), deduped: true, suppressed: false };
+			}
+			// `onInFlight` is a caller guarantee, not a Resend feature: this adapter
+			// runs wherever there is no provider key and must refuse the same second
+			// send prod refuses. An EXPIRED claim is an abandoned one; honouring it
+			// forever would turn a crashed request into a row nobody can retry.
+			if (
+				prior.sendClaimExpiresAt !== null &&
+				prior.sendClaimExpiresAt.getTime() > Date.now()
+			) {
+				return inFlightOutcome(msg.onInFlight, prior);
+			}
+			// Only a row that REACHED the recipient dedupes. A failed or abandoned
+			// attempt is retried on its own row — as the Resend adapter does — so a
+			// deployment without a provider key can still clear a stuck send, and
+			// the row keeps showing what the retry actually delivered.
+			if (prior.status !== "sent" && prior.status !== "bounced") {
+				const [retried] = await db
+					.update(emailOutbox)
+					.set({
+						to: msg.to,
+						replyTo: msg.replyTo ?? null,
+						subject: msg.subject,
+						html: msg.html,
+						icsAttachment: msg.ics ?? null,
+						templateId: msg.templateId ?? null,
+						status: "sent",
+						sentAt: new Date(),
+						error: null,
+						sendClaimId: null,
+						sendClaimExpiresAt: null,
+					})
+					.where(
+						and(
+							eq(emailOutbox.id, prior.id),
+							ne(emailOutbox.status, "sent"),
+							ne(emailOutbox.status, "bounced"),
+						),
+					)
+					.returning({ id: emailOutbox.id });
+				if (retried) {
+					return { id: retried.id, deduped: false, suppressed: false };
+				}
+			}
+			return { id: prior.id, deduped: true, suppressed: false };
 		},
 	};
 }
@@ -110,6 +182,106 @@ function withSuppression(env: Env, sender: EmailSender): EmailSender {
 }
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
+const SEND_CLAIM_LEASE_MS = 5 * 60 * 1000;
+/** Must stay under SEND_CLAIM_LEASE_MS — see the fetch that uses it. */
+const PROVIDER_TIMEOUT_MS = 30 * 1000;
+
+function createSendClaim(now = Date.now()): { id: string; expiresAt: Date } {
+	return {
+		id: crypto.randomUUID(),
+		expiresAt: new Date(now + SEND_CLAIM_LEASE_MS),
+	};
+}
+
+function sendClaimIsActive(expiresAt: Date | null, now = Date.now()): boolean {
+	return expiresAt !== null && expiresAt.getTime() > now;
+}
+
+/**
+ * A live claimant owns this dedupe identity. Either that is this caller's
+ * problem (it keeps delivered-state) or it is the same outcome as any other
+ * duplicate — the winning request is delivering exactly this message.
+ */
+function inFlightOutcome(
+	onInFlight: EmailMessage["onInFlight"],
+	row: { id: string; providerId?: string | null },
+): EmailResult {
+	if (onInFlight === "reject") throw new EmailSendInFlightError();
+	return { id: row.providerId ?? row.id, deduped: true, suppressed: false };
+}
+
+/** Column-for-column "the row still describes the message we just sent". */
+function deliveredPayloadMatches(msg: EmailMessage) {
+	const sameOrNull = <T>(
+		column: Parameters<typeof eq>[0],
+		value: T | null | undefined,
+	) => (value == null ? isNull(column) : eq(column, value));
+	return [
+		eq(emailOutbox.to, msg.to),
+		eq(emailOutbox.subject, msg.subject),
+		eq(emailOutbox.html, msg.html),
+		sameOrNull(emailOutbox.replyTo, msg.replyTo),
+		sameOrNull(emailOutbox.icsAttachment, msg.ics),
+		sameOrNull(emailOutbox.templateId, msg.templateId),
+	];
+}
+
+async function reconcileSendClaim(
+	db: Db,
+	outboxId: string,
+	onInFlight: EmailMessage["onInFlight"],
+): Promise<EmailResult> {
+	const [current] = await db
+		.select({
+			id: emailOutbox.id,
+			status: emailOutbox.status,
+			providerId: emailOutbox.providerId,
+			sendClaimExpiresAt: emailOutbox.sendClaimExpiresAt,
+		})
+		.from(emailOutbox)
+		.where(eq(emailOutbox.id, outboxId))
+		.limit(1);
+	if (!current) throw new Error("email_outbox row disappeared during delivery");
+	if (current.status === "sent" || current.status === "bounced") {
+		return {
+			id: current.providerId ?? current.id,
+			deduped: true,
+			suppressed: false,
+		};
+	}
+	if (
+		current.status === "queued" &&
+		sendClaimIsActive(current.sendClaimExpiresAt)
+	) {
+		return inFlightOutcome(onInFlight, current);
+	}
+	// Someone else took the lease and already resolved this row, so this attempt
+	// has no claim left to settle. That is a delivery outcome for THIS recipient,
+	// not a broken invariant: a bare Error would abort the whole send batch and
+	// discard every other recipient's recorded outcome.
+	throw new EmailDeliveryError(
+		`Delivery could not be confirmed — another attempt on this key resolved it as ${current.status}. See Email history.`,
+	);
+}
+
+/**
+ * Idempotency key: a readable dedupeKey prefix plus a digest of the full key
+ * and the message content, so truncation cannot collide two keys. The ICS
+ * enters the digest as normalized text — its DTSTAMP is re-minted per render,
+ * so hashing raw bytes gives a resumed send a new key and a second delivery.
+ */
+async function payloadScopedIdempotencyKey(
+	dedupeKey: string,
+	body: Record<string, unknown>,
+	ics: string | undefined,
+): Promise<string> {
+	const content = JSON.stringify({
+		...body,
+		attachments: ics === undefined ? undefined : icsContentFingerprint(ics),
+	});
+	const digest = await sha256Hex(`${dedupeKey}\n${content}`);
+	return `${dedupeKey.slice(0, 120)}:${digest.slice(0, 32)}`;
+}
 
 /** base64 of a UTF-8 string — btoa alone corrupts non-Latin1 bytes. */
 function base64Utf8(s: string): string {
@@ -138,6 +310,7 @@ export function createResendEmailSender(env: Env): EmailSender {
 	const db = getDb(env);
 	return {
 		async send(msg) {
+			const sendClaim = createSendClaim();
 			// 1. Claim the outbox row — it is also the dedupe ledger. A dedupeKey
 			// conflict means a prior attempt exists: already sent/bounced → done
 			// (no provider call), failed/queued → retry on the SAME row, so
@@ -154,6 +327,8 @@ export function createResendEmailSender(env: Env): EmailSender {
 					eventId: msg.eventId ?? null,
 					templateId: msg.templateId ?? null,
 					status: "queued",
+					sendClaimId: sendClaim.id,
+					sendClaimExpiresAt: sendClaim.expiresAt,
 				})
 				.onConflictDoNothing({ target: emailOutbox.dedupeKey })
 				.returning({ id: emailOutbox.id });
@@ -166,6 +341,8 @@ export function createResendEmailSender(env: Env): EmailSender {
 								id: emailOutbox.id,
 								status: emailOutbox.status,
 								providerId: emailOutbox.providerId,
+								sendClaimId: emailOutbox.sendClaimId,
+								sendClaimExpiresAt: emailOutbox.sendClaimExpiresAt,
 							})
 							.from(emailOutbox)
 							.where(eq(emailOutbox.dedupeKey, msg.dedupeKey))
@@ -181,73 +358,156 @@ export function createResendEmailSender(env: Env): EmailSender {
 						suppressed: false,
 					};
 				}
-				outboxId = existing.id;
+				if (
+					existing.status === "queued" &&
+					sendClaimIsActive(existing.sendClaimExpiresAt)
+				) {
+					return inFlightOutcome(msg.onInFlight, existing);
+				}
+				const [claimed] = await db
+					.update(emailOutbox)
+					.set({
+						// The row is the delivery evidence AND the source the calendar
+						// ledger normalizes: keeping a superseded payload here would
+						// record an invite that no speaker ever received.
+						to: msg.to,
+						replyTo: msg.replyTo ?? null,
+						subject: msg.subject,
+						html: msg.html,
+						icsAttachment: msg.ics ?? null,
+						templateId: msg.templateId ?? null,
+						status: "queued",
+						error: null,
+						sendClaimId: sendClaim.id,
+						sendClaimExpiresAt: sendClaim.expiresAt,
+					})
+					.where(
+						and(
+							eq(emailOutbox.id, existing.id),
+							eq(emailOutbox.status, existing.status),
+							existing.sendClaimId === null
+								? isNull(emailOutbox.sendClaimId)
+								: eq(emailOutbox.sendClaimId, existing.sendClaimId),
+						),
+					)
+					.returning({ id: emailOutbox.id });
+				if (!claimed) {
+					return inFlightOutcome(msg.onInFlight, existing);
+				}
+				outboxId = claimed.id;
 			}
 
-			// 2. The provider call — success and failure both land on the row.
-			try {
-				const body: Record<string, unknown> = {
-					from,
-					to: [msg.to],
-					subject: msg.subject,
-					html: msg.html,
-				};
-				if (msg.replyTo) body.reply_to = msg.replyTo;
-				if (msg.ics) {
-					body.attachments = [
-						{
-							filename: "invite.ics",
-							content: base64Utf8(msg.ics),
-							content_type: "text/calendar; method=REQUEST",
-						},
-					];
-				}
-				const headers: Record<string, string> = {
-					Authorization: `Bearer ${env.RESEND_API_KEY}`,
-					"Content-Type": "application/json",
-				};
-				// Resend also dedupes server-side on this key for 24h — belt and
-				// braces under the outbox ledger above.
-				if (msg.dedupeKey) headers["Idempotency-Key"] = msg.dedupeKey;
+			// 2. Keep the external effect separate from D1 reconciliation: only
+			// provider/network outcomes become EmailDeliveryError.
+			const body: Record<string, unknown> = {
+				from,
+				to: [msg.to],
+				subject: msg.subject,
+				html: msg.html,
+			};
+			if (msg.replyTo) body.reply_to = msg.replyTo;
+			if (msg.ics) {
+				body.attachments = [
+					{
+						filename: "invite.ics",
+						content: base64Utf8(msg.ics),
+						content_type: "text/calendar; method=PUBLISH",
+					},
+				];
+			}
+			const headers: Record<string, string> = {
+				Authorization: `Bearer ${env.RESEND_API_KEY}`,
+				"Content-Type": "application/json",
+			};
+			// Resend replays this key for 24h — belt and braces under the outbox
+			// ledger above. Scoped to the PAYLOAD because Resend answers a reused key
+			// carrying different content with 409 invalid_idempotent_request: on the
+			// bare dedupeKey a corrected retry could never be sent at all.
+			if (msg.dedupeKey) {
+				headers["Idempotency-Key"] = await payloadScopedIdempotencyKey(
+					msg.dedupeKey,
+					body,
+					msg.ics,
+				);
+			}
 
+			let providerData: { id: string };
+			try {
 				const res = await fetch(RESEND_ENDPOINT, {
 					method: "POST",
 					headers,
 					body: JSON.stringify(body),
+					// Bounded well under SEND_CLAIM_LEASE_MS: past the lease the row is
+					// reclaimable, so a POST still in the air would race a second POST
+					// for the same message. Safe to abandon early because the stable
+					// Idempotency-Key makes the provider replay its first result.
+					signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
 				});
 				if (!res.ok) {
-					// Surface for the caller's catch (which logs + shows a generic
-					// message); never leak provider detail into the UI. The full
-					// reason lives on the failed outbox row for the admin.
-					throw new Error(
+					throw new EmailDeliveryError(
 						`Resend send failed (${res.status}): ${await res.text()}`,
 					);
 				}
-				const data = (await res.json()) as { id: string };
-				await db
+				providerData = (await res.json()) as { id: string };
+			} catch (error) {
+				const deliveryError =
+					error instanceof EmailDeliveryError
+						? error
+						: new EmailDeliveryError(errorMessage(error), error);
+				const [failed] = await db
 					.update(emailOutbox)
 					.set({
-						status: "sent",
-						providerId: data.id,
-						sentAt: new Date(),
-						error: null,
+						status: "failed",
+						error: deliveryError.message,
+						sendClaimId: null,
+						sendClaimExpiresAt: null,
 					})
-					.where(eq(emailOutbox.id, outboxId));
-				return { id: data.id, deduped: false, suppressed: false };
-			} catch (error) {
-				const reason = errorMessage(error);
-				await db
-					.update(emailOutbox)
-					.set({ status: "failed", error: reason })
-					.where(eq(emailOutbox.id, outboxId));
+					.where(
+						and(
+							eq(emailOutbox.id, outboxId),
+							eq(emailOutbox.sendClaimId, sendClaim.id),
+						),
+					)
+					.returning({ id: emailOutbox.id });
+				if (!failed) return reconcileSendClaim(db, outboxId, msg.onInFlight);
 				track("email.send_failed", {
 					outboxId,
 					eventId: msg.eventId,
 					templateId: msg.templateId,
-					error: reason,
+					error: deliveryError.message,
 				});
-				throw error;
+				throw deliveryError;
 			}
+
+			// A confirmed success is terminal truth about THIS content: the stamp
+			// still lands when a reclaimer re-sent the same payload, and must NOT
+			// land once it rewrote one — signing someone else's content with our
+			// provider id records an invite nobody received.
+			const [persisted] = await db
+				.update(emailOutbox)
+				.set({
+					status: "sent",
+					providerId: providerData.id,
+					sentAt: new Date(),
+					error: null,
+					sendClaimId: null,
+					sendClaimExpiresAt: null,
+				})
+				.where(
+					and(
+						eq(emailOutbox.id, outboxId),
+						ne(emailOutbox.status, "sent"),
+						ne(emailOutbox.status, "bounced"),
+						...deliveredPayloadMatches(msg),
+					),
+				)
+				.returning({ id: emailOutbox.id });
+			if (!persisted) return reconcileSendClaim(db, outboxId, msg.onInFlight);
+			return {
+				id: providerData.id,
+				deduped: false,
+				suppressed: false,
+			};
 		},
 	};
 }

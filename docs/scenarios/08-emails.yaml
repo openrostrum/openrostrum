@@ -6,6 +6,9 @@ touches:
     [
       emailTemplates,
       emailOutbox,
+      calendarInviteRevisions,
+      calendarInviteProcessedOutbox,
+      calendarInviteSequenceFrontiers,
       emailSuppressions,
       forms,
       submissions,
@@ -30,10 +33,12 @@ touches:
       portals.$eventSlug.$portalId.tsx,
       login.tsx,
     ]
-  jobs: [app/jobs/reminders.scheduled.ts] # EM-S4; file yet to be added per app/jobs/registry.ts pattern
+  jobs: [app/jobs/draft-reminders.scheduled.ts] # EM-S4
   utils:
     [
-      "ics (npm, per docs/rules/tech-stack.md)",
+      "app/lib/ics.ts (RFC 5545 serializer and historical invite reader)",
+      "app/domain/accept.ts (decision send + notified_at finalization)",
+      "app/domain/schedule-update.ts (calendar revision ledger + sequence claims)",
       "merge-tag renderer (UNSPECIFIED — walk gap #3)",
     ]
   # UNASSIGNED in docs/ROUTE-MAP.md but required by these scenarios (see walk):

@@ -1581,6 +1581,10 @@ export const emailOutbox = sqliteTable(
 		status: text("status", { enum: EMAIL_STATUS }).notNull().default("queued"),
 		error: text("error"),
 		providerId: text("provider_id"), // Resend id once really sent (prod)
+		sendClaimId: text("send_claim_id"),
+		sendClaimExpiresAt: integer("send_claim_expires_at", {
+			mode: "timestamp",
+		}),
 		createdAt: createdAt(),
 		sentAt: integer("sent_at", { mode: "timestamp" }),
 	},
@@ -1588,6 +1592,66 @@ export const emailOutbox = sqliteTable(
 		index("email_outbox_event_idx").on(t.eventId),
 		index("email_outbox_status_idx").on(t.status),
 	],
+);
+
+export const calendarInviteRevisions = sqliteTable(
+	"calendar_invite_revisions",
+	{
+		id: id(),
+		submissionId: text("submission_id")
+			.notNull()
+			.references(() => submissions.id, { onDelete: "cascade" }),
+		sequence: integer("sequence"),
+		stateHash: text("state_hash").notNull(),
+		recipient: text("recipient").notNull(),
+		startsAt: integer("starts_at", { mode: "timestamp" }),
+		endsAt: integer("ends_at", { mode: "timestamp" }),
+		location: text("location"),
+		title: text("title"),
+		outboxId: text("outbox_id")
+			.notNull()
+			.references(() => emailOutbox.id, { onDelete: "cascade" }),
+		invalid: integer("invalid", { mode: "boolean" }).notNull().default(false),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		unique("calendar_invite_revisions_outbox_submission_uq").on(
+			t.outboxId,
+			t.submissionId,
+		),
+		index("calendar_invite_revisions_submission_sequence_idx").on(
+			t.submissionId,
+			t.sequence,
+		),
+	],
+);
+
+export const calendarInviteProcessedOutbox = sqliteTable(
+	"calendar_invite_processed_outbox",
+	{
+		outboxId: text("outbox_id")
+			.primaryKey()
+			.references(() => emailOutbox.id, { onDelete: "cascade" }),
+		eventId: text("event_id")
+			.notNull()
+			.references(() => events.id, { onDelete: "cascade" }),
+		invalid: integer("invalid", { mode: "boolean" }).notNull().default(false),
+		processedAt: integer("processed_at", { mode: "timestamp" })
+			.notNull()
+			.$defaultFn(() => new Date()),
+	},
+);
+
+export const calendarInviteSequenceFrontiers = sqliteTable(
+	"calendar_invite_sequence_frontiers",
+	{
+		submissionId: text("submission_id")
+			.primaryKey()
+			.references(() => submissions.id, { onDelete: "cascade" }),
+		sequence: integer("sequence").notNull(),
+		stateHash: text("state_hash").notNull(),
+		updatedAt: updatedAt(),
+	},
 );
 
 /* -------------------------------------------------------------- relations --- */

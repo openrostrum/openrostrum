@@ -15,6 +15,16 @@ import {
 	tasks,
 	users,
 } from "~/db/schema";
+import {
+	icsUidForSubmission,
+	recordSentCalendarInvites,
+} from "~/domain/calendar-ledger";
+import {
+	claimInviteSequences,
+	deliveredInviteFrontiers,
+	inviteStateHash,
+	proposedSequence,
+} from "~/domain/calendar-sequence";
 import { normalizeEmail } from "~/lib/auth";
 import { formatInTimeZone, formatScheduleRange } from "~/lib/dates";
 import {
@@ -24,10 +34,15 @@ import {
 } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { escapeHtml } from "~/lib/html";
-import { buildIcs } from "~/lib/ics";
+import { buildIcs, icsEntryFingerprint } from "~/lib/ics";
 import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";
-import { type EmailResult, getEmailSender } from "~/ports/email";
+import {
+	EmailDeliveryError,
+	type EmailResult,
+	EmailSendInFlightError,
+	getEmailSender,
+} from "~/ports/email";
 
 /** One per-request send cap for every speaker-facing batch (decision emails
  * here, schedule updates in schedule-update.ts). */
@@ -519,6 +534,8 @@ type DecisionPlanItem = {
 	html?: string;
 	ics?: string;
 	reason?: string;
+	/** Accept only: what the attached invite says, for claiming its revision. */
+	calendar?: { invite: SubmissionInvite; stateHash: string };
 };
 
 type DecisionEmailPlan = {
@@ -561,7 +578,10 @@ async function fingerprintDecisionPlan(
 				to: item.to,
 				subject: item.subject,
 				html: item.html,
-				ics: item.ics?.replace(/^DTSTAMP:[^\r\n]*\r?\n/m, ""),
+				// Revision-independent: the sequence this invite ships at is claimed
+				// at send, so an unrelated schedule update landing between preview and
+				// send must not read as "the admin reviewed something else".
+				ics: item.ics && icsEntryFingerprint(item.ics),
 				reason: item.reason,
 			})),
 		}),
@@ -671,6 +691,34 @@ async function buildDecisionEmailPlan(
 		origin && portalPublicId
 			? portalUrl(origin, event.slug, portalPublicId)
 			: null;
+	// An acceptance shares its calendar UID — and so its revision counter — with
+	// every schedule update that follows, so a re-send has to read the delivered
+	// counter or land below what the speaker's client already applied. Only
+	// proposed here; `sendDecisionEmails` claims it past the confirmation gate.
+	const calendarByRow = new Map<
+		string,
+		{ invite: SubmissionInvite; stateHash: string; sequence: number }
+	>();
+	if (decision === "accept") {
+		const frontiers = await deliveredInviteFrontiers(db, ids);
+		for (const row of rows) {
+			const to = recipientById.get(row.id);
+			if (!to) continue;
+			const invite = inviteForSubmission(
+				row,
+				event,
+				row.roomId ? roomName.get(row.roomId) : undefined,
+			);
+			if (!invite) continue;
+			const stateHash = await inviteStateHash(event.id, row.id, to, invite);
+			calendarByRow.set(row.id, {
+				invite,
+				stateHash,
+				sequence: proposedSequence(stateHash, frontiers.get(row.id)),
+			});
+		}
+	}
+
 	const items: DecisionPlanItem[] = rows.map((row) => {
 		const to = recipientById.get(row.id);
 		if (!to) {
@@ -714,6 +762,7 @@ async function buildDecisionEmailPlan(
 				? formatInTimeZone(form.closeAt, event.timezone)
 				: null,
 		};
+		const calendar = calendarByRow.get(row.id);
 		return {
 			row,
 			to,
@@ -722,7 +771,18 @@ async function buildDecisionEmailPlan(
 				renderBody(template.bodyHtml, context) +
 				decisionDetailsHtml(row, event, decision, room),
 			ics:
-				decision === "accept" ? buildDecisionIcs(row, event, room) : undefined,
+				calendar &&
+				icsForInvites(event, [
+					{
+						submissionId: row.id,
+						invite: calendar.invite,
+						sequence: calendar.sequence,
+					},
+				]),
+			calendar: calendar && {
+				invite: calendar.invite,
+				stateHash: calendar.stateHash,
+			},
 		};
 	});
 	return {
@@ -806,12 +866,77 @@ export async function sendDecisionEmails(
 	}
 	const { template } = plan;
 
+	// The revision is taken only past the confirmation gate: claiming at preview
+	// would burn a number on a send the admin abandons, leaving a gap the
+	// speaker's client reads as a revision it missed. The claim is a
+	// compare-and-set, so concurrent accepts cannot mint one number twice.
+	const calendarItems = plan.items.flatMap((item) =>
+		item.calendar ? [{ id: item.row.id, ...item.calendar }] : [],
+	);
+	const sendFrontiers = await deliveredInviteFrontiers(
+		db,
+		calendarItems.map((item) => item.id),
+	);
+	const claimedSequences = await claimInviteSequences(
+		db,
+		calendarItems.map((item) => ({
+			submissionId: item.id,
+			stateHash: item.stateHash,
+			proposedSequence: proposedSequence(
+				item.stateHash,
+				sendFrontiers.get(item.id),
+			),
+		})),
+	);
+
 	const sender = getEmailSender(env);
 	const results: DecisionSendResult[] = [];
 	const newlySent: string[] = [];
 	const dedupedIds: string[] = [];
+	const attemptedInviteKeys: string[] = [];
+	// Stamping is its own step because it also has to run on the way out of an
+	// unexpected failure: a speaker who already received their decision must stay
+	// marked notified, or a null stamp silently drops their session from every
+	// future schedule update.
+	const finalizeNotified = async () => {
+		const now = new Date();
+		if (newlySent.length) {
+			await db
+				.update(submissions)
+				.set({ notifiedAt: now })
+				.where(inArray(submissions.id, newlySent));
+		}
+		if (dedupedIds.length) {
+			await db
+				.update(submissions)
+				.set({ notifiedAt: now })
+				.where(
+					and(
+						inArray(submissions.id, dedupedIds),
+						isNull(submissions.notifiedAt),
+					),
+				);
+		}
+		// The invite this request just sent belongs in the delivery ledger now.
+		// Leaving it for the history scan re-arms that scan on every acceptance,
+		// and while it is armed the agenda cannot count stale speakers at all.
+		await recordSentCalendarInvites(db, event.id, attemptedInviteKeys);
+	};
 	for (const item of plan.items) {
-		const { row, to, subject, html, ics, reason } = item;
+		const { row, to, subject, html, reason } = item;
+		const claimed = claimedSequences.get(row.id);
+		// Re-render at the revision this send owns, not the one the preview
+		// guessed: between the two, another request may have advanced the counter.
+		const ics =
+			item.calendar && claimed !== undefined
+				? icsForInvites(event, [
+						{
+							submissionId: row.id,
+							invite: item.calendar.invite,
+							sequence: claimed,
+						},
+					])
+				: item.ics;
 		if (reason || !to || subject === undefined || html === undefined) {
 			results.push({
 				submissionId: row.id,
@@ -821,6 +946,10 @@ export async function sendDecisionEmails(
 			continue;
 		}
 		let result: EmailResult;
+		// The decision is part of the identity: an accept then a corrective
+		// decline on the SAME untouched selection must both deliver.
+		const dedupeKey = `decision:${decision}:${idempotencyKey}:${row.id}`;
+		if (decision === "accept") attemptedInviteKeys.push(dedupeKey);
 		try {
 			result = await sender.send({
 				to,
@@ -828,14 +957,39 @@ export async function sendDecisionEmails(
 				subject,
 				html,
 				ics,
-				// The decision is part of the identity: an accept then a corrective
-				// decline on the SAME untouched selection must both deliver.
-				dedupeKey: `decision:${decision}:${idempotencyKey}:${row.id}`,
+				dedupeKey,
 				eventId: event.id,
 				templateId: template.id,
 				kind: "transactional",
+				// This request stamps `notified_at` on success, so a delivery another
+				// request owns must surface as in-flight, never as our own success.
+				onInFlight: "reject",
 			});
 		} catch (error) {
+			if (error instanceof EmailSendInFlightError) {
+				// A concurrent request holds this recipient's send claim — the email
+				// is going out right now. Calling that a failure would send the admin
+				// chasing a delivery that already happened.
+				track("email.decision_send_in_flight", {
+					submissionId: row.id,
+					eventId: event.id,
+					decision,
+				});
+				results.push({
+					submissionId: row.id,
+					ok: false,
+					to,
+					reason: `${to} is already being sent this decision — no action needed.`,
+				});
+				continue;
+			}
+			if (!(error instanceof EmailDeliveryError)) {
+				// A database or runtime fault is not this recipient's problem. Naming
+				// them would hide a fault that repeats on every retry — but the
+				// speakers already sent must keep their stamp before it propagates.
+				await finalizeNotified();
+				throw error;
+			}
 			// One undeliverable recipient must not sink the batch: the rest still
 			// send and finalize, this row stays un-finalized and is reported
 			// per-row (provider detail stays in Email history, not the UI).
@@ -867,33 +1021,8 @@ export async function sendDecisionEmails(
 			deduped: result.deduped,
 		});
 	}
-	// `notifiedAt` is a dispatch flag, not a send time — the outbox row's
-	// `sentAt` is authoritative. A deduped result proves an earlier send, so it
-	// back-fills a stamp missing after a partial-failure retry.
-	const now = new Date();
-	if (newlySent.length) {
-		await db
-			.update(submissions)
-			.set({ notifiedAt: now })
-			.where(inArray(submissions.id, newlySent));
-	}
-	if (dedupedIds.length) {
-		await db
-			.update(submissions)
-			.set({ notifiedAt: now })
-			.where(
-				and(
-					inArray(submissions.id, dedupedIds),
-					isNull(submissions.notifiedAt),
-				),
-			);
-	}
+	await finalizeNotified();
 	return results;
-}
-
-/** Stable calendar identity per submission — schedule updates reuse it and bump SEQUENCE so clients revise the entry instead of duplicating it. */
-export function icsUidForSubmission(submissionId: string): string {
-	return `submission-${submissionId}@openrostrum`;
 }
 
 const INVITE_RECIPIENT_QUERY_CHUNK = 80;
@@ -1019,16 +1148,6 @@ export function icsForInvites(
 			status: "CONFIRMED",
 		})),
 	});
-}
-
-function buildDecisionIcs(
-	row: Submission,
-	event: typeof events.$inferSelect,
-	room: string | undefined,
-): string | undefined {
-	const invite = inviteForSubmission(row, event, room);
-	if (!invite) return undefined;
-	return icsForInvites(event, [{ submissionId: row.id, invite, sequence: 0 }]);
 }
 
 /** Appended below the template body so the recipient knows WHICH submission the decision covers (a speaker can have several in flight). */

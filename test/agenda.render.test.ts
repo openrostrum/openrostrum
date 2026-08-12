@@ -1,4 +1,4 @@
-import { createElement, type ElementType } from "react";
+import { createElement, type ComponentType, type ElementType } from "react";
 import { renderToString } from "react-dom/server";
 import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,9 @@ import {
 	type AgendaSession,
 	type Conflict,
 } from "../app/agenda/lib";
-import Agenda from "../app/routes/admin.agenda";
+import Agenda, {
+	ScheduleUpdateDeliveryOutcome,
+} from "../app/routes/admin.agenda";
 import type {
 	AgendaSurfaceData,
 	ItinerarySurfaceData,
@@ -77,6 +79,175 @@ describe("agenda publish confirmation", () => {
 	});
 });
 
+function renderedText(html: string): string {
+	return html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
+}
+
+/** Render the route against hand-built loader data (invite-history states). */
+function renderAgendaLoaderData(loaderData: unknown): string {
+	const RouteComponent = Agenda as unknown as ComponentType<{
+		loaderData: unknown;
+		actionData?: unknown;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/",
+			Component: () => createElement(RouteComponent, { loaderData }),
+		},
+	]);
+	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
+}
+
+describe("agenda invite-history continuation", () => {
+	// A claim another request still holds is not a delivery failure: presenting it
+	// as one sends the admin to Email history to retry a send that is succeeding.
+	it("never presents an active provider claim as a failure", () => {
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/",
+				Component: () =>
+					createElement(ScheduleUpdateDeliveryOutcome, {
+						result: {
+							sent: 0,
+							deduped: 0,
+							failed: 0,
+							inFlight: 3,
+							remaining: 0,
+						},
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+
+		const text = renderedText(html);
+		expect(text).toContain("3");
+		expect(text).not.toMatch(/fail/i);
+		expect(html).not.toContain("/admin/emails/history");
+	});
+
+	it("sends failed deliveries to Email history to retry", () => {
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/",
+				Component: () =>
+					createElement(ScheduleUpdateDeliveryOutcome, {
+						result: {
+							sent: 0,
+							deduped: 0,
+							failed: 3,
+							inFlight: 0,
+							remaining: 0,
+						},
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+
+		expect(html).toContain("/admin/emails/history");
+		expect(renderedText(html)).toContain("3");
+	});
+
+	it("offers a POST action when invite history still needs checking", () => {
+		const html = renderAgendaLoaderData({
+			event: {
+				id: "event-1",
+				name: "Scale Conference",
+				slug: "scale",
+				timezone: "UTC",
+				dayStartMin: 540,
+				dayEndMin: 1020,
+				schedulableStatuses: ["accepted"],
+				publishedAt: null,
+				days: ["2026-10-12"],
+				hiddenFromPublic: 0,
+				staleSpeakers: 0,
+				scheduleScanTruncated: true,
+				scheduleScanBlocked: false,
+				scheduleBlockedSessions: [],
+			},
+			rooms: [],
+			tracks: [],
+			formats: [],
+			sessions: [],
+			statusOptions: ["accepted"],
+		});
+
+		expect(html).toContain('method="post"');
+		expect(html).toContain('name="intent"');
+		expect(html).toContain('value="schedule-updates"');
+	});
+
+	it("names the sessions held back by unreadable invite history", () => {
+		const html = renderAgendaLoaderData({
+			event: {
+				id: "event-1",
+				name: "Scale Conference",
+				slug: "scale",
+				timezone: "UTC",
+				dayStartMin: 540,
+				dayEndMin: 1020,
+				schedulableStatuses: ["accepted"],
+				publishedAt: null,
+				days: ["2026-10-12"],
+				hiddenFromPublic: 0,
+				staleSpeakers: 0,
+				scheduleScanTruncated: false,
+				scheduleScanBlocked: true,
+				scheduleBlockedSessions: ["Live Demo: Agent Swarms in Production"],
+			},
+			rooms: [],
+			tracks: [],
+			formats: [],
+			sessions: [],
+			statusOptions: ["accepted"],
+		});
+
+		expect(html).toContain("/admin/emails/history");
+		expect(renderedText(html)).toContain(
+			"Live Demo: Agent Swarms in Production",
+		);
+		// Nothing else is stale here, so there is nothing left to send.
+		expect(html).not.toContain('value="schedule-updates"');
+	});
+
+	// One speaker's unreadable invite is not the event's problem: everybody else
+	// still gets their schedule update in the same click.
+	it("keeps the send available while some sessions are held back", () => {
+		const html = renderAgendaLoaderData({
+			event: {
+				id: "event-1",
+				name: "Scale Conference",
+				slug: "scale",
+				timezone: "UTC",
+				dayStartMin: 540,
+				dayEndMin: 1020,
+				schedulableStatuses: ["accepted"],
+				publishedAt: null,
+				days: ["2026-10-12"],
+				hiddenFromPublic: 0,
+				staleSpeakers: 2,
+				scheduleScanTruncated: false,
+				scheduleScanBlocked: true,
+				scheduleBlockedSessions: ["Live Demo: Agent Swarms in Production"],
+			},
+			rooms: [],
+			tracks: [],
+			formats: [],
+			sessions: [],
+			statusOptions: ["accepted"],
+		});
+
+		expect(html).toContain('value="schedule-updates"');
+		expect(renderedText(html)).toContain(
+			"Live Demo: Agent Swarms in Production",
+		);
+	});
+});
+
 const adminAgendaSessions: AgendaSession[] = [
 	{
 		id: "session-durable",
@@ -124,6 +295,8 @@ function renderAdminAgenda(entry = "/?view=list") {
 			hiddenFromPublic: 0,
 			staleSpeakers: 0,
 			scheduleScanTruncated: false,
+			scheduleScanBlocked: false,
+			scheduleBlockedSessions: [],
 		},
 		rooms: [],
 		tracks: [],

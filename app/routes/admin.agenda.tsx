@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
 	data,
 	Form,
@@ -52,6 +52,7 @@ import { SUBMISSION_STATUS } from "~/db/constants";
 import { events, formats, rooms as roomsTable, submissions } from "~/db/schema";
 import {
 	computeScheduleChanges,
+	normalizeCalendarInviteHistory,
 	sendScheduleUpdates,
 } from "~/domain/schedule-update";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
@@ -304,6 +305,11 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				hiddenFromPublic,
 				staleSpeakers: changeSet.speakers,
 				scheduleScanTruncated: changeSet.truncated,
+				scheduleScanPartial: changeSet.partial,
+				scheduleScanBlocked: changeSet.blockedSessions.length > 0,
+				scheduleBlockedSessions: changeSet.blockedSessions.map(
+					(session) => session.submissionTitle,
+				),
 			},
 			rooms: roomRows.map((r) => ({
 				id: r.id,
@@ -361,9 +367,118 @@ type ActionResult = {
 		sent: number;
 		deduped: number;
 		failed: number;
+		inFlight: number;
 		remaining: number;
 	};
+	normalization?: {
+		processed: number;
+		remaining: boolean;
+	};
+	/** Sessions withheld from the send that just ran, pending operator review. */
+	blockedSessions?: number;
+	/** The scan stopped at its window; unseen sessions are still waiting. */
+	morePending?: boolean;
 };
+
+function ScheduleHistoryNormalizationOutcome({
+	result,
+	continuation,
+}: {
+	result: NonNullable<ActionResult["normalization"]>;
+	continuation: ReactNode;
+}) {
+	return (
+		<InfoBar>
+			<InfoBarActionRow>
+				<span>
+					{result.processed} invite-history{" "}
+					{result.processed === 1 ? "record" : "records"} checked.{" "}
+					{result.remaining
+						? "More history remains; continue before any email is sent."
+						: "All invite history is now accounted for."}
+				</span>
+				{/* Only an unfinished scan leaves something for the operator to
+				    do. A finished one already sent in the same request, so a
+				    "continue" button here would invite a pointless second send. */}
+				{result.remaining ? continuation : null}
+			</InfoBarActionRow>
+		</InfoBar>
+	);
+}
+
+const NAMED_BLOCKED_SESSIONS = 3;
+
+/** Names the held-back sessions so an operator can go find them, without
+ *  turning a banner into a wall of text on a large event. */
+function formatSessionList(titles: readonly string[]): string {
+	const named = titles.slice(0, NAMED_BLOCKED_SESSIONS);
+	const rest = titles.length - named.length;
+	return rest > 0
+		? `${named.join(", ")} and ${rest} more`
+		: named.join(", ") || "none";
+}
+
+export function ScheduleUpdateDeliveryOutcome({
+	result,
+	blockedSessions = 0,
+	morePending = false,
+}: {
+	result: NonNullable<ActionResult["updates"]>;
+	blockedSessions?: number;
+	morePending?: boolean;
+}) {
+	return (
+		<InfoBar>
+			Sent <Strong>{result.sent}</Strong> schedule-update{" "}
+			{result.sent === 1 ? "email" : "emails"}
+			{result.deduped > 0 && <> — {result.deduped} already delivered</>}
+			{result.failed > 0 && (
+				<>
+					{" "}
+					— <Strong>{result.failed}</Strong> failed (see{" "}
+					<TextLink to="/admin/emails/history">Email history</TextLink> and
+					retry)
+				</>
+			)}
+			{result.inFlight > 0 && (
+				<>
+					{" "}
+					— <Strong>{result.inFlight}</Strong>{" "}
+					{result.inFlight === 1
+						? "delivery still in progress"
+						: "deliveries still in progress"}
+				</>
+			)}
+			{/* A number only when it is the whole number. Past the scan window the
+			    unsent speakers have not been counted yet, so naming a figure here
+			    would read as the last click an operator owes their speakers. */}
+			{(result.remaining > 0 || morePending) && (
+				<>
+					{" "}
+					—{" "}
+					{morePending ? (
+						<>more to send, click again</>
+					) : (
+						<>
+							<Strong>{result.remaining}</Strong> more to send, click again
+						</>
+					)}
+				</>
+			)}
+			{blockedSessions > 0 && (
+				<>
+					{" "}
+					— <Strong>{blockedSessions}</Strong>{" "}
+					{blockedSessions === 1 ? "session was" : "sessions were"} held back
+					because the invite already delivered for{" "}
+					{blockedSessions === 1 ? "it" : "them"} can’t be read (
+					<TextLink to="/admin/emails/history">Email history</TextLink>)
+				</>
+			)}
+			.
+		</InfoBar>
+	);
+}
 
 const fail = (formError: string): ActionResult => ({ ok: false, formError });
 const failFields = (
@@ -572,6 +687,24 @@ export async function action({ context, request }: Route.ActionArgs) {
 		}
 
 		if (intent === "schedule-updates") {
+			const normalization = await timings.time("db-write", () =>
+				normalizeCalendarInviteHistory(db, event.id),
+			);
+			if (normalization.processed > 0) {
+				track("agenda.schedule_history_normalized", {
+					eventId: event.id,
+					processed: normalization.processed,
+					remaining: normalization.remaining,
+				});
+			}
+			// Only an unfinished scan needs a second click. Finishing one — the
+			// normal deploy-day case — must not cost the operator an extra round
+			// trip before the update they actually asked for goes out.
+			if (normalization.remaining) {
+				return data(ok({ normalization }), {
+					headers: { "Server-Timing": timings.header() },
+				});
+			}
 			const changeSet = await timings.time("db", () =>
 				computeScheduleChanges(db, event),
 			);
@@ -579,6 +712,17 @@ export async function action({ context, request }: Route.ActionArgs) {
 				return data(
 					fail(
 						"Invite history could not be checked completely — no schedule updates were sent.",
+					),
+					{ headers: { "Server-Timing": timings.header() } },
+				);
+			}
+			const blockedSessions = changeSet.blockedSessions.length;
+			// Nothing left to send: report the review as an error rather than a
+			// cheerful "0 sent", which an operator reads as "everyone is up to date".
+			if (changeSet.changes.length === 0 && blockedSessions > 0) {
+				return data(
+					fail(
+						"Calendar invite history contains invalid sent records. Review Email history before sending schedule updates.",
 					),
 					{ headers: { "Server-Timing": timings.header() } },
 				);
@@ -591,11 +735,22 @@ export async function action({ context, request }: Route.ActionArgs) {
 				sent: outcome.sent,
 				deduped: outcome.deduped,
 				failed: outcome.failed,
+				inFlight: outcome.inFlight,
 				remaining: outcome.remaining,
+				blockedSessions,
 			});
-			return data(ok({ updates: outcome }), {
-				headers: { "Server-Timing": timings.header() },
-			});
+			// Reported alongside the send it paid for: a first-run scan can add
+			// seconds to a click that normally returns at once, and an operator
+			// with no explanation for that reads it as the send hanging.
+			return data(
+				ok({
+					updates: outcome,
+					...(changeSet.partial ? { morePending: true } : {}),
+					...(blockedSessions > 0 ? { blockedSessions } : {}),
+					...(normalization.processed > 0 ? { normalization } : {}),
+				}),
+				{ headers: { "Server-Timing": timings.header() } },
+			);
 		}
 
 		if (intent === "publish" || intent === "unpublish") {
@@ -924,6 +1079,19 @@ export default function Agenda({
 
 	const showsBoard = view === "day" || view === "week" || view === "track";
 	const showsDayStrip = view === "day" || view === "track";
+	const scheduleUpdateForm = (idleLabel: string, pendingLabel: string) => (
+		<updatesFetcher.Form method="post">
+			<Button
+				type="submit"
+				variant="ghost"
+				name="intent"
+				value="schedule-updates"
+				disabled={busy}
+			>
+				{updatesFetcher.state === "idle" ? idleLabel : pendingLabel}
+			</Button>
+		</updatesFetcher.Form>
+	);
 
 	return (
 		<div className="mx-auto flex max-w-[1400px] flex-col gap-4 px-7 py-6">
@@ -1001,58 +1169,61 @@ export default function Agenda({
 				<InfoBar>
 					<InfoBarActionRow>
 						<span>
+							{event.scheduleScanPartial ? "At least " : null}
 							<Strong>{event.staleSpeakers}</Strong>{" "}
 							{event.staleSpeakers === 1 ? "speaker has" : "speakers have"}{" "}
 							unsent schedule updates — their calendars still show the last
 							invite they were emailed.
+							{event.scheduleScanPartial
+								? " More are waiting than one send covers; each send picks up where the last left off."
+								: null}
 						</span>
-						<updatesFetcher.Form method="post">
-							<Button
-								type="submit"
-								variant="ghost"
-								name="intent"
-								value="schedule-updates"
-								disabled={busy}
-							>
-								{updatesFetcher.state === "idle"
-									? "Send schedule updates"
-									: "Sending…"}
-							</Button>
-						</updatesFetcher.Form>
+						{scheduleUpdateForm("Send schedule updates", "Sending…")}
 					</InfoBarActionRow>
+				</InfoBar>
+			)}
+			{event.scheduleScanBlocked && (
+				<InfoBar>
+					<Strong>{event.scheduleBlockedSessions.length}</Strong>{" "}
+					{event.scheduleBlockedSessions.length === 1 ? "session" : "sessions"}{" "}
+					can’t be updated — the invite already delivered for{" "}
+					{event.scheduleBlockedSessions.length === 1 ? "it" : "them"} can’t be
+					read, so we can’t tell what those speakers currently have in their
+					calendars: {formatSessionList(event.scheduleBlockedSessions)}.{" "}
+					<TextLink to="/admin/emails/history">Review Email history</TextLink>{" "}
+					before retrying. Every other session still sends normally.
 				</InfoBar>
 			)}
 			{event.staleSpeakers === 0 && event.scheduleScanTruncated && (
 				<InfoBar>
-					Matching invite history exceeded the check limit, so schedule-update
-					counts may be incomplete.
+					<InfoBarActionRow>
+						{/* The loader knows only that unchecked invite history exists —
+							    never that a limit was exceeded. Naming a limit here would
+							    send the operator hunting for one that may not exist. */}
+						<span>
+							Some invite history has not been checked yet, so the stale-speaker
+							count is incomplete.
+						</span>
+						{scheduleUpdateForm("Check invite history", "Checking…")}
+					</InfoBarActionRow>
 				</InfoBar>
 			)}
+			{updatesFetcher.data?.normalization &&
+				updatesFetcher.state === "idle" && (
+					<ScheduleHistoryNormalizationOutcome
+						result={updatesFetcher.data.normalization}
+						continuation={scheduleUpdateForm(
+							"Continue schedule updates",
+							"Checking…",
+						)}
+					/>
+				)}
 			{updatesFetcher.data?.updates && updatesFetcher.state === "idle" && (
-				<InfoBar>
-					Sent <Strong>{updatesFetcher.data.updates.sent}</Strong>{" "}
-					schedule-update{" "}
-					{updatesFetcher.data.updates.sent === 1 ? "email" : "emails"}
-					{updatesFetcher.data.updates.deduped > 0 && (
-						<> — {updatesFetcher.data.updates.deduped} already delivered</>
-					)}
-					{updatesFetcher.data.updates.failed > 0 && (
-						<>
-							{" "}
-							— <Strong>{updatesFetcher.data.updates.failed}</Strong> failed
-							(see <TextLink to="/admin/emails/history">Email history</TextLink>{" "}
-							and retry)
-						</>
-					)}
-					{updatesFetcher.data.updates.remaining > 0 && (
-						<>
-							{" "}
-							— <Strong>{updatesFetcher.data.updates.remaining}</Strong> more to
-							send, click again
-						</>
-					)}
-					.
-				</InfoBar>
+				<ScheduleUpdateDeliveryOutcome
+					result={updatesFetcher.data.updates}
+					blockedSessions={updatesFetcher.data.blockedSessions}
+					morePending={updatesFetcher.data.morePending}
+				/>
 			)}
 			{placeFetcher.data?.placed !== undefined &&
 				placeFetcher.state === "idle" && (

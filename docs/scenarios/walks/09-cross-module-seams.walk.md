@@ -1049,3 +1049,169 @@ Wave B/C/D-dependent behaviors cited above (A1 fallback fix, admin-guard members
 A2 token guard, A3 sync selection + not-configured state, org-member invites) are all
 explicitly committed in `docs/multi-tenancy-design.md` (§Authorization, §Airtable, Build
 order table) and therefore filed as coverage citations, not gaps.
+
+## 2026-08-11 re-walk — calendar revision ledger and provider send claims (design-time gate)
+
+**Gate trigger.** This file's `touches:` names `tables: [… emailOutbox …]`, `ports: [EmailSender, …]` and
+`routes: [… admin.agenda.tsx …]` — all three directly changed on this branch. All 66 steps are walked below
+— none pre-filtered. Shared structural findings **S1**, **S2** and **S3** are stated in full in
+`01-auth-event-setup.walk.md` §"2026-08-11 re-walk"; the `admin.agenda.tsx` route delta is itemized in
+`06-agenda.walk.md` §"Concrete artifacts".
+
+**Cross-module scope.** Three seams matter for this file specifically:
+
+- **Delivery seam** — any send with an `.ics` (decision emails, schedule updates) now writes a
+  `calendar_invite_revisions` attempt, a `calendar_invite_processed_outbox` marker, and advances a
+  `calendar_invite_sequence_frontiers` row. Sends without an `.ics` (confirmations, task nudges, password
+  resets) gain only the two NULLABLE `email_outbox` claim columns (S1).
+- **Deletion seam** — the ledger adds two submission-keyed tables, so XM-S5's "no orphans anywhere" oracle
+  now has more surface to cover. Concrete artifact below.
+- **Export/read seam** — no ledger column is exported, rendered on a portal or admin surface, or exposed in
+  a loader payload. The Agenda derives two fields from the ledger — `scheduleScanBlocked` and the titles of
+  the held-back sessions, both already event-scoped admin data — so CSV, portal and authz oracles are
+  structurally out of reach of this change.
+
+### Concrete artifact — the deletion seam is now guarded by a test
+
+`deleteSubmission` (`app/routes/admin.submissions_.$id.tsx:1351`) issues a single
+`DELETE FROM submissions` and lets schema cascades own the children. Migration 0013 declares
+`ON DELETE cascade` on `calendar_invite_revisions.submission_id`,
+`calendar_invite_sequence_frontiers.submission_id`, and `calendar_invite_revisions.outbox_id` /
+`calendar_invite_processed_outbox.outbox_id`. Before this gate no test exercised that, so XM-S5.5's oracle
+rested on DDL reading alone. Added:
+`test/admin.agenda.route.test.ts` → `describe("calendar ledger lifecycle")` →
+**"hard-deleting a submission takes its revisions and frontier, not the outbox marker"**. It schedules and
+sends a real update so all three row shapes exist, issues the same `DELETE` the route issues, and asserts
+revisions and frontier reach zero while the processed marker survives — the marker belongs to the immutable
+outbox row, not to the submission, so history is never re-normalized after a delete. **Observed: passing**
+(1 passed, run against real D1 in workerd), which also confirms D1 is enforcing these cascades rather than
+silently ignoring them.
+
+### XM-S1 — the spine, public submit → accept → portal → agenda → dashboard (16 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Form lookup and copied public URL. |
+| 2 | UNCHANGED | Welcome step + close-date banner. |
+| 3 | UNCHANGED | Account step branches to signup. |
+| 4 | UNCHANGED | Empty-title inline validation, no data loss, then full fill. |
+| 5 | UNCHANGED | Participant step, live email validation for speaker 2. |
+| 6 | UNCHANGED | Success page with the exact configured message. The confirmation email routes through the port with no `ics` and no `onInFlight`, so its duplicate semantics match `origin/main` (S2, S3) and its row gains only the two NULLABLE claim columns (S1). |
+| 7 | UNCHANGED | Inline pill → Accept Queue via `transitionSubmissions`, which is byte-identical to main. |
+| 8 | UNCHANGED | Portal masks Accept Queue as Pending; **zero-new-email oracle holds** — queue transitions never call the port. |
+| 9 | **CHANGED — same oracle, wider durable record.** | The 3-row bulk send with `.ics` runs through `sendDecisionEmails`. Oracle unchanged: 3 outbox rows, 3 status flips to Accepted. New durable side effects: one revision attempt + processed marker per row, and a frontier at sequence 0 per submission. This is one of the two sites passing `onInFlight: "reject"` (`app/domain/accept.ts:891`), because it stamps `notified_at` — a concurrent duplicate click reports the affected recipients as in-flight instead of claiming a delivery it did not make. |
+| 10 | UNCHANGED | Auto-provisioned onboarding tasks; provisioning never calls the port. |
+| 11 | UNCHANGED | Speaker completes the hotel task. |
+| 12 | UNCHANGED | Admin reads the exact dates and preference text. |
+| 13 | UNCHANGED | Session appears in Unscheduled; drag to Oct 13 · 10:00 · Room A with format-default end time. |
+| 14 | UNCHANGED | Manual Add Submission, accept, drag → speaker double-booking conflict. |
+| 15 | UNCHANGED | Reciprocal Conflicts row; Open → move → clears. |
+| 16 | UNCHANGED | Outstanding-tasks dashboard shows exactly 1 for Maya. |
+
+Seam note on 13–15: Maya's submission **is** notified after step 9, so rescheduling it in step 13 does put
+it in the change set and the Agenda's stale-speaker InfoBar appears. That banner already existed on
+`origin/main`; what is new is that it can now additionally render the truncated-with-continuation or
+blocked variants — neither of which triggers here, because a freshly normalized single-event history is
+neither over the check limit nor invalid.
+
+### XM-S2 — form/taxonomy edits propagate (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Field rename, close-date and success-message edits. |
+| 2 | UNCHANGED | Public form reflects all three; full test submission succeeds. |
+| 3 | UNCHANGED | Track rename in Library. |
+| 4 | UNCHANGED | Rename propagates to public dropdown, ≥40 admin pills, portal detail. No ledger column stores a track. |
+| 5 | UNCHANGED | Format default duration 30 → 20 applies on the next drag. |
+| 6 | UNCHANGED | Track delete refuses-with-count or forces reassignment. |
+| 7 | UNCHANGED | Closed form renders the closed message; replayed POST rejected server-side. |
+
+### XM-S3 — conditional rule on the built-in Format dropdown (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Create the required conditional field and its rule. |
+| 2 | UNCHANGED | Field hidden by default. |
+| 3 | UNCHANGED | Show/hide toggles twice on Format changes. |
+| 4 | UNCHANGED | Hidden required field neither blocks submission nor is stored. |
+| 5 | UNCHANGED | Second submission stores the answer. |
+| 6 | UNCHANGED | Review detail renders the custom answer with its label. |
+| 7 | **CHANGED — same oracle, wider durable record.** | The accept step sends the template email with `.ics` through `sendDecisionEmails`, so the same delta as XM-S1.9 applies: one revision attempt, one processed marker, a frontier at sequence 0, and `onInFlight: "reject"` semantics on a duplicate confirm. The scheduling and answer-persistence oracles in this step are untouched. |
+
+### XM-S4 — one identity, two hats (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Priya submits A. |
+| 2 | UNCHANGED | Rahul submits B naming Priya as second speaker. |
+| 3 | UNCHANGED | Both appear in one portal login. |
+| 4 | UNCHANGED | One profile bio edit. |
+| 5 | UNCHANGED | New bio on both participant details. |
+| 6 | UNCHANGED | Existing email offers login, blocks a second signup. |
+| 7 | UNCHANGED | Case-variant email matches the same identity. Note: `calendar_invite_revisions.recipient` is compared with the same `normalizeEmail` the rest of the app uses (`app/domain/schedule-update.ts:902`), so the ledger inherits this case-insensitivity rather than introducing a second identity rule. |
+
+### XM-S5 — withdraw, delete submission, delete contact — no orphans (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Precondition: accepted, scheduled, tasks assigned. |
+| 2 | UNCHANGED | Portal withdraw with reason; `withdrawSubmission` is byte-identical to main. |
+| 3 | UNCHANGED | Withdrawn status, who/when/why, and the agenda slot no longer shows it as a normal scheduled session. Its revision rows survive the withdrawal (they cascade only on *delete*), which is correct — organizer-visible invite history is immutable, and a withdrawn session is simply no longer schedulable. |
+| 4 | UNCHANGED | Hard-delete demands explicit in-app confirmation; cancel is a true no-op. |
+| 5 | **CHANGED — one more orphan surface, now covered.** | "Gone from everywhere" now also means gone from `calendar_invite_revisions` and `calendar_invite_sequence_frontiers`. Both cascade on `submission_id`; the processed marker intentionally survives because it is keyed to the outbox row. Verified by the new test named in "Concrete artifact" above. The listed oracles (admin lists, status-tab counts, portal, agenda panels, task assignments, CSV export, dashboard counts) are all unchanged — no ledger column reaches any of them. |
+| 6 | UNCHANGED | Contact delete guard. |
+| 7 | UNCHANGED | Panel survives with the remaining speaker; deleted contact's tasks and portal login are gone; no blank speaker anywhere. The ledger stores `recipient` as denormalized text, mirroring `email_outbox.to`, so a deleted contact leaves the historic recipient string intact in immutable history — and that column is rendered on no surface, so it cannot produce a blank or undefined speaker. |
+
+### XM-S6 — queue statuses mask as Pending (5 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Record outbox count; 5 queue transitions via `transitionSubmissions`, which sends nothing. |
+| 2 | UNCHANGED | Every speaker-visible surface reads Pending. |
+| 3 | UNCHANGED | Page source / API responses carry no true status string. No ledger field is serialized to a portal payload. |
+| 4 | UNCHANGED | Admin surfaces and CSV show the true queue statuses. |
+| 5 | **CHANGED — same oracle, wider durable record.** | The decline send runs through `sendDecisionEmails`. Decline templates carry no `.ics`, so **no** revision, marker or frontier row is written — the delta here is the claim columns (S1) and the `onInFlight: "reject"` contract (S3): a double-clicked Send reports in-flight rather than double-counting a delivery. The 2 rows still finalize to Declined and Yuki's portal still reads Declined afterward. |
+
+### XM-S7 — submissions CSV after the spine (5 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Cross-scenario preconditions. |
+| 2 | UNCHANGED | Title with a comma and embedded double-quotes created via the public form. |
+| 3 | UNCHANGED | Row count N and Export CSV. |
+| 4 | UNCHANGED | Real-parser round-trip of counts, statuses, renamed tracks, speakers, custom answers. The export selects from `submissions` and its existing joins; no ledger table is joined and no column was added to the export. |
+| 5 | UNCHANGED | Accepted-tab export scoping. |
+
+### XM-S8 — View portal as Maya (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Preconditions across ≥300 contacts. |
+| 2 | UNCHANGED | Preview search narrows at scale. |
+| 3 | UNCHANGED | Preview is identical to a real login, including masked queue statuses. |
+| 4 | UNCHANGED | Preview cannot complete a task through the UI. |
+| 5 | UNCHANGED | Replayed task-completion POST under the preview session is rejected server-side. The preview guard is upstream of any send, so no claim or ledger row can be written from a preview session. |
+| 6 | UNCHANGED | Back to Admin Mode returns cleanly. |
+
+### XM-S9 — authorization across three roles (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Logged-out GETs to all 8 protected URLs gate at login. |
+| 2 | UNCHANGED | Logged-out mutation replay rejected. |
+| 3 | UNCHANGED | Public CFP form still loads logged out. |
+| 4 | UNCHANGED | Speaker hitting admin URLs and replaying the status POST is refused. |
+| 5 | UNCHANGED | Reviewer keeps My Reviews, is refused everywhere else. |
+| 6 | UNCHANGED | Login as admin from the gate. |
+
+Authz note: the Agenda `intent="schedule-updates"` action gained a normalization preflight, but it sits
+**after** the same admin+membership resolution every other Agenda intent uses — no new entry point, and no
+change to the guard.
+
+### Re-walk verdict
+
+**66/66 steps re-walked. 4 CHANGED (XM-S1.9, XM-S3.7, XM-S5.5, XM-S6.5), 62 UNCHANGED, 0 BLOCKER,
+0 MAJOR.** Three of the four are the decision-email delivery seam (same observable outcome, wider durable
+record, stricter concurrent-duplicate semantics); XM-S5.5 is the deletion seam, which gained a new orphan
+surface and a passing regression test in the same gate. No `touches:` update required — `emailOutbox`,
+`ports: [EmailSender]` and `routes: [admin.agenda.tsx]` already select this file.
