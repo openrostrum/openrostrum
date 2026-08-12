@@ -35,6 +35,7 @@ import {
 	TagPill,
 } from "./bits";
 import { FilterBar } from "./filter-bar";
+import { formatRole } from "~/lib/format";
 import { useMySchedule } from "./my-schedule";
 import { SessionCard, SpeakerRow } from "./session-card";
 
@@ -124,7 +125,7 @@ export function SessionsSurface({
 	);
 }
 
-/* --------------------------------------------------------------- speakers --- */
+/* ------------------------------------------------- speakers and gallery --- */
 
 function SpeakerDetail({
 	speaker,
@@ -137,9 +138,7 @@ function SpeakerDetail({
 	backLabel: string;
 	sessionsBase: string;
 }) {
-	const role = [speaker.jobTitle, speaker.companyName]
-		.filter(Boolean)
-		.join(", ");
+	const role = formatRole(speaker);
 	return (
 		<DetailPanel backHref={backHref} backLabel={backLabel}>
 			<div className="flex flex-col gap-4">
@@ -200,21 +199,110 @@ function SpeakerDetail({
 	);
 }
 
-export function SpeakersSurface({
+function SpeakerListRow({
+	speaker,
+	href,
+}: {
+	speaker: PublicSpeakerProfile;
+	href: string;
+}) {
+	const role = formatRole(speaker);
+	return (
+		<Link
+			to={href}
+			className={`flex items-center gap-3.5 border-t border-hair px-4 py-3 first:border-t-0 transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
+		>
+			<SpeakerPhoto name={speaker.name} photoUrl={speaker.photoUrl} size={40} />
+			<span className="flex min-w-0 flex-1 flex-col">
+				<span className="truncate text-[14px] font-medium text-fg">
+					{speaker.name}
+				</span>
+				{role && (
+					<span className="truncate text-[12.5px] text-fg-muted">{role}</span>
+				)}
+				{speaker.bio && (
+					<span className="truncate text-[12.5px] text-fg-faint">
+						{speaker.bio}
+					</span>
+				)}
+			</span>
+			<span className="shrink-0 font-mono text-[11.5px] text-fg-muted">
+				{speaker.sessions.length} session
+				{speaker.sessions.length === 1 ? "" : "s"}
+			</span>
+		</Link>
+	);
+}
+
+function SpeakerGalleryTile({
+	speaker,
+	href,
+}: {
+	speaker: PublicSpeakerProfile;
+	href: string;
+}) {
+	const role = formatRole(speaker);
+	return (
+		<Link
+			to={href}
+			className="group flex flex-col gap-2 rounded-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+		>
+			<PhotoTile name={speaker.name} photoUrl={speaker.photoUrl} />
+			<span className="flex flex-col">
+				<span className="truncate text-[13.5px] font-medium text-fg group-hover:underline group-hover:underline-offset-2">
+					{speaker.name}
+				</span>
+				{role && (
+					<span className="truncate text-[12px] text-fg-muted">{role}</span>
+				)}
+			</span>
+		</Link>
+	);
+}
+
+/**
+ * The two things a layout owns: the tile and the words that name the surface
+ * the visitor is on. Search, counts, pagination, the empty states and the
+ * detail view are the same directory underneath — /speakers and /gallery are
+ * one component, or they drift.
+ */
+const SPEAKER_LAYOUTS = {
+	list: {
+		Tile: SpeakerListRow,
+		container: "rounded-card bg-surface shadow-card",
+		backLabel: "All speakers",
+		emptyBody:
+			"Speakers appear here once the organizers publish accepted sessions.",
+	},
+	gallery: {
+		Tile: SpeakerGalleryTile,
+		container: "grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4",
+		backLabel: "Back to gallery",
+		emptyBody:
+			"The gallery fills in once the organizers publish accepted sessions.",
+	},
+} as const;
+
+export type SpeakerLayout = keyof typeof SPEAKER_LAYOUTS;
+
+export function SpeakerDirectory({
 	data,
 	base,
 	sessionsBase,
+	layout,
 }: {
 	data: SpeakerDirectoryData;
 	base: string;
 	sessionsBase: string;
+	layout: SpeakerLayout;
 }) {
+	const { Tile, container, backLabel, emptyBody } = SPEAKER_LAYOUTS[layout];
 	if (data.detail) {
 		return (
 			<SpeakerDetail
 				speaker={data.detail}
 				backHref={makeHref(base, { q: data.q, page: data.page })}
-				backLabel="All speakers"
+				backLabel={backLabel}
 				sessionsBase={sessionsBase}
 			/>
 		);
@@ -238,55 +326,25 @@ export function SpeakersSurface({
 					body={
 						data.q
 							? "Try a different name, or clear the search to see everyone."
-							: "Speakers appear here once the organizers publish accepted sessions."
+							: emptyBody
 					}
 					action={
 						data.q ? <TextLink to={base}>Clear search</TextLink> : undefined
 					}
 				/>
 			) : (
-				<div className="rounded-card bg-surface shadow-card">
-					{data.speakers.map((speaker) => {
-						const role = [speaker.jobTitle, speaker.companyName]
-							.filter(Boolean)
-							.join(", ");
-						return (
-							<Link
-								key={speaker.id}
-								to={makeHref(base, {
-									speaker: speaker.id,
-									q: data.q,
-									page: data.page,
-								})}
-								className={`flex items-center gap-3.5 border-t border-hair px-4 py-3 first:border-t-0 transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
-							>
-								<SpeakerPhoto
-									name={speaker.name}
-									photoUrl={speaker.photoUrl}
-									size={40}
-								/>
-								<span className="flex min-w-0 flex-1 flex-col">
-									<span className="truncate text-[14px] font-medium text-fg">
-										{speaker.name}
-									</span>
-									{role && (
-										<span className="truncate text-[12.5px] text-fg-muted">
-											{role}
-										</span>
-									)}
-									{speaker.bio && (
-										<span className="truncate text-[12.5px] text-fg-faint">
-											{speaker.bio}
-										</span>
-									)}
-								</span>
-								<span className="shrink-0 font-mono text-[11.5px] text-fg-muted">
-									{speaker.sessions.length} session
-									{speaker.sessions.length === 1 ? "" : "s"}
-								</span>
-							</Link>
-						);
-					})}
+				<div className={container}>
+					{data.speakers.map((speaker) => (
+						<Tile
+							key={speaker.id}
+							speaker={speaker}
+							href={makeHref(base, {
+								speaker: speaker.id,
+								q: data.q,
+								page: data.page,
+							})}
+						/>
+					))}
 				</div>
 			)}
 			<Pagination
@@ -805,90 +863,6 @@ export function ItinerarySurface({
 					</div>
 				))
 			)}
-		</section>
-	);
-}
-
-/* ---------------------------------------------------------------- gallery --- */
-
-export function GallerySurface({
-	data,
-	base,
-	sessionsBase,
-}: {
-	data: SpeakerDirectoryData;
-	base: string;
-	sessionsBase: string;
-}) {
-	if (data.detail) {
-		return (
-			<SpeakerDetail
-				speaker={data.detail}
-				backHref={makeHref(base, { q: data.q, page: data.page })}
-				backLabel="Back to gallery"
-				sessionsBase={sessionsBase}
-			/>
-		);
-	}
-	return (
-		<section className="flex flex-col gap-4">
-			<FilterBar
-				base={base}
-				filters={{ q: data.q, track: "", format: "", room: "" }}
-				facets={{ tracks: [], formats: [], rooms: [] }}
-				facetKeys={[]}
-				searchPlaceholder="Search speakers by name…"
-			/>
-			<ResultCount>
-				{data.total} speaker{data.total === 1 ? "" : "s"}
-			</ResultCount>
-			{data.total === 0 ? (
-				<EmptyState
-					icon="mic"
-					title={data.q ? "No speakers match" : "No speakers announced yet"}
-					body={
-						data.q
-							? "Try a different name, or clear the search to see everyone."
-							: "The gallery fills in once the organizers publish accepted sessions."
-					}
-					action={
-						data.q ? <TextLink to={base}>Clear search</TextLink> : undefined
-					}
-				/>
-			) : (
-				<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-					{data.speakers.map((speaker) => (
-						<Link
-							key={speaker.id}
-							to={makeHref(base, {
-								speaker: speaker.id,
-								q: data.q,
-								page: data.page,
-							})}
-							className="group flex flex-col gap-2 rounded-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-						>
-							<PhotoTile name={speaker.name} photoUrl={speaker.photoUrl} />
-							<span className="flex flex-col">
-								<span className="truncate text-[13.5px] font-medium text-fg group-hover:underline group-hover:underline-offset-2">
-									{speaker.name}
-								</span>
-								{(speaker.jobTitle || speaker.companyName) && (
-									<span className="truncate text-[12px] text-fg-muted">
-										{[speaker.jobTitle, speaker.companyName]
-											.filter(Boolean)
-											.join(", ")}
-									</span>
-								)}
-							</span>
-						</Link>
-					))}
-				</div>
-			)}
-			<Pagination
-				page={data.page}
-				pages={data.pages}
-				makePageHref={(page) => makeHref(base, { q: data.q, page })}
-			/>
 		</section>
 	);
 }
