@@ -890,3 +890,224 @@ tenancy work): BLOCKER #1 (suppression gate + `kind` live in
 `app/ports/email.ts`), MAJOR #6 (history route mapped), BLOCKER #2 partially
 (unsubscribe route mapped; token/footer still open), walk-07 #7 (portals
 table exists).
+
+---
+
+## 2026-08-11 re-walk — calendar revision ledger and provider send claims
+
+**Gate trigger:** migration `0013_schedule_calendar_ledger`, the `email` port,
+`app/lib/ics.ts`, and `admin.agenda.tsx` changed. Every EM-S1–EM-S6 step was
+re-walked. This section records only this change's effects; unresolved findings
+from earlier walks remain in force.
+
+### EM-S1 — template editor and next acceptance send
+
+1. **Unchanged:** `admin.emails_.$key.tsx` still loads the active event's
+   `(event_id, key)` template; the new calendar tables are not on this read path.
+2. **Unchanged:** `EditTemplate` still rejects an empty `subject`, and the action
+   returns before its `UPDATE email_templates`, preserving the stored value.
+3. **Unchanged:** that same update still stores `subject`, `body_html`, and
+   `reply_to`; no ledger or send-claim field enters template storage.
+4. **Changed internally, same outcome:** the accept path still renders the saved
+   template and sends through `getEmailSender`. In production, `email.ts` now
+   owns the dedupe row with a compare-and-swap lease before calling Resend; the
+   recipient, rendered content, and reply-to contract are unchanged.
+   ```ts
+   // app/domain/accept.ts — identity is unchanged; the decision is part of it
+   await sender.send({ to, replyTo, subject, html, ics,
+     dedupeKey: `decision:${decision}:${idempotencyKey}:${row.id}`,
+     eventId: event.id, templateId: template.id, kind: "transactional" });
+   ```
+5. **Changed durability, same oracle:** Resend attempts still snapshot `to`,
+   `subject`, `html`, `reply_to`, `event_id`, and `template_id` in
+   `email_outbox`. A confirmed provider success is monotonic, so a stale
+   claimant's later failure cannot replace the sent row.
+   ```sql
+   -- app/ports/email.ts, failure reconciliation: only MY claim may mark failed
+   UPDATE email_outbox SET status='failed', error=?, send_claim_id=NULL,
+          send_claim_expires_at=NULL
+    WHERE id = ? AND send_claim_id = ?;   -- 0 rows → a newer claimant owns it
+   ```
+6. **New, product-visible:** `sendDecisionEmails` now classifies what came back
+   from the port instead of calling every throw a recipient failure. Only a
+   provider rejection is per-recipient; a live claim is reported as in flight
+   (the row is NOT transitioned — the winning request finalizes it); anything
+   else is infrastructure and propagates to the route's batch-level copy after
+   the already-delivered speakers keep their `notified_at` stamp.
+   ```ts
+   } catch (error) {
+     if (error instanceof EmailSendInFlightError) { /* ok:false, no-action copy */ }
+     if (!(error instanceof EmailDeliveryError)) { await finalizeNotified(); throw error }
+     /* EmailDeliveryError → per-row "…failed — see Email history…, then retry." */
+   }
+   ```
+   Why the stamp must survive the throw: `notified_at IS NULL` permanently
+   excludes a submission from `staleScheduleCandidates`, so a lost stamp silently
+   removes that speaker from every future schedule update.
+
+### EM-S2 — scheduled and unscheduled acceptance calendars
+
+1. **Unchanged:** Agenda scheduling still writes `submissions.starts_at`,
+   `ends_at`, and `room_id`; the new tables are delivery projections, not
+   schedule truth.
+2. **Changed durability, same acceptance:** `inviteForSubmission` and
+   `icsForInvites` still build the acceptance VEVENT with stable
+   `submission-<id>@openrostrum` UID and `SEQUENCE:0`. The acceptance outbox row
+   is now normalized into `calendar_invite_revisions` on a later Agenda check.
+   ```sql
+   -- normalization page 1 of 2: metadata only, so one oversized attachment can
+   -- never be pulled into Worker memory just to discover its size.
+   SELECT o.id, o.dedupe_key, o."to", o.created_at,
+          CASE WHEN o.ics_attachment IS NULL THEN 0 ELSE 1 END AS has_ics,
+          COALESCE(LENGTH(CAST(o.ics_attachment AS blob)), 0)   AS ics_bytes
+     FROM email_outbox o
+     LEFT JOIN calendar_invite_processed_outbox p ON p.outbox_id = o.id
+    WHERE o.event_id = ?
+      AND (o.dedupe_key LIKE 'decision:accept:%' OR o.dedupe_key LIKE 'schedule-update:%')
+      AND p.outbox_id IS NULL                 -- a finished row is never re-read
+    ORDER BY o.created_at, o.id LIMIT 200;    -- OUTBOX_NORMALIZE_PAGE
+   -- page 2 fetches bodies only for the metadata prefix that fits both the
+   -- 600-statement budget and the 1 MiB aggregate body cap.
+   ```
+3. **Unchanged artifact:** the complete calendar text remains frozen in
+   `email_outbox.ics_attachment` and is still available from Email history.
+4. **Changed implementation:** `app/lib/ics.ts` now returns parsed events plus
+   the structural VEVENT count from one line-aware scan. `buildIcs` still emits
+   RFC 5545 folding, UTC stamps, stable UID, and `METHOD:PUBLISH`; the Resend
+   MIME part is `text/calendar; method=PUBLISH`.
+5. **Unchanged deliberate fallback:** an unscheduled accepted submission still
+   gets the event-wide save-the-date hold from `inviteForSubmission` when event
+   dates exist, rather than placeholder or epoch dates.
+6. **Changed recovery only:** the unscheduled hold is normalized like any other
+   acceptance. Deleted historical submission IDs remain terminal orphans, while
+   an ID known to belong to another event marks the row invalid and fails closed.
+
+### EM-S3 — immediate confirmation and portal link
+
+1. **Unchanged:** form-level admin-notification configuration does not read or
+   write the calendar ledger or send-claim columns.
+2. **Unchanged:** CFP validation and submission creation remain in
+   `app/cfp/server.ts`; no calendar normalization runs on the public POST.
+3. **Changed durability, same immediacy:** `sendConfirmationEmail` still calls
+   the sender inline with `dedupeKey: submission_confirmation:<submissionId>`.
+   The provider lease is acquired in the same request, and the outbox row exists
+   before the provider call.
+4. **Unchanged:** portal URL construction and the cold-login redirect are
+   independent of the email claim and calendar tables.
+5. **Unchanged:** admin notification, when enabled, retains its own recipient and
+   dedupe identity; the generic port applies the same claim semantics without
+   merging it with the speaker confirmation.
+6. **Strengthened:** a replay of the same confirmation key cannot claim an
+   actively leased row. A completed key returns the original delivery, so the
+   submission/outbox one-per-key oracle remains intact under concurrent POSTs.
+
+### EM-S4 — draft reminders and occurrence dedupe
+
+1. **Unchanged:** form close date and reminder configuration remain form/event
+   state; migration `0013` adds no form column.
+2. **Unchanged:** draft audience selection in
+   `app/jobs/draft-reminders.scheduled.ts` is unaffected by calendar history.
+3. **Changed generic delivery only:** the 5-day occurrence still computes from
+   the event timezone and sends through the email port; its occurrence key now
+   also owns one active provider lease.
+4. **Unchanged oracle:** only selected draft holders produce outbox rows; the
+   claim code does not create rows for filtered recipients.
+5. **Strengthened:** replay of the exact 5-day dedupe key sees sent as terminal
+   or active queued as in flight; it cannot report a queued provider call as a
+   completed delivery.
+6. **Unchanged identity:** the 1-day occurrence has a distinct dedupe key and
+   therefore a second row; replay of that key remains idempotent.
+7. **Unchanged:** reminder rendering and resume-draft links do not consume any
+   new schema field.
+
+### EM-S5 — suppression boundary
+
+1. **Unchanged:** prior bulk-message fixture rows keep their existing outbox
+   shape; migration `0013` is additive.
+2. **Unchanged:** unsubscribe token handling and the idempotent suppression write
+   do not use calendar or claim state.
+3. **Unchanged:** the suppression oracle remains a direct
+   `email_suppressions` lookup.
+4. **Unchanged ordering:** `withSuppression` checks a normalized bulk recipient
+   before either local or Resend adapter runs.
+5. **Unchanged artifact:** suppressed Leo produces no outbox or provider claim;
+   unsuppressed recipients each receive independent rows and claims.
+6. **Unchanged boundary:** submission confirmations remain transactional and
+   bypass bulk suppression, then use the strengthened provider claim path.
+7. **Unchanged:** unsubscribe-footer rendering is upstream of the adapter; the
+   claim stores the already-rendered HTML snapshot.
+
+### EM-S6 — immutable searchable history and empty bulk send
+
+1. **Unchanged query boundary:** `admin.emails_.history.tsx` still filters every
+   list/detail query by active `event_id`.
+2. **Strengthened history state, one row per key — not per attempt:** the outbox
+   row is claimed before the HTTP call and resolved to sent/failed on that same
+   row. A retry of a `failed` or lease-expired `queued` key re-claims **the
+   existing row in place** (`onConflictDoNothing` on `dedupe_key`, then a
+   compare-and-swap `UPDATE`), so history shows one attempt per key and the
+   displayed payload is always the one actually sent. A retry of a `sent` or
+   `bounced` key never reaches the provider at all — it returns `deduped: true`.
+   Two consequences an admin can see: a failed send that later succeeds leaves
+   **one** history row, not two; and the row's `subject`/`html` are overwritten
+   by the corrected retry, because a superseded payload here would record an
+   invite no speaker ever received. Calendar normalization adds immutable
+   revision rows but never removes or hides an `email_outbox` row.
+3. **Unchanged non-retroactivity:** history reads frozen outbox `subject` and
+   `html`; editing an `email_templates` row cannot rewrite prior sends.
+4. **Unchanged:** the zero-recipient guard still returns before
+   `EmailSender.send`, so no lease or outbox row is created.
+5. **Unchanged oracle:** because the guard precedes the adapter, direct outbox
+   count remains unchanged.
+6. **Unchanged bounded UI:** history search still escapes LIKE wildcards, filters
+   recipient/subject, orders newest-first, and applies `limit`/`offset`.
+   Calendar sequence lookup is separately bounded: each candidate chunk uses
+   `row_number() over (partition by submission_id ...)` and returns only rank 1.
+
+### New persistence and recovery artifacts
+
+- `calendar_invite_revisions` is the immutable attempt projection. Duplicate
+  `(outbox_id, submission_id)` writes converge, and the outbox remains the
+  complete organizer-visible history.
+- `calendar_invite_processed_outbox` durably records completion per outbox row.
+  `event_id` preserves direct operational ownership and cleanup scope;
+  `processed_at` makes stalled normalization diagnosable. They are retained even
+  though current completion reads join by `outbox_id`.
+- `calendar_invite_sequence_frontiers` is the mutable per-submission allocator.
+  One SQLite upsert advances equal-sequence corrections monotonically; a
+  post-claim reread requires exact state-hash and sequence ownership before send.
+  ```sql
+  INSERT INTO calendar_invite_sequence_frontiers (submission_id, sequence, state_hash, updated_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT (submission_id) DO UPDATE SET
+    sequence = CASE
+      WHEN state_hash = excluded.state_hash THEN MAX(sequence, excluded.sequence)
+      ELSE MAX(sequence + 1, excluded.sequence)   -- a real change always advances
+    END,
+    state_hash = excluded.state_hash, updated_at = ?
+  RETURNING sequence;   -- batched, so two concurrent claimants cannot tie
+  ```
+- Schedule-update candidates are ordered **deliverable first**, then by id:
+  `ORDER BY CASE WHEN <primary-speaker-or-submitter email> IS NULL THEN 1 ELSE 0 END,
+  submissions.id`. Without this, a run of sessions whose speaker contact is gone
+  (a dropped-email import, a bulk contact cleanup) never leaves the change set
+  and, on identifier order alone, permanently occupies the 200-row window — the
+  admin sees only failures and no speaker anywhere in the event ever receives a
+  schedule change again. They still surface in the failed count, from the tail.
+- Normalization processes a statement-budgeted prefix, writes attempt and marker
+  batches idempotently, and resumes on a later request. The Agenda continuation
+  form POSTs `intent=schedule-updates` while history remains.
+- The external provider boundary is **at-least-once with duplicate suppression,
+  not transactional exactly-once**. D1 compare-and-swap permits one active local
+  claimant; a five-minute lease restores liveness after abandonment; Resend's
+  `Idempotency-Key` suppresses repeated provider requests within its contract;
+  confirmed success is persisted monotonically. A stuck call can outlive the
+  lease, so the implementation deliberately does not claim exactly one HTTP
+  request without provider reconciliation.
+
+### Re-walk verdict
+
+**37/37 steps re-walked.** Product-visible behavior for EM-S1–EM-S6 is
+preserved. The changed artifacts strengthen durable recovery, monotonic calendar
+revision allocation, and truthful queued/sent/failed history. No earlier email
+scenario gap is closed merely by this hardening, and none is made worse.
