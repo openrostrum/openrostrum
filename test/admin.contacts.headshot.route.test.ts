@@ -202,7 +202,7 @@ describe("speaker headshot on the organizer surfaces", () => {
 		expect(row?.headshotKey).toBeNull();
 	});
 
-	it("headshot bytes are admin-gated, event-scoped, and 404 when absent", async () => {
+	it("headshot bytes are admin-gated, org-scoped, and 404 when absent", async () => {
 		await seedWorldWithAdmin();
 		const db = getDb(env);
 

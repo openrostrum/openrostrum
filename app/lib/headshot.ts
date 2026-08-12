@@ -16,5 +16,6 @@ export const HEADSHOT_CONSTRAINTS =
 
 /** Cache-busts on the key's random suffix — a new upload mints a new key. */
 export function headshotUrl(path: string, key: string | null): string | null {
-	return key ? `${path}?v=${key.slice(-20)}` : null;
+	if (!key) return null;
+	return `${path}${path.includes("?") ? "&" : "?"}v=${key.slice(-20)}`;
 }
