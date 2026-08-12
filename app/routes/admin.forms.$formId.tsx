@@ -25,18 +25,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { CopyButton } from "~/components/copy-button";
 import { RichText as RichTextInput } from "~/ui/rich-text-lazy";
-import {
-	and,
-	asc,
-	desc,
-	eq,
-	inArray,
-	isNull,
-	like,
-	ne,
-	or,
-	sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { getDb, type Db } from "~/db";
@@ -68,6 +57,7 @@ import {
 	zonedTimeToUtc,
 } from "~/lib/forms";
 import { loadRuleOptions, sanitizeRichText } from "~/lib/forms.server";
+import { likeContains } from "~/lib/like";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import { PaginationBar } from "./admin.forms";
@@ -395,7 +385,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					fieldScopePredicate(event.id, event.organizationId),
 					ne(fields.type, "section_header"),
 					ne(fields.type, "divider"),
-					pickerQ ? like(fields.name, `%${pickerQ}%`) : undefined,
+					pickerQ ? likeContains(fields.name, pickerQ) : undefined,
 				),
 			)
 			.orderBy(asc(fields.name))

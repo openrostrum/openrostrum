@@ -1,6 +1,5 @@
-import { Panel } from "~/ui";
+import { Caps, Panel } from "~/ui";
 import { EmailPreview } from "./email-preview";
-import { LABEL_CLASS } from "./text";
 
 export interface HistoryDetailEmail {
 	to: string;
@@ -17,7 +16,7 @@ export interface HistoryDetailEmail {
 function Row({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="contents">
-			<dt className={LABEL_CLASS}>{label}</dt>
+			<Caps as="dt">{label}</Caps>
 			<dd className="text-[13px] text-fg">{value}</dd>
 		</div>
 	);

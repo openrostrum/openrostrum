@@ -20,7 +20,7 @@ import {
 	AgendaSurface,
 	ItinerarySurface,
 	SessionsSurface,
-	SpeakersSurface,
+	SpeakerDirectory,
 } from "../app/widgets/surfaces";
 
 const conflicts: Conflict[] = [
@@ -307,8 +307,9 @@ function renderSpeakerDetail() {
 		{
 			path: "/",
 			Component: () =>
-				createElement(SpeakersSurface as ElementType, {
+				createElement(SpeakerDirectory as ElementType, {
 					data: speakerDirectoryDetail,
+					layout: "list",
 					base: "/speakers/devflow",
 					sessionsBase: "/sessions/devflow",
 				}),

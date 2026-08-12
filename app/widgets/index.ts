@@ -22,9 +22,9 @@ export { useMySchedule } from "./my-schedule";
 export { SessionCard, SpeakerRow } from "./session-card";
 export {
 	AgendaSurface,
-	GallerySurface,
 	ItinerarySurface,
 	SessionsSurface,
-	SpeakersSurface,
+	SpeakerDirectory,
+	type SpeakerLayout,
 } from "./surfaces";
 export * from "~/lib/program-types";

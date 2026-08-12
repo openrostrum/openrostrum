@@ -3,6 +3,7 @@ import type { Db } from "~/db";
 import { contacts, events, participants, submissions } from "~/db/schema";
 import { currentHeadshotsSql } from "~/domain/files";
 import { resolveTimezone } from "~/lib/event-time";
+import { stripHtml } from "~/lib/html";
 import type {
 	AgendaBlock,
 	AgendaSurfaceData,
@@ -147,28 +148,6 @@ export function toProgramEvent(event: EventRow): ProgramEvent {
 		location: event.location,
 		dateRange: eventDateRange(event),
 	};
-}
-
-/* --------------------------------------------------------- rich text strip --- */
-
-/**
- * Submitter rich text → plain text: tags removed, entities decoded (&amp;
- * LAST, or "&amp;lt;" double-decodes). Output is arbitrary TEXT that may
- * contain angle brackets — markup safety lives at the sinks (React, the
- * feeds' esc()/escapeText, JSON.stringify), never here.
- */
-export function stripHtml(html: string): string {
-	return html
-		.replace(/<(br|\/p|\/div|\/li|\/h[1-6])[^>]*>/gi, "\n")
-		.replace(/<[^>]+>/g, "")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&#39;|&apos;/g, "'")
-		.replace(/&nbsp;/g, " ")
-		.replace(/&amp;/g, "&")
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
 }
 
 /* -------------------------------------------------------------- sessions --- */

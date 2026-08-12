@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router";
-import { Avatar, Chip } from "~/ui";
+import { Avatar, Chip, InkLink } from "~/ui";
 import { ShowMoreText, TagPill } from "./bits";
+import { formatRole } from "~/lib/format";
 import type { HideableField, PublicSession } from "~/lib/program-types";
 
 export function SpeakerRow({
@@ -11,9 +11,7 @@ export function SpeakerRow({
 	speaker: PublicSession["speakers"][number];
 	detailHref?: string;
 }) {
-	const role = [speaker.jobTitle, speaker.companyName]
-		.filter(Boolean)
-		.join(", ");
+	const role = formatRole(speaker);
 	const content = (
 		<>
 			<Avatar name={speaker.name} src={speaker.photoUrl} size={30} />
@@ -26,12 +24,9 @@ export function SpeakerRow({
 		</>
 	);
 	return detailHref ? (
-		<Link
-			to={detailHref}
-			className="flex items-center gap-2.5 rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-		>
+		<InkLink to={detailHref} row>
 			{content}
-		</Link>
+		</InkLink>
 	) : (
 		<div className="flex items-center gap-2.5">{content}</div>
 	);
@@ -80,12 +75,7 @@ export function SessionCard({
 						)}
 					<h3 className="font-display text-[16px] font-semibold leading-snug text-fg">
 						{detailHref ? (
-							<Link
-								to={detailHref}
-								className="rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-							>
-								{session.title}
-							</Link>
+							<InkLink to={detailHref}>{session.title}</InkLink>
 						) : (
 							session.title
 						)}

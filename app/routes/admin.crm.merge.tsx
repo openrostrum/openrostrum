@@ -8,6 +8,7 @@ import {
 	executeContactMerge,
 } from "~/domain/contact-merge";
 import { normalizeEmail, requireAdmin, resolveActiveOrg } from "~/lib/auth";
+import { formatRole } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
@@ -177,9 +178,7 @@ export default function ContactMerge({
 					name={sourceName}
 					email={preview.source.email}
 					lines={[
-						[preview.source.jobTitle, preview.source.companyName]
-							.filter(Boolean)
-							.join(" · ") || "No title or company on record",
+						formatRole(preview.source) || "No title or company on record",
 					]}
 				>
 					<ButtonLink to={reversePath} variant="ghost">
@@ -192,9 +191,7 @@ export default function ContactMerge({
 					name={survivorName}
 					email={preview.survivor.email}
 					lines={[
-						[preview.survivor.jobTitle, preview.survivor.companyName]
-							.filter(Boolean)
-							.join(" · ") || "No title or company on record",
+						formatRole(preview.survivor) || "No title or company on record",
 					]}
 				/>
 			</div>

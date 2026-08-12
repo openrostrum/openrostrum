@@ -1,4 +1,4 @@
-import { Icon, type IconName, Wordmark } from "~/ui";
+import { Caps, Icon, type IconName, Wordmark } from "~/ui";
 import { cn } from "~/ui/cn";
 
 // Faithful, static renderings of real product surfaces, built from the same
@@ -360,9 +360,9 @@ export function AgendaMock() {
 				{ROOMS.map((room) => (
 					<span
 						key={room}
-						className="border-l border-hair px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-[0.04em] text-fg-muted"
+						className="border-l border-hair px-2 py-2 text-center"
 					>
-						{room}
+						<Caps>{room}</Caps>
 					</span>
 				))}
 			</div>

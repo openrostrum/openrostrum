@@ -9,6 +9,7 @@ import { CONTACT_STATUS_TONE } from "~/components/contact-status";
 import { contactFilter, contactStatus } from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
+import { formatRole } from "~/lib/format";
 import { headshotUrl } from "~/lib/headshot";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -465,10 +466,7 @@ export default function ContactsRoster({
 									</Link>
 								</Td>
 								<Td kind="mono">{c.email}</Td>
-								<Td>
-									{[c.jobTitle, c.companyName].filter(Boolean).join(" · ") ||
-										"—"}
-								</Td>
+								<Td>{formatRole(c) || "—"}</Td>
 								<Td>
 									<StatusBadge tone={CONTACT_STATUS_TONE[c.status]}>
 										{c.status}

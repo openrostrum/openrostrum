@@ -15,7 +15,7 @@ review criterion.
 
 ## Cross-cutting product bar
 
-- **Every list has an empty state** (`EmptyState`) that says why it's empty and the next action — judges start from a fresh event.
+- **Every list has an empty state** that says why it's empty and the next action — judges start from a fresh event. "Every list" includes the ones inside cards, kanban columns and menus, not just page-level tables. Three primitives cover all of them and a bare `<p>` is none of them: `EmptyState` (a page or section), `EmptyRow` (inside a `<Table>`), `EmptyLine` (inside a card, column or menu, where the container already carries the heading and the action).
 - **One shared rich-text editor** (`<RichText/>`) everywhere WYSIWYG is needed — never a second editor.
 - **Public pages are mobile-friendly** (CFP form, speaker portal, schedule/embed); admin may be desktop-only.
 - **Lists show skeletons, never spinners; pages target sub-second loads** — no loading-spinner theater.

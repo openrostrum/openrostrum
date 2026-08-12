@@ -1,10 +1,10 @@
 import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import { useRef, useState } from "react";
-import { Form, Link } from "react-router";
+import { Form } from "react-router";
 import { useBusy } from "~/lib/use-busy";
 import { useDismiss } from "~/lib/use-dismiss";
 import { cn } from "~/ui/cn";
-import { Icon, PopoverSurface } from "~/ui";
+import { EmptyLine, Icon, MenuItem, PopoverSurface } from "~/ui";
 
 export type SwitcherEvent = {
 	id: string;
@@ -16,9 +16,8 @@ export type SwitcherEvent = {
 
 /**
  * Sidebar current-event indicator + switcher. Selecting an event POSTs to the
- * membership-guarded /admin/events/switch; the redirect's revalidation refreshes
- * every open loader, so the whole admin area flips. Skin invariant, kept in
- * lockstep: trigger = ghost Button, popover = Panel card, row = Tr's selected.
+ * membership-guarded /admin/events/switch action; the redirect's revalidation
+ * refreshes every open loader, so the whole admin area flips to the new event.
  */
 export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 	const [open, setOpen] = useState(false);
@@ -63,48 +62,34 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 								<Form method="post" action="/admin/events/switch">
 									<input type="hidden" name="eventId" value={event.id} />
 									<input type="hidden" name="redirectTo" value="/admin" />
-									<button
+									<MenuItem
 										type="submit"
 										disabled={busy}
-										aria-current={event.isCurrent || undefined}
+										selected={event.isCurrent}
+										description={event.dates ?? event.type}
 										onClick={() => setOpen(false)}
-										className={cn(
-											"group flex w-full flex-col items-start px-[12px] py-[6px] text-left",
-											`transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover disabled:bg-chip`,
-											"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
-											event.isCurrent &&
-												"bg-row-selected shadow-[inset_2px_0_0_var(--color-petrol)]",
-										)}
 									>
-										<span className="w-full truncate text-[13px] font-medium text-fg group-disabled:text-fg-faint">
-											{event.name}
-										</span>
-										<span className="w-full truncate text-[11.5px] text-fg-faint">
-											{event.dates ?? event.type}
-										</span>
-									</button>
+										{event.name}
+									</MenuItem>
 								</Form>
 							</li>
 						))}
 						{events.length === 0 && (
-							<li className="px-[12px] py-2 text-[12.5px] text-fg-muted">
-								No events yet — create your first one below.
+							<li className="px-[12px] py-2">
+								<EmptyLine>
+									No events yet — create your first one below.
+								</EmptyLine>
 							</li>
 						)}
 					</ul>
-					<div className="border-t border-hair p-1">
-						<Link
+					<div className="border-t border-hair py-1">
+						<MenuItem
 							to="/admin/events/new"
+							icon="plus"
 							onClick={() => setOpen(false)}
-							className={cn(
-								"flex h-[34px] items-center gap-[10px] rounded-control px-[10px] text-[13.5px] font-medium text-fg-muted",
-								`transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover hover:text-fg`,
-								"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
-							)}
 						>
-							<Icon name="plus" size={14} />
 							Create event
-						</Link>
+						</MenuItem>
 					</div>
 				</PopoverSurface>
 			)}

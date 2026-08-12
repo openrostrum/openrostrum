@@ -16,7 +16,8 @@ import {
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { resolveTimezone } from "~/lib/event-time";
-import { formatBytes, formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
+import { formatBytes } from "~/lib/format";
 import { createTimings } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
@@ -392,7 +393,9 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 								</div>
 							</Td>
 							<Td kind="mono">{formatBytes(f.sizeBytes)}</Td>
-							<Td kind="mono">{formatInTz(f.createdAt, timezone, "date")}</Td>
+							<Td kind="mono">
+								{formatInTimeZone(f.createdAt, timezone, "date")}
+							</Td>
 						</Tr>
 					))}
 					{rows.length === 0 && (

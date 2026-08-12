@@ -31,7 +31,8 @@ import { persistInitialPortalFormResponse } from "~/domain/portal-task-form";
 import { requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { resolveTimezone } from "~/lib/event-time";
-import { formatBytes, formatDateUTC, formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
+import { formatBytes, formatDateUTC } from "~/lib/format";
 import { isOverdue } from "~/lib/task-status";
 import { getEmailSender } from "~/ports/email";
 import { createTimings, track } from "~/lib/track";
@@ -165,7 +166,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				version: f.version,
 				fileName: f.fileName,
 				size: formatBytes(f.sizeBytes),
-				uploadedOn: formatInTz(f.createdAt, tz),
+				uploadedOn: formatInTimeZone(f.createdAt, tz, "datetime-zone"),
 				review: FILE_REVIEW_PROJECTION[f.reviewStatus],
 				reviewNote: f.reviewStatus === "denied" ? f.reviewNote : null,
 				latest: i === 0,
@@ -177,7 +178,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 						isYou:
 							ctx.subjectUserId !== null && c.authorId === ctx.subjectUserId,
 						body: c.body,
-						on: formatInTz(c.createdAt, tz),
+						on: formatInTimeZone(c.createdAt, tz, "datetime-zone"),
 					})),
 			})),
 		};
@@ -208,7 +209,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			status: TASK_STATUS_PROJECTION[assignment.status],
 			isComplete: assignment.status === "complete",
 			completedOn: assignment.completedAt
-				? formatInTz(assignment.completedAt, tz, "date")
+				? formatInTimeZone(assignment.completedAt, tz, "date")
 				: null,
 			submissionId,
 			submissionTitle,
