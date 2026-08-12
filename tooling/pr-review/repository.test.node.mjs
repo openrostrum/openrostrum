@@ -21,6 +21,32 @@ const IDENTITY = [
 	"user.email=review@example.test",
 ];
 
+// Git exports these to every process it spawns from a hook, and `pnpm verify`
+// runs from pre-push. An inherited GIT_DIR makes `git init` in the sandbox
+// silently adopt the repository the hook is running for: the fixture's commits
+// then rewrite that repository's HEAD to a tree holding one fixture file. Four
+// worktrees were destroyed this way. Location assertions cannot catch it —
+// `rev-parse --show-toplevel` still answers with the sandbox, because git reads
+// the work tree from the cwd and the object store from GIT_DIR — so the
+// variables are removed from the environment rather than asserted about.
+const INHERITED_GIT_VARS = [
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_COMMON_DIR",
+	"GIT_NAMESPACE",
+	"GIT_CEILING_DIRECTORIES",
+	"GIT_PREFIX",
+];
+
+function gitEnv() {
+	const env = { ...process.env };
+	for (const name of INHERITED_GIT_VARS) delete env[name];
+	return env;
+}
+
 async function sandbox(t) {
 	const root = await realpath(await mkdtemp(join(tmpdir(), "agentic-review-")));
 	assert.ok(
@@ -29,10 +55,12 @@ async function sandbox(t) {
 	);
 	t.after(() => rm(root, { recursive: true, force: true }));
 	git(root, "init", "-q");
+	// The object store is what a leaked GIT_DIR redirects, so that is what has to
+	// be proven to live in the sandbox.
 	assert.equal(
-		git(root, "rev-parse", "--show-toplevel"),
+		resolve(git(root, "rev-parse", "--absolute-git-dir"), ".."),
 		root,
-		"fixture git commands must resolve to the sandbox, not an enclosing repository",
+		"fixture commits must write to the sandbox's own object store",
 	);
 	return root;
 }
@@ -41,8 +69,47 @@ function git(cwd, ...args) {
 	return execFileSync("git", [...IDENTITY, ...args], {
 		cwd,
 		encoding: "utf8",
+		env: gitEnv(),
 	}).trim();
 }
+
+// The failure this reproduces destroyed four worktrees before it was understood:
+// run the suite from a git hook (which is where `pnpm verify` runs) and every
+// fixture commit lands in the repository being pushed, resetting its HEAD to a
+// tree of one fixture file. The leak is an environment variable, so the only
+// honest test sets that variable.
+test("fixtures cannot reach a repository a leaked GIT_DIR points at", async (t) => {
+	const outer = await realpath(await mkdtemp(join(tmpdir(), "outer-repo-")));
+	t.after(() => rm(outer, { recursive: true, force: true }));
+	git(outer, "init", "-q");
+	await writeFile(join(outer, "real.ts"), "export const real = true;\n");
+	git(outer, "add", ".");
+	git(outer, "commit", "-qm", "real work");
+	const before = git(outer, "rev-parse", "HEAD");
+
+	const restore = process.env.GIT_DIR;
+	process.env.GIT_DIR = join(outer, ".git");
+	t.after(() => {
+		if (restore === undefined) delete process.env.GIT_DIR;
+		else process.env.GIT_DIR = restore;
+	});
+
+	const root = await sandbox(t);
+	await writeFile(join(root, "fixture.ts"), "export const fixture = 1;\n");
+	git(root, "add", ".");
+	git(root, "commit", "-qm", "base");
+
+	assert.equal(
+		git(outer, "rev-parse", "HEAD"),
+		before,
+		"a fixture commit rewrote the history of the repository GIT_DIR pointed at",
+	);
+	assert.deepEqual(
+		git(outer, "ls-tree", "HEAD", "--name-only").split("\n"),
+		["real.ts"],
+		"a fixture commit replaced the real repository's tree with its own files",
+	);
+});
 
 test("repository tools expose changed diffs and unchanged context on demand", async (t) => {
 	const root = await sandbox(t);
