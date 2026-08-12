@@ -113,6 +113,19 @@ const submissionKey = (finding) =>
 		finding.rule.trim().toLowerCase().replace(/\s+/g, " "),
 	].join("\0");
 
+// A reviewer clearing its own subject ends on the clearance: "…composes Field
+// and Select from ~/ui; no violation", "…this is copy, not a visual decision; no
+// design-system violation is established". Matching only that trailing clause is
+// what separates it from a real finding that argues through a negation on its way
+// to a consequence, which is why a phrase match anywhere in the text was the
+// wrong instrument. Prompts alone did not stop this — see README.
+const CLEARANCE =
+	/(?:^|[.;:,—-]\s*)(?:no\b[^.;]{0,48}\bviolation\b|not\s+a\s+violation\b)[^.;]{0,48}[.\s]*$/i;
+
+function clearsItsOwnSubject({ rule, why }) {
+	return CLEARANCE.test(why) || CLEARANCE.test(rule);
+}
+
 // The bank. Every finding enters the review through this one tool call, so this
 // is where the boundary lives: Pi checks the arguments against FINDING before
 // execute runs, and what survives both is clamped, stamped, and counted.
@@ -132,6 +145,10 @@ function createFindingSink(agent, changedPaths) {
 				if (!changedPaths.has(params.file))
 					throw new Error(
 						`this finding cites ${params.file}, which this pull request does not change; quote a line from a changed file instead`,
+					);
+				if (clearsItsOwnSubject(params))
+					throw new Error(
+						"this reports that the code is fine, which is not a finding — a file you inspected and cleared is not part of the review, and submitting it posts a comment on the pull request saying nothing is wrong",
 					);
 				const finding = {
 					...params,
