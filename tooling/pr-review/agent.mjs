@@ -70,12 +70,10 @@ function incomplete(agent, reason, details = {}) {
 	};
 }
 
-// An over-long field is trimmed, never rejected: a real violation stated too
-// verbosely is still a real violation, and turning it into an incomplete review
-// would delete signal to enforce a budget. `quote` is trimmed bare because the
-// posting layer anchors by testing whether the changed line contains it — an
-// appended ellipsis would break the match — while `rule` and `why` only render
-// as comment prose and can show that they were cut.
+// Trimmed, never rejected: a verbosely stated violation is still a violation,
+// and rejecting it would delete signal to enforce a budget. `quote` is trimmed
+// bare because anchoring tests whether the changed line contains it, so an
+// appended ellipsis would match nothing; `rule` and `why` only render as prose.
 function clamp(text, limit, { ellipsis = false } = {}) {
 	if (text.length <= limit) return text;
 	const cut = text.slice(0, limit);
@@ -131,11 +129,10 @@ function assistantText(message) {
 		.join("");
 }
 
-// A session that stops normally without the contracted JSON object fails with
-// the same schema error whether the model narrated instead of answering, emitted
-// only reasoning, or said nothing at all — and that error names no cause anyone
-// can act on. Report the shape of what actually arrived, bounded so a runaway
-// answer cannot flood the CI summary with the review it failed to deliver.
+// Narrating instead of answering, emitting only reasoning, and emitting nothing
+// all fail with the same schema error, which names no cause anyone can act on.
+// Report the shape of what arrived, bounded so a runaway answer cannot flood the
+// CI summary with the review it failed to deliver.
 const ANSWER_EXCERPT = 200;
 
 function answerDetail(message) {
