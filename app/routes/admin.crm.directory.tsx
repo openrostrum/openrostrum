@@ -93,6 +93,15 @@ const SaveSegment = z.object({
 		.max(120, "Segment names cap at 120 characters."),
 });
 
+type AddPersonValues = {
+	firstName: string;
+	lastName: string;
+	email: string;
+	jobTitle: string;
+	companyName: string;
+	initialEventId: string;
+};
+
 type ActionData = {
 	addPerson?: boolean;
 	fieldErrors?: Record<string, string[] | undefined>;
@@ -100,6 +109,7 @@ type ActionData = {
 	notice?: string;
 	duplicate?: { name: string; email: string };
 	existing?: { name: string; email: string };
+	values?: AddPersonValues;
 };
 
 export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
@@ -203,13 +213,21 @@ async function addPersonAction(
 	orgId: string,
 	form: FormData,
 ): Promise<ReturnType<typeof data<ActionData>> | Response> {
+	const values: AddPersonValues = {
+		firstName: String(form.get("firstName") ?? ""),
+		lastName: String(form.get("lastName") ?? ""),
+		email: String(form.get("email") ?? ""),
+		jobTitle: String(form.get("jobTitle") ?? ""),
+		companyName: String(form.get("companyName") ?? ""),
+		initialEventId: String(form.get("initialEventId") ?? ""),
+	};
 	const parsed = NewPerson.safeParse({
-		firstName: form.get("firstName"),
-		lastName: form.get("lastName"),
-		email: normalizeEmail(String(form.get("email") ?? "")),
-		jobTitle: form.get("jobTitle") || null,
-		companyName: form.get("companyName") || null,
-		initialEventId: form.get("initialEventId"),
+		firstName: values.firstName,
+		lastName: values.lastName,
+		email: normalizeEmail(values.email),
+		jobTitle: values.jobTitle || null,
+		companyName: values.companyName || null,
+		initialEventId: values.initialEventId,
 	});
 	const timings = createTimings();
 	if (!parsed.success) {
@@ -217,6 +235,7 @@ async function addPersonAction(
 			{
 				addPerson: true,
 				fieldErrors: z.flattenError(parsed.error).fieldErrors,
+				values,
 			},
 			{ headers: { "Server-Timing": timings.header() } },
 		);
@@ -238,6 +257,7 @@ async function addPersonAction(
 				fieldErrors: {
 					initialEventId: ["Pick an initial event from your organization."],
 				},
+				values,
 			},
 			{ headers: { "Server-Timing": timings.header() } },
 		);
@@ -269,6 +289,7 @@ async function addPersonAction(
 					name: `${existing.firstName} ${existing.lastName}`.trim(),
 					email: normalizeEmail(existing.email),
 				},
+				values,
 			},
 			{ headers: { "Server-Timing": timings.header() } },
 		);
@@ -299,6 +320,7 @@ async function addPersonAction(
 						name: `${person.firstName} ${person.lastName}`.trim(),
 						email: normalizeEmail(duplicate.email),
 					},
+					values,
 				},
 				{ headers: { "Server-Timing": timings.header() } },
 			);
@@ -344,6 +366,7 @@ async function addPersonAction(
 			{
 				addPerson: true,
 				formError: "Could not add the person — please try again.",
+				values,
 			},
 			{ headers: { "Server-Timing": timings.header() } },
 		);
@@ -492,6 +515,8 @@ export default function CrmDirectory({
 		actionData && "duplicate" in actionData ? actionData.duplicate : undefined;
 	const existing =
 		actionData && "existing" in actionData ? actionData.existing : undefined;
+	const values =
+		actionData && "values" in actionData ? actionData.values : undefined;
 	const addPersonResponse =
 		actionData && "addPerson" in actionData && actionData.addPerson === true;
 
@@ -509,6 +534,7 @@ export default function CrmDirectory({
 							<Input
 								name="firstName"
 								autoComplete="given-name"
+								defaultValue={values?.firstName}
 								invalid={Boolean(fieldErrors?.firstName?.[0])}
 							/>
 						</Field>
@@ -516,6 +542,7 @@ export default function CrmDirectory({
 							<Input
 								name="lastName"
 								autoComplete="family-name"
+								defaultValue={values?.lastName}
 								invalid={Boolean(fieldErrors?.lastName?.[0])}
 							/>
 						</Field>
@@ -524,14 +551,23 @@ export default function CrmDirectory({
 								name="email"
 								type="email"
 								autoComplete="email"
+								defaultValue={values?.email}
 								invalid={Boolean(fieldErrors?.email?.[0])}
 							/>
 						</Field>
 						<Field label="Job title">
-							<Input name="jobTitle" autoComplete="organization-title" />
+							<Input
+								name="jobTitle"
+								autoComplete="organization-title"
+								defaultValue={values?.jobTitle}
+							/>
 						</Field>
 						<Field label="Company">
-							<Input name="companyName" autoComplete="organization" />
+							<Input
+								name="companyName"
+								autoComplete="organization"
+								defaultValue={values?.companyName}
+							/>
 						</Field>
 						<Field
 							label="Initial event"
@@ -539,7 +575,7 @@ export default function CrmDirectory({
 						>
 							<Select
 								name="initialEventId"
-								defaultValue=""
+								defaultValue={values?.initialEventId ?? ""}
 								aria-invalid={
 									Boolean(fieldErrors?.initialEventId?.[0]) || undefined
 								}

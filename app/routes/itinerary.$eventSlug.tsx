@@ -64,6 +64,7 @@ export default function PublicItinerary({ loaderData }: Route.ComponentProps) {
 				<ItinerarySurface
 					data={surface}
 					base={`/itinerary/${event.slug}`}
+					sessionsBase={`/sessions/${event.slug}`}
 					eventId={event.id}
 					icsBase={`/feeds/${event.slug}/agenda.ics`}
 				/>

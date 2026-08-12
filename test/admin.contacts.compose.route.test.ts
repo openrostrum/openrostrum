@@ -1,4 +1,7 @@
 import { env } from "cloudflare:test";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -13,7 +16,10 @@ import {
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
 import { verifyUnsubscribeToken } from "../app/lib/unsubscribe";
-import { action, loader } from "../app/routes/admin.contacts_.compose";
+import ComposeBulkEmail, {
+	action,
+	loader,
+} from "../app/routes/admin.contacts_.compose";
 
 async function adminRequest(url: string, init?: RequestInit): Promise<Request> {
 	const db = getDb(env);
@@ -104,9 +110,54 @@ function sendBody(overrides: Record<string, string> = {}): URLSearchParams {
 	});
 }
 
+function renderSentState(): string {
+	const Compose = ComposeBulkEmail as unknown as ComponentType<{
+		loaderData: unknown;
+		actionData: unknown;
+	}>;
+	const loaderData = {
+		recipients: [],
+		selection: { ids: [], q: "", status: "confirmed" },
+		selectionLabel: "Confirmed speakers",
+		template: null,
+		sendKey: "send-key-1",
+	};
+	const actionData = {
+		step: "sent",
+		sent: 1,
+		suppressed: 0,
+		failed: 0,
+		duplicates: 0,
+		subject: "Schedule is live",
+		outcomes: [
+			{
+				id: "c_alice",
+				name: "Alice Anders",
+				email: "alice@example.com",
+				outcome: "sent",
+			},
+		],
+	};
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/admin/contacts/compose",
+			Component: () => createElement(Compose, { loaderData, actionData }),
+		},
+	]);
+	return renderToString(
+		createElement(RoutesStub, {
+			initialEntries: ["/admin/contacts/compose"],
+		}),
+	);
+}
+
 afterEach(() => vi.restoreAllMocks());
 
 describe("compose bulk email", () => {
+	it("links the sent result to Email history", () => {
+		expect(renderSentState()).toContain('href="/admin/emails/history"');
+	});
+
 	it("resolves selected directory people once across event appearances", async () => {
 		const db = getDb(env);
 		const request = await adminRequest(

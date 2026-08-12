@@ -52,6 +52,7 @@ export type PublicSpeakerProfile = PublicSpeaker & {
 		dateLabel: string | null;
 		timeRange: string | null;
 		room: string | null;
+		roomId: string | null;
 	}>;
 };
 

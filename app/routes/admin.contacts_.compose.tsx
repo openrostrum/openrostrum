@@ -453,9 +453,14 @@ export default function ComposeBulkEmail({
 					count={`${state.sent} delivered`}
 					subtitle={`"${state.subject}" — every send is logged to the email history.`}
 					actions={
-						<ButtonLink to={backTo} variant="ghost">
-							{backLabel}
-						</ButtonLink>
+						<>
+							<ButtonLink to="/admin/emails/history" variant="ghost">
+								View Email history
+							</ButtonLink>
+							<ButtonLink to={backTo} variant="ghost">
+								{backLabel}
+							</ButtonLink>
+						</>
 					}
 				/>
 				<Panel>

@@ -389,6 +389,7 @@ export type PortalTaskRow = {
 	/** Due date pre-rendered in the EVENT's timezone. */
 	due: string | null;
 	overdue: boolean;
+	submissionId: string | null;
 	submissionTitle: string | null;
 };
 
@@ -411,6 +412,7 @@ export async function listPortalTasks(
 			name: tasks.name,
 			required: tasks.required,
 			type: tasks.type,
+			submissionId: submissions.id,
 			submissionTitle: submissions.title,
 		})
 		.from(taskAssignments)
@@ -434,6 +436,7 @@ export async function listPortalTasks(
 			open: r.status !== "complete",
 			due: r.dueAt ? formatDateUTC(r.dueAt) : null,
 			overdue: isOverdue(r.dueAt, r.status, now),
+			submissionId: r.submissionId,
 			submissionTitle: r.submissionTitle,
 		}));
 }

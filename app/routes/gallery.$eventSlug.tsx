@@ -52,6 +52,7 @@ export default function PublicGallery({ loaderData }: Route.ComponentProps) {
 			<GallerySurface
 				data={loaderData.surface}
 				base={`/gallery/${loaderData.event.slug}`}
+				sessionsBase={`/sessions/${loaderData.event.slug}`}
 			/>
 		</ProgramShell>
 	);

@@ -1,5 +1,8 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -14,10 +17,13 @@ import {
 	tasks,
 } from "../app/db/schema";
 import { persistInitialPortalFormResponse } from "../app/domain/portal-task-form";
-import {
+import PortalTaskDetail, {
 	action as taskAction,
 	loader as taskLoader,
 } from "../app/routes/portals.$eventSlug.$portalId.tasks_.$assignmentId";
+import PortalTasks, {
+	loader as tasksLoader,
+} from "../app/routes/portals.$eventSlug.$portalId.tasks";
 import {
 	authedRequest,
 	BASE,
@@ -33,6 +39,45 @@ import {
 
 type ActionArgs = Parameters<typeof taskAction>[0];
 type LoaderArgs = Parameters<typeof taskLoader>[0];
+type TasksLoaderArgs = Parameters<typeof tasksLoader>[0];
+
+type TasksData = Awaited<ReturnType<typeof tasksLoader>>["data"];
+type TaskDetailData = Awaited<ReturnType<typeof taskLoader>>["data"];
+
+function renderTasks(data: TasksData) {
+	const RouteComponent = PortalTasks as unknown as ComponentType<{
+		loaderData: TasksData;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/portals/:eventSlug/:portalId/tasks",
+			Component: () => createElement(RouteComponent, { loaderData: data }),
+		},
+	]);
+	return renderToString(
+		createElement(RoutesStub, {
+			initialEntries: [`${new URL(BASE).pathname}/tasks`],
+		}),
+	);
+}
+
+function renderTaskDetail(data: TaskDetailData) {
+	const RouteComponent = PortalTaskDetail as unknown as ComponentType<{
+		loaderData: TaskDetailData;
+		actionData?: unknown;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/portals/:eventSlug/:portalId/tasks/:assignmentId",
+			Component: () => createElement(RouteComponent, { loaderData: data }),
+		},
+	]);
+	return renderToString(
+		createElement(RoutesStub, {
+			initialEntries: [`${new URL(BASE).pathname}/tasks/${data.id}`],
+		}),
+	);
+}
 
 async function seedTasks() {
 	await seedPortalWorld();
@@ -135,6 +180,36 @@ function act(
 const params = (assignmentId: string) => ({ ...PORTAL_PARAMS, assignmentId });
 
 describe("portal tasks", () => {
+	it("links a task's session mention to its portal submission", async () => {
+		await seedTasks();
+		const loaded = unwrap<TasksData>(
+			await tasksLoader({
+				context: CONTEXT,
+				request: await authedRequest("u_priya", `${BASE}/tasks`),
+				params: PORTAL_PARAMS,
+			} as unknown as TasksLoaderArgs),
+		);
+
+		expect(renderTasks(loaded)).toContain(
+			'href="/portals/testconf/portal-pub-1/submissions/sub_priya"',
+		);
+	});
+
+	it("links a task detail's session mention to its portal submission", async () => {
+		await seedTasks();
+		const loaded = unwrap<TaskDetailData>(
+			await taskLoader({
+				context: CONTEXT,
+				request: await authedRequest("u_priya", `${BASE}/tasks/ta_slides`),
+				params: params("ta_slides"),
+			} as unknown as LoaderArgs),
+		);
+
+		expect(renderTaskDetail(loaded)).toContain(
+			'href="/portals/testconf/portal-pub-1/submissions/sub_priya"',
+		);
+	});
+
 	it("404s another contact's assignment by direct URL", async () => {
 		await seedTasks();
 		const thrown = await catchThrown(async () =>

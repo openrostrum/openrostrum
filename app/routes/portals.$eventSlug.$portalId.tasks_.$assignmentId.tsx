@@ -183,13 +183,15 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		};
 	}
 
+	let submissionId: string | null = null;
 	let submissionTitle: string | null = null;
 	if (assignment.submissionId) {
 		const [sub] = await db
-			.select({ title: submissions.title })
+			.select({ id: submissions.id, title: submissions.title })
 			.from(submissions)
 			.where(eq(submissions.id, assignment.submissionId))
 			.limit(1);
+		submissionId = sub?.id ?? null;
 		submissionTitle = sub?.title ?? null;
 	}
 
@@ -208,6 +210,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			completedOn: assignment.completedAt
 				? formatInTz(assignment.completedAt, tz, "date")
 				: null,
+			submissionId,
 			submissionTitle,
 			saved: new URL(request.url).searchParams.get("saved"),
 			kind,

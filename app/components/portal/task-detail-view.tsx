@@ -172,7 +172,18 @@ export function TaskDetailView({
 									}
 								: null,
 							data.submissionTitle
-								? { label: "For session", value: data.submissionTitle }
+								? {
+										label: "For session",
+										value: data.submissionId ? (
+											<TextLink
+												to={`${data.base}/submissions/${data.submissionId}`}
+											>
+												{data.submissionTitle}
+											</TextLink>
+										) : (
+											data.submissionTitle
+										),
+									}
 								: null,
 							data.completedOn
 								? { label: "Completed", value: data.completedOn }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Form, Link, useFetcher } from "react-router";
+import { Form, Link, useFetcher, useLocation } from "react-router";
 // Pure client-safe module: the Abstracts and Sessions tabs are ONE
 // implementation rendered by two type-scoped routes (server half in
 // ./submission-list.server.ts). Enums come from ~/db/constants so no drizzle
@@ -346,6 +346,10 @@ export function SubmissionListPage({
 	actionData?: ListActionData;
 }) {
 	const busy = useBusy();
+	const location = useLocation();
+	const returnTo = `${location.pathname}${location.search}`;
+	const detailHref = (id: string) =>
+		`/admin/submissions/${id}?${new URLSearchParams({ returnTo })}`;
 	const loaded = data.eventName === null ? null : data;
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -525,7 +529,7 @@ export function SubmissionListPage({
 							    Link inherits the cell's ink color; the row hover carries
 							    the affordance. */}
 							<Td kind="strong">
-								<Link to={`/admin/submissions/${s.id}`}>{s.title}</Link>
+								<Link to={detailHref(s.id)}>{s.title}</Link>
 							</Td>
 							<Td>
 								<StatusBadge tone={SUBMISSION_STATUS_TONE[s.status]}>

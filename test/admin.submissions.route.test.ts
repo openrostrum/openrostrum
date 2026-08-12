@@ -46,18 +46,23 @@ async function joinOrg1(): Promise<void> {
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
-function renderSubmissions(loaderData: unknown): string {
+function renderSubmissions(
+	loaderData: unknown,
+	initialEntry = "/admin/submissions",
+): string {
 	const RouteComponent = Submissions as unknown as ComponentType<{
 		loaderData: unknown;
 		actionData?: unknown;
 	}>;
 	const RoutesStub = createRoutesStub([
 		{
-			path: "/",
+			path: "/admin/submissions",
 			Component: () => createElement(RouteComponent, { loaderData }),
 		},
 	]);
-	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
+	return renderToString(
+		createElement(RoutesStub, { initialEntries: [initialEntry] }),
+	);
 }
 
 describe("admin submissions route", () => {
@@ -114,8 +119,13 @@ describe("admin submissions route", () => {
 		);
 		expect(result.data.submissions[0]?.participants).toHaveLength(1);
 		expect(result.init.headers["Server-Timing"]).toContain("db;dur=");
-		const html = renderSubmissions(result.data);
-		expect(html).toContain('href="/admin/submissions/s1"');
+		const html = renderSubmissions(
+			result.data,
+			"/admin/submissions?status=accepted",
+		);
+		expect(html).toContain(
+			'href="/admin/submissions/s1?returnTo=%2Fadmin%2Fsubmissions%3Fstatus%3Daccepted"',
+		);
 		const actionControls = [
 			...html.matchAll(/<(a|button)\b[^>]*>([\s\S]*?)<\/\1>/gi),
 		].map((match) => match[2]?.replace(/<[^>]+>/g, " ") ?? "");

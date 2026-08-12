@@ -6,14 +6,16 @@ import type { HideableField, PublicSession } from "~/lib/program-types";
 
 export function SpeakerRow({
 	speaker,
+	detailHref,
 }: {
 	speaker: PublicSession["speakers"][number];
+	detailHref?: string;
 }) {
 	const role = [speaker.jobTitle, speaker.companyName]
 		.filter(Boolean)
 		.join(", ");
-	return (
-		<div className="flex items-center gap-2.5">
+	const content = (
+		<>
 			<SpeakerPhoto name={speaker.name} photoUrl={speaker.photoUrl} size={30} />
 			<div className="min-w-0">
 				<p className="truncate text-[13px] font-medium text-fg">
@@ -21,7 +23,17 @@ export function SpeakerRow({
 				</p>
 				{role && <p className="truncate text-[12px] text-fg-muted">{role}</p>}
 			</div>
-		</div>
+		</>
+	);
+	return detailHref ? (
+		<Link
+			to={detailHref}
+			className="flex items-center gap-2.5 rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+		>
+			{content}
+		</Link>
+	) : (
+		<div className="flex items-center gap-2.5">{content}</div>
 	);
 }
 
