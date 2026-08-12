@@ -7,7 +7,13 @@ import {
 	organizations,
 	submissions,
 } from "../app/db/schema";
-import { api, apiJson, RAW_TOKENS, seedApiFixtures } from "./api-v1-fixtures";
+import {
+	api,
+	apiErrorEnvelope,
+	apiJson,
+	RAW_TOKENS,
+	seedApiFixtures,
+} from "./api-v1-fixtures";
 
 // Auth + tenancy law for /api/v1 (docs/multi-tenancy-design.md): the
 // x-access-token resolves an org-scoped principal; anything outside the
@@ -19,8 +25,9 @@ describe("token auth matrix", () => {
 	it("rejects a request without a token with 401 and the spec error envelope", async () => {
 		const { status, json } = await apiJson("/api/v1/events");
 		expect(status).toBe(401);
-		expect(json).toMatchObject({ error: "unauthorized" });
-		expect(typeof json.message).toBe("string");
+		expect(apiErrorEnvelope.parse(json)).toMatchObject({
+			error: "unauthorized",
+		});
 	});
 
 	it("rejects an unknown token with 401", async () => {

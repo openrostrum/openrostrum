@@ -1,15 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 /**
- * A resource route (loader, no component) answers with bytes — a ZIP, a CSV,
- * an image. Reaching one through the client router is a dead end: React Router
- * matches the route, finds nothing to render, and paints an empty page while
- * the browser never sees a download. `reloadDocument` hands the click back to
- * the browser, which is the only thing that can save a file.
- *
- * The invariant is checked over the whole route tree rather than at one call
- * site, because the failure is invisible in review — the JSX looks right and
- * the route works when typed into the URL bar.
+ * A resource route (loader, no component) answers with bytes, so reaching one
+ * through the client router paints an empty page and downloads nothing;
+ * `reloadDocument` hands the click to the browser. Checked over the whole route
+ * tree because the failure is invisible in review.
  */
 
 const sources = import.meta.glob<string>("../app/routes/*.tsx", {

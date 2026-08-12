@@ -15,11 +15,10 @@ import {
 type AppRole = (typeof users.$inferSelect)["role"];
 
 /**
- * Sentinel password hash for invited accounts (team members, speakers): the
- * user row exists for linking/invite purposes, but nothing can verify against
- * a non-PBKDF2 hash until the invitee sets a real password via
- * /set-password/:token. One prefix, shared by every invite flow — two
- * spellings of this convention would silently break invite-state detection.
+ * Sentinel password hash for invited accounts (team members, speakers): the row
+ * exists for linking, but nothing can verify against a non-PBKDF2 hash until the
+ * invitee sets a real password via /set-password/:token. ONE prefix for every
+ * invite flow — a second spelling silently breaks invite-state detection.
  */
 export const SENTINEL_HASH_PREFIX = "invite-pending$";
 
@@ -272,13 +271,9 @@ function memberEvents(db: ReturnType<typeof getDb>, userId: string) {
 
 /**
  * The "current event" an admin operates on — `users.activeEventId` when it
- * points at an event of an org the user belongs to, else the first event
- * across the user's orgs. NEVER hardcode `findMany({limit:1})` in a feature —
- * call this so the event switcher works. A stale/forged `activeEventId`
- * (another org's event) is ignored, never served. Returns null when the user
- * has no org with an event — membership-less users (reviewers resolve via
- * `getReviewerEventIds`) and brand-new organizers (send them to /onboarding);
- * consumers must render an empty state or redirect, never assume non-null.
+ * points at an event of an org the user belongs to, else the first event across
+ * the user's orgs. NEVER hardcode `findMany({limit:1})` in a feature; call this
+ * so the event switcher works.
  */
 export async function getActiveEvent(
 	env: Env,
@@ -286,6 +281,8 @@ export async function getActiveEvent(
 ): Promise<typeof events.$inferSelect | null> {
 	const db = getDb(env);
 	if (user.activeEventId) {
+		// Re-resolved through the membership join, so a stale or forged pointer at
+		// another org's event is ignored rather than served.
 		const [row] = await memberEvents(db, user.id)
 			.where(eq(events.id, user.activeEventId))
 			.limit(1);
@@ -294,6 +291,9 @@ export async function getActiveEvent(
 	const [first] = await memberEvents(db, user.id)
 		.orderBy(asc(events.createdAt), asc(events.id))
 		.limit(1);
+	// Null = no org with an event: membership-less reviewers (they resolve via
+	// `getReviewerEventIds`) and brand-new organizers (send them to /onboarding).
+	// Consumers render an empty state or redirect; never assume non-null.
 	return first?.event ?? null;
 }
 

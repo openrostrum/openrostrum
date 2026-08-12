@@ -16,11 +16,9 @@ export type SwitcherEvent = {
 
 /**
  * Sidebar current-event indicator + switcher. Selecting an event POSTs to the
- * membership-guarded /admin/events/switch action; the redirect's revalidation
- * refreshes every open loader, so the whole admin area flips to the new event.
- * Skin invariant: the trigger IS the ghost-Button recipe, the popover IS
- * Panel's card, row selection IS Tr's selected treatment, and the type sizes
- * ARE the Sidebar's voices — keep them in lockstep with those primitives.
+ * membership-guarded /admin/events/switch; the redirect's revalidation refreshes
+ * every open loader, so the whole admin area flips. Skin invariant, kept in
+ * lockstep: trigger = ghost Button, popover = Panel card, row = Tr's selected.
  */
 export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 	const [open, setOpen] = useState(false);

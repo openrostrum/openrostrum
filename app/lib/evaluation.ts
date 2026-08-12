@@ -59,9 +59,8 @@ export type ScoreAnswer = {
 /**
  * Weighted score of ONE evaluation = Σ(value×weight) / Σ(weight) over the
  * RATING questions that were answered (dropdown/text never enter the number;
- * unanswered optional ratings drop out of both sums). Returns null when no
- * rating was answered. Weight 2 on "Originality" therefore counts that rating
- * twice: ratings 4 (w2) and 2 (w1) aggregate to 10/3 ≈ 3.33, not 3.0.
+ * unanswered optional ratings drop out of BOTH sums), or null when nothing was
+ * rated. Weight 2 doubles a rating: 4 (w2) and 2 (w1) give 10/3 ≈ 3.33, not 3.
  */
 export function evaluationScore(
 	questions: readonly ScoreQuestion[],
@@ -93,22 +92,21 @@ export function formatScore(score: number | null): string {
 export type AssignmentPair = { submissionId: string; evaluatorId: string };
 
 /**
- * Deterministic assignment distribution. Each submission is offered to the
+ * Deterministic assignment distribution: each submission is offered to the
  * least-loaded eligible evaluators first (ties broken by input order), so
- * workloads stay balanced without randomness:
- *   - `reviewersPerSubmission` null → every evaluator gets every submission
- *     (Sessionboard's documented no-caps behavior). When set, it is a TARGET
- *     counting reviewers the submission already has — re-running the same
- *     distribution is a no-op, never a doubling.
- *   - `maxPerEvaluator` caps an evaluator's TOTAL load (existing + new); when
- *     everyone is at cap a submission simply receives fewer reviewers.
- * Pairs that already exist are never re-minted.
+ * workloads stay balanced without randomness. Pairs that already exist are
+ * never re-minted, so re-running the same distribution is a no-op.
  */
 export function distributeAssignments(opts: {
 	submissionIds: readonly string[];
 	evaluatorIds: readonly string[];
 	existing: readonly AssignmentPair[];
+	/** Null → every evaluator gets every submission (Sessionboard's documented
+	 * no-caps behavior). When set, a TARGET that counts the reviewers the
+	 * submission already has — never a doubling. */
 	reviewersPerSubmission?: number | null;
+	/** Caps an evaluator's TOTAL load (existing + new); when everyone sits at
+	 * cap, a submission simply receives fewer reviewers. */
 	maxPerEvaluator?: number | null;
 }): AssignmentPair[] {
 	const load = new Map<string, number>();

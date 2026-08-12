@@ -41,10 +41,9 @@ export function stripHtml(html: string): string {
 
 /**
  * Server-side rich-text sanitizer. Speaker-authored HTML (bio, descriptions)
- * renders in ADMIN browsers too — an unsanitized <script> in a bio is a
- * stored-XSS path to an organizer session, so every speaker-written HTML field
- * passes through here at WRITE time. Built on workerd's native HTMLRewriter
- * (streaming parser), not regex.
+ * renders in ADMIN browsers too — an unsanitized <script> in a bio is a stored-
+ * XSS path to an organizer session, so every speaker-written HTML field passes
+ * through here at WRITE time. Built on workerd's HTMLRewriter, not regex.
  */
 
 const KEEP_CONTENT = new Set([

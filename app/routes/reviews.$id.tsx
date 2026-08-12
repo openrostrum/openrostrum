@@ -1,7 +1,7 @@
-import { useState } from "react";
 import { and, avg, count, eq, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { Form, data } from "react-router";
+import { useState } from "react";
+import { data, Form } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import {
@@ -17,9 +17,9 @@ import {
 	reviewerTracks,
 	reviews,
 	roundQuestions,
+	submissions,
 	submissionTags,
 	submissionTracks,
-	submissions,
 	tags,
 	tracks,
 	users,
@@ -27,8 +27,8 @@ import {
 import { requireRole } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
-	formatDay,
 	REVIEW_DECISION_TONE as DECISION_TONE,
+	formatDay,
 	roundWritable,
 } from "~/lib/evaluation";
 import { escapeHtmlText, stripHtml } from "~/lib/html";
@@ -49,23 +49,25 @@ import {
 	Table,
 	TBody,
 	Td,
-	Th,
 	THead,
+	Th,
 	Tr,
 } from "~/ui";
 import type { Route } from "./+types/reviews.$id";
 
+// Both boxes land in nullable columns, so blank means null — decided here once
+// instead of by every caller on the way in and out.
+const decisionText = (label: string) =>
+	z
+		.string()
+		.max(5000, `Keep the ${label} under 5,000 characters.`)
+		.transform((text) => text.trim() || null);
+
 // The decision tuple comes from the schema (single source of truth).
 const Decision = z.object({
 	decision: z.enum(REVIEW_DECISION),
-	comment: z
-		.string()
-		.max(5000, "Keep the comment under 5,000 characters.")
-		.optional(),
-	feedback: z
-		.string()
-		.max(5000, "Keep the feedback under 5,000 characters.")
-		.optional(),
+	comment: decisionText("comment"),
+	feedback: decisionText("feedback"),
 });
 
 /**
@@ -520,8 +522,8 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			if (!canDecide) throw new Response("Forbidden", { status: 403 });
 			const parsed = Decision.safeParse({
 				decision: form.get("decision"),
-				comment: String(form.get("comment") ?? "") || undefined,
-				feedback: String(form.get("feedback") ?? "") || undefined,
+				comment: String(form.get("comment") ?? ""),
+				feedback: String(form.get("feedback") ?? ""),
 			});
 			if (!parsed.success) {
 				const flat = z.flattenError(parsed.error).fieldErrors;
@@ -539,13 +541,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					submissionId: params.id,
 					reviewerId: user.id,
 					decision: parsed.data.decision,
-					comment: parsed.data.comment ?? null,
+					comment: parsed.data.comment,
 				})
 				.onConflictDoUpdate({
 					target: [reviews.submissionId, reviews.reviewerId],
 					set: {
 						decision: parsed.data.decision,
-						comment: parsed.data.comment ?? null,
+						comment: parsed.data.comment,
 					},
 				});
 			track("review.decided", {
@@ -553,7 +555,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				decision: parsed.data.decision,
 			});
 
-			const feedback = parsed.data.feedback?.trim();
+			const feedback = parsed.data.feedback;
 			if (feedback) {
 				// Recipient = the submitter's account email, falling back to the
 				// primary speaker contact. The mail never names the reviewer —

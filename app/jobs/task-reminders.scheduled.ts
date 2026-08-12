@@ -39,10 +39,9 @@ function reminderEmail(row: {
 
 /**
  * Sends one email per (assignment, due date). `reminderSentAt` is the
- * double-fire guard: it is stamped after a send and CLEARED whenever an admin
- * edits the due date, so an extended deadline re-arms the reminder. The
- * outbox `dedupeKey` embeds the due date for the same reason — a re-armed
- * reminder must not be swallowed by the idempotency of the earlier send.
+ * double-fire guard: stamped after a send, CLEARED whenever an admin edits the
+ * due date, so an extended deadline re-arms it. The outbox `dedupeKey` embeds
+ * the due date for the same reason — the earlier send must not swallow a re-arm.
  */
 export async function runTaskDueReminders(
 	env: Env,

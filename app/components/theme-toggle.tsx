@@ -19,10 +19,9 @@ import type { loader as rootLoader } from "~/root";
 
 /**
  * Tri-state theme switcher (System / Light / Dark). POSTs to /theme; the root
- * loader re-reads the cookie on revalidation, and root's optimistic read of
- * this fetcher flips the document instantly. Skin invariant: the trigger IS
- * the sidebar's icon-button recipe (logout), the popover IS Panel's card, and
- * row selection IS Tr's selected treatment — keep them in lockstep.
+ * loader re-reads the cookie on revalidation, while root's optimistic read of
+ * this fetcher flips the document instantly. Skin invariant, kept in lockstep:
+ * trigger = the sidebar icon-button recipe, popover = Panel card, row = Tr's.
  */
 
 const LABELS: Record<Theme, string> = {

@@ -5,11 +5,10 @@ import { serializeContent } from "~/lib/compat/serializers";
 import { type ApiApp, type ApiContext, notFound } from "./context";
 
 /**
- * Binary companions to the JSON payloads: session file attachments (the
- * spec's Session Files reads) and contact headshots. Bytes stream through
- * the same token guard as everything else — the emitted `photo_url` /
- * `content[].url` values resolve with the x-access-token header, there is no
- * unauthenticated CDN.
+ * Binary companions to the JSON payloads: session file attachments and contact
+ * headshots. Bytes stream through the same token guard as everything else —
+ * the emitted `photo_url` / `content[].url` values resolve only with the
+ * x-access-token header, there is no unauthenticated CDN.
  */
 
 async function requireVisibleSession(

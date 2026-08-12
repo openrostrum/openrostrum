@@ -44,14 +44,10 @@ function chunked<T>(items: readonly T[], size: number): T[][] {
 	return chunks;
 }
 
-/**
- * The accept/decline spine — the ONE code path for every submission decision
- * (admin inline flip, bulk edit, compat API, Airtable-inbound). Caller
- * contract: pass rows you already fetched, authorized, and scoped to your
- * tenant boundary — the spine takes no org/event parameter and must never
- * receive a row the caller wasn't allowed to touch. Status changes NEVER
- * send email; `sendDecisionEmails` is the separate, explicit notification.
- */
+// The accept/decline spine: the ONE decision path (admin inline, bulk, compat
+// API, Airtable-inbound). It takes no org/event parameter — callers pass rows
+// they already fetched, authorized, and tenant-scoped. Deciding NEVER emails;
+// `sendDecisionEmails` is the separate, explicit notification.
 
 export type SubmissionStatus = (typeof SUBMISSION_STATUS)[number];
 export type DecisionStatus = (typeof DECISION_STATUS)[number];
@@ -84,13 +80,9 @@ export function canReceiveDecision(
 }
 
 /**
- * Transition rows to a decision status — single or bulk, one code path;
- * illegal rows are skipped and reported per-row. On `accepted` it also
- * provisions the speaker side (see `planAcceptProvisioning`); leaving
- * `accepted` never un-provisions. Leaving `withdrawn` clears the withdrawal
- * metadata ONLY on a genuine undo — the decline path (`decline_queue`,
- * `declined`) keeps who/when/why as the record of why it ended declined.
- * All writes per call run in one `db.batch`.
+ * Illegal rows are reported per-row, never thrown; every write lands in one
+ * `db.batch`. Accepting provisions the speaker side, but leaving `accepted`
+ * never un-provisions it.
  */
 export async function transitionSubmissions(
 	db: Db,
@@ -124,6 +116,8 @@ export async function transitionSubmissions(
 			set.status = to;
 			set.statusChangedAt = now;
 		}
+		// Only a genuine undo clears the withdrawal metadata; the decline path
+		// keeps who/when/why as the record of why it ended declined.
 		if (
 			row.status === "withdrawn" &&
 			to !== "declined" &&
@@ -174,17 +168,8 @@ interface ProvisioningPlan {
 }
 
 /**
- * Accept-time provisioning: link speaker contacts to existing accounts by
- * normalized email (never mints users, never emails — the invite flow is the
- * explicit path that creates accounts), and mint onboarding task assignments
- * for every speaker-role contact. Idempotency mirrors the two partial unique
- * indexes on task_assignments: contact-scoped tasks exist once per (task,
- * contact) and are shared across a speaker's submissions; submission-scoped
- * tasks exist once per (task, contact, submission), so a multi-talk speaker
- * gets one e.g. slides-upload assignment PER accepted submission. Replaying
- * an accept mints nothing; submission-scoped true duplicates are surfaced
- * via `accept.assignment_skipped`. Group-type tasks have no assignable
- * target (no group model) and are never minted.
+ * Links speaker contacts to existing accounts by normalized email, then mints
+ * onboarding assignments. Never mints users or emails — invites do that.
  */
 async function planAcceptProvisioning(
 	db: Db,
@@ -364,6 +349,7 @@ async function planAcceptProvisioning(
 		};
 		perSubmission.set(row.id, stats);
 		for (const def of tasksByEvent.get(row.eventId) ?? []) {
+			// No group model exists, so a group task has no assignable target.
 			if (def.type === "group") continue;
 			for (const speaker of speakers) {
 				const submissionId = def.type === "submission" ? row.id : null;
@@ -794,17 +780,8 @@ export async function previewDecisionEmails(
 }
 
 /**
- * The EXPLICIT decision notification — never triggered by a status change.
- * One transactional email per submission (primary speaker contact, fallback
- * submitter account) from the event's accept/decline template, with an .ics
- * on accept (exact times when scheduled, otherwise a save-the-date hold that
- * later schedule updates revise in place via the stable UID). `idempotencyKey`
- * is minted by the submitting form: a double-submit dedupes, a fresh page is
- * a deliberate re-send. Stamps `notifiedAt`; a deduped result proves a prior
- * send, so it back-fills a missing stamp (partial-failure retry). Treat
- * `notifiedAt` as a dispatch flag — the outbox row's `sentAt` is the
- * authoritative send time. Refuses more than 100 rows per call (the per-send
- * cap every caller inherits).
+ * `idempotencyKey` is minted by the submitting form, so a double-submit
+ * dedupes while a freshly loaded page is a deliberate re-send.
  */
 export async function sendDecisionEmails(
 	db: Db,
@@ -890,6 +867,9 @@ export async function sendDecisionEmails(
 			deduped: result.deduped,
 		});
 	}
+	// `notifiedAt` is a dispatch flag, not a send time — the outbox row's
+	// `sentAt` is authoritative. A deduped result proves an earlier send, so it
+	// back-fills a stamp missing after a partial-failure retry.
 	const now = new Date();
 	if (newlySent.length) {
 		await db

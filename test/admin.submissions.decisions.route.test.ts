@@ -611,9 +611,8 @@ describe("send-decisions against the real provider adapter", () => {
 	afterEach(() => vi.restoreAllMocks());
 
 	// The prod walkthrough bug: one recipient the provider rejects (e.g. an
-	// @example.com address) must NOT sink the whole batch — deliverable rows
-	// still send + finalize, the rejected row stays un-finalized with a
-	// queryable `failed` history row, and the admin sees a per-row note
+	// @example.com address) must NOT sink the whole batch — the rejected row stays
+	// un-finalized with a queryable `failed` history row and a per-row note,
 	// instead of "Sending failed partway" with nothing recorded.
 	it("a provider-rejected recipient is contained per-row: others finalize, the failure is a history row", async () => {
 		const db = await seedWorld();

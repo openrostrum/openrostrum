@@ -16,6 +16,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { inviteRecipients } from "../app/domain/accept";
+import { unwrap } from "./route-data";
 import {
 	computeScheduleChanges,
 	sendScheduleUpdates,
@@ -147,11 +148,6 @@ type ActionData = {
 		remaining: number;
 	};
 };
-
-function unwrap<T>(result: unknown): T {
-	const r = result as { data?: T };
-	return (r && typeof r === "object" && "data" in r ? r.data : result) as T;
-}
 
 async function callAction(fields: Record<string, string>): Promise<ActionData> {
 	const body = new URLSearchParams(fields);

@@ -201,13 +201,13 @@ async function collisionCommentId(
  */
 export async function addFileComment(
 	db: Db,
-	values: { key: FormDataEntryValue | null } & FileCommentWrite,
+	values: { key: string } & FileCommentWrite,
 ): Promise<{ deduped: boolean }> {
 	const { key, ...comment } = values;
-	const requestedId =
-		typeof key === "string" && UUID_RE.test(key)
-			? key.toLowerCase()
-			: crypto.randomUUID();
+	// A missing or malformed key is not an error — it just isn't idempotent.
+	const requestedId = UUID_RE.test(key)
+		? key.toLowerCase()
+		: crypto.randomUUID();
 	const insert = (id: string) =>
 		db
 			.insert(fileComments)
@@ -280,11 +280,10 @@ export function checkUpload(file: File): UploadCheck {
 	return { ok: true, kind };
 }
 
-/** Chain identity: one deliverable slot re-uploaded over time — a person's
- * headshot chains per (event, contact) because a contact has exactly one face
- * whatever the file is called, task uploads chain per assignment, everything
- * else per target + lowercased filename.
- * The ONLY encoding of the rule; TS callers resolve keys through SQL. */
+/** Chain identity — one deliverable slot re-uploaded over time. A headshot
+ * chains per (event, contact) because a contact has exactly one face whatever
+ * the file is called. The ONLY encoding of the rule: TS callers resolve keys
+ * through this SQL rather than rebuilding it. */
 export const GROUP_KEY_SQL = sql<string>`case
 	when ${files.kind} = 'headshot' then 'h:' || ${files.eventId} || ':' || ${files.contactId}
 	when ${files.taskAssignmentId} is not null then 'a:' || ${files.taskAssignmentId}
@@ -622,14 +621,10 @@ export type RefileResult =
 	| { ok: false; error: string };
 
 /**
- * Moves an admin-uploaded chain onto a session (or back to event level) and
- * merges it with whatever history the destination already holds. Version
- * numbers are re-issued 1..N over the merged set because two rows sharing a
- * number collapse into ONE presented version — the renumber is part of the
- * move, not housekeeping.
- * A speaker's task upload and a headshot are not re-filable: their identity is
- * the assignment and the person respectively, and re-filing would break the
- * review loop or detach a face from its contact.
+ * Moves an admin-uploaded chain onto a session and merges it with the history
+ * already there. Versions are re-issued 1..N over the merged set because two
+ * rows sharing a number collapse into ONE presented version, so the renumber
+ * is part of the move. Task uploads and headshots are not re-filable.
  */
 export async function refileChain(
 	db: Db,

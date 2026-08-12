@@ -28,12 +28,9 @@ type ReminderWindow = "reminder_5day" | "reminder_1day";
 
 /**
  * Which reminder occurrence this tick owes for a form closing at `closeAt`.
- * "Days before close" counts CALENDAR days in the EVENT's timezone — a form
- * closing Sep 15 23:59 PDT is 5 days out on Sep 10 anywhere in that day, even
- * while UTC already reads Sep 16 at the close instant. Windows are ranges,
- * not exact matches, so a missed tick (or a late toggle-on) sends the still-
- * truthful reminder instead of silently skipping the occurrence; once inside
- * the final day only the 1-day occurrence is owed.
+ * "Days before close" counts CALENDAR days in the EVENT's timezone: a close of
+ * Sep 15 23:59 PDT is 5 days out all through Sep 10, even though UTC already
+ * reads Sep 16 at that instant.
  */
 export function reminderWindow(
 	now: Date,
@@ -42,6 +39,8 @@ export function reminderWindow(
 ): ReminderWindow | null {
 	if (now.getTime() >= closeAt.getTime()) return null;
 	const days = calendarDaysUntil(now, closeAt, timeZone);
+	// Ranges, not exact matches: a missed tick (or a late toggle-on) still sends
+	// the reminder that is true now instead of skipping the occurrence.
 	if (days <= 1) return "reminder_1day";
 	if (days <= 5) return "reminder_5day";
 	return null;
@@ -67,14 +66,10 @@ function resumeDraftHtml(row: {
 }
 
 /**
- * Draft-close reminders: 5 days and 1 day before an open form's close date,
- * every account holding a draft on that form gets one email per occurrence,
- * rendered from the event's `reminder_5day`/`reminder_1day` templates. The
- * outbox `dedupeKey` is the persisted send marker — it names the occurrence
- * AND the close instant, so replaying a tick delivers nothing new while an
- * extended deadline re-arms both occurrences (the task-reminder precedent).
- * Reminders are transactional: they concern the recipient's own draft, so an
- * unsubscribe never silences them.
+ * Draft-close reminders: 5 days and 1 day before an open form closes, every
+ * account holding a draft on it gets one email per occurrence, rendered from
+ * the event's `reminder_5day`/`reminder_1day` template. Transactional — the
+ * draft is the recipient's own, so an unsubscribe never silences these.
  */
 export async function runDraftCloseReminders(
 	env: Env,
@@ -249,6 +244,9 @@ export async function runDraftCloseReminders(
 					subject: renderSubject(template.subject, ctx),
 					html,
 					kind: "transactional",
+					// The persisted send marker names the occurrence AND the close
+					// instant, so replaying a tick delivers nothing new while an
+					// extended deadline re-arms both (the task-reminder precedent).
 					dedupeKey: `${form.window}:${form.formId}:${userId}:${Math.floor(
 						form.closeAt.getTime() / 1000,
 					)}`,

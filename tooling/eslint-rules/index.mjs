@@ -4,7 +4,10 @@ import { noCompatShims } from "./no-compat-shims.mjs";
 import { noDarkVariants } from "./no-dark-variants.mjs";
 import { noDeferralComments } from "./no-deferral-comments.mjs";
 import { noGenericInstanceof } from "./no-generic-instanceof.mjs";
+import { noLongComments } from "./no-long-comments.mjs";
+import { noLooseVariantObjects } from "./no-loose-variant-objects.mjs";
 import { noRawTailwindColors } from "./no-raw-tailwind-colors.mjs";
+import { noRuntimeTypeof } from "./no-runtime-typeof.mjs";
 import { preferErrorNormalizer } from "./prefer-error-normalizer.mjs";
 import { pureNavModules } from "./pure-nav-modules.mjs";
 import { requireAuthInActions } from "./require-auth-in-actions.mjs";
@@ -23,7 +26,10 @@ export const openrostrumPlugin = {
 		"no-dark-variants": noDarkVariants,
 		"no-deferral-comments": noDeferralComments,
 		"no-generic-instanceof": noGenericInstanceof,
+		"no-long-comments": noLongComments,
+		"no-loose-variant-objects": noLooseVariantObjects,
 		"no-raw-tailwind-colors": noRawTailwindColors,
+		"no-runtime-typeof": noRuntimeTypeof,
 		"prefer-error-normalizer": preferErrorNormalizer,
 		"pure-nav-modules": pureNavModules,
 		"require-auth-in-actions": requireAuthInActions,

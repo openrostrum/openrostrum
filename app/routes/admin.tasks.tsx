@@ -774,10 +774,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 			}));
 		}
 		// One assignment per idempotency scope — (task, contact) for contact
-		// tasks, (task, contact, submission) for submission tasks, so a
-		// multi-talk speaker gets one row per accepted talk. Dedupe candidates,
-		// then let the partial unique indexes absorb replays (idempotent
-		// re-assign).
+		// tasks, (task, contact, submission) for submission tasks, so a multi-talk
+		// speaker gets one row per accepted talk. Dedupe here, then let the partial
+		// unique indexes absorb replays (idempotent re-assign).
 		const seen = new Set<string>();
 		const unique = candidates.filter((c) => {
 			const key = `${c.contactId}:${c.submissionId ?? ""}`;

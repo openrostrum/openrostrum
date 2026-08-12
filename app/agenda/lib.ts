@@ -247,11 +247,10 @@ function nextDay(day: string): string {
 }
 
 /**
- * The event's calendar days, inclusive of both bounds' EVENT-TZ dates.
- * Start/end are real instants (the settings form stores the organizer's
- * wall-clock datetimes), so a 3-day event must yield 3 columns in its own
- * timezone — reading UTC dates here shifted the strip by a day. Capped so a
- * bad date range can't render an unbounded day strip.
+ * The event's calendar days, inclusive of both bounds' EVENT-TZ dates. Start
+ * and end are real instants, so a 3-day event must yield 3 columns in its own
+ * timezone — reading UTC dates here shifted the strip by a day. Capped so a bad
+ * date range can't render an unbounded strip.
  */
 export function eventDayList(
 	startMs: number | null,
@@ -339,11 +338,10 @@ export type Conflict = {
 export type ConflictScope = "schedulable" | "public";
 
 /**
- * The two Sessionboard conflict classes, nothing more: same-room time overlap
- * and a person booked into two overlapping sessions (any rooms). Track
- * collisions are deliberately not detected. Overlap is STRICT — a session
- * ending exactly when the next starts is not a conflict. Admin detection uses
- * schedulable rows; publish detection uses only attendee-visible rows.
+ * The two Sessionboard conflict classes, nothing more: same-room overlap and a
+ * person double-booked (any rooms); track collisions are deliberately not
+ * detected. Overlap is STRICT — back-to-back is not a conflict. Admin detection
+ * reads schedulable rows, publish detection only attendee-visible ones.
  */
 export function detectConflicts(
 	sessions: readonly AgendaSession[],

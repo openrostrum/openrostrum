@@ -4,7 +4,7 @@ import { z } from "zod";
 import { type Db, getDb } from "~/db";
 import { contacts } from "~/db/schema";
 import {
-	isContactStatus,
+	contactStatus,
 	probableContactDuplicateKey,
 	splitFullName,
 } from "~/domain/contacts";
@@ -360,7 +360,7 @@ export async function action({
 		seen.set(email, rowNum);
 
 		const statusRaw = cell(row, "status").toLowerCase();
-		const status = isContactStatus(statusRaw) ? statusRaw : null;
+		const status = contactStatus.safeParse(statusRaw).data ?? null;
 		const statusNote =
 			statusRaw && !status ? ` (unknown status "${statusRaw}" ignored)` : "";
 

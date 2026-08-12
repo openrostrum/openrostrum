@@ -6,7 +6,7 @@ import { getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import { contacts, insertContactSchema } from "~/db/schema";
 import { CONTACT_STATUS_TONE } from "~/components/contact-status";
-import { contactFilter, isContactStatus } from "~/domain/contacts";
+import { contactFilter, contactStatus } from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { headshotUrl } from "~/lib/headshot";
@@ -77,7 +77,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const url = new URL(request.url);
 	const q = url.searchParams.get("q") ?? "";
 	const statusParam = url.searchParams.get("status");
-	const status = isContactStatus(statusParam) ? statusParam : null;
+	const status = contactStatus.safeParse(statusParam).data ?? null;
 	const db = getDb(env);
 	const timings = createTimings();
 

@@ -20,6 +20,7 @@ import {
 	DAY_MS,
 	postForm,
 	seedTasksBaseline,
+	unwrap,
 } from "./tasks-fixtures";
 
 // The dashboard's numbers must equal an independent aggregation of the fixture:
@@ -33,12 +34,7 @@ type UnwrappedAction = {
 };
 
 /** Actions may return `data(result, { headers })` — read through the wrapper. */
-function unwrapAction(result: unknown): UnwrappedAction {
-	const maybe = result as { data?: UnwrappedAction };
-	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
-		? maybe.data
-		: (result as UnwrappedAction);
-}
+const unwrapAction = (result: unknown) => unwrap<UnwrappedAction>(result);
 
 async function seedAssignmentsMix() {
 	const db = await seedTasksBaseline();

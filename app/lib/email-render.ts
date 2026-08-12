@@ -1,20 +1,8 @@
 /**
  * Merge-field rendering for ALL email surfaces — one module so previews and
  * sends share the exact same substitution. Pure and isomorphic (no server
- * imports) so editors can preview client-side with the exact functions send
- * sites use server-side.
- *
- * Two deliberate, DIFFERENT policies live here:
- *
- * - Template pipeline (lifecycle/custom templates — `renderSubject` /
- *   `renderBody`): EVERY {{...}} token is consumed — a tag with no value
- *   renders as empty string, never as a leaked literal token in a delivered
- *   email.
- *
- * - Compose pipeline (organizer-written campaign text — `renderMergeFields` /
- *   `renderEmailHtml`): known tags always resolve (missing data → empty
- *   string); UNKNOWN tags are left verbatim so a typo is visible in the
- *   per-recipient preview instead of vanishing silently.
+ * imports), so an editor previews client-side with the very functions the send
+ * sites call server-side. The two pipelines' tag policies differ; see each.
  */
 
 export const MERGE_TAGS = [
@@ -36,11 +24,10 @@ export const MERGE_TAGS = [
 
 export type MergeTag = (typeof MERGE_TAGS)[number]["tag"];
 
-/** FULL record on the published tag union: a typo'd key is a compile error,
- * and a tag added to MERGE_TAGS fails compilation at every template-pipeline
- * site — a partial context is how a tag renders resolved in the editor
- * preview and blank in the delivered email. `null` = "no value here" and
- * renders as empty string. */
+/** FULL record on the published tag union: a typo'd key is a compile error, and
+ * a new MERGE_TAGS entry fails compilation at every template-pipeline site — a
+ * partial context is how a tag renders resolved in the editor preview and blank
+ * in the delivered email. `null` = "no value here", rendered as empty string. */
 export type MergeContext = Record<MergeTag, string | null>;
 
 const CLASSIC_TAG_ALIASES: Readonly<Record<string, MergeTag>> = {
@@ -97,7 +84,9 @@ export function templateKindLabel(category: string | null): string {
 	return "—";
 }
 
-/** Plain-text substitution — subjects are never HTML. */
+/** Template pipeline (lifecycle/custom templates): EVERY {{...}} token is
+ * consumed — a tag with no value renders as empty string, never as a literal
+ * token leaked into a delivered email. Subjects are never HTML. */
 export function renderSubject(template: string, ctx: MergeContext): string {
 	return substitute(template, ctx, TEMPLATE_MERGE_TAGS, "blank", (v) => v);
 }
@@ -134,6 +123,9 @@ export function templateUsesTag(
 	);
 }
 
+/** Compose pipeline (organizer-written campaign text): known tags always
+ * resolve (missing data → empty string), but UNKNOWN tags are left verbatim, so
+ * a typo shows up in the per-recipient preview instead of vanishing silently. */
 export function renderMergeFields(
 	template: string,
 	values: MergeValues,

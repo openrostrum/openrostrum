@@ -48,6 +48,9 @@ const EXPECTED_PORTAL_FORMS = [
 	},
 ];
 
+// Same lockstep mandate: the accept spine mints assignments from
+// `tasks.isOnboardingDefault`, so an event provisioned without these definitions
+// accepts speakers into an empty portal.
 const EXPECTED_TASKS = [
 	{
 		name: "Flight Reimbursement",
@@ -81,14 +84,10 @@ const EXPECTED_TASKS = [
 	},
 ];
 
-// Senders resolve templates by (eventId, key): an event missing a key
-// silently never sends that email. Two sources mint the template set — the
-// seed (demo event) and provisionEventDefaults (every created event) — and
-// nothing but this test forces them to stay in lockstep with the keys the
-// senders look up (EVENT_EMAIL_TEMPLATE_KEYS). The same lockstep mandate
-// covers the onboarding task definitions: the accept spine mints assignments
-// from `tasks.isOnboardingDefault`, so an event provisioned without them
-// accepts speakers into an empty portal.
+// Senders resolve templates by (eventId, key): an event missing a key silently
+// never sends that email. Two sources mint the set — the seed (demo event) and
+// provisionEventDefaults (every created event) — and nothing but this test keeps
+// them in lockstep with the keys senders look up (EVENT_EMAIL_TEMPLATE_KEYS).
 
 /** Third-column literals of a seed insert's e_demo rows ('id','e_demo','<v>',…). */
 function seedThirdColumn(table: string): string[] {

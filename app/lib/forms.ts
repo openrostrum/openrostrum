@@ -4,10 +4,8 @@ import type { BadgeTone } from "~/ui";
 /**
  * Form-domain contracts shared across lanes: the admin builder WRITES form
  * definitions, the public CFP renderer READS them — both must agree on when a
- * form accepts submissions, how event-timezone close instants are computed,
- * and what the built-in questions are. Pure data/functions only (this module
- * is client-bundled); the D1 reads and the sanitizer live in
- * `./forms.server`.
+ * form accepts submissions, how event-timezone close instants are computed, and
+ * what the built-in questions are. Client-bundled; D1 reads in ./forms.server.
  */
 
 export type FormStatus = "draft" | "open" | "closed";
