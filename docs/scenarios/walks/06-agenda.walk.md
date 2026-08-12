@@ -834,16 +834,18 @@ The route delta is entirely on the **schedule-update maintenance surface**: the 
 `intent="schedule-updates"` action, and the outcome banners. The grid, drag/drop placement, conflict
 detection, Agenda Settings, unschedule, and publish paths are untouched. Four concrete changes:
 
-1. **Loader now surfaces `event.scheduleScanBlocked`** alongside the pre-existing `scheduleScanTruncated`
-   (`admin.agenda.tsx:308`), fed by `ScheduleChangeSet.blocked` (`app/domain/schedule-update.ts:73`).
+1. **Loader now surfaces `event.scheduleScanBlocked` and `event.scheduleBlockedSessions`** alongside the
+   pre-existing `scheduleScanTruncated` (`admin.agenda.tsx:308`), fed by
+   `ScheduleChangeSet.blockedSessions` (`app/domain/schedule-update.ts:73`).
 2. **A truncated scan is no longer a dead end.** The old banner read "Matching invite history exceeded the
    check limit, so schedule-update counts may be incomplete." and offered nothing. It now renders inside an
    `InfoBarActionRow` with a **"Continue checking invite history"** POST button (the same
    `intent="schedule-updates"` form, extracted as `scheduleUpdateForm`), so the organizer has an actionable
    continuation path instead of a permanent warning.
-3. **A new terminal-invalid banner**: "Invite history contains invalid sent records, so schedule updates are
-   blocked. Review Email history before retrying." with a `TextLink` to `/admin/emails/history`. It takes
-   precedence over the truncated banner, so the two never stack.
+3. **A new held-back-sessions banner**, naming the sessions whose speaker holds a delivered invite we
+   cannot read back, with a `TextLink` to `/admin/emails/history` and the assurance that every other
+   session still sends. The quarantine is per recipient address, so it withholds those sessions rather
+   than the event: the banner coexists with the stale-speaker banner and the send stays available.
 4. **The action normalizes before it sends.** `intent="schedule-updates"` now runs
    `normalizeCalendarInviteHistory(db, event.id)` first; if it did any work it returns early with
    `{ normalization: { processed, remaining } }` and renders
@@ -856,7 +858,8 @@ detection, Agenda Settings, unschedule, and publish paths are untouched. Four co
 **Baseline precondition (governs the UNCHANGED verdicts below).** `computeScheduleChanges` only considers
 submissions with a non-NULL `notified_at` (`app/domain/schedule-update.ts:853`), and the seed sets
 `notified_at` nowhere. At the seed baseline there is therefore no calendar-bearing outbox history: the
-normalization preflight finds nothing, `staleSpeakers` is 0, and `truncated`/`blocked` are both false — so
+normalization preflight finds nothing, `staleSpeakers` is 0, `truncated` is false and `blockedSessions` is
+empty — so
 **none of the changed banners render on a baseline Agenda load**, and every screenshot oracle in this file
 is byte-identical to `origin/main`.
 

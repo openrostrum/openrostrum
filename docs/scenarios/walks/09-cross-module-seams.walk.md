@@ -1067,8 +1067,9 @@ order table) and therefore filed as coverage citations, not gaps.
 - **Deletion seam** — the ledger adds two submission-keyed tables, so XM-S5's "no orphans anywhere" oracle
   now has more surface to cover. Concrete artifact below.
 - **Export/read seam** — no ledger column is exported, rendered on a portal or admin surface, or exposed in
-  a loader payload other than the Agenda's `scheduleScanBlocked` boolean, so CSV, portal and authz oracles
-  are structurally out of reach of this change.
+  a loader payload. The Agenda derives two fields from the ledger — `scheduleScanBlocked` and the titles of
+  the held-back sessions, both already event-scoped admin data — so CSV, portal and authz oracles are
+  structurally out of reach of this change.
 
 ### Concrete artifact — the deletion seam is now guarded by a test
 
