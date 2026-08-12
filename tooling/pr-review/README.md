@@ -48,14 +48,20 @@ parallelism and safety limits.
 A reviewer reports each violation with a `submit_finding` call the moment it is
 sure of it, one finding per call, and closes the session with a `finish_review`
 call carrying only the running total. No response therefore grows with the size of
-the review. This exists because DeepSeek caps a single completion at 8192 output
-tokens whatever ceiling is requested: under the original contract, where one
-terminal JSON had to carry every finding, a reviewer with a lot to say about a
-large diff was cut off mid-answer and its entire review was discarded.
+the review. It exists because the original contract made one terminal JSON carry
+every finding, so a reviewer with a lot to say about a large diff was cut off
+mid-answer and its whole review was discarded.
+
+The truncation that forced this was our own bug, not a provider limit. pi-ai sends
+`max_completion_tokens` for OpenAI-compatible providers outside its allow-list,
+DeepSeek is outside it, and DeepSeek's API reads only `max_tokens` — so every
+ceiling we sent was dropped and DeepSeek's 8192 default stood in for it.
+Requesting 6214 and still stopping at 8192 is what exposed it. The runtime now
+names the field DeepSeek reads and asks for the catalog's own ceiling.
 
 Every request sets `toolChoice: "required"`, so a response can only be tool calls.
 Incremental submission alone did not fix the overflow — reviewers still spent whole
-8192-token responses on commentary, one of them reaching its cap by the fifth turn
+whole responses on commentary, one of them reaching the cap by its fifth turn
 without ever submitting a finding. Prose was never read by anything; now there is
 no channel for it, which is enforcement rather than instruction.
 

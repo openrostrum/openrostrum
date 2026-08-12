@@ -7,7 +7,7 @@ import {
 	fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { runRuleReviewer, runRuleReviewers, summaryLine } from "./agent.mjs";
-import { FINDING_LIMITS, loadSystems, RESPONSE_CEILING } from "./core.mjs";
+import { FINDING_LIMITS, loadSystems } from "./core.mjs";
 import { anchorFinding } from "./inline.mjs";
 
 const stop = (value) => fauxAssistantMessage(JSON.stringify(value));
@@ -463,13 +463,10 @@ test("a truncated answer reports its size against the ceiling requested", async 
 	assert.match(result.reason, /length/);
 	assert.match(result.reason, /8192 output tokens/);
 	assert.match(result.reason, /0 of them reasoning/);
-	// The diagnostic must report what was actually asked for. Reporting the
-	// catalog's 262144 while sending far less is how "ceiling requested 384000"
-	// sent three runs chasing a limit nobody had requested.
-	assert.match(
-		result.reason,
-		new RegExp(`ceiling requested ${RESPONSE_CEILING}`),
-	);
+	// The diagnostic must report what was actually asked for: a run that stops
+	// short of the ceiling it requested is a different bug from one that reaches
+	// it, and confusing the two is what sent three runs chasing 8192.
+	assert.match(result.reason, /ceiling requested 262144/);
 });
 
 test("provider failure and turn exhaustion are incomplete", async () => {
@@ -941,4 +938,56 @@ test("a reviewer still reading at its budget is asked to close, and does", async
 	assert.match(close, /investigation is over/i);
 	assert.match(close, /read nothing further/i);
 	assert.match(close, /1 finding\(s\) are recorded/);
+});
+
+// Telling a reviewer to stop reading was not enough in production — four of five
+// kept reading and spent the close allowance too. The repository tools have to be
+// gone, so submitting and closing are the only calls it can still make.
+test("the closing request offers no way to keep reading", async () => {
+	const reading = (id) =>
+		fauxAssistantMessage(
+			[
+				fauxToolCall(
+					"read_file",
+					{ path: "app/f0.ts", start_line: 1, end_line: 5 },
+					{ id },
+				),
+			],
+			{ stopReason: "toolUse" },
+		);
+	const offered = [];
+	const { runtime } = fauxRuntime([
+		reading("r1"),
+		reading("r2"),
+		reading("r3"),
+		done(0),
+	]);
+	const watched = {
+		...runtime,
+		streamFn: (model, context, options) => {
+			offered.push((context.tools ?? []).map((tool) => tool.name).sort());
+			return runtime.streamFn(model, context, options);
+		},
+	};
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES, {
+			read_file: () => ({ ok: true, content: "1: export const value = 1;" }),
+		}),
+		runtime: watched,
+		limits: { maxTurns: 3 },
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.ok(
+		offered[0].includes("read_file"),
+		`investigation must start with the repository tools, got ${offered[0]}`,
+	);
+	assert.deepEqual(
+		offered.at(-1),
+		["finish_review", "submit_finding"],
+		"the closing request still offered a way to keep reading",
+	);
 });

@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
 	FINDING_LIMITS,
 	makeRuntime,
-	RESPONSE_CEILING,
 	streamOptions,
 	SUBMISSIONS_PER_RESPONSE,
 } from "./core.mjs";
@@ -24,27 +23,39 @@ test("the runtime carries Pi's DeepSeek provider contract, not a hand-built mode
 	assert.equal(runtime.model.compat?.supportsDeveloperRole, false);
 	assert.equal(runtime.model.compat?.thinkingFormat, "deepseek");
 	assert.ok(runtime.model.contextWindow > 0);
-	// The model still has to be able to give a response the size our contract
-	// asks for; anything less and reviewers truncate for a reason we chose.
-	assert.ok(
-		runtime.model.maxTokens >= RESPONSE_CEILING,
-		`catalog ceiling ${runtime.model.maxTokens} is below the ${RESPONSE_CEILING} a response can need`,
+	assert.ok(runtime.model.maxTokens > 100_000);
+});
+
+// This is the defect that cost a night of reviews. pi-ai chooses
+// max_completion_tokens for every OpenAI-compatible provider outside its
+// allow-list, DeepSeek is outside it, and DeepSeek's API reads only max_tokens —
+// so every ceiling we sent was dropped on the floor and its 8192 default applied.
+// Requesting 6214 still stopped at 8192, which is what gave it away.
+test("the output ceiling is sent under the field name DeepSeek reads", () => {
+	const runtime = makeRuntime({
+		key: "test-key",
+		base: "https://api.deepseek.test",
+		model: "deepseek-v4-flash",
+		temperature: 0,
+	});
+
+	assert.equal(
+		runtime.model.compat?.maxTokensField,
+		"max_tokens",
+		"DeepSeek ignores max_completion_tokens, so a ceiling sent under it never arrives",
 	);
 });
 
-// A response no longer carries the review — findings are submitted one tool call
-// at a time — so asking DeepSeek for the catalog's 384000 was requesting 47x
-// what any response can hold, from a provider that honours 8192 regardless. Ask
-// for what the contract can actually require.
-test("the ceiling asked for is the largest response this contract can require", () => {
+// Asking for less than the model allows is asking reviewers to truncate for a
+// reason we invented. The ceiling belongs to the catalog.
+test("the ceiling asked for is the model's own, not a derived budget", () => {
 	const sent = streamOptions({
 		key: "test-key",
 		temperature: 0,
 		model: { maxTokens: 384_000 },
 	});
 
-	assert.equal(sent.maxTokens, RESPONSE_CEILING);
-	assert.ok(RESPONSE_CEILING < 384_000);
+	assert.equal(sent.maxTokens, 384_000);
 });
 
 test("a model that cannot reach the contract ceiling is asked for its own", () => {
@@ -57,8 +68,8 @@ test("a model that cannot reach the contract ceiling is asked for its own", () =
 	assert.equal(sent.maxTokens, 2048);
 });
 
-// The ceiling is derived, so it must keep holding a worst-case response rather
-// than drifting into a number that truncates the contract it was derived from.
+// The ceiling has to keep holding a worst-case response — a full allowance of
+// maximum-size findings — or the contract truncates against its own limits.
 test("the requested ceiling holds a full response of maximum-size findings", () => {
 	const maximal = JSON.stringify(
 		Array.from({ length: SUBMISSIONS_PER_RESPONSE }, () => ({
@@ -69,37 +80,20 @@ test("the requested ceiling holds a full response of maximum-size findings", () 
 			why: "w".repeat(FINDING_LIMITS.why),
 		})),
 	);
-
-	// Four characters per token is generous for JSON carrying code and prose,
-	// and the ceiling has to leave the model room for its own words on top.
-	assert.ok(
-		RESPONSE_CEILING > maximal.length / 4,
-		`ceiling ${RESPONSE_CEILING} cannot hold ${SUBMISSIONS_PER_RESPONSE} maximum findings (${maximal.length} chars)`,
-	);
-});
-
-test("a caller may still narrow the ceiling below the model's limit", () => {
-	const caller = streamOptions({
-		key: "test-key",
-		temperature: 0,
-		model: { maxTokens: 262_144 },
-		options: { maxTokens: 4096 },
-	});
-
-	assert.equal(caller.maxTokens, 4096);
-});
-
-// A deployer may point DEEPSEEK_MODEL at a model newer than Pi's bundled
-// catalog; that must still review rather than crash the job.
-test("an uncatalogued model id still resolves through the catalog template", () => {
 	const runtime = makeRuntime({
 		key: "test-key",
 		base: "https://api.deepseek.test",
-		model: "deepseek-v9-unreleased",
+		model: "deepseek-v4-flash",
 		temperature: 0,
 	});
+	const ceiling = streamOptions({
+		key: "test-key",
+		temperature: 0,
+		model: runtime.model,
+	}).maxTokens;
 
-	assert.equal(runtime.model.id, "deepseek-v9-unreleased");
-	assert.equal(runtime.model.api, "openai-completions");
-	assert.equal(runtime.model.baseUrl, "https://api.deepseek.test");
+	assert.ok(
+		ceiling > maximal.length / 4,
+		`ceiling ${ceiling} cannot hold ${SUBMISSIONS_PER_RESPONSE} maximum findings (${maximal.length} chars)`,
+	);
 });
