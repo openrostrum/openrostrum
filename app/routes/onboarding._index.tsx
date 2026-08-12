@@ -19,11 +19,10 @@ import { Button, ErrorText, Field, Input, PageHeader, Panel } from "~/ui";
 import type { Route } from "./+types/onboarding._index";
 
 /**
- * Step 1 of first run, and the only question with no good default: the name.
- * Everything a conference needs to exist — organization, membership, event,
- * URL, email templates, task list, portal — is derived from it in one batch,
- * so the organizer's first action produces a working event rather than a
- * half-filled form.
+ * The name is the only first-run question with no good default: organization,
+ * membership, event, URL, email templates, task list and portal are all derived
+ * from it in one batch, so the organizer's first action produces a working event
+ * rather than a half-filled form.
  */
 
 const ConferenceForm = z.object({

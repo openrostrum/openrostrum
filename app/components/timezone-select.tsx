@@ -29,11 +29,10 @@ function subscribe(): () => void {
 }
 
 /**
- * The one timezone picker. `value === null` means "nobody has answered yet" and
- * the browser's own zone is preselected; a stored answer always wins over the
- * guess. Controlled state rather than a ref because ~/ui primitives take no
- * ref; the server still renders a real selected option, so the field submits
- * correctly without JS.
+ * `value === null` means "nobody has answered yet", so the browser's own zone is
+ * preselected and a stored answer always wins over it. State rather than a ref
+ * because ~/ui primitives expose none, and the server still renders a real
+ * selected option so the field submits without JS.
  */
 export function TimezoneSelect({
 	value,

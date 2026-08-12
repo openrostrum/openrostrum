@@ -7,11 +7,10 @@ import { cn } from "~/ui/cn";
 import { GITHUB_URL } from "./content";
 import { FOCUS_RING } from "./primitives";
 
-// The auth doorway — one composition shared by /login, /signup,
-// /forgot-password, and /set-password, so the four routes stay layout-only.
-// Deliberately plainer than the landing hero: the plinth reads as a progress
-// bar when it sits under a submit button, and licence terms are a decision
-// made before you reach the door, not at it.
+// One composition shared by /login, /signup, /forgot-password and
+// /set-password, so those four routes stay layout-only. Plainer than the
+// landing hero on purpose: the plinth reads as a progress bar above a submit
+// button, and licence terms are a decision made before you reach the door.
 
 const TITLE_TONES = {
 	default: "text-fg",
