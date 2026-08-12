@@ -7,6 +7,7 @@ export { EmptyState } from "./empty-state";
 export { ErrorText } from "./error-text";
 export { Field, Input, Select } from "./field";
 export { Icon, type IconName } from "./icon";
+export { InkLink } from "./ink-link";
 export { MenuItem } from "./menu-item";
 export { Modal } from "./modal";
 export {

@@ -15,6 +15,7 @@ import {
 	ButtonLink,
 	Chip,
 	EmptyState,
+	InkLink,
 	MotionReveal,
 	Tab,
 	Tabs,
@@ -161,13 +162,13 @@ function SpeakerDetail({
 						Sessions ({speaker.sessions.length})
 					</h3>
 					{speaker.sessions.map((session) => (
-						<div key={session.id} className="flex flex-col">
-							<Link
+						<div key={session.id} className="flex flex-col text-[13.5px]">
+							<InkLink
 								to={makeHref(sessionsBase, { session: session.id })}
-								className="w-fit rounded-[3px] text-[13.5px] font-medium text-fg underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+								strong
 							>
 								{session.title}
-							</Link>
+							</InkLink>
 							<p className="font-mono text-[11.5px] tabular-nums text-fg-muted">
 								{[session.dateLabel, session.timeRange]
 									.filter(Boolean)
@@ -176,12 +177,11 @@ function SpeakerDetail({
 									<>
 										{(session.dateLabel || session.timeRange) && " · "}
 										{session.roomId ? (
-											<Link
+											<InkLink
 												to={makeHref(sessionsBase, { room: session.roomId })}
-												className="rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
 											>
 												{session.room}
-											</Link>
+											</InkLink>
 										) : (
 											session.room
 										)}
@@ -356,12 +356,9 @@ function SessionDetail({
 					{show("room") && (
 						<MetaRow label="Room">
 							{session.room && session.roomId ? (
-								<Link
-									to={makeHref(sessionsBase, { room: session.roomId })}
-									className="rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-								>
+								<InkLink to={makeHref(sessionsBase, { room: session.roomId })}>
 									{session.room}
-								</Link>
+								</InkLink>
 							) : (
 								(session.room ?? "To be announced")
 							)}

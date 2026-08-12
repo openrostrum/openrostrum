@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router";
-import { Chip } from "~/ui";
+import { Chip, InkLink } from "~/ui";
 import { ShowMoreText, SpeakerPhoto, TagPill } from "./bits";
 import type { HideableField, PublicSession } from "~/lib/program-types";
 
@@ -26,12 +25,9 @@ export function SpeakerRow({
 		</>
 	);
 	return detailHref ? (
-		<Link
-			to={detailHref}
-			className="flex items-center gap-2.5 rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-		>
+		<InkLink to={detailHref} row>
 			{content}
-		</Link>
+		</InkLink>
 	) : (
 		<div className="flex items-center gap-2.5">{content}</div>
 	);
@@ -80,12 +76,7 @@ export function SessionCard({
 						)}
 					<h3 className="font-display text-[16px] font-semibold leading-snug text-fg">
 						{detailHref ? (
-							<Link
-								to={detailHref}
-								className="rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-							>
-								{session.title}
-							</Link>
+							<InkLink to={detailHref}>{session.title}</InkLink>
 						) : (
 							session.title
 						)}

@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router";
-import { Panel } from "~/ui";
+import { InkLink, Panel } from "~/ui";
 import { SectionHeading } from "./section-heading";
 
 export function PipelineColumn({
@@ -60,10 +59,10 @@ export function PipelineCardTile({
 }) {
 	return (
 		<Panel>
-			<div className="flex flex-col gap-2">
-				<Link to={to} className="text-[13px] font-medium text-fg">
+			<div className="flex flex-col gap-2 text-[13px]">
+				<InkLink to={to} strong>
 					{name}
-				</Link>
+				</InkLink>
 				<span className="text-[12.5px] text-fg-muted">{subtitle}</span>
 				{score != null && (
 					<span className="font-mono text-[12px] tabular-nums text-fg-muted">
