@@ -102,6 +102,27 @@ export default [
 		},
 	},
 
+	// A third party that answers with an error is the outage shape every adapter
+	// here already handles; one that accepts the connection and then says nothing
+	// is the one that gets forgotten, and then the only limit is whatever the
+	// platform imposes. Matching on the options object exempts a transport that
+	// forwards its arguments and catches the mistake this exists for: a fetch
+	// written with a method, headers, and a body but no deadline.
+	{
+		files: ["app/ports/**/*.ts"],
+		rules: {
+			"no-restricted-syntax": [
+				"error",
+				{
+					selector:
+						"CallExpression:matches([callee.name='fetch'], [callee.property.name='fetch']) > ObjectExpression:not(:has(> Property[key.name='signal']))",
+					message:
+						"An outbound fetch needs a deadline — pass signal: AbortSignal.timeout(ms). See docs/rules/tech-stack.md → Timeouts.",
+				},
+			],
+		},
+	},
+
 	// React / hooks / a11y — only where components live.
 	{ ...react.configs.flat.recommended, files: REACT },
 	{ ...reactHooks.configs.flat["recommended-latest"], files: REACT },
