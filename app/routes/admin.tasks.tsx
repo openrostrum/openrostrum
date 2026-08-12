@@ -536,6 +536,10 @@ type ActionResult = {
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
 	notice?: string;
+	/** Where the durable record of what just happened lives. The banner is gone
+	 * on the next navigation; the receipt is not. */
+	noticeHref?: string;
+	noticeLinkLabel?: string;
 };
 
 export async function action({ context, request }: Route.ActionArgs) {
@@ -781,9 +785,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 			return true;
 		});
 		if (unique.length === 0) {
-			return {
+			const nothingAssigned: ActionResult = {
 				notice: "No speakers matched that audience — nothing was assigned.",
-			} satisfies ActionResult;
+			};
+			return nothingAssigned;
 		}
 		let added = 0;
 		try {
@@ -864,9 +869,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 				asc(taskAssignments.dueAt),
 			);
 		if (rows.length === 0) {
-			return {
+			const nothingOutstanding: ActionResult = {
 				notice: "Nothing outstanding — no reminders to send.",
-			} satisfies ActionResult;
+			};
+			return nothingOutstanding;
 		}
 		const byContact = new Map<string, typeof rows>();
 		for (const row of rows) {
@@ -937,6 +943,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 				sent === 0
 					? "These reminders were already sent."
 					: `Sent ${sent} reminder${sent === 1 ? "" : "s"} covering ${rows.length} outstanding task${rows.length === 1 ? "" : "s"}.`,
+			noticeHref: "/admin/emails/history",
+			noticeLinkLabel: "See who received what",
 		};
 		return data(remindResult, {
 			headers: { "Server-Timing": timings.header() },
@@ -1040,8 +1048,13 @@ export default function TasksDashboard({
 			/>
 
 			{actionData?.notice && (
-				<div className="flex">
+				<div className="flex items-center gap-3">
 					<StatusBadge tone="success">{actionData.notice}</StatusBadge>
+					{actionData.noticeHref && (
+						<TextLink to={actionData.noticeHref}>
+							{actionData.noticeLinkLabel ?? "View details"}
+						</TextLink>
+					)}
 				</div>
 			)}
 			{createdName && !actionData?.fieldErrors && !actionData?.formError && (

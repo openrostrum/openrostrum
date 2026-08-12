@@ -6,7 +6,6 @@ export {
 	PhotoTile,
 	ResultCount,
 	ShowMoreText,
-	SpeakerPhoto,
 	StarButton,
 	TagPill,
 } from "./bits";

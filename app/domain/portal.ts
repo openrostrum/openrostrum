@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { data } from "react-router";
 import { getDb } from "~/db";
 import { PARTICIPANT_ROLE, type SUBMISSION_STATUS } from "~/db/constants";
@@ -193,6 +193,46 @@ export async function getPortalContext(
 
 export function portalPath(ctx: PortalContext, suffix = ""): string {
 	return `/portals/${ctx.event.slug}/${ctx.portal.publicId}${suffix}`;
+}
+
+/**
+ * The headshot key of a person the caller is entitled to see: themselves, or a
+ * co-speaker they share a submission with in THIS event. Anyone else — another
+ * contact in the same event, or any contact outside it — resolves to null, so
+ * the route 404s instead of falling back to the caller's own photo.
+ */
+export async function visibleHeadshotKey(
+	env: Env,
+	ctx: PortalContext,
+	contactId: string | null,
+): Promise<string | null> {
+	if (!ctx.contact) return null;
+	if (!contactId || contactId === ctx.contact.id)
+		return ctx.contact.headshotKey;
+	const db = getDb(env);
+	const mine = db
+		.select({ submissionId: participants.submissionId })
+		.from(participants)
+		.innerJoin(submissions, eq(submissions.id, participants.submissionId))
+		.where(
+			and(
+				eq(participants.contactId, ctx.contact.id),
+				eq(submissions.eventId, ctx.event.id),
+			),
+		);
+	const [row] = await db
+		.select({ headshotKey: contacts.headshotKey })
+		.from(contacts)
+		.innerJoin(participants, eq(participants.contactId, contacts.id))
+		.where(
+			and(
+				eq(contacts.id, contactId),
+				eq(contacts.eventId, ctx.event.id),
+				inArray(participants.submissionId, mine),
+			),
+		)
+		.limit(1);
+	return row?.headshotKey ?? null;
 }
 
 export type PortalSubmissionRow = {

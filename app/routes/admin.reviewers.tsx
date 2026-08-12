@@ -23,9 +23,11 @@ import { escapeHtmlText } from "~/lib/html";
 import {
 	activeInviteTokens,
 	ensureReviewerUser,
+	hasStandingOutsideOrg,
 	hasUsablePassword,
 	listEventReviewers,
 	mintInviteToken,
+	mintSignInToken,
 	SEND_KEY_RE,
 } from "~/lib/reviewers";
 import { getEmailSender } from "~/ports/email";
@@ -182,6 +184,12 @@ type ActionResult = {
 	ok?: string;
 	formError?: string;
 	fieldErrors?: Record<string, string[] | undefined>;
+	/** Set by `signin-link`: the one row that just minted a link, and the link.
+	 * Deliberately not surfaced from the loader — a live set-password link for
+	 * every reviewer sitting on screen at all times is shoulder-surfing surface
+	 * nobody asked for. It shows on the click, for that render only. */
+	userId?: string;
+	link?: string;
 };
 
 export async function action({
@@ -293,6 +301,48 @@ export async function action({
 			});
 			track("reviewer.reinvited", { eventId: event.id, userId });
 			return { intent, ok: "Invite re-sent — the link below is the new one." };
+		}
+
+		if (intent === "signin-link") {
+			if (!sendKeyValid) return { intent, formError: STALE_FORM_ERROR };
+			const userId = String(form.get("userId") ?? "");
+			// Track assignment on THIS event is the reviewer tenancy boundary —
+			// never trust the posted principal id.
+			const target = (await listEventReviewers(db, event.id)).find(
+				(r) => r.id === userId,
+			);
+			if (!target) return { intent, formError: "Reviewer not found." };
+			if (target.invited) {
+				return {
+					intent,
+					formError:
+						"This reviewer hasn't set a password yet — copy their invite link, or use Re-invite for a fresh one.",
+				};
+			}
+			// Redeeming the link replaces their password. That is only the
+			// organizer's to give when the account lives entirely inside this org.
+			if (await hasStandingOutsideOrg(db, userId, event.organizationId)) {
+				return {
+					intent,
+					formError: `${target.name ?? target.email} also has an account outside this organization, so we can't reset it from here — ask them to use "Forgot password" on the sign-in page.`,
+				};
+			}
+			const token = await mintSignInToken(db, userId, sendKey);
+			const link = `${origin}/set-password/${token}`;
+			await getEmailSender(env).send({
+				to: target.email,
+				subject: `Your sign-in link for ${event.name}`,
+				html: `<p>Hi ${escapeHtmlText(target.name ?? target.email)},</p><p>Here is a fresh sign-in link for ${escapeHtmlText(event.name)}. Opening it sets a new password and takes you straight to your review queue.</p><p><a href="${link}">Set a new password and sign in</a></p><p>Or paste this link into your browser: ${link}</p>`,
+				dedupeKey: `reviewer_signin:${userId}:${token}`,
+				eventId: event.id,
+			});
+			track("reviewer.signin_link_sent", { eventId: event.id, userId });
+			return {
+				intent,
+				userId,
+				link,
+				ok: "Sign-in link ready below — we emailed it too. Opening it sets a new password for them.",
+			};
 		}
 
 		if (intent === "update-tracks") {
@@ -471,6 +521,69 @@ export async function action({
 	return { intent, formError: "Unknown action." };
 }
 
+/**
+ * The credential cell. It must never dead-end: an invited reviewer gets their
+ * copyable invite link, an active one gets a button that mints a fresh
+ * sign-in link on the spot. The judging agent has no inbox, so an on-screen
+ * link is the only way it can become this person (docs/rules/harness.md).
+ */
+function AccessLinkCell({
+	reviewer,
+	freshLink,
+	sendKey,
+	busy,
+}: {
+	reviewer: {
+		id: string;
+		name: string | null;
+		email: string;
+		invited: boolean;
+		inviteLink: string | null;
+	};
+	freshLink: string | null;
+	sendKey: string;
+	busy: boolean;
+}) {
+	const link = reviewer.inviteLink ?? freshLink;
+	if (link) {
+		return (
+			<div className="flex items-center gap-2">
+				<Input
+					readOnly
+					value={link}
+					size={28}
+					aria-label={`Sign-in link for ${reviewer.name ?? reviewer.email}`}
+					onFocus={(e) => e.currentTarget.select()}
+				/>
+				<CopyButton
+					value={link}
+					copiedLabel="Copied"
+					failedLabel={null}
+					resetAfterMs={null}
+					icon={null}
+					optimistic
+				/>
+			</div>
+		);
+	}
+	// No live link: an invited reviewer's has expired or been consumed, an
+	// active one never had one. Either way the cell offers the mint that fits.
+	return (
+		<Form method="post">
+			<Input
+				type="hidden"
+				name="intent"
+				value={reviewer.invited ? "reinvite" : "signin-link"}
+			/>
+			<Input type="hidden" name="userId" value={reviewer.id} />
+			<Input type="hidden" name="sendKey" value={sendKey} readOnly />
+			<Button type="submit" variant="ghost" disabled={busy}>
+				{reviewer.invited ? "Send invite link" : "Send sign-in link"}
+			</Button>
+		</Form>
+	);
+}
+
 export default function Reviewers({
 	loaderData,
 	actionData,
@@ -495,7 +608,7 @@ export default function Reviewers({
 			<PageHeader
 				title="Reviewers"
 				count={`${reviewers.length} total`}
-				subtitle="Reviewers route by track: they see submissions whose tracks overlap theirs, plus anything explicitly assigned in an evaluation plan. Invite links can be copied from the table — no inbox required."
+				subtitle="Reviewers route by track: they see submissions whose tracks overlap theirs, plus anything explicitly assigned in an evaluation plan. Every row can hand you a copyable link — an invite for someone new, a fresh sign-in link for someone who already set a password. No inbox required."
 			/>
 
 			{result?.ok && <StatusBadge tone="success">{result.ok}</StatusBadge>}
@@ -594,27 +707,16 @@ export default function Reviewers({
 								)}
 							</Td>
 							<Td>
-								{r.inviteLink ? (
-									<div className="flex items-center gap-2">
-										<Input
-											readOnly
-											value={r.inviteLink}
-											size={28}
-											aria-label={`Invite link for ${r.name ?? r.email}`}
-											onFocus={(e) => e.currentTarget.select()}
-										/>
-										<CopyButton
-											value={r.inviteLink}
-											copiedLabel="Copied"
-											failedLabel={null}
-											resetAfterMs={null}
-											icon={null}
-											optimistic
-										/>
-									</div>
-								) : (
-									"—"
-								)}
+								<AccessLinkCell
+									reviewer={r}
+									freshLink={
+										result?.intent === "signin-link" && result.userId === r.id
+											? (result.link ?? null)
+											: null
+									}
+									sendKey={sendKey}
+									busy={busy}
+								/>
 							</Td>
 							<Td>
 								<div className="flex gap-2">

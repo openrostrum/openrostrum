@@ -12,6 +12,7 @@ import {
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
+import { loader as historyLoader } from "../app/routes/admin.emails_.history";
 import { action, loader } from "../app/routes/admin.tasks";
 import {
 	authedRequest,
@@ -27,6 +28,7 @@ import {
 
 type UnwrappedAction = {
 	notice?: string;
+	noticeHref?: string;
 	formError?: string;
 	fieldErrors?: Record<string, string[]>;
 };
@@ -565,6 +567,29 @@ describe("bulk reminder (manual)", () => {
 		expect(outbox[0]?.html).toContain("Hotel Stay Requirements");
 		expect(outbox[0]?.html).toContain("Flight Reimbursement");
 		expect(outbox[0]?.html).toContain("/portals/democonf/portal-public-1");
+	});
+
+	it("sends the organizer to the durable record — the banner goes away, the receipt does not", async () => {
+		await seedAssignmentsMix();
+		const result = await remind();
+		expect(result.noticeHref).toBe("/admin/emails/history");
+
+		// …and that link is not a dead end: the page it names lists this send,
+		// named, so "did the reminders actually go out?" is answerable tomorrow.
+		const history = unwrapAction(
+			await historyLoader({
+				context: CONTEXT,
+				request: await authedRequest("http://localhost/admin/emails/history"),
+				params: {},
+			} as unknown as Parameters<typeof historyLoader>[0]),
+		) as unknown as {
+			rows: Array<{ to: string; subject: string; templateName: string }>;
+		};
+		const reminder = history.rows.find(
+			(row) => row.to === "priya.sharma@example.com",
+		);
+		expect(reminder?.templateName).toBe("Task reminder (system)");
+		expect(reminder?.subject).toContain("outstanding speaker task");
 	});
 
 	it("a double-submit (or a retry after partial failure) never re-delivers the same batch", async () => {

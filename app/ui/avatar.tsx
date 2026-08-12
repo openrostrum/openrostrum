@@ -19,7 +19,33 @@ function initials(name: string) {
 	return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "?";
 }
 
-export function Avatar({ name, size = 24 }: { name: string; size?: number }) {
+/**
+ * A person, at a glance. Pass `src` and you get their photo; pass nothing (or a
+ * null the loader produced because there is no headshot) and you get initials on
+ * a deterministic hue. The choice lives HERE so no surface can hand-roll it and
+ * quietly render a placeholder over a photo the org already uploaded.
+ */
+export function Avatar({
+	name,
+	src,
+	size = 24,
+}: {
+	name: string;
+	src?: string | null;
+	size?: number;
+}) {
+	if (src) {
+		return (
+			<img
+				src={src}
+				alt={name}
+				title={name}
+				loading="lazy"
+				className="shrink-0 rounded-full bg-chip object-cover"
+				style={{ width: size, height: size }}
+			/>
+		);
+	}
 	const hue = hueFor(name);
 	return (
 		<span
