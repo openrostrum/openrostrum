@@ -453,10 +453,8 @@ const THREE_FILES = Array.from({ length: 3 }, (_, index) => ({
 }));
 
 // The defect this contract replaces: one terminal JSON had to carry every
-// finding, and DeepSeek truncates a completion at 8192 output tokens whatever
-// ceiling is requested, so a reviewer with a lot to say about a large diff was
-// cut off mid-answer and its entire review was discarded. Findings now arrive
-// one per tool call, and the response that ends the session carries none of them.
+// finding, so a large review was truncated at the provider's completion cap and
+// discarded whole. No response carries the review now — see README.
 test("a reviewer reports many findings without any response carrying them all", async () => {
 	const findings = Array.from({ length: 24 }, (_, index) => violation(index));
 	const terminal = JSON.stringify({ status: "complete", submitted: 24 });
