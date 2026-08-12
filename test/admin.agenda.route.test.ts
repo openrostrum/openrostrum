@@ -18,7 +18,8 @@ import {
 	submissions,
 	users,
 } from "../app/db/schema";
-import { inviteRecipients } from "../app/domain/accept";
+import { EMAIL_BATCH_LIMIT, inviteRecipients } from "../app/domain/accept";
+import { SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT } from "../app/domain/calendar-ledger";
 import {
 	computeScheduleChanges,
 	normalizeCalendarInviteHistory,
@@ -127,6 +128,72 @@ async function seedBaseline() {
 	return db;
 }
 
+const STALE_BEYOND_ONE_BATCH = SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT + 50;
+
+/**
+ * One accepted, already-notified session per speaker, each holding a delivered
+ * invite whose title no longer matches the session — more of them than a single
+ * candidate scan can return.
+ */
+async function seedStaleBeyondOneBatch(): Promise<void> {
+	const scale = `WITH RECURSIVE scale(n) AS (
+		SELECT 1 UNION ALL SELECT n + 1 FROM scale WHERE n < ${STALE_BEYOND_ONE_BATCH}
+	)`;
+	await env.DB.prepare(`${scale}
+		INSERT INTO submissions (
+			id, event_id, type, title, status, submitter_id, notified_at,
+			created_at, updated_at
+		)
+		SELECT 'over-' || n, 'e1', 'session', 'Over session ' || n, 'accepted',
+			'u_admin', unixepoch(), unixepoch(), unixepoch()
+		FROM scale
+	`).run();
+	await env.DB.prepare(`${scale}
+		INSERT INTO contacts (
+			id, event_id, email, first_name, last_name, status, created_at
+		)
+		SELECT 'over-c-' || n, 'e1', 'over-' || n || '@test.co', 'Over',
+			'Speaker ' || n, 'pending', unixepoch()
+		FROM scale
+	`).run();
+	await env.DB.prepare(`${scale}
+		INSERT INTO participants (
+			id, submission_id, contact_id, role, is_primary, position,
+			acceptance_status, created_at
+		)
+		SELECT 'over-p-' || n, 'over-' || n, 'over-c-' || n, 'speaker', 1, 0,
+			'accepted', unixepoch()
+		FROM scale
+	`).run();
+	await env.DB.prepare(`${scale}
+		INSERT INTO email_outbox (
+			id, event_id, dedupe_key, "to", subject, html, status, created_at, sent_at
+		)
+		SELECT 'over-outbox-' || n, 'e1', 'decision:accept:over:' || n,
+			'over-' || n || '@test.co', 'Accepted', '<p>accepted</p>', 'sent',
+			unixepoch(), unixepoch()
+		FROM scale
+	`).run();
+	await env.DB.prepare(`${scale}
+		INSERT INTO calendar_invite_revisions (
+			id, submission_id, sequence, state_hash, recipient, starts_at, ends_at,
+			location, title, outbox_id, invalid, created_at
+		)
+		SELECT 'over-revision-' || n, 'over-' || n, 0, 'over-state-' || n,
+			'over-' || n || '@test.co', unixepoch('2026-10-12T16:00:00Z'),
+			unixepoch('2026-10-12T16:30:00Z'), NULL, 'Stale title ' || n,
+			'over-outbox-' || n, 0, unixepoch()
+		FROM scale
+	`).run();
+	await env.DB.prepare(`${scale}
+		INSERT INTO calendar_invite_processed_outbox (
+			outbox_id, event_id, invalid, processed_at
+		)
+		SELECT 'over-outbox-' || n, 'e1', 0, unixepoch()
+		FROM scale
+	`).run();
+}
+
 async function adminRequest(body?: URLSearchParams): Promise<Request> {
 	const setCookie = await createSession(env, "u_admin");
 	const headers = new Headers();
@@ -156,6 +223,7 @@ type ActionData = {
 		remaining: boolean;
 	};
 	blockedSessions?: number;
+	morePending?: boolean;
 };
 
 function unwrap<T>(result: unknown): T {
@@ -195,6 +263,7 @@ type LoaderData = {
 		hiddenFromPublic: number;
 		staleSpeakers: number;
 		scheduleScanTruncated: boolean;
+		scheduleScanPartial: boolean;
 		scheduleScanBlocked: boolean;
 	} | null;
 	sessions: {
@@ -3464,6 +3533,46 @@ END:VCALENDAR
 		expect(statements).toBeLessThanOrEqual(8);
 	});
 
+	it("marks the scan partial when more speakers are stale than one batch covers", async () => {
+		const db = await seedBaseline();
+		await seedStaleBeyondOneBatch();
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+
+		const changeSet = await computeScheduleChanges(db, event);
+
+		// 250 speakers are stale. Reporting 200 of them as if that were the whole
+		// picture is what makes "everyone was notified" a lie an operator believes.
+		expect(changeSet.changes).toHaveLength(
+			SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT,
+		);
+		expect(changeSet.speakers).toBe(SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT);
+		expect(changeSet.partial).toBe(true);
+		expect(changeSet.truncated).toBe(false);
+	});
+
+	it("still offers the next batch after sending a partial scan", async () => {
+		await seedBaseline();
+		await seedStaleBeyondOneBatch();
+		expect((await callLoader()).event).toMatchObject({
+			staleSpeakers: SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT,
+			scheduleScanPartial: true,
+		});
+
+		const result = await callAction({ intent: "schedule-updates" });
+
+		expect(result.updates).toMatchObject({ sent: EMAIL_BATCH_LIMIT });
+		expect(result.morePending).toBe(true);
+		// Sending is never a claim that everyone was reached: the speakers this
+		// batch could not name are still counted and still one click away.
+		expect((await callLoader()).event).toMatchObject({
+			staleSpeakers: STALE_BEYOND_ONE_BATCH - EMAIL_BATCH_LIMIT,
+			scheduleScanPartial: false,
+		});
+	});
+
 	it("claims at most 200 submission revisions before sending a batch", async () => {
 		const db = await seedBaseline();
 		const inserted = await env.DB.prepare(`
@@ -3628,8 +3737,13 @@ END:VCALENDAR
 
 		// The unreachable sessions are still reported — as many as the bounded
 		// window holds — but they no longer consume all of it: one broken contact
-		// set cannot silence every speaker in the event.
-		expect(result).toMatchObject({ sent: 1, failed: 200 });
+		// set cannot silence every speaker in the event. The 202nd session is past
+		// the window, so the scan says so rather than passing 201 off as the total.
+		expect(changes.partial).toBe(true);
+		expect(result).toMatchObject({
+			sent: 1,
+			failed: SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT - 1,
+		});
 		const [update] = (await db.select().from(emailOutbox)).filter((row) =>
 			row.dedupeKey?.startsWith("schedule-update:"),
 		);

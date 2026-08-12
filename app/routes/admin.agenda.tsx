@@ -305,6 +305,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				hiddenFromPublic,
 				staleSpeakers: changeSet.speakers,
 				scheduleScanTruncated: changeSet.truncated,
+				scheduleScanPartial: changeSet.partial,
 				scheduleScanBlocked: changeSet.blockedSessions.length > 0,
 				scheduleBlockedSessions: changeSet.blockedSessions.map(
 					(session) => session.submissionTitle,
@@ -375,6 +376,8 @@ type ActionResult = {
 	};
 	/** Sessions withheld from the send that just ran, pending operator review. */
 	blockedSessions?: number;
+	/** The scan stopped at its window; unseen sessions are still waiting. */
+	morePending?: boolean;
 };
 
 function ScheduleHistoryNormalizationOutcome({
@@ -418,9 +421,11 @@ function formatSessionList(titles: readonly string[]): string {
 export function ScheduleUpdateDeliveryOutcome({
 	result,
 	blockedSessions = 0,
+	morePending = false,
 }: {
 	result: NonNullable<ActionResult["updates"]>;
 	blockedSessions?: number;
+	morePending?: boolean;
 }) {
 	return (
 		<InfoBar>
@@ -444,10 +449,20 @@ export function ScheduleUpdateDeliveryOutcome({
 						: "deliveries still in progress"}
 				</>
 			)}
-			{result.remaining > 0 && (
+			{/* A number only when it is the whole number. Past the scan window the
+			    unsent speakers have not been counted yet, so naming a figure here
+			    would read as the last click an operator owes their speakers. */}
+			{(result.remaining > 0 || morePending) && (
 				<>
 					{" "}
-					— <Strong>{result.remaining}</Strong> more to send, click again
+					—{" "}
+					{morePending ? (
+						<>more to send, click again</>
+					) : (
+						<>
+							<Strong>{result.remaining}</Strong> more to send, click again
+						</>
+					)}
 				</>
 			)}
 			{blockedSessions > 0 && (
@@ -730,6 +745,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			return data(
 				ok({
 					updates: outcome,
+					...(changeSet.partial ? { morePending: true } : {}),
 					...(blockedSessions > 0 ? { blockedSessions } : {}),
 					...(normalization.processed > 0 ? { normalization } : {}),
 				}),
@@ -1153,10 +1169,14 @@ export default function Agenda({
 				<InfoBar>
 					<InfoBarActionRow>
 						<span>
+							{event.scheduleScanPartial ? "At least " : null}
 							<Strong>{event.staleSpeakers}</Strong>{" "}
 							{event.staleSpeakers === 1 ? "speaker has" : "speakers have"}{" "}
 							unsent schedule updates — their calendars still show the last
 							invite they were emailed.
+							{event.scheduleScanPartial
+								? " More are waiting than one send covers; each send picks up where the last left off."
+								: null}
 						</span>
 						{scheduleUpdateForm("Send schedule updates", "Sending…")}
 					</InfoBarActionRow>
@@ -1202,6 +1222,7 @@ export default function Agenda({
 				<ScheduleUpdateDeliveryOutcome
 					result={updatesFetcher.data.updates}
 					blockedSessions={updatesFetcher.data.blockedSessions}
+					morePending={updatesFetcher.data.morePending}
 				/>
 			)}
 			{placeFetcher.data?.placed !== undefined &&

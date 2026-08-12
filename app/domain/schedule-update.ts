@@ -88,6 +88,8 @@ export type ScheduleChangeSet = {
 	speakers: number;
 	/** Durable normalization has more rows — a later request can resume it. */
 	truncated: boolean;
+	/** More stale sessions exist than one scan window holds; `speakers` is a floor. */
+	partial: boolean;
 	/** Withheld sessions — operator diagnosis is required before they can go out. */
 	blockedSessions: BlockedScheduleSession[];
 };
@@ -96,6 +98,7 @@ const EMPTY: ScheduleChangeSet = {
 	changes: [],
 	speakers: 0,
 	truncated: false,
+	partial: false,
 	blockedSessions: [],
 };
 
@@ -594,7 +597,14 @@ export async function computeScheduleChanges(
 		}))
 		.sort((a, b) => a.submissionId.localeCompare(b.submissionId));
 
-	const candidates = await staleScheduleCandidates(db, event);
+	// The scan asks for one row past the window so overflow is observable. An
+	// event with more stale sessions than that reports a floor, never a total —
+	// a count that silently stops at the window reads as "everyone is here".
+	const scanned = await staleScheduleCandidates(db, event);
+	const partial = scanned.length > SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT;
+	const candidates = partial
+		? scanned.slice(0, SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT)
+		: scanned;
 	if (candidates.length === 0) return { ...EMPTY, blockedSessions };
 
 	const candidateIds = candidates.map((candidate) => candidate.id);
@@ -658,14 +668,14 @@ export async function computeScheduleChanges(
 			retryAfterBounceId: latestBounce.get(row.id) ?? null,
 		});
 	}
-	if (changes.length === 0) return { ...EMPTY, blockedSessions };
+	if (changes.length === 0) return { ...EMPTY, partial, blockedSessions };
 
 	const speakers = new Set(
 		changes.flatMap((change) =>
 			change.to === null ? [] : [normalizeEmail(change.to)],
 		),
 	).size;
-	return { changes, speakers, truncated: false, blockedSessions };
+	return { changes, speakers, truncated: false, partial, blockedSessions };
 }
 
 export type ScheduleUpdateSendResult = {
