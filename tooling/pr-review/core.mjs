@@ -22,12 +22,10 @@ const CALL_SCAFFOLD = 96; // keys, quotes, escapes, line number
 const PROSE_SHARE = 2; // the model's own words get as much room as the payload
 const CHARS_PER_TOKEN = 3; // conservative for JSON carrying code and prose
 
-// No response carries the review any more: findings arrive one per tool call
-// and the terminal answer is two fields. So the ceiling to request is the
-// largest response this contract can require, derived from the limits that
-// bound one — not the catalog's 384000, which asks a provider that honours 8192
-// for 47x what a response could ever hold, and not a hand-picked number that
-// drifts the moment those limits change.
+// No response carries the review any more, so the ceiling to request is the
+// largest one this contract can require — derived from the limits that bound a
+// response rather than picked, and never the catalog's 384000, which asks a
+// provider honouring 8192 for 47x what a response can hold.
 export const RESPONSE_CEILING = Math.ceil(
 	((FINDING_LIMITS.quote +
 		FINDING_LIMITS.rule +

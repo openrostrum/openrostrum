@@ -159,11 +159,10 @@ function createFindingSink(agent, changedPaths) {
 	};
 }
 
-// The terminal response no longer carries the review, so all it has to prove is
-// that the reviewer knows it finished — and the count is what makes that an
-// assertion. A reviewer whose tally disagrees with the bank has lost track of
-// its own review, and the disagreement fails in the safe direction: the banked
-// findings still post, the session is still incomplete, the check still fails.
+// The terminal response no longer carries the review, so all it proves is that
+// the reviewer knows it finished; the count is what makes that an assertion. A
+// tally that disagrees fails safe: banked findings still post, the session is
+// still incomplete, the required check still fails.
 function terminalCount(value, banked, answer) {
 	if (!Value.Check(TERMINAL_RESPONSE, value)) {
 		const [first] = [...Value.Errors(TERMINAL_RESPONSE, value)];
