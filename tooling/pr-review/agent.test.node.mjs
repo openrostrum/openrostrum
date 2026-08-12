@@ -679,6 +679,67 @@ test("a finding citing a file the pull request does not change is refused, not b
 	);
 });
 
+// Production reviewers submit their own checklist: "no shadcn import; no
+// violation", "no design-system violation is established" — posted as inline
+// comments telling a human nothing was wrong. Three prompts already say a
+// cleared file is not part of the review, and it still happens on sessions that
+// close voluntarily, so the boundary refuses it instead of asking again.
+test("a submission that reports compliance rather than a violation is refused", async () => {
+	const cleared = {
+		...violation(0),
+		why: "timezone-select composes Field and Select from ~/ui; no violation.",
+	};
+	const seen = [];
+	const { runtime } = fauxRuntime([
+		submits([cleared, violation(1)], "a"),
+		(context) => {
+			seen.push(toolResultTexts(context.messages));
+			return done(1);
+		},
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.findings.length, 1, "the compliance note was banked");
+	assert.equal(result.findings[0].file, "app/f1.ts");
+	assert.ok(
+		seen[0].some((text) => /not a finding/.test(text)),
+		`no refusal reached the model: ${JSON.stringify(seen[0])}`,
+	);
+});
+
+// The guard keys on a reviewer clearing its own subject, so it must not fire on
+// a finding whose sentence merely contains a negation — the reason a broad
+// phrase match was the wrong instrument.
+test("a real finding that names a missing guard is not mistaken for compliance", async () => {
+	const real = {
+		...violation(0),
+		rule: "Bounded loaders",
+		why: "The loader has no limit, so no cap violation is caught before a large event times the page out.",
+	};
+	const { runtime } = fauxRuntime([submits([real], "a"), done(1)]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(
+		result.findings.length,
+		1,
+		"a real finding was refused as a compliance note",
+	);
+});
+
 // Every field is validated at the submission boundary, so a finding that cannot
 // anchor never enters the bank — and the reviewer hears about it in time to fix it.
 test("a submission that fails the finding schema is refused, not banked", async () => {

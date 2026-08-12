@@ -69,8 +69,22 @@ no channel for it, which is enforcement rather than instruction.
 finding schema before the tool runs, so a malformed submission comes back as an
 error the reviewer can act on. Beyond the schema, submissions are refused — never
 silently accepted, never fatal — when they cite a file the pull request does not
-change, or when they exceed `SUBMISSIONS_PER_RESPONSE` in one response, in which
-case the reviewer is told to re-issue them next turn. An exact repeat of an
+change, when they exceed `SUBMISSIONS_PER_RESPONSE` in one response, in which
+case the reviewer is told to re-issue them next turn, or when the submission
+clears its own subject instead of reporting a violation.
+
+That last one is a refusal because prompting did not stop it. Three prompts say a
+file you inspected and cleared is not part of the review, and reviewers still
+submitted their checklists — "no shadcn import; no violation", "this is copy, not
+a visual decision; no design-system violation is established" — as inline
+comments telling a human nothing was wrong. It happens on sessions that close
+voluntarily, so it is not an artifact of the close ask. The guard matches only a
+*trailing* clearance clause, which is what separates a reviewer clearing its
+subject from a real finding that argues through a negation on its way to a
+consequence ("the loader has no limit, so no cap violation is caught before a
+large event times the page out" is a finding). It is validated against the
+clearances and the findings a production run actually produced, and like every
+refusal here the reviewer is told why and keeps what it already proved. An exact repeat of an
 already-banked finding is answered `duplicate: true` and does not change the total;
 near-duplicates remain `inline.mjs`'s job, since it merges across rule owners with
 evidence this boundary does not have. Every result carries the authoritative
