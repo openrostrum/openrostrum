@@ -53,6 +53,8 @@ Everything that differs between local and cloud sits behind a typed interface wi
 
 **Not ports:** Calendar (`ics` is a pure function — identical everywhere) and Storage (R2 emulates locally via Miniflare — use a thin wrapper only, not a swappable adapter).
 
+**Timeouts:** a `fetch` in `app/ports/` that builds an options object must pass a `signal` — enforced by a `no-restricted-syntax` seam scoped to that directory. A third party answering with an error is the outage shape everyone handles; one that accepts the connection and then says nothing is the one that gets forgotten, and an unbounded `fetch` hands the only limit to the platform. Pick the deadline from who is waiting: `turnstile.ts` fails closed at 5s because a speaker is mid-submit, `email.ts` bounds its POST under the send-claim lease, `airtable.ts` bounds each attempt so a silent request is retried like the 5xx it resembles.
+
 ## Platform rules (mandatory)
 
 - **D1 has no interactive transactions.** Use `db.batch()` for atomic multi-writes. Never `db.transaction()` — it throws at runtime.

@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { errorMessage } from "~/lib/errors";
 
 export type AirtableFieldValue = string | number | boolean | null;
 export type AirtableFields = Record<string, AirtableFieldValue>;
@@ -173,6 +174,11 @@ const BATCH_SIZE = 10;
 // 4 req/s keeps headroom under the shared 5 req/s per-base cap (REST +
 // webhooks + the team's own automations all draw from it).
 const MIN_REQUEST_SPACING_MS = 250;
+// Retry is this adapter's discipline, so a request that never answers has to
+// become a failed attempt rather than a stalled sync: without a bound, one
+// unanswered call holds the whole Airtable tick open and the retry loop below
+// never gets to do its job. Per attempt, so a timeout is retried like a 5xx.
+const REQUEST_TIMEOUT_MS = 20_000;
 // Airtable's documented 429 penalty: the base rejects everything for 30s.
 const RATE_LIMIT_WAIT_MS = 30_000;
 const MAX_ATTEMPTS = 5;
@@ -213,14 +219,27 @@ export function createAirtableBase(
 			if (wait > 0) await transport.sleep(wait);
 			lastRequestAt = Date.now();
 
-			const res = await transport.fetch(`${AIRTABLE_API}/${path}`, {
-				method,
-				headers: {
-					Authorization: `Bearer ${apiKey}`,
-					"Content-Type": "application/json",
-				},
-				body: body === undefined ? undefined : JSON.stringify(body),
-			});
+			let res: Response;
+			try {
+				res = await transport.fetch(`${AIRTABLE_API}/${path}`, {
+					method,
+					headers: {
+						Authorization: `Bearer ${apiKey}`,
+						"Content-Type": "application/json",
+					},
+					body: body === undefined ? undefined : JSON.stringify(body),
+					signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+				});
+			} catch (error) {
+				// A transport failure is as retryable as a 5xx, and the last attempt
+				// reports it the same way a bad status does.
+				if (attempt >= MAX_ATTEMPTS)
+					throw new Error(
+						`Airtable ${method} ${path} failed: ${errorMessage(error)}`,
+					);
+				await transport.sleep(1000 * 2 ** (attempt - 1));
+				continue;
+			}
 			if (res.ok) return res.json();
 
 			// Idempotent delete: a record already gone is a success, not an error
