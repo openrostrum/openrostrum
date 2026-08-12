@@ -991,3 +991,78 @@ test("the closing request offers no way to keep reading", async () => {
 		"the closing request still offered a way to keep reading",
 	);
 });
+
+// Taking the repository tools away was still not enough: on a 25-file PR four of
+// five sessions spent the whole close allowance submitting and never closed, so
+// reviews that had already done the work were reported incomplete and the
+// required check failed on them. Asking cannot win against a reviewer that
+// always has one more finding — submitting has to run out first, leaving the
+// close as the only call the session can still make.
+test("a reviewer that submits through the close allowance is left only the close", async () => {
+	const offered = [];
+	const asks = [];
+	// A reviewer that submits whenever submitting is possible, and closes only
+	// when it is not — a provider can only call the tools it was offered, so this
+	// is the shape that tells an enforced close from a requested one.
+	const { runtime } = fauxRuntime(
+		Array.from({ length: 20 }, (_, index) => (context) => {
+			const names = (context.tools ?? []).map((tool) => tool.name);
+			if (names.length > 1) return submits([violation(index)], `s${index}`);
+			asks.push(userTexts(context.messages).at(-1));
+			// The reviewer states the total the ask names, which is what makes a
+			// forced close an assertion rather than a formality.
+			return done(Number(asks.at(-1).match(/(\d+) finding/)[1]));
+		}),
+	);
+	const watched = {
+		...runtime,
+		streamFn: (model, context, options) => {
+			offered.push((context.tools ?? []).map((tool) => tool.name).sort());
+			return runtime.streamFn(model, context, options);
+		},
+	};
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime: watched,
+		limits: { maxTurns: 2 },
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.forced, true, "the close was not recorded as forced");
+	assert.deepEqual(
+		offered.at(-1),
+		["finish_review"],
+		"the session ended still offering something to do other than close",
+	);
+	// It submitted on every turn it was given, investigation and allowance alike,
+	// so the run only ends where submitting stops being possible. Without a floor
+	// here the two assertions above would also hold for a reviewer that closed on
+	// its first turn and proved nothing.
+	assert.ok(
+		result.findings.length > 8,
+		`expected submissions through the whole allowance, got ${result.findings.length}`,
+	);
+	// Every finding it managed to submit is still banked: the close is forced to
+	// end the session, not to cut the review short of what it proved.
+	assert.equal(result.findings.length, offered.length - 1);
+	assert.match(asks.at(-1), /only call/i);
+	assert.match(asks.at(-1), new RegExp(`${result.findings.length} finding`));
+});
+
+// A forced close is a weaker claim than a volunteered one — the reviewer never
+// said it was finished, it ran out of anything else to do. A run summary that
+// cannot tell the two apart hides how often the reviewers actually converge.
+test("the run summary says when the close had to be forced", () => {
+	const session = {
+		agent: "engineering",
+		status: "complete",
+		turns: 12,
+		toolCalls: 30,
+		findings: [violation(0)],
+	};
+	assert.doesNotMatch(summaryLine(session), /forced/);
+	assert.match(summaryLine({ ...session, forced: true }), /forced/);
+});

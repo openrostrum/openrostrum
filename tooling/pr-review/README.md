@@ -96,8 +96,24 @@ Because a response can only be tool calls, a reviewer cannot stop by saying it i
 done — it stops by calling `finish_review` or not at all. Reaching the turn budget
 is therefore treated as the moment to ask for the close, not the moment to give up
 on it: the session gets one explicit "investigation is over" ask with a small extra
-turn allowance, told what is already banked so it does not resubmit. A reviewer that
-ignores that ask too is incomplete, with its banked findings posted.
+turn allowance, told what is already banked so it does not resubmit.
+
+Asking is not enough on its own. On a 25-file pull request four of five sessions
+spent that whole allowance submitting more findings and never closed, so reviews
+that had already done the work were reported incomplete — asking loses to a
+reviewer that always has one more finding. So the allowance ends in turns whose
+toolset holds nothing but `finish_review`. Forced tool choice over a one-tool set
+leaves the close as the only call a response can make, which is enforcement rather
+than instruction, and it costs the review nothing: every finding submitted up to
+that point is already banked.
+
+A close reached that way is a weaker claim than a volunteered one — the reviewer
+never said it was finished, it ran out of anything else to do — so the run log
+marks it `forced` and a session that closed on its own stays silent about it.
+What the forced close still asserts is the count: the reviewer has to state a
+total that matches the bank, and a reviewer that has lost track of its own review
+cannot. A session that will not close even then is incomplete, with its banked
+findings posted.
 
 A response that does not close the review earns **exactly one re-ask** before the
 session is called incomplete. The re-ask names the closing call and tells the
@@ -169,7 +185,9 @@ submission, a submission citing an unchanged file, a submission that fails the
 schema, a terminal count that disagrees with the bank, the per-response cap and
 its re-issue, a reviewer that ends in prose being re-asked once and recovering, a
 reviewer that misses the signal twice staying incomplete, findings surviving a
-re-ask, a run summary that reports the extra ask only when there was one,
+re-ask, a reviewer that submits through the whole close allowance still ending
+complete because the close is all it is left, a run summary that reports the extra
+ask and a forced close only when each happened,
 anchoring, fingerprints, dedupe, reconciliation, stale deferral, and posting
 payloads. CI runs this complete set in its unconditional quality job.
 

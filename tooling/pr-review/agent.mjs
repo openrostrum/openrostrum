@@ -167,10 +167,23 @@ const TERMINAL_RETRIES = 1;
 const TURN_BUDGET = "turn budget exhausted";
 const CLOSE_TURNS = 8;
 
+// Asking a reviewer to close loses to a reviewer that always has one more
+// finding: four of five sessions on a 25-file PR spent the whole close allowance
+// submitting, so reviews that had done the work were reported incomplete. The
+// allowance therefore ends in turns where the toolset holds nothing but the
+// close, which makes closing the only move left rather than the requested one.
+const FINAL_TURNS = 2;
+
 function closePrompt(banked) {
 	return `Investigation is over — this review has reached its turn budget. Read nothing further.
 
 Submit with a ${SUBMIT_TOOL} call anything you have already proved but not yet submitted, then call ${FINISH_TOOL} with the running total. ${banked} finding(s) are recorded; do not submit them again.`;
+}
+
+function finalPrompt(banked) {
+	return `Submission is closed. ${FINISH_TOOL} is the only call still available to you — nothing else can be submitted or read.
+
+${banked} finding(s) reached the boundary. Call ${FINISH_TOOL} with submitted: ${banked}.`;
 }
 
 function retryPrompt(failure) {
@@ -287,7 +300,9 @@ export async function runRuleReviewer({
 	const submissionsPerResponse = new WeakMap();
 	let turns = 0;
 	let turnCeiling = limits.maxTurns;
-	let closing = false;
+	// Investigating spends the budget; closing asks for the close with submitting
+	// still open; finalizing takes submitting away too.
+	let stage = "investigating";
 	let toolCalls = 0;
 	let limitReason;
 
@@ -352,7 +367,13 @@ export async function runRuleReviewer({
 	}, limits.timeoutMs);
 	let ask = userPrompt(repository, agent, limits);
 	let reasked = 0;
-	const spent = () => ({ turns, toolCalls, reasked, closing });
+	const spent = () => ({
+		turns,
+		toolCalls,
+		reasked,
+		closing: stage !== "investigating",
+		forced: stage === "finalizing",
+	});
 	try {
 		while (true) {
 			closed = undefined;
@@ -368,17 +389,28 @@ export async function runRuleReviewer({
 			}
 
 			// The budget is spent on investigation, so reaching it is the moment to
-			// ask for the close rather than the moment to give up on it.
-			if (limitReason === TURN_BUDGET && !closing) {
-				closing = true;
+			// ask for the close rather than the moment to give up on it — and then,
+			// one allowance later, the moment to leave nothing else to do.
+			if (limitReason === TURN_BUDGET && stage !== "finalizing") {
 				limitReason = undefined;
-				turnCeiling = turns + CLOSE_TURNS;
-				// Telling a reviewer to stop reading is not enough — four of five kept
-				// reading anyway and spent the close allowance too. Taking the
-				// repository tools away leaves submitting and closing as the only
-				// calls it can make, and tool choice is already forced.
-				reviewer.state.tools = [sink.tool, terminal.tool];
-				ask = closePrompt(sink.findings.length);
+				if (stage === "investigating") {
+					stage = "closing";
+					turnCeiling = turns + CLOSE_TURNS;
+					// Telling a reviewer to stop reading is not enough — four of five kept
+					// reading anyway and spent the close allowance too. Taking the
+					// repository tools away leaves submitting and closing as the only
+					// calls it can make, and tool choice is already forced.
+					reviewer.state.tools = [sink.tool, terminal.tool];
+					ask = closePrompt(sink.findings.length);
+				} else {
+					stage = "finalizing";
+					turnCeiling = turns + FINAL_TURNS;
+					// Forced tool choice over a one-tool set: the next response is the
+					// close or it is nothing. What it can still get wrong is the count,
+					// which is the part that has to stay an assertion.
+					reviewer.state.tools = [terminal.tool];
+					ask = finalPrompt(sink.findings.length);
+				}
 				continue;
 			}
 			if (limitReason)
@@ -416,14 +448,16 @@ export async function runRuleReviewer({
 	}
 }
 
-// One session, one line of the run log. `reasked` appears only when the extra
-// ask happened, so a clean run stays quiet about a recovery nobody needed and a
-// "complete" that took two asks cannot read as a direct one. The reason goes
-// last because it is free text and would otherwise swallow the numbers.
+// One session, one line of the run log. `reasked` and `forced` appear only when
+// they happened, so a clean run stays quiet about recoveries nobody needed and
+// neither a "complete" that took two asks nor one that never volunteered its
+// close can read as a direct one. The reason goes last because it is free text
+// and would otherwise swallow the numbers.
 export function summaryLine(result) {
 	return (
 		`${result.agent}: ${result.status}; turns=${result.turns}; tools=${result.toolCalls}; findings=${result.findings.length}` +
 		(result.reasked ? `; reasked=${result.reasked}` : "") +
+		(result.forced ? "; forced" : "") +
 		(result.reason ? `; reason=${result.reason}` : "")
 	);
 }
