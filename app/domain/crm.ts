@@ -19,6 +19,7 @@ import {
 	pipelineCards,
 	pipelineStageChanges,
 } from "~/db/schema";
+import { carriedProfile } from "~/domain/contacts";
 import { normalizeEmail } from "~/lib/auth";
 import type { CrmContactStatus, DirectoryFilters } from "~/lib/crm-filters";
 import { isUniqueViolation } from "~/lib/errors";
@@ -491,31 +492,11 @@ async function copyPersonIntoEvent(
 		.where(and(eq(contacts.eventId, targetEventId), eq(personEmail, email)))
 		.limit(1);
 	if (existing) return "already";
-	const c = src.contact;
 	try {
 		await db.insert(contacts).values({
+			...carriedProfile(src.contact),
 			eventId: targetEventId,
-			userId: c.userId,
 			email,
-			firstName: c.firstName,
-			lastName: c.lastName,
-			salutation: c.salutation,
-			honorific: c.honorific,
-			pronouns: c.pronouns,
-			gender: c.gender,
-			jobTitle: c.jobTitle,
-			companyName: c.companyName,
-			mobilePhone: c.mobilePhone,
-			homePhone: c.homePhone,
-			zip: c.zip,
-			bio: c.bio,
-			// Headshot objects are content-addressed-ish (a new upload mints a new
-			// key, nothing deletes old ones) so sharing the key across events is safe.
-			headshotKey: c.headshotKey,
-			linkedinUrl: c.linkedinUrl,
-			twitterUrl: c.twitterUrl,
-			facebookUrl: c.facebookUrl,
-			websiteUrl: c.websiteUrl,
 			// Workflow state and travel notes are per-event — never carried over.
 			status: "pending",
 		});
