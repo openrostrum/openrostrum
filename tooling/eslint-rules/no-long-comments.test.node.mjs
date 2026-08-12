@@ -38,6 +38,23 @@ test("code or a blank line breaks the run", () => {
 	});
 });
 
+// The delimiters carry no words, so the same rationale gets the same budget
+// whichever way it is spelled — otherwise the rule would be measuring the
+// comment's punctuation rather than its length.
+test("a bare /** or */ line is not a line of prose", () => {
+	const prose = ["one", "two", "three", "four"];
+	const jsdoc = (lines) =>
+		`/**\n${lines.map((l) => ` * ${l}`).join("\n")}\n */\nconst a = 1;`;
+	ruleTester.run("no-long-comments", noLongComments, {
+		valid: [jsdoc(prose), "/** one */\nconst a = 1;"],
+		invalid: [
+			{ code: jsdoc([...prose, "five"]), errors: tooLong },
+			// A blank `*` line IS charged: two short paragraphs are still an essay.
+			{ code: jsdoc(["one", "two", "", "three", "four"]), errors: tooLong },
+		],
+	});
+});
+
 // The ceiling is configurable so a future carve-out is a config decision with a
 // number in it, not an inline suppression.
 test("maxLines is configurable", () => {
@@ -55,7 +72,7 @@ test("the message reports the block's real line span", () => {
 		plugins: { local: { rules: { "no-long-comments": noLongComments } } },
 		rules: { "local/no-long-comments": "error" },
 	});
-	assert.match(first.message, /is 5 lines; the ceiling is 4/);
+	assert.match(first.message, /carries 5 lines of prose; the ceiling is 4/);
 	assert.equal(first.line, 1);
 	assert.equal(first.endLine, 5);
 });

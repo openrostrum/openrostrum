@@ -11,6 +11,22 @@ function isTrailing(sourceCode, comment) {
 	return before != null && before.loc.end.line === comment.loc.start.line;
 }
 
+// The ceiling counts lines of PROSE, so the same rationale costs the same as a
+// `//` run and as a JSDoc block. A bare `/**` or `*/` carries no words; a blank
+// `*` line does count, so a two-paragraph essay still trips either way.
+function proseLines(sourceCode, block) {
+	let count = 0;
+	for (
+		let line = block.start.loc.start.line;
+		line <= block.end.loc.end.line;
+	) {
+		const text = sourceCode.lines[line - 1].trim();
+		if (text !== "/**" && text !== "/*" && text !== "*/") count += 1;
+		line += 1;
+	}
+	return count;
+}
+
 function blocksOf(sourceCode) {
 	const blocks = [];
 	let open = null;
@@ -48,7 +64,7 @@ export const noLongComments = {
 		],
 		messages: {
 			tooLong:
-				"This comment is {{lineCount}} lines; the ceiling is {{maxLines}}. Clarify the code so it needs less prose, or move the durable rationale into docs/ and link it. See docs/rules/engineering.md → Comments.",
+				"This comment carries {{lineCount}} lines of prose; the ceiling is {{maxLines}}. Clarify the code so it needs less prose, or move the durable rationale into docs/ and link it. See docs/rules/engineering.md → Comments.",
 		},
 	},
 	create(context) {
@@ -56,8 +72,7 @@ export const noLongComments = {
 		return {
 			Program() {
 				for (const block of blocksOf(context.sourceCode)) {
-					const lineCount =
-						block.end.loc.end.line - block.start.loc.start.line + 1;
+					const lineCount = proseLines(context.sourceCode, block);
 					if (lineCount <= maxLines) continue;
 					context.report({
 						data: { lineCount, maxLines },
