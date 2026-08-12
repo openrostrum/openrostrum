@@ -1,6 +1,15 @@
-import { and, countDistinct, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, countDistinct, eq, gt, inArray, isNull, ne } from "drizzle-orm";
 import type { Db } from "~/db";
-import { passwordResets, reviewerTracks, tracks, users } from "~/db/schema";
+import {
+	contacts,
+	events,
+	organizationMembers,
+	passwordResets,
+	reviewerTracks,
+	submissions,
+	tracks,
+	users,
+} from "~/db/schema";
 import { sha256Hex } from "~/lib/api-token";
 import { normalizeEmail } from "~/lib/auth";
 import { fetchChunked } from "~/lib/evaluation";
@@ -145,10 +154,37 @@ export async function mintInviteToken(
 	userId: string,
 	sendKey: string,
 ): Promise<string> {
+	return mintOrgLessToken(db, "reviewer-invite", userId, sendKey);
+}
+
+/**
+ * Mint a fresh set-password link for a reviewer who ALREADY has a working
+ * password — the only credential an organizer can hand out once the invite
+ * has been redeemed. Same org-less token, different derivation purpose so an
+ * invite and a sign-in link minted under one page's sendKey never collide.
+ *
+ * Callers MUST gate this on `hasStandingOutsideOrg` — redeeming the link
+ * replaces the account's password, so minting one for an account with reach
+ * beyond the organizer's own org would be a cross-tenant takeover.
+ */
+export async function mintSignInToken(
+	db: Db,
+	userId: string,
+	sendKey: string,
+): Promise<string> {
+	return mintOrgLessToken(db, "reviewer-signin", userId, sendKey);
+}
+
+async function mintOrgLessToken(
+	db: Db,
+	purpose: "reviewer-invite" | "reviewer-signin",
+	userId: string,
+	sendKey: string,
+): Promise<string> {
 	if (!SEND_KEY_RE.test(sendKey)) {
 		throw new Error("Invite sendKey must be a UUID.");
 	}
-	const token = await sha256Hex(`reviewer-invite:${userId}:${sendKey}`);
+	const token = await sha256Hex(`${purpose}:${userId}:${sendKey}`);
 	await db
 		.insert(passwordResets)
 		.values({
@@ -159,6 +195,77 @@ export async function mintInviteToken(
 		})
 		.onConflictDoNothing({ target: passwordResets.token });
 	return token;
+}
+
+/**
+ * Does this account reach beyond `organizationId`? A set-password link
+ * overwrites the account's password, so an organizer may only be handed one
+ * for an account that lives entirely inside their own org — otherwise adding
+ * another org's admin (or speaker) as a reviewer, then copying their link,
+ * would be an account takeover across the tenancy boundary.
+ *
+ * The four surfaces an account can hold standing on: org membership, reviewer
+ * track assignments, contact records, and authored submissions. Round
+ * evaluator rows can't exist without a track assignment (assignment validates
+ * against the reviewer registry), so they need no separate probe.
+ */
+export async function hasStandingOutsideOrg(
+	db: Db,
+	userId: string,
+	organizationId: string,
+): Promise<boolean> {
+	const [memberships, reviewing, contactRows, authored] = await Promise.all([
+		db
+			.select({ id: organizationMembers.id })
+			.from(organizationMembers)
+			.where(
+				and(
+					eq(organizationMembers.userId, userId),
+					ne(organizationMembers.organizationId, organizationId),
+				),
+			)
+			.limit(1),
+		db
+			.select({ id: tracks.id })
+			.from(reviewerTracks)
+			.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
+			.innerJoin(events, eq(events.id, tracks.eventId))
+			.where(
+				and(
+					eq(reviewerTracks.userId, userId),
+					ne(events.organizationId, organizationId),
+				),
+			)
+			.limit(1),
+		db
+			.select({ id: contacts.id })
+			.from(contacts)
+			.innerJoin(events, eq(events.id, contacts.eventId))
+			.where(
+				and(
+					eq(contacts.userId, userId),
+					ne(events.organizationId, organizationId),
+				),
+			)
+			.limit(1),
+		db
+			.select({ id: submissions.id })
+			.from(submissions)
+			.innerJoin(events, eq(events.id, submissions.eventId))
+			.where(
+				and(
+					eq(submissions.submitterId, userId),
+					ne(events.organizationId, organizationId),
+				),
+			)
+			.limit(1),
+	]);
+	return (
+		memberships.length > 0 ||
+		reviewing.length > 0 ||
+		contactRows.length > 0 ||
+		authored.length > 0
+	);
 }
 
 /** Latest still-valid invite token per user (for re-displaying copyable links). */
