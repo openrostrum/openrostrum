@@ -20,8 +20,7 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
  * This layout's `requireAdmin` gates rendering the shell, but does NOT protect
  * children: single-fetch lets a client run any child loader alone via
  * `?_routes=`, and a POST never runs this loader — so every child loader AND
- * action still authenticates itself. The sidebar auto-discovers
- * `app/nav/*.nav.ts`, so features add entries without touching this file.
+ * action still authenticates itself.
  */
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
@@ -49,6 +48,8 @@ export default function AdminShell({ loaderData }: Route.ComponentProps) {
 				logoutDisabled={busy}
 			>
 				<EventSwitcher events={loaderData.events} />
+				{/* Auto-discovered from `app/nav/*.nav.ts` — a feature adds its
+				    entry without touching this file. */}
 				{navBySection().map(([section, items]) => (
 					<SidebarSection key={section} label={section}>
 						{items.map((item) => (

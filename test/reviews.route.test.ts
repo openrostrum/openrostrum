@@ -10,11 +10,11 @@ import {
 	submissions,
 } from "../app/db/schema";
 import { loader as adminEvalLoader } from "../app/routes/admin.evaluation";
+import { loader as queueLoader } from "../app/routes/reviews";
 import {
 	action as reviewAction,
 	loader as reviewLoader,
 } from "../app/routes/reviews.$id";
-import { loader as queueLoader } from "../app/routes/reviews";
 import {
 	CONTEXT_OF,
 	sampleScorecardBody,
@@ -400,5 +400,75 @@ describe("track decision + feedback email", () => {
 		expect(thrown).toBeInstanceOf(Response);
 		expect((thrown as Response).status).toBe(403);
 		expect(await db.select().from(reviews)).toHaveLength(0); // and no write
+	});
+});
+
+// The comment and feedback boxes are nullable columns, so the schema decides
+// once what an empty box means instead of every read and write re-deciding.
+describe("decision text at the boundary", () => {
+	const decide = async (fields: Record<string, string>) =>
+		call(
+			reviewAction,
+			await sessionRequest(env, "u_rev", "http://localhost/reviews/s1", {
+				method: "POST",
+				body: new URLSearchParams({
+					intent: "decide",
+					decision: "maybe",
+					...fields,
+				}),
+			}),
+			"s1",
+		);
+
+	const storedComment = async () => {
+		const [review] = await getDb(env)
+			.select()
+			.from(reviews)
+			.where(eq(reviews.submissionId, "s1"));
+		return review?.comment;
+	};
+
+	it("an omitted, empty, or whitespace-only comment is stored as null", async () => {
+		await seedEvalBase(env);
+		expect(await decide({})).toMatchObject({ ok: expect.any(String) });
+		expect(await storedComment()).toBeNull();
+		await decide({ comment: "" });
+		expect(await storedComment()).toBeNull();
+		await decide({ comment: "   \n\t " });
+		expect(await storedComment()).toBeNull();
+	});
+
+	it("a comment is stored trimmed, and everything valid still gets through", async () => {
+		await seedEvalBase(env);
+		await decide({ comment: "  Needs benchmarks  " });
+		expect(await storedComment()).toBe("Needs benchmarks");
+		await decide({ comment: "line\nbreak" });
+		expect(await storedComment()).toBe("line\nbreak");
+		await decide({ comment: "x".repeat(5000) }); // the ceiling itself is fine
+		expect(await storedComment()).toBe("x".repeat(5000));
+	});
+
+	it("an over-long comment or feedback is rejected by field, and nothing is written", async () => {
+		await seedEvalBase(env);
+		const tooLong = "x".repeat(5001);
+		expect(await decide({ comment: tooLong })).toMatchObject({
+			formError: expect.stringMatching(/comment under 5,000/),
+		});
+		expect(await decide({ feedback: tooLong })).toMatchObject({
+			formError: expect.stringMatching(/feedback under 5,000/),
+		});
+		const db = getDb(env);
+		expect(await db.select().from(reviews)).toHaveLength(0);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+	});
+
+	it("whitespace-only feedback is not feedback — no email goes out", async () => {
+		await seedEvalBase(env);
+		await decide({ feedback: "  \n " });
+		expect(await getDb(env).select().from(emailOutbox)).toHaveLength(0);
+		await decide({ feedback: "  Real note.  " });
+		const outbox = await getDb(env).select().from(emailOutbox);
+		expect(outbox).toHaveLength(1);
+		expect(outbox[0]?.html).toContain("Real note.");
 	});
 });

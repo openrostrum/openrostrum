@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { data, Form, redirect, useFetcher, useNavigation } from "react-router";
+import {
+	data,
+	Form,
+	isRouteErrorResponse,
+	redirect,
+	useFetcher,
+	useNavigation,
+} from "react-router";
 import {
 	DndContext,
 	KeyboardSensor,
@@ -135,8 +142,8 @@ const boolish = z.enum(["true", "false"]).transform((v) => v === "true");
 // FormData drops inputs that aren't rendered (conditionally shown panels), so
 // an ABSENT key must parse exactly like a blank one — otherwise the action
 // rejects payloads the UI legitimately sends.
-const blankToNull = (v: unknown) =>
-	v == null || (typeof v === "string" && v.trim() === "") ? null : v;
+const Blank = z.union([z.null(), z.undefined(), z.string().trim().length(0)]);
+const blankToNull = (v: unknown) => (Blank.safeParse(v).success ? null : v);
 
 const optionalInt = (min: number, max: number) =>
 	z.preprocess(
@@ -1634,11 +1641,11 @@ function FieldRow({
 			node.style.transition = transition ?? "";
 		}
 	};
+	// Optimistic toggle: the same `boolish` the action parses it with, so the
+	// row can never show a state the server would have rejected.
 	const pendingRequired = fetcher.formData?.get("required");
 	const required =
-		typeof pendingRequired === "string"
-			? pendingRequired === "true"
-			: placement.required;
+		boolish.safeParse(pendingRequired).data ?? placement.required;
 	const summary = ruleSummary(placement.questionRule, siblings, ruleOptions);
 	const missingOptions = placementMissingOptions(placement, ruleOptions);
 	return (
@@ -1912,9 +1919,11 @@ function FieldList({
 	);
 	// Optimistic order derives from the in-flight submission (like FieldRow's
 	// required toggle) — no state to reconcile once the loader catches up.
-	const pendingOrder = reorderFetcher.formData?.get("order");
+	const pendingOrder = z
+		.string()
+		.safeParse(reorderFetcher.formData?.get("order")).data;
 	const ordered = useMemo(() => {
-		if (typeof pendingOrder !== "string") return rows;
+		if (pendingOrder === undefined) return rows;
 		const byId = new Map(rows.map((r) => [r.id, r]));
 		const kept = pendingOrder
 			.split(",")
@@ -2953,11 +2962,7 @@ function Builder({
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-	const notFound =
-		error != null &&
-		typeof error === "object" &&
-		"status" in error &&
-		(error as { status: number }).status === 404;
+	const notFound = isRouteErrorResponse(error) && error.status === 404;
 	return (
 		<div className="mx-auto flex max-w-5xl flex-col gap-4 px-7 py-6">
 			<PageHeader

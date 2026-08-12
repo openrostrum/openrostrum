@@ -10,13 +10,9 @@ import { normalizeEmail } from "~/lib/auth";
 
 /**
  * One calendar UID per session, shared by the acceptance invite and every
- * schedule update that follows it. RFC 5545 §3.8.7.4 makes SEQUENCE the
- * revision counter for that UID, so the counter has to be owned in one place
- * or a later send can land BELOW what the speaker's client already applied and
- * be discarded as stale. Both producers live here.
- *
- * Its own module because `schedule-update.ts` imports from `accept.ts`; putting
- * the counter in either one would close the import cycle.
+ * schedule update after it. RFC 5545 §3.8.7.4 makes SEQUENCE that UID's
+ * revision counter, so it is owned here alone — a number minted anywhere else
+ * can land below what the speaker's client applied and be discarded as stale.
  */
 
 /** How many revision rows one query may name — D1 binds parameters per statement. */
@@ -64,11 +60,10 @@ export async function inviteStateHash(
 }
 
 /**
- * The highest SEQUENCE that actually left the building per submission, read
- * from the delivery ledger. `queued` and `failed` count: a queued attempt may
- * still be in the provider's hands, and a failed one may have been delivered
- * before the failure was recorded — assuming otherwise is how a UID gets two
- * different invites at one SEQUENCE.
+ * The highest SEQUENCE that actually left the building per submission. `queued`
+ * and `failed` count: a queued attempt may still be in the provider's hands and
+ * a failed one may have been delivered before the failure was recorded, so
+ * excluding them is how a UID ends up with two invites at one SEQUENCE.
  */
 export async function deliveredInviteFrontiers(
 	db: Db,
@@ -151,12 +146,10 @@ export type SequenceClaim = {
 };
 
 /**
- * Take the sequence, don't just compute it. Two requests reading the same
- * frontier would otherwise propose the same number for different states and
- * hand one UID two conflicting revisions — the exact case a client resolves by
- * keeping whichever it saw first. The upsert decides in the database: same
- * state keeps the number, a different state is forced strictly above whatever
- * is stored, and the returned value is what the invite must carry.
+ * Take the sequence, don't just compute it: two requests reading one frontier
+ * would propose the same number for different states, and a client resolves
+ * that by keeping whichever it saw first. The upsert decides in the database,
+ * and its returned value — not the proposal — is what the invite must carry.
  */
 export async function claimInviteSequences(
 	db: Db,

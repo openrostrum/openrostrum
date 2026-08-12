@@ -37,6 +37,13 @@ const NewTemplate = createInsertSchema(emailTemplates)
 	.pick({ name: true })
 	.extend({ name: z.string().min(1, "Name is required").max(255) });
 
+// One submit button per row carries its target in the intent (`delete:<id>`),
+// so parsing the intent IS extracting the id. Anything else means "create".
+const DeleteIntent = z
+	.string()
+	.startsWith("delete:")
+	.transform((value) => value.slice("delete:".length));
+
 /** When each automatic template fires — shown so organizers know what "auto"
  * means without reading docs. Manual templates are sent by an organizer. */
 const AUTO_TRIGGER_LABELS: Record<string, string> = {
@@ -97,10 +104,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 	}
 	const db = getDb(env);
 	const form = await request.formData();
-	const intent = form.get("intent");
+	const deleting = DeleteIntent.safeParse(form.get("intent"));
 
-	if (typeof intent === "string" && intent.startsWith("delete:")) {
-		const id = intent.slice("delete:".length);
+	if (deleting.success) {
+		const id = deleting.data;
 		const [tpl] = await db
 			.select({ id: emailTemplates.id, category: emailTemplates.category })
 			.from(emailTemplates)

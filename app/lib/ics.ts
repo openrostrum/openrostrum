@@ -97,24 +97,18 @@ export function buildIcs(options: {
 /**
  * The invite's CONTENT, with the render timestamp taken out — what to hash when
  * asking "is this the same invite?". DTSTAMP is minted from the wall clock on
- * every `buildIcs` call (RFC 5545 §3.8.7.2: when the payload was produced, not
- * what it says), so hashing it raw makes two renders of one unchanged invite
- * look like two different invites: a resumed send loses its provider
- * idempotency key and a preview loses its fingerprint match. Everything a
- * calendar client acts on — UID, times, SUMMARY, LOCATION, SEQUENCE — stays in.
+ * every render, so hashing it raw makes one unchanged invite look like two: a
+ * resumed send loses its idempotency key, a preview loses its fingerprint match.
  */
 export function icsContentFingerprint(ics: string): string {
 	return ics.replace(/^DTSTAMP:[^\r\n]*\r?\n/gm, "");
 }
 
 /**
- * The same question minus the revision number — what to hash when asking "is
- * this the same calendar entry?" across a gap in time. SEQUENCE is claimed at
- * send, so an invite previewed before an unrelated update lands would otherwise
- * read as edited when nothing a human reviewed has changed. Use this ONLY where
- * a bumped revision of an identical entry should compare equal; the provider
- * idempotency key must keep SEQUENCE, since a different revision really is a
- * different payload on the wire.
+ * The same question minus the revision number — "is this the same calendar
+ * entry?" across a gap in time, where a SEQUENCE claimed at send would make an
+ * unedited preview read as edited. Use ONLY there: the provider idempotency key
+ * keeps SEQUENCE, since a different revision is a different payload on the wire.
  */
 export function icsEntryFingerprint(ics: string): string {
 	return icsContentFingerprint(ics).replace(/^SEQUENCE:[^\r\n]*\r?\n/gm, "");

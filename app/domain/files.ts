@@ -193,13 +193,13 @@ async function collisionCommentId(
  */
 export async function addFileComment(
 	db: Db,
-	values: { key: FormDataEntryValue | null } & FileCommentWrite,
+	values: { key: string } & FileCommentWrite,
 ): Promise<{ deduped: boolean }> {
 	const { key, ...comment } = values;
-	const requestedId =
-		typeof key === "string" && UUID_RE.test(key)
-			? key.toLowerCase()
-			: crypto.randomUUID();
+	// A missing or malformed key is not an error — it just isn't idempotent.
+	const requestedId = UUID_RE.test(key)
+		? key.toLowerCase()
+		: crypto.randomUUID();
 	const insert = (id: string) =>
 		db
 			.insert(fileComments)

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { SUBMISSION_STATUS } from "~/db/constants";
 import type {
 	Contact,
@@ -12,9 +13,8 @@ import type { AirtableFields, AirtableFieldValue } from "~/ports/airtable";
 /**
  * The ONE declaration of what syncs and how (docs/airtable-sync-design.md,
  * Decision 2): app-owned = inbound edits corrected back · descriptive =
- * three-way merged, Airtable wins conflicts · workflow = transition request
- * through the domain path. Anything NOT declared here is team-private —
- * never read from the base, never written, never snapshotted.
+ * three-way merged, Airtable wins · workflow = transition through the domain
+ * path. Undeclared fields are team-private: never read, written, or snapshotted.
  */
 export type FieldClass = "app-owned" | "descriptive" | "workflow";
 
@@ -24,6 +24,9 @@ export const SYNCED_TABLES = [
 	"task_assignments",
 ] as const;
 export type SyncedTableName = (typeof SYNCED_TABLES)[number];
+
+/** What an inbound cell must be for the D1 column behind it to hold it. */
+export type InboundKind = "required-text" | "optional-text" | "date";
 
 export interface SyncFieldSpec {
 	class: FieldClass;
@@ -40,7 +43,7 @@ export interface SyncFieldSpec {
 	 */
 	inbound?: {
 		column: string;
-		kind: "required-text" | "optional-text" | "date";
+		kind: InboundKind;
 		nullAs?: string;
 	};
 }
@@ -56,10 +59,22 @@ function isoOrNull(value: Date | null): string | null {
 	return value ? value.toISOString() : null;
 }
 
-function normalizeRemoteDate(value: AirtableFieldValue): AirtableFieldValue {
-	if (typeof value !== "string" || value === "") return null;
-	const parsed = new Date(value);
-	return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+/** A remote cell that isn't a datetime string carries no date at all; one that
+ * is gets canonicalized, so re-serialization alone never reads as an edit. */
+const RemoteDate = z
+	.string()
+	.min(1)
+	.transform((text) => {
+		const parsed = new Date(text);
+		return Number.isNaN(parsed.getTime()) ? text : parsed.toISOString();
+	});
+
+/** The `normalizeRemote` every date-valued field uses — exported so tests
+ * exercise the shipped normalizer instead of a copy that can drift. */
+export function normalizeRemoteDate(
+	value: AirtableFieldValue,
+): AirtableFieldValue {
+	return RemoteDate.safeParse(value).data ?? null;
 }
 
 type SubmissionStatus = (typeof SUBMISSION_STATUS)[number];
@@ -73,23 +88,22 @@ export function statusLabel(status: string): string {
 		.join(" ");
 }
 
-function parseLabel<T extends string>(
-	value: AirtableFieldValue,
-	statuses: readonly T[],
-): T | null {
-	if (typeof value !== "string") return null;
-	const needle = value.trim().toLowerCase().replaceAll(" ", "_");
-	return statuses.find((s) => s === needle) ?? null;
-}
+// A status arrives as whatever the team typed into a select: label-cased,
+// space-separated, any case. Undo statusLabel, then it must BE a status.
+const enumLabel = z
+	.string()
+	.transform((v) => v.trim().toLowerCase().replaceAll(" ", "_"));
+const submissionStatusLabel = enumLabel.pipe(z.enum(SUBMISSION_STATUS));
+const taskStatusLabel = enumLabel.pipe(z.enum(TASK_STATUS));
 
 /** "Accept Queue" / "accept_queue" (case-insensitive) → the enum value, else null. */
 export function parseSubmissionStatus(
 	value: AirtableFieldValue,
 ): SubmissionStatus | null {
-	return parseLabel(value, SUBMISSION_STATUS);
+	return submissionStatusLabel.safeParse(value).data ?? null;
 }
 export function parseTaskStatus(value: AirtableFieldValue): TaskStatus | null {
-	return parseLabel(value, TASK_STATUS);
+	return taskStatusLabel.safeParse(value).data ?? null;
 }
 
 export interface SubmissionSyncRow {
@@ -246,6 +260,23 @@ export type PullOutcome =
 	| { ok: false; reason: string };
 
 /**
+ * The declared kind IS the parse. `required-text` keeps Airtable's own text
+ * verbatim — it refuses a blank cell without trimming the one it accepts, so
+ * a pull can never silently reformat what the team typed.
+ */
+const INBOUND_VALUE: Record<
+	InboundKind,
+	{ schema: z.ZodType<string | Date, AirtableFieldValue>; must: string }
+> = {
+	"required-text": {
+		schema: z.string().refine((text) => text.trim() !== ""),
+		must: "must be non-empty text",
+	},
+	"optional-text": { schema: z.string(), must: "must be text" },
+	date: { schema: z.string().pipe(z.coerce.date()), must: "must be a date" },
+};
+
+/**
  * Validate an inbound edit of a DESCRIPTIVE field against its declared
  * inbound shape and translate it to a D1 column patch. A value the column
  * can't hold is rejected (and the app's value is written back by the
@@ -261,26 +292,15 @@ export function applyDescriptivePull(
 	if (!inbound) {
 		return { ok: false, reason: `No inbound mapping for ${table}.${field}` };
 	}
-	if (inbound.kind === "required-text") {
-		return typeof value === "string" && value.trim() !== ""
-			? { ok: true, set: { [inbound.column]: value } }
-			: { ok: false, reason: `${field} must be non-empty text` };
+	// A cleared cell is a value, not a bad value — except where the column is
+	// required, which is the one case with nothing to fall back to.
+	if (value === null && inbound.kind !== "required-text") {
+		const cleared = inbound.kind === "date" ? null : (inbound.nullAs ?? null);
+		return { ok: true, set: { [inbound.column]: cleared } };
 	}
-	if (inbound.kind === "optional-text") {
-		if (value === null) {
-			return { ok: true, set: { [inbound.column]: inbound.nullAs ?? null } };
-		}
-		return typeof value === "string"
-			? { ok: true, set: { [inbound.column]: value } }
-			: { ok: false, reason: `${field} must be text` };
-	}
-	// date
-	if (value === null) return { ok: true, set: { [inbound.column]: null } };
-	if (typeof value === "string") {
-		const parsed = new Date(value);
-		if (!Number.isNaN(parsed.getTime())) {
-			return { ok: true, set: { [inbound.column]: parsed } };
-		}
-	}
-	return { ok: false, reason: `${field} must be a date` };
+	const { schema, must } = INBOUND_VALUE[inbound.kind];
+	const parsed = schema.safeParse(value);
+	return parsed.success
+		? { ok: true, set: { [inbound.column]: parsed.data } }
+		: { ok: false, reason: `${field} ${must}` };
 }

@@ -10,11 +10,10 @@ import { registerLookupRoutes } from "./lookups";
 import { registerSessionRoutes } from "./sessions";
 
 /**
- * The Sessionboard-compatible read API (`/api/v1/*`) — the migration story
- * for teams with existing API integrations. Auth is the org-scoped
- * `x-access-token` guard; every event read resolves through the token's
- * readable set with existence-hiding 404s; serializers hardcode Hide-PII ON.
- * Write operations stay out by design — the envelope is the feature.
+ * The Sessionboard-compatible read API (`/api/v1/*`) — the migration story for
+ * teams with existing integrations. The org-scoped `x-access-token` guard
+ * resolves every event read through the token's readable set with
+ * existence-hiding 404s; serializers force Hide-PII; writes stay out by design.
  */
 export const apiV1 = new Hono<ApiHonoEnv>().basePath("/api/v1");
 

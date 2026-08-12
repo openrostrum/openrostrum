@@ -13,18 +13,9 @@ import { inspectIcsAttachment, type ParsedIcsEvent } from "~/lib/ics";
 
 /**
  * The delivery ledger: one row per (invite email, session) describing what that
- * speaker's calendar was actually told. Everything downstream — the stale-speaker
- * count, the SEQUENCE frontier, the "history is invalid" block — reads this and
- * never re-parses the outbox, so the parse has to happen exactly once per row and
- * mean the same thing whoever triggered it.
- *
- * Two producers call in: the durable scan in `schedule-update.ts`, which indexes
- * invites that predate the ledger, and the send paths, which index the row they
- * just wrote. Both go through the functions here, so a row indexed at send time
- * is byte-identical to one the scan would have produced.
- *
- * Its own module because `schedule-update.ts` imports from `accept.ts`; putting
- * this in either one would close the import cycle.
+ * speaker's calendar was told. Both producers — the durable scan and the send
+ * paths — index through these functions, so a row written at send time is
+ * byte-identical to the scan's. Notes: docs/scenarios/walks/08-emails.walk.md.
  */
 
 /** How many rows one query may name — D1 binds parameters per statement. */
@@ -418,14 +409,10 @@ export function ledgerWriteStatementUpperBound(
 }
 
 /**
- * Index the invite emails THIS request just wrote, in the request that wrote
- * them. Without it the durable scan is the only indexer, so every round of
- * sends re-arms it: the agenda stops reporting stale speakers and offers to go
- * check history instead, over and over, on an event nobody has neglected.
- *
- * Best-effort by construction — the outbox rows are already written and the
- * emails already gone, so a failure here is a scan the operator's next click
- * finishes, never a lost or duplicated send.
+ * Index the invites THIS request just wrote: leaving them to the durable scan
+ * re-arms it after every send round, so the agenda keeps offering to go check
+ * history on an event nobody neglected. Best-effort — the emails are already
+ * gone, so a failure here is a scan the next click finishes, never a lost send.
  */
 export async function recordSentCalendarInvites(
 	db: Db,

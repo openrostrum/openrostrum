@@ -1069,6 +1069,26 @@ from earlier walks remain in force.
 - `calendar_invite_revisions` is the immutable attempt projection. Duplicate
   `(outbox_id, submission_id)` writes converge, and the outbox remains the
   complete organizer-visible history.
+- **An invite is parsed exactly once per outbox row, and means the same thing
+  whoever triggered it.** Two producers index the ledger: the durable scan in
+  `schedule-update.ts`, which picks up invites predating the ledger, and the
+  send paths, which index the row they just wrote. Both go through
+  `app/domain/calendar-ledger.ts`, so a row indexed at send time is
+  byte-identical to the one the scan would have produced. Everything downstream
+  — the stale-speaker count, the SEQUENCE frontier, the "history is invalid"
+  block — reads the ledger and never re-parses the outbox.
+- **The ledger and the sequence allocator are separate modules on purpose.**
+  `schedule-update.ts` imports from `accept.ts`, so holding either the parse or
+  the counter inside one of those files would close an import cycle.
+- **A provider success is stamped onto the row only while the payload still
+  matches the one that was sent.** A reclaimer that re-took an expired lease to
+  send the same content is a duplicate of a delivery that already happened, so
+  the late stamp is harmless. One that rewrote the payload is not: the row is
+  the delivery evidence and the calendar ledger's source, so signing someone
+  else's content with our provider id would record an invite nobody received and
+  file their real delivery as our duplicate. The final `UPDATE` therefore
+  compares the same payload columns the reclaim compare-and-swap rewrites, and a
+  claimant that lost the row reconciles instead of stamping.
 - `calendar_invite_processed_outbox` durably records completion per outbox row.
   `event_id` preserves direct operational ownership and cleanup scope;
   `processed_at` makes stalled normalization diagnosable. They are retained even

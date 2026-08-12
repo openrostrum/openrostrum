@@ -45,6 +45,9 @@ export default [
 			"openrostrum/no-compat-shims": "error",
 			"openrostrum/no-deferral-comments": "error",
 			"openrostrum/no-generic-instanceof": "error",
+			"openrostrum/no-long-comments": "error",
+			"openrostrum/no-loose-variant-objects": "error",
+			"openrostrum/no-runtime-typeof": "error",
 			"openrostrum/prefer-error-normalizer": "error",
 			"@typescript-eslint/no-unused-vars": [
 				"error",

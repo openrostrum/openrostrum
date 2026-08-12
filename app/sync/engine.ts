@@ -4,14 +4,13 @@ import type {
 	AirtableFieldValue,
 	AirtableRecord,
 } from "~/ports/airtable";
-import { MERGE_FIELD } from "~/ports/airtable";
+import { recordKey } from "~/ports/airtable";
 
 /**
- * Snapshot three-way reconciliation, pure: the caller loads/filters rows
- * (the tenant guard happens BEFORE this module) and applies the returned
- * plan. Per mapped field vs the
- * last-synced snapshot: only-local-changed → push, only-remote-changed →
- * pull (class-routed), both changed → the class rule.
+ * Snapshot three-way reconciliation, pure: the caller loads/filters rows (the
+ * tenant guard happens BEFORE this module) and applies the returned plan. Per
+ * mapped field vs the last-synced snapshot: only-local-changed → push,
+ * only-remote-changed → pull (class-routed), both changed → the class rule.
  */
 
 export interface LocalProjection {
@@ -73,10 +72,9 @@ export function planTableSync(
 	const remoteByRecordId = new Map<string, AirtableRecord>();
 	let orphanCount = 0;
 	for (const remote of remotes) {
-		const mergeValue = remote.fields[MERGE_FIELD];
+		const mergeValue = recordKey(remote);
 		if (
-			typeof mergeValue !== "string" ||
-			mergeValue === "" ||
+			mergeValue === null ||
 			remoteByRecordId.has(mergeValue) ||
 			(!localById.has(mergeValue) && !linkById.has(mergeValue))
 		) {

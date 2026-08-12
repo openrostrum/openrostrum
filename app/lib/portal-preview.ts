@@ -1,10 +1,8 @@
 /**
  * Admin "View portal as" preview state. The cookie is a UI selector, NOT a
- * credential: it only names a contact, and every request re-derives the
- * caller's authority from their real session (admin role + org membership on
- * the contact's event) before the preview applies. A forged or stolen value
- * therefore grants nothing the holder couldn't already reach, and the admin's
- * auth session is never swapped.
+ * credential: it only names a contact, and every request re-derives the caller's
+ * authority from their real session (admin role + org membership on the
+ * contact's event). A forged value grants nothing; the auth session never swaps.
  */
 
 import { and, eq } from "drizzle-orm";

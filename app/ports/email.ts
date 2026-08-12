@@ -20,24 +20,17 @@ export interface EmailMessage {
 	eventId?: string;
 	templateId?: string;
 	/**
-	 * "transactional" (default) = every email that is a consequence of the
-	 * recipient's own submission/account: confirmations, ACCEPT/DECLINE
-	 * decisions, invites, password resets, task-due + draft-close reminders,
-	 * schedule updates — ALWAYS delivered (unsubscribing must never hide an
-	 * acceptance). "bulk" = general announcements only (the compose-to-speakers
-	 * blast) — SKIPPED for suppressed (unsubscribed) recipients and carries the
-	 * unsubscribe footer. Callers of announcement sends MUST set "bulk".
+	 * "transactional" (default) = a consequence of the recipient's own
+	 * submission/account (confirmations, decisions, invites, resets, reminders,
+	 * schedule updates) — ALWAYS delivered; unsubscribing must never hide an
+	 * acceptance. "bulk" = announcements, set by `sendAnnouncement`: suppressible.
 	 */
 	kind?: "transactional" | "bulk";
 	/**
-	 * What a LIVE claimant on the same `dedupeKey` means to this caller.
-	 * "dedupe" (default) — report it like any other duplicate: right for the
-	 * user-initiated route actions, where a double-clicked button must stay a
-	 * no-op instead of becoming an error page.
-	 * "reject" — throw `EmailSendInFlightError`. Required wherever the caller
-	 * writes durable delivered-state (`submissions.notified_at`, the calendar
-	 * sequence frontier) that must never be stamped for a delivery this request
-	 * did not complete.
+	 * What a LIVE claimant on the same `dedupeKey` means to this caller. "dedupe"
+	 * (default) reports it as a duplicate, so a double-clicked button stays a
+	 * no-op. "reject" throws `EmailSendInFlightError` — required where the caller
+	 * would otherwise stamp durable delivered-state for a send it did not finish.
 	 */
 	onInFlight?: "dedupe" | "reject";
 }
@@ -117,11 +110,10 @@ export function createLocalEmailSender(env: Env): EmailSender {
 			if (!prior) {
 				return { id: crypto.randomUUID(), deduped: true, suppressed: false };
 			}
-			// `onInFlight` is a caller guarantee, not a Resend feature: a
-			// deployment with no provider key runs this adapter and must refuse
-			// the same second send the prod adapter refuses. An EXPIRED claim is
-			// an abandoned one — honouring it forever would turn a crashed
-			// request into a row nobody can ever retry.
+			// `onInFlight` is a caller guarantee, not a Resend feature: this adapter
+			// runs wherever there is no provider key and must refuse the same second
+			// send prod refuses. An EXPIRED claim is an abandoned one; honouring it
+			// forever would turn a crashed request into a row nobody can retry.
 			if (
 				prior.sendClaimExpiresAt !== null &&
 				prior.sendClaimExpiresAt.getTime() > Date.now()
@@ -263,11 +255,10 @@ async function reconcileSendClaim(
 	) {
 		return inFlightOutcome(onInFlight, current);
 	}
-	// Someone else took the lease and already resolved the row (typically to
-	// `failed`), so this attempt has no claim left to settle. That is a delivery
-	// outcome for THIS recipient, not a broken invariant: raising a bare Error
-	// here would abort a whole send batch and discard every other recipient's
-	// recorded outcome. The row already carries the winning attempt's reason.
+	// Someone else took the lease and already resolved this row, so this attempt
+	// has no claim left to settle. That is a delivery outcome for THIS recipient,
+	// not a broken invariant: a bare Error would abort the whole send batch and
+	// discard every other recipient's recorded outcome.
 	throw new EmailDeliveryError(
 		`Delivery could not be confirmed — another attempt on this key resolved it as ${current.status}. See Email history.`,
 	);
@@ -301,15 +292,10 @@ function base64Utf8(s: string): string {
 }
 
 /**
- * Prod adapter: real mail via Resend from the verified openrostrum.com domain.
- *
- * Every attempt is recorded in `email_outbox` BEFORE the provider call and
- * resolved to `sent` (with the provider id) or `failed` (with the reason)
- * after it — `/admin/emails/history` is the delivery evidence in prod exactly
- * as it is locally (docs/observability.md), and a provider rejection is a
- * queryable `failed` row, never a vanished send. The outbox row is also the
- * dedupe ledger: a retry of a `sent` dedupeKey short-circuits without calling
- * the provider, while a `failed` row stays retryable in place.
+ * Prod adapter: real mail via Resend from the verified sender domain. Every
+ * attempt is recorded in `email_outbox` BEFORE the provider call and resolved to
+ * `sent` or `failed` after it, so `/admin/emails/history` is the delivery
+ * evidence in prod exactly as it is locally (docs/observability.md).
  */
 export function createResendEmailSender(env: Env): EmailSender {
 	// The verified sender, e.g. "OpenRostrum <noreply@yourdomain.com>". Set per
@@ -325,9 +311,10 @@ export function createResendEmailSender(env: Env): EmailSender {
 	return {
 		async send(msg) {
 			const sendClaim = createSendClaim();
-			// 1. Claim the outbox row. A dedupeKey conflict means a prior attempt
-			// exists: already sent/bounced → done (idempotent), failed/queued →
-			// retry on the SAME row so history shows one attempt per key.
+			// 1. Claim the outbox row — it is also the dedupe ledger. A dedupeKey
+			// conflict means a prior attempt exists: already sent/bounced → done
+			// (no provider call), failed/queued → retry on the SAME row, so
+			// history shows one attempt per key and a rejection stays queryable.
 			const [inserted] = await db
 				.insert(emailOutbox)
 				.values({
@@ -433,11 +420,9 @@ export function createResendEmailSender(env: Env): EmailSender {
 				"Content-Type": "application/json",
 			};
 			// Resend replays this key for 24h — belt and braces under the outbox
-			// ledger above. It is scoped to the PAYLOAD because Resend answers a
-			// reused key carrying different content with 409
-			// invalid_idempotent_request: on the bare dedupeKey a corrected retry
-			// (fixed template, moved room) could never be sent at all, while an
-			// identical retry still lands on the same key and is deduped.
+			// ledger above. Scoped to the PAYLOAD because Resend answers a reused key
+			// carrying different content with 409 invalid_idempotent_request: on the
+			// bare dedupeKey a corrected retry could never be sent at all.
 			if (msg.dedupeKey) {
 				headers["Idempotency-Key"] = await payloadScopedIdempotencyKey(
 					msg.dedupeKey,
@@ -452,11 +437,10 @@ export function createResendEmailSender(env: Env): EmailSender {
 					method: "POST",
 					headers,
 					body: JSON.stringify(body),
-					// Bounded well under SEND_CLAIM_LEASE_MS: past the lease the row
-					// is reclaimable, so a POST still in the air would race a second
-					// POST for the same message. Giving up early is safe because the
-					// Idempotency-Key is stable across retries — the provider replays
-					// the first result rather than sending twice.
+					// Bounded well under SEND_CLAIM_LEASE_MS: past the lease the row is
+					// reclaimable, so a POST still in the air would race a second POST
+					// for the same message. Safe to abandon early because the stable
+					// Idempotency-Key makes the provider replay its first result.
 					signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
 				});
 				if (!res.ok) {
@@ -495,15 +479,10 @@ export function createResendEmailSender(env: Env): EmailSender {
 				throw deliveryError;
 			}
 
-			// A confirmed provider success is terminal truth about THIS content, so
-			// it still lands when a reclaimer re-took the lease to send the same
-			// payload (the reclaim is then a duplicate of a delivery that already
-			// happened). It must NOT land once the reclaimer rewrote the payload:
-			// the row is the delivery evidence and the calendar ledger's source, so
-			// signing someone else's content with our provider id would record an
-			// invite nobody received and file their separate delivery as our
-			// duplicate. Payload equality is exactly that test — the reclaim CAS
-			// above rewrites precisely these columns.
+			// A confirmed success is terminal truth about THIS content: the stamp
+			// still lands when a reclaimer re-sent the same payload, and must NOT
+			// land once it rewrote one — signing someone else's content with our
+			// provider id records an invite nobody received. 08-emails.walk.md.
 			const [persisted] = await db
 				.update(emailOutbox)
 				.set({
@@ -538,11 +517,10 @@ export function hasRealEmailProvider(env: Env): boolean {
 }
 
 /**
- * Resolve the adapter by CAPABILITY, not by APP_ENV. The local D1 sink is used
- * only when there is no real provider key configured; prod (with RESEND_API_KEY)
- * always sends real mail, local/test (no key) log to `email_outbox`. This is
- * fail-safe independent of APP_ENV, so a misconfigured env string can never make
- * production silently swallow mail into a table nobody reads.
+ * Resolve the adapter by CAPABILITY, not by APP_ENV: with RESEND_API_KEY prod
+ * always sends real mail; without one, local/test log to `email_outbox`. Being
+ * independent of APP_ENV is the fail-safe — a misconfigured env string can never
+ * make production silently swallow mail into a table nobody reads.
  */
 export function getEmailSender(env: Env): EmailSender {
 	const adapter = hasRealEmailProvider(env)

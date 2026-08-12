@@ -947,12 +947,10 @@ describe("send decisions", () => {
 		}
 	});
 
-	// Acceptance re-sends carry the SAME calendar UID as every schedule update
-	// that has already reached the speaker. RFC 5545 §3.8.7.4 makes SEQUENCE the
-	// revision counter for that UID, so a re-send minted below the delivered
-	// frontier is a revision the client is entitled to ignore — the speaker
-	// re-reads the accept mail, sees the right time in the body, and their
-	// calendar quietly keeps the old slot.
+	// An acceptance re-send shares its calendar UID with every schedule update
+	// already delivered, and SEQUENCE is that UID's revision counter: minted below
+	// the delivered frontier, the client ignores the revision — the speaker reads
+	// the right time in the mail body while their calendar keeps the old slot.
 	it("re-sends an acceptance above the delivered calendar frontier, not at zero", async () => {
 		const d = await seedBase();
 		await seedDecisionTemplates();
@@ -1026,12 +1024,10 @@ describe("send decisions", () => {
 		expect(frontier?.sequence).toBe(3);
 	});
 
-	// An admin reviewing an accept preview is not holding a lock on the agenda.
-	// If a schedule update claims a revision while they read, sending at the
-	// number the preview computed hands one UID two different revisions — and the
-	// speaker's client keeps whichever it saw first. Confirming a preview whose
-	// wording still matches must not be refused either, or the accept becomes
-	// unsendable for as long as anyone else is touching the schedule.
+	// An admin reading an accept preview holds no lock on the agenda. Sending at
+	// the number the preview computed hands one UID two revisions, and the client
+	// keeps whichever it saw first. Refusing a still-matching preview is no fix
+	// either: the accept becomes unsendable while anyone touches the schedule.
 	it("ships the revision it claims at send, not the one the preview guessed", async () => {
 		const d = await seedBase();
 		await seedDecisionTemplates();
@@ -1103,12 +1099,10 @@ describe("send decisions", () => {
 		expect(mail?.icsAttachment).toContain("SEQUENCE:8");
 	});
 
-	// A schedule update takes its revision number before its email is recorded,
-	// so there is a window where the counter has moved but the delivery ledger
-	// still looks untouched. An accept landing in that window computes a number
-	// from the ledger that is already spoken for; only the claim itself knows
-	// better. Shipping the computed number would put two different invites on one
-	// revision of one UID, and the speaker's client keeps whichever arrived first.
+	// A schedule update claims its revision before its email is recorded, so the
+	// counter can have moved while the ledger still looks untouched. An accept
+	// landing there computes a number already spoken for; shipping it would put
+	// two invites on one revision and the client keeps whichever arrived first.
 	it("ships the revision the claim returns, even when the ledger has not caught up", async () => {
 		const d = await seedBase();
 		await seedDecisionTemplates();

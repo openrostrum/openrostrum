@@ -6,16 +6,10 @@ import { cn } from "./cn";
 import { MotionReveal } from "./motion";
 
 /**
- * THE shared rich-text editor (Tiptap; B/I/U, lists, links). Every
- * WYSIWYG surface renders this one component — emails, CFP wizard, portal,
- * contacts, form builder. Sanitization stays a WRITE-boundary concern
- * (`sanitizeHtml` in app/lib/html.ts) — this component only edits.
- *
- * Form integration: with `name` set, the HTML submits through a hidden input
- * that is rewritten during the `formdata` event — React Router builds
- * `new FormData(form)` on submit, which fires that event, so the submitted
- * HTML can never be stale whatever the render/update timing. Controlled
- * consumers (the public wizard's draft state) pass `value`/`onChange` instead.
+ * THE shared rich-text editor (Tiptap; B/I/U, lists, links). Every WYSIWYG
+ * surface renders this one component — emails, CFP wizard, portal, contacts,
+ * form builder. Sanitization stays a WRITE-boundary concern (`sanitizeHtml` in
+ * app/lib/html.ts) — this component only edits.
  */
 export type RichTextProps = {
 	name?: string;
@@ -79,9 +73,10 @@ export function RichText({
 		},
 	});
 
-	// Serialization-time sync: React Router builds `new FormData(form)` on
-	// submit, which fires this event — reading the editor HERE means the
-	// submitted HTML can never be stale, whatever the render/update timing.
+	// Serialization-time sync: with `name` set the HTML rides a hidden input
+	// rewritten during the `formdata` event that React Router fires building
+	// `new FormData(form)` — reading the editor HERE means the submitted HTML
+	// can never be stale, whatever the render/update timing.
 	useEffect(() => {
 		const formEl = inputRef.current?.form;
 		if (!formEl || !editor || !name) return;

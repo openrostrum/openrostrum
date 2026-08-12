@@ -20,14 +20,8 @@ import {
 /**
  * Integration-owned: feature worktrees import from here and must not edit this
  * file or mint migrations (lefthook + CI enforce it) — request columns from the
- * integration owner instead.
- *
- * Conventions:
- *   - text UUID primary keys via crypto.randomUUID()
- *   - timestamps as unix epoch (integer, mode: "timestamp")
- *   - enums as text with a checked { enum: [...] } union (exported as const tuples)
- *   - every event-scoped row cascades from its event; person identity lives on
- *     `contacts`, NOT on `participants` (a participant is a role on a submission).
+ * integration owner instead. The column conventions this file follows are in
+ * docs/rules/engineering.md → Schema conventions.
  */
 
 const id = () =>
@@ -77,10 +71,9 @@ export const authSessions = sqliteTable(
 
 /**
  * Also backs invites: a sentinel-hash user + one of these tokens = set-password
- * onboarding. `organizationId` is the mint-time intent discriminator: set = an
- * org-member invite (the accept flow creates the membership); NULL = speaker /
- * reviewer / plain password reset — the accept flow must derive what a token
- * grants from this column, never from which route redeems it.
+ * onboarding. `organizationId` is the mint-time intent discriminator — set = an
+ * org-member invite, NULL = speaker/reviewer/password reset. The accept flow
+ * derives what a token grants from this column, never from the redeeming route.
  */
 export const passwordResets = sqliteTable("password_resets", {
 	id: id(),
@@ -102,10 +95,8 @@ export const passwordResets = sqliteTable("password_resets", {
 /**
  * The tenant (docs/multi-tenancy-design.md). Events, api tokens, and org-wide
  * fields hang off an organization; every admin surface resolves access through
- * organization_members. No owner/role column — members are equal admins
- * (verified Sessionboard parity, docs/data-model.md → Organization & Event
- * Team); the one invariant is that an org never loses its last member
- * (enforced at the member-remove action, Wave D).
+ * organization_members. No owner/role column — members are equal admins; the
+ * one invariant is that an org never loses its last member.
  */
 export const organizations = sqliteTable("organizations", {
 	id: id(),
@@ -181,11 +172,10 @@ export const tracks = sqliteTable(
 	(t) => [index("tracks_event_idx").on(t.eventId)],
 );
 
-// Sessionboard carries TWO status fields on a session: a fixed core enum
-// (SUBMISSION_STATUS — the 5-stage decision pipeline) AND an organizer-created
-// custom status ("Offered", "Pending Contract", …). This table holds the custom
-// ones per event; `submissions.customStatusId` points at the active one. Both
-// coexist exactly as the Sessionboard API does (`status` + `custom_status_id`).
+// A session carries TWO status fields, exactly as the Sessionboard API does:
+// the fixed SUBMISSION_STATUS decision pipeline AND an organizer-created custom
+// status ("Offered", "Pending Contract", …). This table holds the custom ones
+// per event; `submissions.customStatusId` points at the active one.
 export const sessionStatuses = sqliteTable(
 	"session_statuses",
 	{
@@ -402,11 +392,10 @@ export const FIELD_TYPE = [
 export const FORM_FIELD_SECTION = ["session", "participant"] as const;
 
 /**
- * Reusable field library (Create New Field / Add Question). Scope is an XOR
- * (the formFields fieldId/builtinRef precedent): an org-wide field sets
- * `organizationId` (eventId null); an event field sets `eventId`
- * (organizationId null — the org is derived via the event, never stored where
- * derivable, so the two can never disagree).
+ * Reusable field library (Create New Field / Add Question). Scope is an XOR:
+ * an org-wide field sets `organizationId`, an event field sets `eventId`, never
+ * both — the org is derived via the event rather than stored where it is
+ * derivable, so the two can never disagree.
  */
 export const fields = sqliteTable(
 	"fields",
@@ -436,11 +425,10 @@ export const fields = sqliteTable(
 );
 
 /**
- * Built-in questions that exist on every form independent of the field library
- * (Title/Description/Format/…). A form_fields row references EITHER a library
- * `fieldId` OR a `builtinRef` (never both) — so built-ins get the same per-form
- * position/required/locked config as custom fields, and a conditional rule can
- * trigger on a built-in dropdown.
+ * Built-in questions every form has (Title/Description/Format/…), independent
+ * of the field library. A form_fields row references EITHER a library `fieldId`
+ * OR a `builtinRef`, so a built-in takes the same per-form position/required/
+ * locked config as a custom field and can trigger a conditional rule.
  */
 export const BUILTIN_FIELD = [
 	"title",
@@ -1037,12 +1025,10 @@ export const roundQuestions = sqliteTable(
 );
 
 /**
- * One evaluator's evaluation of one submission in one round. The row is
- * CREATED AT ASSIGNMENT TIME with status "pending", so the reviewer queue is
- * exactly `evaluations WHERE evaluatorId = me AND status = 'pending'` — the
- * queue can never contain anything that wasn't assigned. Caps, auto-distribute,
- * and track-filtered assignment are just strategies that mint these rows.
- * "abstained" = conflict-of-interest recusal.
+ * One evaluator's evaluation of one submission in one round, CREATED AT
+ * ASSIGNMENT TIME with status "pending" — so the reviewer queue is exactly
+ * `evaluations WHERE evaluatorId = me AND status = 'pending'` and can never
+ * hold anything unassigned. "abstained" = conflict-of-interest recusal.
  */
 export const evaluations = sqliteTable(
 	"evaluations",
@@ -1232,11 +1218,10 @@ export const taskAssignments = sqliteTable(
 		index("task_assignments_task_idx").on(t.taskId),
 		index("task_assignments_contact_status_idx").on(t.contactId, t.status),
 		index("task_assignments_submission_idx").on(t.submissionId),
-		// Idempotency for the accept spine: replaying an accept or bulk assign
-		// must not double-assign — but a multi-talk speaker legitimately holds
-		// one assignment PER submission for submission-scoped tasks, so the
-		// uniqueness key splits on that scope. Submission-type assignments MUST
-		// always carry contactId (NULLs are distinct under SQLite semantics).
+		// Idempotency for the accept spine: a replayed accept must not double-
+		// assign, but a multi-talk speaker legitimately holds one assignment PER
+		// submission — so the key splits on that scope. Submission-type rows MUST
+		// carry contactId: NULLs are distinct under SQLite, so a null would replay.
 		uniqueIndex("task_assignments_contact_scope_uq")
 			.on(t.taskId, t.contactId)
 			.where(sql`submission_id IS NULL`),
@@ -1396,11 +1381,10 @@ export const apiTokens = sqliteTable(
 );
 
 /**
- * One row per synced D1 record ⇄ Airtable record, holding the last-synced
- * field snapshot ("base") for three-way reconciliation (see
- * docs/airtable-sync-design.md). `baseSnapshot` only ever holds the
- * app-declared synced fields — team-private Airtable columns are never read
- * into it.
+ * One row per synced D1 record ⇄ Airtable record, holding the last-synced field
+ * snapshot ("base") for three-way reconciliation (docs/airtable-sync-design.md).
+ * `baseSnapshot` only ever holds the app-declared synced fields — team-private
+ * Airtable columns are never read into it.
  */
 export const airtableLinks = sqliteTable(
 	"airtable_links",

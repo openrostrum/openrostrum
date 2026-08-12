@@ -12,12 +12,9 @@ import {
 } from "../app/ports/email";
 
 // Oracle: the Resend Send API contract (endpoint, payload field names, the
-// Idempotency-Key header) — from Resend's docs, not read off the adapter —
-// PLUS the outbox ledger contract: every prod attempt is a queryable
-// email_outbox row, resolved to `sent` (provider id) or `failed` (reason).
-// `/admin/emails/history` is the delivery evidence in prod, so a provider
-// rejection must be a `failed` row, never a vanished send. fetch (the process
-// boundary) is the only thing mocked; the outbox asserts run on real D1.
+// Idempotency-Key header) — from Resend's docs, not read off the adapter — PLUS
+// the outbox ledger contract: every prod attempt is a queryable email_outbox row
+// resolved to `sent` (provider id) or `failed` (reason), never a vanished send.
 const FROM = "OpenRostrum <noreply@test.example>";
 const env = {
 	...workerEnv,
@@ -25,6 +22,8 @@ const env = {
 	EMAIL_FROM: FROM,
 } as unknown as Env;
 
+// fetch (the process boundary) is the only thing mocked — every outbox
+// assertion below runs against real D1.
 function mockFetch(status: number, json: unknown) {
 	return vi.fn(async () => new Response(JSON.stringify(json), { status }));
 }
@@ -532,11 +531,10 @@ describe("Resend email adapter", () => {
 	});
 
 	it("a timed-out claimant cannot stamp its send onto a reclaimed, corrected row", async () => {
-		// The reclaimer rewrites the row's payload (subject/html/ics) — it is the
-		// delivery evidence AND the calendar ledger's source. A stale claimant that
-		// completes afterwards must not sign that row with ITS provider id: the row
-		// would attest content nobody was sent, and the reclaimer's genuinely
-		// separate delivery would be filed as a duplicate of it.
+		// The reclaimer rewrites the row's payload, and the row is both the delivery
+		// evidence and the calendar ledger's source. A stale claimant completing
+		// afterwards must not sign it with ITS provider id: the row would attest
+		// content nobody was sent, and the reclaimer's delivery read as a duplicate.
 		let resolveFirst: ((response: Response) => void) | undefined;
 		let resolveSecond: ((response: Response) => void) | undefined;
 		let firstStarted: (() => void) | undefined;
@@ -610,11 +608,10 @@ describe("Resend email adapter", () => {
 	});
 
 	it("reports an unreconcilable claim as a delivery failure, not an unhandled fault", async () => {
-		// A stale claimant whose row was reclaimed AND then resolved to `failed` by
-		// someone else has no claim left to reconcile against. That is this
-		// recipient's delivery outcome — a caller sending a batch must be able to
-		// record it and carry on, not lose every other recipient's outcome to an
-		// error page.
+		// A stale claimant whose row was reclaimed AND resolved to `failed` by
+		// someone else has no claim left to reconcile. That is this recipient's
+		// delivery outcome: a caller sending a batch has to record it and carry on,
+		// not lose every other recipient's outcome to an error page.
 		let resolveFirst: ((response: Response) => void) | undefined;
 		let firstStarted: (() => void) | undefined;
 		const firstProviderStarted = new Promise<void>((resolve) => {
@@ -795,11 +792,10 @@ describe("Resend email adapter", () => {
 	});
 
 	it("reuses the provider idempotency key when a resumed send re-renders the same invite", async () => {
-		// DTSTAMP is "when this payload was produced" (RFC 5545 §3.8.7.2), minted
-		// from the wall clock on every render — it is not part of what the invite
-		// SAYS. A send resumed after its lease re-renders the identical invite a
-		// second later; if that stamp reaches the provider key, Resend sees a new
-		// send and the speaker gets a second "You're accepted".
+		// DTSTAMP is when the payload was produced, minted from the wall clock on
+		// every render — not part of what the invite SAYS. A send resumed after its
+		// lease re-renders the identical invite a second later; with that stamp in
+		// the provider key, Resend sees a new send and the speaker gets a second one.
 		const invite = {
 			calendarName: "Test Event",
 			method: "PUBLISH" as const,

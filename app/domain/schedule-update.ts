@@ -278,11 +278,9 @@ async function hasUnprocessedCalendarInviteHistory(
 
 /**
  * Addresses holding a delivered calendar entry we cannot read back. An invite
- * we can't parse is a baseline we can't name, so anything we send that address
- * next would carry a SEQUENCE we cannot prove is an advance — the one thing a
- * client is entitled to discard. Quarantine is per ADDRESS, not per event:
- * every send path groups an invite by recipient, so an unreadable delivery says
- * nothing about the speaker in the next row.
+ * we can't parse is a baseline we can't name, so the next send to that address
+ * would carry a SEQUENCE we cannot prove is an advance — the one thing a client
+ * may discard. Scoped per ADDRESS: sends group by recipient, so it stops there.
  */
 async function quarantinedInviteRecipients(
 	db: Db,
@@ -368,11 +366,10 @@ async function quarantinedInviteSessions(
 }
 
 async function staleScheduleCandidates(db: Db, event: EventRow) {
-	// A queued or failed attempt may still have reached the speaker — the
-	// provider hand-off is not transactional with the row that records it. So
-	// the baseline is the newest ATTEMPT, not the newest confirmed send: if the
-	// schedule later returns to what was last confirmed, that attempt is what
-	// the speaker's calendar is still showing and it must be corrected.
+	// The provider hand-off is not transactional with the row that records it, so
+	// a queued or failed attempt may still have reached the speaker. The baseline
+	// is the newest ATTEMPT, not the newest confirmed send: a schedule that
+	// returns to the last confirmed state still has to correct that attempt.
 	const ranked = db
 		.select({
 			submissionId: calendarInviteRevisions.submissionId,
@@ -509,11 +506,10 @@ async function staleScheduleCandidates(db: Db, event: EventRow) {
 					),
 				),
 			)
-			// Deliverable sessions first. A session whose speaker contact is gone can
-			// never leave the change set, so on identifier order alone a batch of them
-			// would occupy the whole window forever and no speaker anywhere in the
-			// event would ever receive an update. They still surface — as the failed
-			// count that tells an admin whose contact to fix — but from the tail.
+			// Deliverable sessions first: a session whose speaker contact is gone can
+			// never leave the change set, so on id order alone a batch of them would
+			// occupy the window forever and nobody in the event is updated again.
+			// They still surface in the failed count, from the tail.
 			.orderBy(
 				sql`case when ${currentRecipient} is null then 1 else 0 end`,
 				asc(submissions.id),
@@ -644,16 +640,10 @@ export async function computeScheduleChanges(
 			last !== undefined &&
 			to !== null &&
 			normalizeEmail(last.to) === normalizeEmail(to);
-		// An attempt the provider never confirmed may or may not have reached the
-		// speaker, so an unchanged invite still belongs in the change set —
-		// resending is the only way to close that gap. It keeps the attempt's own
-		// SEQUENCE: a client that already has the entry then sees no revision,
-		// while one that never received it gets the invite for the first time.
-		// When two attempts share a SEQUENCE and describe different states, matching
-		// one of them proves nothing about what the speaker is looking at (see
-		// `divergentAtSequence`). So "unchanged" is not a claim we can make here,
-		// and the update has to go out at a HIGHER sequence — the only revision
-		// every client is obliged to apply — rather than replaying the ambiguous one.
+		// An unconfirmed attempt may or may not have reached the speaker, so an
+		// unchanged invite still resends — at the attempt's OWN sequence, so a
+		// client holding the entry sees no revision and one that never got it sees
+		// its first. An ambiguous baseline is not "unchanged": it must go higher.
 		const baselineAmbiguous = row.lastDivergentAtSequence === 1;
 		const retryUnchanged =
 			inviteUnchanged && recipientUnchanged && !baselineAmbiguous;
@@ -835,11 +825,10 @@ async function currentInviteStateHashes(
 type ClaimedScheduleChange = ScheduleChange & { stateHash: string };
 
 /**
- * The event row feeds every invite (session titles carry the event name, an
- * unscheduled hold carries its dates and location), so a request holding a
- * stale copy would reconstruct — and re-deliver — an invite the organizer has
- * already replaced. Both claiming and per-recipient revalidation therefore read
- * the event fresh; a stale caller then fails its own hash check and drops out.
+ * Every invite is built from the event row (titles carry its name, unscheduled
+ * holds carry its dates), so a request on a stale copy would re-deliver an
+ * invite the organizer already replaced. Claiming and revalidation both reread
+ * it; a stale caller then fails its own hash check and drops out.
  */
 async function reloadEvent(db: Db, eventId: string): Promise<EventRow | null> {
 	return (

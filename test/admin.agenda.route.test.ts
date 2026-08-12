@@ -20,6 +20,7 @@ import {
 } from "../app/db/schema";
 import { EMAIL_BATCH_LIMIT, inviteRecipients } from "../app/domain/accept";
 import { SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT } from "../app/domain/calendar-ledger";
+import { unwrap } from "./route-data";
 import {
 	computeScheduleChanges,
 	normalizeCalendarInviteHistory,
@@ -225,11 +226,6 @@ type ActionData = {
 	blockedSessions?: number;
 	morePending?: boolean;
 };
-
-function unwrap<T>(result: unknown): T {
-	const r = result as { data?: T };
-	return (r && typeof r === "object" && "data" in r ? r.data : result) as T;
-}
 
 async function callAction(fields: Record<string, string>): Promise<ActionData> {
 	const body = new URLSearchParams(fields);
@@ -773,13 +769,10 @@ const HISTORIC_NPM_ICS_INVITE =
 	"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nCALSCALE:GREGORIAN\r\nPRODID:adamgibbons/ics\r\nMETHOD:PUBLISH\r\nX-PUBLISHED-TTL:PT1H\r\nBEGIN:VEVENT\r\nUID:submission-s_keynote@openrostrum\r\nSUMMARY:AI.Engineer Sandbox Event (save the date): Closing Keynote: The Pos\r\n\tt-SaaS Stack\r\nDTSTAMP:20260810T205445Z\r\nDTSTART:20261012T150000Z\r\nDTEND:20261015T010000Z\r\nSEQUENCE:0\r\nSTATUS:CONFIRMED\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
 
 /**
- * On top of seedBaseline: the keynote was ACCEPTED AND NOTIFIED before any
- * slot existed — the outbox ledger holds the historic npm-ics save-the-date
- * invite (prod rows are in that format), and Marco is its speaker so the
- * update email has a recipient.
- *
- * `indexed: false` is the install that upgraded INTO the ledger: the same real
- * invite history, none of it indexed yet.
+ * On top of seedBaseline: the keynote was ACCEPTED AND NOTIFIED before any slot
+ * existed, so the outbox holds the historic npm-ics save-the-date invite and
+ * Marco is its speaker. `indexed: false` is the install that upgraded INTO the
+ * ledger — the same real invite history, none of it indexed yet.
  */
 async function invitedBaseline(options: { indexed?: boolean } = {}) {
 	const db = await seedBaseline();
@@ -860,6 +853,28 @@ function keynoteIcs(options: {
 				status: "CONFIRMED",
 			},
 		],
+	});
+}
+
+/**
+ * A binding that answers `overrides` for the properties they name and passes
+ * everything else through to the real one — how a test counts D1 round trips
+ * without reimplementing the binding. Override VALUES are unchecked: a `vi.fn`
+ * wrapping a generic D1 method is not assignable to that method's own type.
+ */
+function observed<T extends object>(
+	target: T,
+	overrides: { [K in keyof T]?: unknown },
+): T {
+	return new Proxy(target, {
+		get(binding, property) {
+			if (Object.hasOwn(overrides, property)) {
+				return Reflect.get(overrides, property);
+			}
+			const value = Reflect.get(binding, property);
+			// eslint-disable-next-line openrostrum/no-runtime-typeof -- the property is picked by the code under test, so there is no declared shape to narrow: only the reflected value knows whether it is a method whose receiver must be re-bound
+			return typeof value === "function" ? value.bind(binding) : value;
+		},
 	});
 }
 
@@ -1780,9 +1795,8 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 	});
 
 	// Acceptance re-sends all mint SEQUENCE 0, so one session can carry several
-	// equal-SEQUENCE deliveries describing different times. RFC 5545 gives no
-	// rule for which one a client kept — an equal SEQUENCE is precisely the case
-	// where a client MAY ignore the redelivery — so neither is a baseline we can
+	// equal-SEQUENCE deliveries describing different times, and a client MAY
+	// ignore a redelivery at an equal SEQUENCE. Neither is a baseline we can
 	// suppress an update on, however well one of them matches today's slot.
 	it("re-notifies when equal-SEQUENCE re-sends disagree, even though the slot matches one of them", async () => {
 		const db = await seedBaseline();
@@ -2463,31 +2477,15 @@ END:VCALENDAR
 				},
 			]);
 		const prepared: Array<{ query: string; params: unknown[] }> = [];
-		const observedDatabase = new Proxy(env.DB, {
-			get(target, property) {
-				if (property === "prepare") {
-					return (query: string) => {
-						const statement = target.prepare(query);
-						return new Proxy(statement, {
-							get(preparedStatement, statementProperty) {
-								if (statementProperty === "bind") {
-									return (
-										...params: Parameters<D1PreparedStatement["bind"]>
-									) => {
-										prepared.push({ query, params });
-										return preparedStatement.bind(...params);
-									};
-								}
-								const value = Reflect.get(preparedStatement, statementProperty);
-								return typeof value === "function"
-									? value.bind(preparedStatement)
-									: value;
-							},
-						});
-					};
-				}
-				const value = Reflect.get(target, property);
-				return typeof value === "function" ? value.bind(target) : value;
+		const observedDatabase = observed(env.DB, {
+			prepare: (query: string) => {
+				const statement = env.DB.prepare(query);
+				return observed(statement, {
+					bind: (...params: Parameters<D1PreparedStatement["bind"]>) => {
+						prepared.push({ query, params });
+						return statement.bind(...params);
+					},
+				});
 			},
 		});
 
@@ -2548,13 +2546,7 @@ END:VCALENDAR
 			createdAt: new Date("2026-08-11T17:00:00Z"),
 		});
 		const batch = vi.fn(env.DB.batch.bind(env.DB));
-		const observedDatabase = new Proxy(env.DB, {
-			get(target, property) {
-				if (property === "batch") return batch;
-				const value = Reflect.get(target, property);
-				return typeof value === "function" ? value.bind(target) : value;
-			},
-		});
+		const observedDatabase = observed(env.DB, { batch });
 
 		const result = await normalizeCalendarInviteHistory(
 			getDb({ DB: observedDatabase } as Env),
@@ -3511,16 +3503,10 @@ END:VCALENDAR
 		if (!event) throw new Error("Expected seeded event");
 
 		let statements = 0;
-		const countedDatabase = new Proxy(env.DB, {
-			get(target, property) {
-				if (property === "prepare") {
-					return (query: string) => {
-						statements += 1;
-						return target.prepare(query);
-					};
-				}
-				const value = Reflect.get(target, property);
-				return typeof value === "function" ? value.bind(target) : value;
+		const countedDatabase = observed(env.DB, {
+			prepare: (query: string) => {
+				statements += 1;
+				return env.DB.prepare(query);
 			},
 		});
 		const changes = await computeScheduleChanges(

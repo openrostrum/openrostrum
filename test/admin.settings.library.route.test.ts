@@ -23,20 +23,9 @@ import {
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
 import { action, loader } from "../app/routes/admin.settings.library";
+import { unwrap } from "./route-data";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
-
-function unwrap<T>(result: unknown): T {
-	if (
-		result !== null &&
-		typeof result === "object" &&
-		"data" in result &&
-		"init" in result
-	) {
-		return (result as { data: T }).data;
-	}
-	return result as T;
-}
 
 type LibResult = {
 	ok?: true;
