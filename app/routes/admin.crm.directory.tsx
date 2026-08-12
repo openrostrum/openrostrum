@@ -807,7 +807,7 @@ export default function CrmDirectory({
 									<Td kind="strong">
 										<div className="flex items-center gap-2">
 											<Link to={profile} className="flex items-center gap-2">
-												<Avatar name={name} />
+												<Avatar name={name} src={p.headshotUrl} />
 												{name}
 											</Link>
 											{p.possibleDuplicate && (

@@ -68,32 +68,6 @@ export function ShowMoreText({
 	);
 }
 
-/** Headshot when one exists, deterministic initials otherwise. */
-export function SpeakerPhoto({
-	name,
-	photoUrl,
-	size = 32,
-}: {
-	name: string;
-	photoUrl: string | null;
-	size?: number;
-}) {
-	if (photoUrl) {
-		return (
-			<img
-				src={photoUrl}
-				alt={name}
-				width={size}
-				height={size}
-				loading="lazy"
-				className="shrink-0 rounded-full bg-chip object-cover"
-				style={{ width: size, height: size }}
-			/>
-		);
-	}
-	return <Avatar name={name} size={size} />;
-}
-
 /** Square gallery tile: photo, or an initials fallback that keeps the grid intact. */
 export function PhotoTile({
 	name,

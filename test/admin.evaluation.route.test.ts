@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { and, eq, like } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { getDb } from "../app/db";
 import {
 	emailOutbox,
 	evaluationAnswers,
@@ -15,16 +16,16 @@ import {
 	submissions,
 	users,
 } from "../app/db/schema";
-import { action as reviewAction } from "../app/routes/reviews.$id";
+import {
+	action as listAction,
+	loader as listLoader,
+} from "../app/routes/admin.evaluation";
 import {
 	action as planAction,
 	loader as planLoader,
 } from "../app/routes/admin.evaluation.$planId";
 import { loader as exportLoader } from "../app/routes/admin.evaluation.export[.csv]";
-import {
-	action as listAction,
-	loader as listLoader,
-} from "../app/routes/admin.evaluation";
+import { action as reviewAction } from "../app/routes/reviews.$id";
 import {
 	CONTEXT_OF,
 	sampleScorecardBody,
@@ -579,5 +580,172 @@ describe("plan list actions", () => {
 			.from(evaluations)
 			.where(and(eq(evaluations.id, "ev1"), eq(evaluations.status, "pending")));
 		expect(ev).toBeTruthy();
+	});
+});
+
+// The round and question forms post every input on the row whatever the type,
+// so the schema is what decides which of them this row actually uses.
+describe("round and question forms at the boundary", () => {
+	const post = async (fields: Record<string, string>) =>
+		(await call(
+			planAction,
+			await sessionRequest(
+				env,
+				"u_admin",
+				"http://localhost/admin/evaluation/plan1",
+				{ method: "POST", body: new URLSearchParams(fields) },
+			),
+			"plan1",
+		)) as {
+			ok?: string;
+			formError?: string;
+			fieldErrors?: Record<string, string[]>;
+		};
+
+	const addQuestion = (fields: Record<string, string>) =>
+		post({ intent: "add-question", roundId: "r1", ...fields });
+
+	const questions = async () =>
+		await getDb(env)
+			.select()
+			.from(roundQuestions)
+			.where(eq(roundQuestions.roundId, "r1"))
+			.orderBy(roundQuestions.position);
+
+	const lastQuestion = async () => (await questions()).at(-1);
+
+	it("the yes/no round selects are stored as booleans, and absent means no", async () => {
+		const { db } = await seedEvalBase(env);
+		const round = async () => {
+			const rows = await db
+				.select()
+				.from(evaluationRounds)
+				.where(eq(evaluationRounds.planId, "plan1"))
+				.orderBy(evaluationRounds.position);
+			return rows.at(-1);
+		};
+		expect(
+			await post({
+				intent: "add-round",
+				name: "Blind round",
+				anonymized: "yes",
+				showOtherScores: "no",
+			}),
+		).toMatchObject({ ok: expect.any(String) });
+		expect(await round()).toMatchObject({
+			anonymized: true,
+			showOtherScores: false,
+		});
+		// The checkboxes post nothing when off, which is a "no", not a failure.
+		await post({ intent: "add-round", name: "Plain round" });
+		expect(await round()).toMatchObject({
+			anonymized: false,
+			showOtherScores: false,
+		});
+	});
+
+	it("a round select outside yes/no is refused by field", async () => {
+		await seedEvalBase(env);
+		const result = await post({
+			intent: "add-round",
+			name: "Tampered",
+			anonymized: "maybe",
+		});
+		expect(result.fieldErrors?.anonymized?.[0]).toBeTruthy();
+		expect(result.ok).toBeUndefined();
+	});
+
+	it("a rating question keeps its scale, and defaults to 1–5 when unset", async () => {
+		await seedEvalBase(env);
+		await addQuestion({ label: "Depth", type: "rating", min: "0", max: "10" });
+		expect(await lastQuestion()).toMatchObject({
+			type: "rating",
+			config: { min: 0, max: 10 },
+			required: true,
+			weight: 1,
+		});
+		await addQuestion({ label: "Fit", type: "rating", weight: "2" });
+		expect(await lastQuestion()).toMatchObject({
+			config: { min: 1, max: 5 },
+			weight: 2,
+		});
+	});
+
+	it("an inverted rating scale is refused on the max field", async () => {
+		await seedEvalBase(env);
+		const before = (await questions()).length;
+		const result = await addQuestion({
+			label: "Backwards",
+			type: "rating",
+			min: "5",
+			max: "3",
+		});
+		expect(result.fieldErrors?.max?.[0]).toMatch(/greater than min/);
+		expect(await questions()).toHaveLength(before); // nothing was written
+	});
+
+	it("a dropdown keeps its choices and needs at least two of them", async () => {
+		await seedEvalBase(env);
+		const thin = await addQuestion({
+			label: "Track",
+			type: "dropdown",
+			options: "  only  ",
+		});
+		expect(thin.fieldErrors?.options?.[0]).toMatch(/two/);
+		await addQuestion({
+			label: "Track",
+			type: "dropdown",
+			options: " AI , Infra ,, ",
+		});
+		expect(await lastQuestion()).toMatchObject({
+			type: "dropdown",
+			config: { options: ["AI", "Infra"] },
+		});
+	});
+
+	it("fields another type owns are ignored, not fatal", async () => {
+		await seedEvalBase(env);
+		// The row's hidden scale inputs still post when the type is dropdown.
+		await addQuestion({
+			label: "Track",
+			type: "dropdown",
+			options: "AI, Infra",
+			min: "9",
+			max: "2",
+		});
+		expect(await lastQuestion()).toMatchObject({
+			type: "dropdown",
+			config: { options: ["AI", "Infra"] },
+		});
+		await addQuestion({
+			label: "Notes",
+			type: "text",
+			min: "9",
+			max: "2",
+			options: "one",
+			required: "no",
+		});
+		expect(await lastQuestion()).toMatchObject({
+			type: "text",
+			config: null,
+			required: false,
+		});
+	});
+
+	it("a question type nobody offers is refused, and the label is still checked", async () => {
+		await seedEvalBase(env);
+		const before = (await questions()).length;
+		const bogus = await addQuestion({ label: "Nope", type: "slider" });
+		expect(bogus.fieldErrors?.type?.[0]).toBeTruthy();
+		const unlabelled = await addQuestion({ label: "", type: "text" });
+		expect(unlabelled.fieldErrors?.label?.[0]).toMatch(/required/i);
+		// the fields every type shares are still checked on the branch that won
+		const negative = await addQuestion({
+			label: "Fit",
+			type: "rating",
+			weight: "-1",
+		});
+		expect(negative.fieldErrors?.weight?.[0]).toBeTruthy();
+		expect(await questions()).toHaveLength(before); // none was written
 	});
 });

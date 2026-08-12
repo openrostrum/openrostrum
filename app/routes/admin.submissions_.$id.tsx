@@ -400,7 +400,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		);
 	if (!row) throw data("Submission not found.", { status: 404 });
 
-	const intent = form.get("intent");
+	const intent = String(form.get("intent") ?? "");
 	const timings = createTimings();
 	try {
 		const result = await timings.time(
@@ -465,7 +465,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		track("submission.detail_action_failed", {
 			submissionId: row.id,
 			eventId: event.id,
-			intent: typeof intent === "string" ? intent : "unknown",
+			intent: intent || "unknown",
 			error: errorMessage(error),
 		});
 		return data(

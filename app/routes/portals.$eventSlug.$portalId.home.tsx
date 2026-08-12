@@ -7,6 +7,7 @@ import {
 	portalPath,
 } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
+import { headshotUrl } from "~/lib/headshot";
 import { createTimings } from "~/lib/track";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.home";
 
@@ -33,6 +34,10 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 						email: ctx.contact.email,
 						jobTitle: ctx.contact.jobTitle,
 						companyName: ctx.contact.companyName,
+						photoUrl: headshotUrl(
+							`${portalPath(ctx)}/headshot`,
+							ctx.contact.headshotKey,
+						),
 					}
 				: null,
 			userEmail: user.email,

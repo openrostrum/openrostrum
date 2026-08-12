@@ -69,10 +69,13 @@ const FormSave = z.object({
 		.max(5000, "Keep the confirmation message under 5,000 characters"),
 });
 
+const UNREADABLE = "The field list is invalid — reload and try again.";
+
 /**
- * Answers are keyed by field NAME in `taskAssignments.response`, so blank or
- * duplicate names would silently merge or lose speakers' answers — both are
- * rejected here, not just deduped.
+ * Answers are keyed by field NAME, so blank or duplicate names would merge or
+ * lose speakers' answers — both are rejected here, never deduped. Fields are
+ * parsed one at a time because the message names the field that failed, and
+ * the position is the loop's to know, not something to read back off a path.
  */
 function parseFields(
 	raw: string,
@@ -85,26 +88,34 @@ function parseFields(
 			error: "The field list could not be read — reload and try again.",
 		};
 	}
-	const result = z.array(FieldDef).max(MAX_FIELDS).safeParse(parsed);
-	if (!result.success) {
-		const issue = result.error.issues[0];
-		const index = typeof issue?.path[0] === "number" ? issue.path[0] + 1 : null;
-		if (issue?.path[1] === "name") {
-			return { error: `Field ${index}: every field needs a name.` };
-		}
-		return {
-			error: index
-				? `Field ${index}: ${issue?.message ?? "invalid field"}`
-				: "The field list is invalid — reload and try again.",
-		};
+	const list = z.array(z.unknown()).safeParse(parsed);
+	if (!list.success) {
+		return { error: UNREADABLE };
 	}
-	if (result.data.length === 0) {
+	const fields: z.infer<typeof FieldDef>[] = [];
+	for (const [index, entry] of list.data.entries()) {
+		const field = FieldDef.safeParse(entry);
+		if (!field.success) {
+			const issue = field.error.issues[0];
+			return {
+				error:
+					issue?.path[0] === "name"
+						? `Field ${index + 1}: every field needs a name.`
+						: `Field ${index + 1}: ${issue?.message ?? "invalid field"}`,
+			};
+		}
+		fields.push(field.data);
+	}
+	if (fields.length > MAX_FIELDS) {
+		return { error: UNREADABLE };
+	}
+	if (fields.length === 0) {
 		return {
 			error: "Add at least one field — an empty form collects nothing.",
 		};
 	}
 	const seen = new Set<string>();
-	for (const field of result.data) {
+	for (const field of fields) {
 		const key = field.name.toLowerCase();
 		if (seen.has(key)) {
 			return {
@@ -113,7 +124,7 @@ function parseFields(
 		}
 		seen.add(key);
 	}
-	for (const field of result.data) {
+	for (const field of fields) {
 		if (
 			field.type === "dropdown" &&
 			(!field.options || field.options.length === 0)
@@ -124,7 +135,7 @@ function parseFields(
 		}
 	}
 	return {
-		fields: result.data.map((f) => ({
+		fields: fields.map((f) => ({
 			name: f.name,
 			type: f.type,
 			required: f.required,
@@ -300,10 +311,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 	if (intent === "delete-form") {
 		const formId = String(form.get("formId") ?? "");
 		// The task FK is SET NULL — an unguarded delete would silently turn
-		// "Fill in: <form>" tasks into bare mark-as-done tasks. The tenant guard
-		// AND the no-references condition live IN the delete statement (D1 has
-		// no transactions, so check-then-delete would race a concurrent attach);
-		// the refusal copy is computed only after a zero-row delete.
+		// "Fill in: <form>" tasks into bare mark-as-done tasks, so both the tenant
+		// guard and the no-references check live IN the delete statement; the
+		// refusal copy is computed only after a zero-row delete.
 		try {
 			const gone = await timings.time("db", () =>
 				db
@@ -312,6 +322,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 						and(
 							eq(portalForms.id, formId),
 							eq(portalForms.eventId, event.id),
+							// In the statement, never check-then-delete: D1 has no
+							// transactions, so a separate read would race an attach.
 							notExists(
 								db
 									.select({ one: tasks.id })

@@ -10,10 +10,9 @@ import {
 
 /**
  * Throws when this deployment cannot send a compliant announcement (the
- * unsubscribe footer would be unmintable). Callers run it BEFORE a recipient
- * loop so a configuration failure surfaces as one actionable error — never as
- * a per-recipient "failed" outcome. The thrown message is the operator-facing
- * copy; don't rewrite it at the call site.
+ * unsubscribe footer would be unmintable). Call it BEFORE the recipient loop so
+ * a misconfiguration surfaces as one actionable error, not N "failed" rows. The
+ * thrown message is the operator-facing copy — don't rewrite it at the callsite.
  */
 export function assertAnnouncementsConfigured(env: Env): void {
 	assertUnsubscribeSigningConfigured(env);
@@ -30,12 +29,10 @@ async function appendUnsubscribeFooter(
 }
 
 /**
- * THE way to send an announcement. Couples the three things no bulk send may
- * separate — the unsubscribe footer, `kind: "bulk"` (suppression check), and
- * a required dedupeKey (a retried blast must not deliver twice) — into one
- * call, so a compliant send is the only send a caller can write.
- * Transactional mail (about the recipient's own submissions/account) goes
- * through the EmailSender port directly and never carries the footer.
+ * THE way to send an announcement: it couples the three things no bulk send may
+ * separate — unsubscribe footer, `kind: "bulk"` (suppression), and a required
+ * dedupeKey (a retried blast must not deliver twice) — so a compliant send is
+ * the only send available. Transactional mail uses the port directly, no footer.
  */
 export async function sendAnnouncement(
 	env: Env,

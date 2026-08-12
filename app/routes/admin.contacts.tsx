@@ -6,14 +6,14 @@ import { getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import { contacts, insertContactSchema } from "~/db/schema";
 import { CONTACT_STATUS_TONE } from "~/components/contact-status";
-import { HeadshotAvatar } from "~/components/headshot-avatar";
-import { contactFilter, isContactStatus } from "~/domain/contacts";
+import { contactFilter, contactStatus } from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
 import { headshotUrl } from "~/lib/headshot";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
+	Avatar,
 	Button,
 	ButtonLink,
 	EmptyRow,
@@ -77,7 +77,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const url = new URL(request.url);
 	const q = url.searchParams.get("q") ?? "";
 	const statusParam = url.searchParams.get("status");
-	const status = isContactStatus(statusParam) ? statusParam : null;
+	const status = contactStatus.safeParse(statusParam).data ?? null;
 	const db = getDb(env);
 	const timings = createTimings();
 
@@ -460,7 +460,7 @@ export default function ContactsRoster({
 										to={`/admin/contacts/${c.id}`}
 										className="flex items-center gap-2"
 									>
-										<HeadshotAvatar name={name} src={c.headshotUrl} />
+										<Avatar name={name} src={c.headshotUrl} />
 										{name}
 									</Link>
 								</Td>

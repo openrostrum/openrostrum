@@ -22,11 +22,10 @@ export default {
 		});
 	},
 
-	// Cron Triggers (wired in wrangler.json `triggers.crons`). Cloudflare
-	// invokes this once per matching trigger with `controller.cron` set to the
-	// expression; the registry routes it to the `app/jobs/*.scheduled.ts` jobs
-	// declaring that cadence — jobs add a file, not an edit here (see
-	// app/jobs/registry.ts).
+	// Cron Triggers (wired in wrangler.json `triggers.crons`). Cloudflare invokes
+	// this once per matching trigger with `controller.cron` set to the expression;
+	// the registry routes it to the `app/jobs/*.scheduled.ts` jobs declaring that
+	// cadence — a job adds a file, not an edit here (app/jobs/registry.ts).
 	async scheduled(controller, env, ctx) {
 		await runScheduledJobs(controller.cron, env, ctx);
 	},
