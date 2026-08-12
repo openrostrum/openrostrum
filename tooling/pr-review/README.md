@@ -11,6 +11,9 @@ under its assigned rule document and decides what repository evidence to inspect
 - `core.mjs` loads each document verbatim, configures Pi's native DeepSeek provider
   for `deepseek-v4-flash`, and sends the active model's own output ceiling with every
   request, so no answer is truncated by a provider default or by a number we picked.
+  It also owns the answer-volume contract: the shared prompt preamble bans narration,
+  progress notes, and restating the rule document, and `FINDING_LIMITS` fixes the
+  per-field size of a finding. Reading is free; only writing spends the budget.
 - `agent.mjs` gives each rule owner its own `@earendil-works/pi-agent-core`
   `Agent`. Its initial context is a compact changed-file index (status, path,
   rename, and line counts), never concatenated diffs. Pi owns the persistent
@@ -41,6 +44,15 @@ A session is complete only after the provider stops normally and its terminal JS
 passes a TypeBox schema at the boundary — no hand-rolled shape checks. Provider
 errors, timeouts, malformed tool calls, aborted runs, findings that fail the schema
 or cite an unchanged file, and exhausted budgets are **incomplete**, never clean.
+
+A finding whose fields exceed `FINDING_LIMITS` is trimmed at that boundary, never
+rejected: a real violation stated too verbosely is still a real violation, and
+dropping it would delete signal to enforce a budget. `quote` is trimmed bare, since
+anchoring tests whether the cited changed line contains it; `rule` and `why` only
+render as prose and are elided. A truncated answer (`stopReason: "length"`) stays
+incomplete and additionally reports the output tokens the provider says it produced,
+how many were reasoning, and the ceiling the request asked for — enough to tell an
+oversized answer from a provider ceiling below the one we sent.
 
 Incomplete runs are named in the summary and fail the required AI-review check.
 Findings from completed sessions still post, but zero findings cannot render as “no
@@ -80,9 +92,10 @@ node --test tooling/pr-review/*.test.node.mjs
 
 They cover dynamic one-session-per-rule launch over a 240-file index, multi-turn
 changed and unchanged reads, Git-backed repository access and path safety,
-provider/tool/budget failure states, anchoring, fingerprints, dedupe,
-reconciliation, stale deferral, and posting payloads. CI runs this complete set in
-its unconditional quality job.
+provider/tool/budget failure states, truncation diagnostics, a stated finding
+budget that matches the enforced one, a trimmed quote that still anchors,
+anchoring, fingerprints, dedupe, reconciliation, stale deferral, and posting
+payloads. CI runs this complete set in its unconditional quality job.
 
 A local production dry run performs real DeepSeek sessions but no GitHub writes:
 
