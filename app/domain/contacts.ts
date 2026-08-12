@@ -63,6 +63,40 @@ export function probableContactDuplicateKey(input: {
 	return name && company ? `${name}\u0000${company}` : null;
 }
 
+/**
+ * What follows a person from one event to another: their identity and profile,
+ * never their workflow state. Both paths that give a directory person a new
+ * appearance — "Add to event" and the organization CSV import — carry exactly
+ * this set, so the two can't drift into copying different halves of a person.
+ *
+ * Status, travel notes, and anything else per-event stay behind; the caller
+ * supplies `eventId`, `email`, and the starting `status`.
+ */
+export function carriedProfile(source: typeof contacts.$inferSelect) {
+	return {
+		userId: source.userId,
+		firstName: source.firstName,
+		lastName: source.lastName,
+		salutation: source.salutation,
+		honorific: source.honorific,
+		pronouns: source.pronouns,
+		gender: source.gender,
+		jobTitle: source.jobTitle,
+		companyName: source.companyName,
+		mobilePhone: source.mobilePhone,
+		homePhone: source.homePhone,
+		zip: source.zip,
+		bio: source.bio,
+		// Headshot objects are content-addressed-ish (a new upload mints a new
+		// key, nothing deletes old ones) so sharing the key across events is safe.
+		headshotKey: source.headshotKey,
+		linkedinUrl: source.linkedinUrl,
+		twitterUrl: source.twitterUrl,
+		facebookUrl: source.facebookUrl,
+		websiteUrl: source.websiteUrl,
+	};
+}
+
 /** Escape LIKE wildcards so a user searching "100%" matches literally. */
 function likeContains(column: AnyColumn | SQL, q: string): SQL {
 	const pattern = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
