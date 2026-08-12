@@ -2,7 +2,6 @@ import { Agent } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { Value } from "typebox/value";
 import {
-	extractJson,
 	FINDING_LIMITS,
 	requestCeiling,
 	SUBMISSIONS_PER_RESPONSE,
@@ -10,6 +9,7 @@ import {
 import { createRepositoryTools } from "./repository.mjs";
 
 const SUBMIT_TOOL = "submit_finding";
+const FINISH_TOOL = "finish_review";
 
 // One finding, validated where it is submitted. Pi checks a tool call against
 // its own parameter schema before the tool runs, so this is the boundary: a
@@ -26,15 +26,12 @@ const FINDING = Type.Object(
 	{ additionalProperties: false },
 );
 
-// The review no longer travels in the terminal response — the findings are
-// already banked — so all it has to do is separate "I finished reviewing" from
-// "I stopped". The count is what makes it an assertion rather than a formality:
-// a reviewer that has lost track of its own review cannot state it correctly.
-const TERMINAL_RESPONSE = Type.Object(
-	{
-		status: Type.Literal("complete"),
-		submitted: Type.Integer({ minimum: 0 }),
-	},
+// Closing the review is a tool call like any other, so the model has no channel
+// for free text to overflow. The count is what makes it an assertion rather than
+// a formality: a reviewer that has lost track of its own review cannot state it
+// correctly.
+const TERMINAL_CALL = Type.Object(
+	{ submitted: Type.Integer({ minimum: 0 }) },
 	{ additionalProperties: false },
 );
 
@@ -72,9 +69,9 @@ Report each violation with a ${SUBMIT_TOOL} call as soon as you are sure of it �
 
 Every ${SUBMIT_TOOL} result carries the running total recorded for you. A refused call is not recorded: fix what its error names and call again. A finding you already submitted comes back marked duplicate and leaves the total unchanged.
 
-When your investigation is finished, emit one JSON object and nothing else — no preface, no reasoning, no code fence, no trailing remarks:
-{"status":"complete","submitted":N}
-where N is the running total from your last ${SUBMIT_TOOL} result, or 0 if you submitted nothing. Never claim complete if tool or provider failures prevented a trustworthy review.`;
+When your investigation is finished, call ${FINISH_TOOL} with the running total from your last ${SUBMIT_TOOL} result, or 0 if you submitted nothing. Never call it if tool or provider failures prevented a trustworthy review.
+
+Every response is tool calls and nothing else. Prose has no channel here — no plans, notes, status plans, or summaries — and anything you write outside a tool call is read by nobody.`;
 }
 
 // Whatever a session submitted before it died, it proved. Discarding that to
@@ -159,34 +156,53 @@ function createFindingSink(agent, changedPaths) {
 	};
 }
 
-// A reviewer that ends in prose has said neither "I finished" nor "I stopped".
 // The bank is already safe and the budgets are shared, so one more ask is either
 // the signal or the same failure — never a second chance at the contract.
 const TERMINAL_RETRIES = 1;
 
 function retryPrompt(failure) {
-	return `That response was not the completion signal. ${failure}
+	return `That did not close the review. ${failure}
 
-Findings you already submitted are recorded — do not submit them again. Submit with a ${SUBMIT_TOOL} call anything you have proved but not yet submitted, then emit one JSON object and nothing else — no preface, no reasoning, no code fence, no trailing remarks:
-{"status":"complete","submitted":N}
-where N is the running total from your last ${SUBMIT_TOOL} result, or 0 if you submitted nothing. Never claim complete if tool or provider failures prevented a trustworthy review.`;
+Findings you already submitted are recorded — do not submit them again. Submit with a ${SUBMIT_TOOL} call anything you have proved but not yet submitted, then call ${FINISH_TOOL} with the running total from your last ${SUBMIT_TOOL} result, or 0 if you submitted nothing. Never call it if tool or provider failures prevented a trustworthy review.`;
 }
 
-// The terminal response no longer carries the review, so all it proves is that
-// the reviewer knows it finished; the count is what makes that an assertion. A
-// tally that disagrees fails safe: banked findings still post, the session is
-// still incomplete, the required check still fails.
-function terminalCount(value, banked, answer) {
-	if (!Value.Check(TERMINAL_RESPONSE, value)) {
-		const [first] = [...Value.Errors(TERMINAL_RESPONSE, value)];
-		throw new Error(
-			`terminal response is not a completion signal: ${first?.path || "/"} ${first?.message ?? "invalid shape"} (${answer})`,
-		);
+// The one tool that ends the session. It records the claim instead of asserting
+// on it, because a count that disagrees with the bank has to fail the review
+// rather than the call: the reviewer would otherwise spend its retry arguing
+// with arithmetic it cannot see.
+function createTerminal() {
+	const state = { claim: undefined };
+	return {
+		state,
+		tool: {
+			name: FINISH_TOOL,
+			label: FINISH_TOOL,
+			description:
+				"Close the review. Call this once, only after you have submitted every violation you found, with the running total from your last submit_finding result.",
+			parameters: TERMINAL_CALL,
+			async execute(_toolCallId, params) {
+				state.claim = params.submitted;
+				const result = { ok: true, closed: true };
+				return {
+					content: [{ type: "text", text: JSON.stringify(result) }],
+					details: result,
+				};
+			},
+		},
+	};
+}
+
+// The close proves the reviewer knows it finished; the count is what makes that
+// an assertion. A tally that disagrees fails safe: banked findings still post,
+// the session is still incomplete, the required check still fails.
+function terminalClaim(args) {
+	if (!Value.Check(TERMINAL_CALL, args)) {
+		const [first] = [...Value.Errors(TERMINAL_CALL, args)];
+		return {
+			failure: `${FINISH_TOOL} was called with ${first?.path || "/"} ${first?.message ?? "an invalid shape"}`,
+		};
 	}
-	if (value.submitted !== banked)
-		throw new Error(
-			`terminal signal claims ${value.submitted} finding(s) submitted, but ${banked} reached the boundary`,
-		);
+	return { submitted: args.submitted };
 }
 
 // Truncation is the failure this contract exists to catch, and "stopped with
@@ -228,19 +244,16 @@ function answerDetail(message) {
 
 // Null means the session ended the way the contract requires; anything else is
 // the reason it did not, phrased for both the CI summary and the re-ask.
-function terminalFailure(terminal, banked, model) {
-	if (!terminal || terminal.stopReason !== "stop")
-		return `provider stopped with ${stopDetail(terminal, model)}`;
-	try {
-		terminalCount(
-			extractJson(assistantText(terminal)),
-			banked,
-			answerDetail(terminal),
-		);
-		return null;
-	} catch (error) {
-		return error.message;
+function terminalFailure(closed, banked, terminal, model) {
+	if (closed?.failure) return closed.failure;
+	if (!closed) {
+		if (!terminal || terminal.stopReason !== "stop")
+			return `provider stopped with ${stopDetail(terminal, model)}`;
+		return `the review was never closed with ${FINISH_TOOL}: ${answerDetail(terminal)}`;
 	}
+	if (closed.submitted !== banked)
+		return `${FINISH_TOOL} claimed ${closed.submitted} finding(s) submitted, but ${banked} reached the boundary`;
+	return null;
 }
 
 export async function runRuleReviewer({
@@ -253,6 +266,8 @@ export async function runRuleReviewer({
 	const limits = { ...DEFAULT_LIMITS, ...suppliedLimits };
 	const changedPaths = new Set(repository.changes.map((change) => change.path));
 	const sink = createFindingSink(agent, changedPaths);
+	const terminal = createTerminal();
+	let closed;
 	// Keyed by the assistant message that requested the calls, so the count is
 	// per response by construction. Pi prepares a response's tool calls in order
 	// before executing them, so which submissions land past the cap is settled.
@@ -266,14 +281,26 @@ export async function runRuleReviewer({
 			systemPrompt: system,
 			model: runtime.model,
 			thinkingLevel: "off",
-			tools: [...createRepositoryTools(repository), sink.tool],
+			tools: [...createRepositoryTools(repository), sink.tool, terminal.tool],
 		},
-		streamFn: runtime.streamFn,
+		// Every response must be a tool call. Prose was the overflow: one reviewer
+		// spent an 8192-token response — the provider's hard cap, whatever ceiling
+		// is requested — on commentary by its fifth turn and never reached a
+		// finding. Asking for tool calls only did not stop it; having no other
+		// channel does.
+		streamFn: (model, context, options = {}) =>
+			runtime.streamFn(model, context, { ...options, toolChoice: "required" }),
 		toolExecution: "parallel",
 		beforeToolCall: async ({ assistantMessage, toolCall }) => {
 			if (toolCalls > limits.maxToolCalls) {
 				limitReason = "tool call budget exhausted";
 				return { block: true, reason: limitReason, terminate: true };
+			}
+			// Read the claim off the call and end the session here, so closing does
+			// not depend on when a tool result is appended relative to the turn hook.
+			if (toolCall.name === FINISH_TOOL) {
+				closed = terminalClaim(toolCall.arguments ?? {});
+				return { block: true, reason: "review closed", terminate: true };
 			}
 			if (toolCall.name !== SUBMIT_TOOL) return undefined;
 			// Refused, not fatal: the reviewer is told to re-issue it, and the next
@@ -313,6 +340,7 @@ export async function runRuleReviewer({
 	const spent = () => ({ turns, toolCalls, reasked });
 	try {
 		while (true) {
+			closed = undefined;
 			try {
 				await reviewer.prompt(ask);
 			} catch (error) {
@@ -335,10 +363,11 @@ export async function runRuleReviewer({
 				);
 
 			const failure = terminalFailure(
+				closed,
+				sink.findings.length,
 				reviewer.state.messages.findLast(
 					(message) => message.role === "assistant",
 				),
-				sink.findings.length,
 				runtime.model,
 			);
 			if (!failure)

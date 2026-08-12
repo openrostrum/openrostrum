@@ -22,7 +22,10 @@ const submits = (findings, tag) =>
 		findings.map((finding, index) => submit(finding, `${tag}-${index}`)),
 		{ stopReason: "toolUse" },
 	);
-const done = (submitted) => stop({ status: "complete", submitted });
+const done = (submitted) =>
+	fauxAssistantMessage([fauxToolCall("finish_review", { submitted })], {
+		stopReason: "toolUse",
+	});
 
 // A missing signal is asked for once more, so a reviewer that fails the same way
 // to the end needs the same response queued for both asks.
@@ -205,9 +208,80 @@ test("Pi keeps one session across model-selected changed and unchanged reads", a
 	assert.equal(result.findings[0].agent, "engineering");
 });
 
-// A reviewer that ends with a review-shaped object instead of the completion
-// signal has not submitted anything, so reading it as a clean review would post
-// "no issues found" on a pull request nobody reviewed.
+// The overflow this contract lost to was prose: DeepSeek caps a completion at
+// 8192 output tokens whatever ceiling is requested, and one reviewer spent a
+// whole response on commentary by its fifth turn without reaching a finding.
+// Instructions did not stop it, so the request leaves it no other channel.
+test("every request forces the response to be tool calls", async () => {
+	const choices = [];
+	const { runtime } = fauxRuntime([submits([violation(0)], "a"), done(1)]);
+	const observed = {
+		...runtime,
+		streamFn: (model, context, options) => {
+			choices.push(options?.toolChoice);
+			return runtime.streamFn(model, context, options);
+		},
+	};
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime: observed,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.ok(
+		choices.length >= 2,
+		`expected several requests, saw ${choices.length}`,
+	);
+	assert.deepEqual(
+		[...new Set(choices)],
+		["required"],
+		"a request that leaves tool choice open lets the model answer in prose",
+	);
+});
+
+test("closing the review ends the session without another request", async () => {
+	const { runtime, faux } = fauxRuntime([
+		submits([violation(0)], "a"),
+		done(1),
+		submits([violation(1)], "after-close"),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.findings.length, 1);
+	assert.equal(
+		faux.state.callCount,
+		2,
+		"finish_review must stop the loop, not hand the model another turn",
+	);
+});
+
+test("a close that miscounts the bank is incomplete and keeps the findings", async () => {
+	const { runtime } = fauxRuntime(twice(done(7)));
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /claimed 7 finding\(s\).*but 0 reached/);
+});
+
+// A reviewer that answers with a review-shaped object instead of closing has
+// submitted nothing, so reading it as a clean review would post "no issues
+// found" on a pull request nobody reviewed.
 test("a terminal response that is not the completion signal is incomplete, not a clean review", async () => {
 	const { runtime } = fauxRuntime(
 		twice(
@@ -234,7 +308,7 @@ test("a terminal response that is not the completion signal is incomplete, not a
 	});
 
 	assert.equal(result.status, "incomplete");
-	assert.match(result.reason, /completion signal/i);
+	assert.match(result.reason, /never closed/i);
 	assert.deepEqual(result.findings, []);
 });
 
@@ -253,7 +327,7 @@ test("an unparseable terminal answer names what the model emitted", async () => 
 	});
 
 	assert.equal(narrated.status, "incomplete");
-	assert.match(narrated.reason, /must be object/);
+	assert.match(narrated.reason, /never closed with finish_review/);
 	assert.match(narrated.reason, /blocks text/);
 	assert.match(
 		narrated.reason,
@@ -457,12 +531,11 @@ const THREE_FILES = Array.from({ length: 3 }, (_, index) => ({
 // discarded whole. No response carries the review now — see README.
 test("a reviewer reports many findings without any response carrying them all", async () => {
 	const findings = Array.from({ length: 24 }, (_, index) => violation(index));
-	const terminal = JSON.stringify({ status: "complete", submitted: 24 });
-	const { runtime } = fauxRuntime([
+	const { runtime, faux } = fauxRuntime([
 		submits(findings.slice(0, 10), "a"),
 		submits(findings.slice(10, 20), "b"),
 		submits(findings.slice(20), "c"),
-		fauxAssistantMessage(terminal),
+		done(24),
 	]);
 
 	const result = await runRuleReviewer({
@@ -482,12 +555,9 @@ test("a reviewer reports many findings without any response carrying them all", 
 	assert.ok(
 		result.findings.every((finding) => finding.agent === "engineering"),
 	);
-	// The whole point: the answer that completes the review is a fixed-size
-	// signal, so the number of findings can no longer overflow a response.
-	assert.ok(
-		terminal.length < 64,
-		`terminal signal is ${terminal.length} chars`,
-	);
+	// The whole point: 24 findings arrived over three capped responses and a
+	// close that carries one integer, so no response ever held the review.
+	assert.equal(faux.state.callCount, 4);
 });
 
 // A session that dies mid-review has already proved whatever it submitted.
@@ -725,7 +795,7 @@ test("a reviewer that ends in prose is asked once more for the signal", async ()
 	// signal's exact shape, and that banked findings must not be sent again.
 	const reask = userTexts(contexts[0]).at(-1);
 	assert.match(reask, /do not submit them again/i);
-	assert.match(reask, /"status":"complete"/);
+	assert.match(reask, /call finish_review with the running total/i);
 });
 
 // A recovery nobody can see is a recovery nobody can trust: "complete" alone
