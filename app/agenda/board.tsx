@@ -20,6 +20,7 @@ import {
 	Caps,
 	Chip,
 	DialogSurface,
+	EmptyLine,
 	EmptyState,
 	ErrorText,
 	Select,
@@ -836,10 +837,12 @@ function Tray({
 				</Caps>
 			</div>
 			{unscheduled.length === 0 && (
-				<p className="px-1 text-[12px] text-fg-faint">
-					Every schedulable session has a slot. Drop a block here to unschedule
-					it.
-				</p>
+				<div className="px-1">
+					<EmptyLine>
+						Every schedulable session has a slot. Drop a block here to
+						unschedule it.
+					</EmptyLine>
+				</div>
 			)}
 			<div className="flex max-h-[46vh] flex-col gap-[6px] overflow-y-auto">
 				{unscheduled.map((s) => (

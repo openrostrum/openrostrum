@@ -47,12 +47,12 @@ An ink letter **O standing on a petrol platform** — the name drawn literally: 
 - **Hover/press**: background/color/scale feedback only, 120ms responsive ease; press uses `scale(0.97)` and is `motion-reduce` exempt.
 - **Disabled**: `chip` background + `fg-faint` text — a token, never an opacity.
 - **Selected row**: wash + ONE 2px petrol rule on the leading cell only (a per-cell shadow leaks ticks at every column boundary).
-- **Empty states** say why and what to do next (`EmptyState`); **loading** holds the page shape (`SkeletonRows`), never a spinner for lists.
+- **Empty states** say why and what to do next — `EmptyState` for a page or section, `EmptyRow` inside a `<Table>`, `EmptyLine` for a list inside a card, column or menu; **loading** holds the page shape (`SkeletonRows`), never a spinner for lists.
 - **Track/user colors** render as a dot beside muted text (`Chip`), never as a filled pill — arbitrary backgrounds can't guarantee label contrast.
 
 ## Primitive inventory (`app/ui`)
 
-`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` · `SearchInput` · `TextLink` (petrol prose links) · `InkLink` (everything else — card titles, row links; ink, underline on hover) · `MenuItem` (THE row inside a `PopoverSurface` menu) · `Caps` (THE 11px caps label voice — column, section, field, lane; the caller owns the box) · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState` · `Skeleton`/`SkeletonRows` · `MotionReveal`/`PopoverSurface`/`DialogSurface` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Mark`/`Wordmark`. New primitive = integration-owner request, like a schema column.
+`Button`/`ButtonLink` (primary=ink, ghost) · `Field`/`Input`/`Select` (label + error row, with an `aside` slot for a character count) · `SearchInput` · `TextLink` (petrol prose links) · `InkLink` (everything else — card titles, row links; ink, underline on hover) · `MenuItem` (THE row inside a `PopoverSurface` menu) · `Caps` (THE 11px caps label voice — column, section, field, lane; the caller owns the box) · `PageHeader` (title + mono count chip + actions slot) · `Panel` · `Table`/`THead`/`Th`/`TBody`/`Tr`/`Td`/`EmptyRow`/`TableFooter` · `Tabs`/`Tab` · `StatusBadge` (+`SUBMISSION_STATUS_TONE`) · `Chip` · `Avatar`/`AvatarStack` · `EmptyState`/`EmptyLine` · `Skeleton`/`SkeletonRows` · `MotionReveal`/`PopoverSurface`/`DialogSurface` · `Icon` (one set, 1.7 stroke, round caps) · `Sidebar`/`SidebarSection`/`SideNavLink`/`Mark`/`Wordmark`. New primitive = integration-owner request, like a schema column.
 
 ## Motion law
 

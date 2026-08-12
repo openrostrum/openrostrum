@@ -1,7 +1,7 @@
 import { Form } from "react-router";
 import { formatInTimeZone } from "~/lib/dates";
 import { useBusy } from "~/lib/use-busy";
-import { Button, Caps, Field, Panel, Textarea } from "~/ui";
+import { Button, Caps, EmptyLine, Field, Panel, Textarea } from "~/ui";
 import { SectionHeading } from "./section-heading";
 
 interface Note {
@@ -54,10 +54,10 @@ export function CrmNotesPanel({
 					</div>
 				</Form>
 				{notes.length === 0 ? (
-					<p className="text-[12.5px] text-fg-faint">
+					<EmptyLine>
 						No notes yet — add the first one above; scouting context and call
 						outcomes live here, never visible to the contact.
-					</p>
+					</EmptyLine>
 				) : (
 					<ul className="flex flex-col gap-3">
 						{notes.map((n) => (

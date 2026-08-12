@@ -10,11 +10,14 @@ const CONTROL = cn(
 export function Field({
 	label,
 	error,
+	aside,
 	children,
 	composite = false,
 }: {
 	label: string;
 	error?: string;
+	/** Trailing note on the error's row — a character count, a size limit. */
+	aside?: ReactNode;
 	children: ReactNode;
 	/** Composite controls own their accessible names; wrapping toolbar buttons in a label activates the first button on editor clicks. */
 	composite?: boolean;
@@ -23,7 +26,12 @@ export function Field({
 		<>
 			<span className="font-medium text-fg-muted">{label}</span>
 			{children}
-			{error && <span className="text-[11.5px] text-danger">{error}</span>}
+			{(error || aside) && (
+				<div className="flex items-baseline">
+					{error && <span className="text-[11.5px] text-danger">{error}</span>}
+					{aside && <span className="ml-auto">{aside}</span>}
+				</div>
+			)}
 		</>
 	);
 	const className = "flex flex-col gap-[5px] text-[12.5px]";

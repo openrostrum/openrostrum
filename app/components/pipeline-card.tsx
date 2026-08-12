@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { InkLink, Panel } from "~/ui";
+import { EmptyLine, InkLink, Panel } from "~/ui";
 import { SectionHeading } from "./section-heading";
 
 export function PipelineColumn({
@@ -36,9 +36,11 @@ export function PipelineColumn({
 				</span>
 			)}
 			{count === 0 && (
-				<span className="px-1 text-[12.5px] text-fg-faint">
-					No prospects here yet — move a card over or enroll one above
-				</span>
+				<div className="px-1">
+					<EmptyLine>
+						No prospects here yet — move a card over or enroll one above
+					</EmptyLine>
+				</div>
 			)}
 		</section>
 	);

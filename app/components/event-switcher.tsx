@@ -4,7 +4,7 @@ import { Form } from "react-router";
 import { useBusy } from "~/lib/use-busy";
 import { useDismiss } from "~/lib/use-dismiss";
 import { cn } from "~/ui/cn";
-import { Icon, MenuItem, PopoverSurface } from "~/ui";
+import { EmptyLine, Icon, MenuItem, PopoverSurface } from "~/ui";
 
 export type SwitcherEvent = {
 	id: string;
@@ -75,8 +75,10 @@ export function EventSwitcher({ events }: { events: SwitcherEvent[] }) {
 							</li>
 						))}
 						{events.length === 0 && (
-							<li className="px-[12px] py-2 text-[12.5px] text-fg-muted">
-								No events yet — create your first one below.
+							<li className="px-[12px] py-2">
+								<EmptyLine>
+									No events yet — create your first one below.
+								</EmptyLine>
 							</li>
 						)}
 					</ul>

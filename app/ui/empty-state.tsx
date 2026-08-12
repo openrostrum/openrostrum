@@ -27,3 +27,15 @@ export function EmptyState({
 		</div>
 	);
 }
+
+/**
+ * The same rule one scale down: a list inside a card, a kanban column or a
+ * menu, where the container already carries the heading and the action and a
+ * centered icon block would dwarf what it explains. Still says why and what
+ * to do next — it just says it in one line.
+ *
+ * Voice only. Padding differs at every call site, so it stays out there.
+ */
+export function EmptyLine({ children }: { children: ReactNode }) {
+	return <p className="text-[12.5px] text-fg-muted">{children}</p>;
+}
