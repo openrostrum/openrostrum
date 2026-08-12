@@ -67,6 +67,48 @@ function git(cwd, ...args) {
 	}).trim();
 }
 
+// The reader is handed a repoRoot, so a leaked GIT_DIR must not redirect it: it
+// would resolve the revisions it was asked for against the wrong repository and
+// fail with "Not a valid commit name".
+test("repository reads ignore a leaked GIT_DIR and use the root they were given", async (t) => {
+	const outer = await realpath(await mkdtemp(join(tmpdir(), "outer-repo-")));
+	t.after(() => rm(outer, { recursive: true, force: true }));
+	git(outer, "init", "-q");
+	await writeFile(join(outer, "elsewhere.ts"), "export const other = true;\n");
+	git(outer, "add", ".");
+	git(outer, "commit", "-qm", "unrelated history");
+
+	const root = await sandbox(t);
+	await writeFile(join(root, "changed.ts"), "export const value = 1;\n");
+	git(root, "add", ".");
+	git(root, "commit", "-qm", "base");
+	const baseSha = git(root, "rev-parse", "HEAD");
+	await writeFile(join(root, "changed.ts"), "export const value = 2;\n");
+	git(root, "add", ".");
+	git(root, "commit", "-qm", "head");
+	const headSha = git(root, "rev-parse", "HEAD");
+
+	const restore = process.env.GIT_DIR;
+	process.env.GIT_DIR = join(outer, ".git");
+	t.after(() => {
+		if (restore === undefined) delete process.env.GIT_DIR;
+		else process.env.GIT_DIR = restore;
+	});
+
+	const repository = createGitRepository({ repoRoot: root, baseSha, headSha });
+	assert.deepEqual(repository.changes, [
+		{ status: "M", path: "changed.ts", additions: 1, deletions: 1 },
+	]);
+	const search = await repository.executeTool("search_repository", {
+		query: "value",
+	});
+	assert.equal(search.ok, true);
+	assert.ok(
+		search.matches.some((match) => match.path === "changed.ts"),
+		"search resolved against the wrong repository",
+	);
+});
+
 // The leak is an environment variable, so the test sets it and proves a fixture
 // commit cannot reach the repository it points at.
 test("fixtures cannot reach a repository a leaked GIT_DIR points at", async (t) => {
