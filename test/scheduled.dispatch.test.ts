@@ -68,10 +68,7 @@ describe("scheduled() cron dispatch", () => {
 		const crons: string[] = wrangler.triggers.crons;
 		expect(scheduledJobs.length).toBeGreaterThanOrEqual(2);
 		for (const job of scheduledJobs) {
-			expect(
-				typeof job.cron === "string" && job.cron.length > 0,
-				`"${job.name}" declares no cadence`,
-			).toBe(true);
+			expect(job.cron, `"${job.name}" declares no cadence`).not.toBe("");
 			expect(
 				crons,
 				`"${job.name}" cadence "${job.cron}" missing from wrangler.json`,

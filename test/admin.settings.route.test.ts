@@ -10,25 +10,13 @@ import {
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
 import { action, loader } from "../app/routes/admin.settings._index";
+import { unwrap } from "./route-data";
 import {
 	dateToZonedInput,
 	zonedInputToDate,
 } from "../app/settings/event-details.server";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
-
-// The action wraps successes in data() for Server-Timing; tests unwrap both.
-function unwrap<T>(result: unknown): T {
-	if (
-		result !== null &&
-		typeof result === "object" &&
-		"data" in result &&
-		"init" in result
-	) {
-		return (result as { data: T }).data;
-	}
-	return result as T;
-}
 
 // AE-S2.6's edit target: the seeded event's persisted details.
 const BASE_DETAILS = {

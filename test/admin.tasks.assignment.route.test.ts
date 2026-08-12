@@ -14,6 +14,7 @@ import {
 	DAY_MS,
 	postForm,
 	seedTasksBaseline,
+	unwrap,
 } from "./tasks-fixtures";
 
 // Contracts under test: the admin reads the submitted answers verbatim on
@@ -45,12 +46,7 @@ type UnwrappedAction = {
 };
 
 /** Actions may return `data(result, { headers })` — read through the wrapper. */
-function unwrapAction(result: unknown): UnwrappedAction {
-	const maybe = result as { data?: UnwrappedAction };
-	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
-		? maybe.data
-		: (result as UnwrappedAction);
-}
+const unwrapAction = (result: unknown) => unwrap<UnwrappedAction>(result);
 
 async function callAction(
 	assignmentId: string,

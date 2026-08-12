@@ -17,6 +17,7 @@ import { createSession, hashPassword } from "../app/lib/auth";
 import { utcToZonedInputs, zonedTimeToUtc } from "../app/lib/forms";
 import { sanitizeRichText } from "../app/lib/forms.server";
 import { action, loader } from "../app/routes/admin.forms.$formId";
+import { unwrap as unwrapData } from "./route-data";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
@@ -115,12 +116,7 @@ type ActionResult = {
 
 // Non-redirect action results come wrapped by `data()` (Server-Timing rides
 // on the wrapper) — unwrap to the payload the UI sees.
-function unwrap(result: unknown): ActionResult {
-	if (result && typeof result === "object" && "data" in result) {
-		return (result as { data: ActionResult }).data;
-	}
-	return result as ActionResult;
-}
+const unwrap = (result: unknown) => unwrapData<ActionResult>(result);
 
 async function runAction(
 	formId: string,
