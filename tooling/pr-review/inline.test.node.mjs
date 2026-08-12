@@ -250,19 +250,26 @@ test("mergeFile collapses near-identical findings and credits both agents", () =
 	assert.deepEqual([...groups[0].agents].sort(), ["engineering", "process"]);
 });
 
-test("mergeFile preserves an agent finding's absolute anchor evidence", () => {
-	const [group] = mergeFile([
+test("a merged group keeps the anchor of whichever reporter could cite a line", () => {
+	const groups = mergeFile([
+		{
+			agent: "process",
+			rule: "Use safe helper",
+			why: "The new caller bypasses the safe helper.",
+			file: "app/x.ts",
+		},
 		{
 			agent: "engineering",
 			rule: "Use safe helper",
-			why: "The new caller bypasses it.",
+			why: "The new caller bypasses the safe helper.",
 			file: "app/x.ts",
 			line: 12,
 			quote: "unsafeCall()",
 		},
 	]);
-	assert.equal(group.line, 12);
-	assert.equal(group.quote, "unsafeCall()");
+	assert.equal(groups.length, 1);
+	assert.equal(groups[0].line, 12);
+	assert.equal(groups[0].quote, "unsafeCall()");
 });
 
 const mkGroup = (file, rule, why) => {

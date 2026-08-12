@@ -195,8 +195,16 @@ export function mergeFile(findings) {
 	for (const f of findings) {
 		const c = concept(f);
 		const g = groups.find((g) => similar(g.concept, c));
-		if (g) g.agents.add(f.agent);
-		else
+		if (g) {
+			g.agents.add(f.agent);
+			// Merging must not cost the group its anchor: the first reporter of a
+			// shared concern may be the one that could not cite a changed line.
+			if (g.line == null && f.line != null) {
+				g.line = f.line;
+				g.quote = f.quote;
+			}
+			if (!g.location && f.location) g.location = f.location;
+		} else
 			groups.push({
 				concept: c,
 				agents: new Set([f.agent]),

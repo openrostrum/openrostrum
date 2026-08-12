@@ -26,7 +26,9 @@ With the five current rule documents, the old production shape was up to
 `60 files × 5 rules × 3 samples = 900` stateless model requests. The new shape is
 exactly **five top-level whole-PR sessions**. A session can make model-directed
 continuations after tool calls, bounded by turn, tool-call, request, and wall-time
-limits; production never creates a model review per changed file.
+limits; production never creates a model review per changed file. First measured
+production run: 14 changed files, five parallel sessions, 4–22 tool calls each,
+102 seconds end to end.
 
 The launcher does not rank files, create clusters, prescribe traversal order, or
 encode a delegation workflow. Its only orchestration is independent rule-owner

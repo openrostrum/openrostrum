@@ -23,9 +23,12 @@ const TERMINAL_RESPONSE = Type.Object(
 	{ additionalProperties: false },
 );
 
+// Budgets are the runaway guard, not the review plan: a rule owner investigating
+// a wide PR legitimately spends dozens of turns, and the first production run hit
+// 20 turns while still working. Wall-clock is the real ceiling.
 const DEFAULT_LIMITS = {
-	maxTurns: 20,
-	maxToolCalls: 80,
+	maxTurns: 60,
+	maxToolCalls: 200,
 	timeoutMs: 15 * 60 * 1000,
 };
 
