@@ -1571,6 +1571,84 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
 	});
 
+	// Acceptance re-sends all mint SEQUENCE 0, so one session can carry several
+	// equal-SEQUENCE deliveries describing different times. RFC 5545 gives no
+	// rule for which one a client kept — an equal SEQUENCE is precisely the case
+	// where a client MAY ignore the redelivery — so neither is a baseline we can
+	// suppress an update on, however well one of them matches today's slot.
+	it("re-notifies when equal-SEQUENCE re-sends disagree, even though the slot matches one of them", async () => {
+		const db = await seedBaseline();
+		await db.insert(participants).values({
+			id: "p_keynote",
+			submissionId: "s_keynote",
+			contactId: "c_marco",
+		});
+		await db
+			.update(submissions)
+			.set({ notifiedAt: new Date() })
+			.where(eq(submissions.id, "s_keynote"));
+		await db.insert(emailOutbox).values([
+			// Re-send #1 put 9:30 AM on the speaker's calendar…
+			{
+				id: "accept-keynote-resend-a",
+				eventId: "e1",
+				dedupeKey: "decision:accept:resend-a:s_keynote",
+				to: "marco@test.co",
+				subject: "Your session was accepted",
+				html: "<p>you're in</p>",
+				icsAttachment: keynoteIcs({
+					start: utc(2026, 10, 12, 16, 30),
+					end: utc(2026, 10, 12, 17, 15),
+					location: "Main Hall",
+					sequence: 0,
+				}),
+				status: "sent" as const,
+				createdAt: new Date("2026-08-10T20:00:00Z"),
+				sentAt: new Date("2026-08-10T20:01:00Z"),
+			},
+			// …then re-send #2 moved it to 2:00 PM, at the SAME sequence.
+			{
+				id: "accept-keynote-resend-b",
+				eventId: "e1",
+				dedupeKey: "decision:accept:resend-b:s_keynote",
+				to: "marco@test.co",
+				subject: "Your session was accepted",
+				html: "<p>you're in</p>",
+				icsAttachment: keynoteIcs({
+					start: utc(2026, 10, 12, 21),
+					end: utc(2026, 10, 12, 21, 45),
+					location: "Main Hall",
+					sequence: 0,
+				}),
+				status: "sent" as const,
+				createdAt: new Date("2026-08-10T20:02:00Z"),
+				sentAt: new Date("2026-08-10T20:03:00Z"),
+			},
+		]);
+		// The slot is now back to 9:30 — re-send #1's content exactly.
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		await normalizeCalendarInviteHistory(db, "e1");
+
+		// Reading that match as "up to date" strands every speaker whose client
+		// kept re-send #2 at 2:00 PM, with no way to correct it from the product.
+		expect((await callLoader()).event?.staleSpeakers).toBe(1);
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
+		expect((await latestUpdateInvite(db)).vevent).toMatchObject({
+			start: utc(2026, 10, 12, 16, 30),
+			sequence: 1,
+		});
+		// SEQUENCE 1 stands alone, so the disagreement is settled and the banner
+		// clears — the re-notification happens once, it does not loop.
+		expect((await callLoader()).event?.staleSpeakers).toBe(0);
+	});
+
 	it("keeps the earliest delivered snapshot at an equal SEQUENCE and updates at SEQUENCE 1", async () => {
 		const db = await invitedBaseline();
 		await callAction({

@@ -678,6 +678,24 @@ async function staleScheduleCandidates(db: Db, event: EventRow) {
 			location: calendarInviteRevisions.location,
 			to: emailOutbox.to,
 			status: emailOutbox.status,
+			// Two attempts at the SAME sequence describing DIFFERENT states leave
+			// us unable to name what the speaker is looking at: RFC 5545 §3.8.7.4
+			// makes SEQUENCE the revision counter, so an equal-SEQUENCE redelivery
+			// is exactly the payload a client is entitled to discard as a duplicate
+			// — one speaker kept the first, another kept the second, and the row
+			// order here cannot tell them apart. Acceptance re-sends make this
+			// reachable: every one of them mints SEQUENCE 0. Picking either side as
+			// the baseline lets today's slot "match" a state half the speakers
+			// never saw, and silence is unrecoverable — no speaker can ask the
+			// product for a corrected invite. So ambiguity itself is the stale
+			// signal, and the update that resolves it goes out at a HIGHER
+			// sequence, which every client applies.
+			divergentAtSequence:
+				sql<number>`case when min(${calendarInviteRevisions.stateHash}) over (
+				partition by ${calendarInviteRevisions.submissionId}, ${calendarInviteRevisions.sequence}
+			) <> max(${calendarInviteRevisions.stateHash}) over (
+				partition by ${calendarInviteRevisions.submissionId}, ${calendarInviteRevisions.sequence}
+			) then 1 else 0 end`.as("divergent_at_sequence"),
 			deliveryRank: sql<number>`row_number() over (
 				partition by ${calendarInviteRevisions.submissionId}
 				order by ${calendarInviteRevisions.sequence} desc,
@@ -712,6 +730,7 @@ async function staleScheduleCandidates(db: Db, event: EventRow) {
 			location: ranked.location,
 			to: ranked.to,
 			status: ranked.status,
+			divergentAtSequence: ranked.divergentAtSequence,
 		})
 		.from(ranked)
 		.where(eq(ranked.deliveryRank, 1))
@@ -743,6 +762,10 @@ async function staleScheduleCandidates(db: Db, event: EventRow) {
 	// already matches: the retry click is the only thing that can turn a failed
 	// or abandoned attempt into a delivery.
 	const attemptUnconfirmed = sql`${latest.status} is not 'sent'`;
+	// See `divergentAtSequence`: nobody can say which of two equal-SEQUENCE
+	// deliveries a given client kept, so the session stays in the change set
+	// until an update at a higher sequence settles it.
+	const baselineAmbiguous = sql`${latest.divergentAtSequence} = 1`;
 
 	return (
 		db
@@ -761,6 +784,7 @@ async function staleScheduleCandidates(db: Db, event: EventRow) {
 				lastLocation: latest.location,
 				lastTo: latest.to,
 				lastStatus: latest.status,
+				lastDivergentAtSequence: latest.divergentAtSequence,
 			})
 			.from(submissions)
 			.leftJoin(latest, eq(latest.submissionId, submissions.id))
@@ -780,7 +804,12 @@ async function staleScheduleCandidates(db: Db, event: EventRow) {
 						and tracked_outbox.event_id = ${event.id}
 						and tracked.invalid = 0
 				)`,
-					or(isNull(latest.submissionId), stateChanged, attemptUnconfirmed),
+					or(
+						isNull(latest.submissionId),
+						stateChanged,
+						attemptUnconfirmed,
+						baselineAmbiguous,
+					),
 				),
 			)
 			// Deliverable sessions first. A session whose speaker contact is gone can
@@ -905,7 +934,14 @@ export async function computeScheduleChanges(
 		// resending is the only way to close that gap. It keeps the attempt's own
 		// SEQUENCE: a client that already has the entry then sees no revision,
 		// while one that never received it gets the invite for the first time.
-		const retryUnchanged = inviteUnchanged && recipientUnchanged;
+		// When two attempts share a SEQUENCE and describe different states, matching
+		// one of them proves nothing about what the speaker is looking at (see
+		// `divergentAtSequence`). So "unchanged" is not a claim we can make here,
+		// and the update has to go out at a HIGHER sequence — the only revision
+		// every client is obliged to apply — rather than replaying the ambiguous one.
+		const baselineAmbiguous = row.lastDivergentAtSequence === 1;
+		const retryUnchanged =
+			inviteUnchanged && recipientUnchanged && !baselineAmbiguous;
 		if (retryUnchanged && row.lastStatus === "sent") continue;
 		changes.push({
 			submissionId: row.id,
