@@ -11,6 +11,7 @@ import type {
 	SpeakerDirectoryData,
 } from "~/lib/program-types";
 import {
+	Avatar,
 	Button,
 	ButtonLink,
 	Chip,
@@ -29,7 +30,6 @@ import {
 	PhotoTile,
 	ResultCount,
 	ShowMoreText,
-	SpeakerPhoto,
 	StarButton,
 	TagPill,
 } from "./bits";
@@ -143,11 +143,7 @@ function SpeakerDetail({
 		<DetailPanel backHref={backHref} backLabel={backLabel}>
 			<div className="flex flex-col gap-4">
 				<div className="flex items-center gap-4">
-					<SpeakerPhoto
-						name={speaker.name}
-						photoUrl={speaker.photoUrl}
-						size={72}
-					/>
+					<Avatar name={speaker.name} src={speaker.photoUrl} size={72} />
 					<div className="min-w-0">
 						<h2 className="font-display text-[20px] font-semibold text-fg">
 							{speaker.name}
@@ -260,11 +256,7 @@ export function SpeakersSurface({
 								})}
 								className={`flex items-center gap-3.5 border-t border-hair px-4 py-3 first:border-t-0 transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
 							>
-								<SpeakerPhoto
-									name={speaker.name}
-									photoUrl={speaker.photoUrl}
-									size={40}
-								/>
+								<Avatar name={speaker.name} src={speaker.photoUrl} size={40} />
 								<span className="flex min-w-0 flex-1 flex-col">
 									<span className="truncate text-[14px] font-medium text-fg">
 										{speaker.name}

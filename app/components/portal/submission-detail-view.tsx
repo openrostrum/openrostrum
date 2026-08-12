@@ -244,7 +244,7 @@ export function SubmissionDetailView({
 									}
 								>
 									<span className="flex items-center gap-2">
-										<Avatar name={p.name} size={24} />
+										<Avatar name={p.name} src={p.photoUrl} size={24} />
 										<Strong>
 											{p.name}
 											{p.isMe ? " (you)" : ""}

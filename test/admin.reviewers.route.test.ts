@@ -2,19 +2,26 @@ import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
+	contacts,
 	emailOutbox,
 	evaluationPlans,
 	evaluationRounds,
 	evaluations,
+	events,
+	organizationMembers,
+	organizations,
 	passwordResets,
 	reviewerTracks,
 	roundQuestions,
+	tracks,
 	users,
 } from "../app/db/schema";
+import { hashPassword, verifyPassword } from "../app/lib/auth";
 import {
 	action as reviewersAction,
 	loader as reviewersLoader,
 } from "../app/routes/admin.reviewers";
+import { action as setPasswordAction } from "../app/routes/set-password.$token";
 import { CONTEXT_OF, seedEvalBase, sessionRequest } from "./eval-fixtures";
 
 const CONTEXT = CONTEXT_OF(env);
@@ -249,6 +256,354 @@ describe("reviewer invites (sentinel-hash users + org-less tokens)", () => {
 				.from(users)
 				.where(eq(users.email, "no.tracks@example.com")),
 		).toHaveLength(0);
+	});
+});
+
+// A reviewer who already has a working password used to render a bare "—" in
+// the invite-link column with no action anywhere on the row — an organizer
+// with no access to that person's inbox had no way to get them signed in. The
+// credential path must never dead-end.
+describe("active reviewers can still be handed a working link", () => {
+	const activate = async (
+		db: Awaited<ReturnType<typeof seedEvalBase>>["db"],
+		userId: string,
+	) =>
+		db
+			.update(users)
+			.set({ passwordHash: await hashPassword("OldPassword1") })
+			.where(eq(users.id, userId));
+
+	const signinLink = (userId: string, sendKey?: string) =>
+		post(
+			new URLSearchParams([
+				["intent", "signin-link"],
+				["userId", userId],
+				...(sendKey ? [["sendKey", sendKey]] : []),
+			]),
+		) as Promise<{
+			ok?: string;
+			formError?: string;
+			link?: string;
+			userId?: string;
+		}>;
+
+	const loadReviewers = async () => {
+		const loaded = (await call(
+			reviewersLoader,
+			await sessionRequest(env, "u_admin", "http://localhost/admin/reviewers"),
+		)) as {
+			data: {
+				reviewers: Array<{
+					id: string;
+					invited: boolean;
+					inviteLink: string | null;
+				}>;
+			};
+		};
+		return loaded.data.reviewers;
+	};
+
+	it("mints a copyable, redeemable link that also lands in their inbox", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await activate(db, "u_rev");
+		// Precondition: today this row shows no link at all.
+		expect(
+			(await loadReviewers()).find((r) => r.id === "u_rev")?.inviteLink,
+		).toBeNull();
+
+		const result = await signinLink("u_rev");
+		expect(result.formError).toBeUndefined();
+		expect(result.userId).toBe("u_rev");
+		expect(result.link).toMatch(
+			/^http:\/\/localhost\/set-password\/[0-9a-f]{64}$/,
+		);
+
+		const [reset] = await db
+			.select()
+			.from(passwordResets)
+			.where(eq(passwordResets.userId, "u_rev"));
+		// NULL org: redeeming it must never mint an organization membership.
+		expect(reset?.organizationId).toBeNull();
+		expect(result.link).toContain(reset?.token ?? "no-token");
+
+		const outbox = await db.select().from(emailOutbox);
+		expect(outbox).toHaveLength(1);
+		expect(outbox[0]?.to).toBe("sam@test.co");
+		expect(outbox[0]?.html).toContain(`/set-password/${reset?.token}`);
+
+		// The link actually works: it signs them in on the reviewer surface.
+		const redeemed = (await setPasswordAction({
+			context: CONTEXT,
+			request: new Request(
+				`http://localhost/set-password/${reset?.token ?? ""}`,
+				{
+					method: "POST",
+					body: new URLSearchParams({
+						password: "BrandNewPass1",
+						confirm: "BrandNewPass1",
+					}),
+				},
+			),
+			params: { token: reset?.token ?? "" },
+		} as never)) as Response;
+		expect(redeemed.status).toBe(302);
+		expect(redeemed.headers.get("Location")).toBe("/reviews");
+		expect(await db.select().from(organizationMembers)).toHaveLength(1); // u_admin's only
+		const [sam] = await db.select().from(users).where(eq(users.id, "u_rev"));
+		expect(await verifyPassword("BrandNewPass1", sam?.passwordHash ?? "")).toBe(
+			true,
+		);
+	});
+
+	it("refuses an account that also has standing in another organization", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await activate(db, "u_rev");
+		// Sam is an admin of somebody else's org. Minting a reset link here would
+		// hand THIS org's admin a takeover of THAT org.
+		await db.insert(organizations).values({ id: "org2", name: "Other Org" });
+		await db
+			.insert(organizationMembers)
+			.values({ organizationId: "org2", userId: "u_rev" });
+
+		const result = await signinLink("u_rev");
+		expect(result.link).toBeUndefined();
+		expect(result.formError).toContain("outside");
+		expect(await db.select().from(passwordResets)).toHaveLength(0);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+	});
+
+	it("refuses when the account speaks at another organization's event", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await activate(db, "u_rev");
+		await db.insert(organizations).values({ id: "org2", name: "Other Org" });
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org2",
+			name: "Other Conf",
+			slug: "other",
+		});
+		await db.insert(contacts).values({
+			id: "c_sam_other",
+			eventId: "e2",
+			userId: "u_rev",
+			email: "sam@test.co",
+			firstName: "Sam",
+			lastName: "Whitfield",
+		});
+
+		const result = await signinLink("u_rev");
+		expect(result.link).toBeUndefined();
+		expect(result.formError).toContain("outside");
+		expect(await db.select().from(passwordResets)).toHaveLength(0);
+	});
+
+	it("refuses when the account reviews for another organization's event", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await activate(db, "u_rev");
+		await db.insert(organizations).values({ id: "org2", name: "Other Org" });
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org2",
+			name: "Other Conf",
+			slug: "other",
+		});
+		await db
+			.insert(tracks)
+			.values({ id: "t_other", eventId: "e2", name: "Other", color: "#000" });
+		await db
+			.insert(reviewerTracks)
+			.values({ userId: "u_rev", trackId: "t_other" });
+
+		const result = await signinLink("u_rev");
+		expect(result.link).toBeUndefined();
+		expect(result.formError).toContain("outside");
+		expect(await db.select().from(passwordResets)).toHaveLength(0);
+	});
+
+	it("refuses a principal who is not a reviewer on this event", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await activate(db, "u_speaker");
+		const result = await signinLink("u_speaker");
+		expect(result.formError).toBe("Reviewer not found.");
+		expect(await db.select().from(passwordResets)).toHaveLength(0);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+	});
+
+	it("points an invited reviewer at their invite link instead", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		const result = await signinLink("u_rev"); // still on the sentinel hash
+		expect(result.link).toBeUndefined();
+		expect(result.formError).toContain("invite");
+		expect(await db.select().from(passwordResets)).toHaveLength(0);
+	});
+
+	it("fails closed on a non-UUID sendKey", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await activate(db, "u_rev");
+		const result = await signinLink("u_rev", "AAAAAAAAAAAAAAAA");
+		expect(result.formError).toContain("stale");
+		expect(result.link).toBeUndefined();
+		expect(await db.select().from(passwordResets)).toHaveLength(0);
+		expect(await db.select().from(emailOutbox)).toHaveLength(0);
+	});
+
+	it("a replayed click (same sendKey) writes ONE token and sends ONE email", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await activate(db, "u_rev");
+		const key = "cccccccc-0000-4000-8000-000000000001";
+		const first = await signinLink("u_rev", key);
+		const second = await signinLink("u_rev", key);
+		expect(await db.select().from(passwordResets)).toHaveLength(1);
+		expect(await db.select().from(emailOutbox)).toHaveLength(1);
+		// The replay shows the SAME link, so a double-click can't strand the
+		// organizer with a link that was never delivered.
+		expect(second.link).toBe(first.link);
+	});
+});
+
+describe("invite links expire and get consumed", () => {
+	it("an expired invite token stops being offered as a copyable link", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await post(
+			new URLSearchParams([
+				["intent", "add"],
+				["name", "Rosa"],
+				["email", "rosa@example.com"],
+				["trackIds", "t_ai"],
+			]),
+		);
+		const [rosa] = await db
+			.select()
+			.from(users)
+			.where(eq(users.email, "rosa@example.com"));
+		const read = async () => {
+			const loaded = (await call(
+				reviewersLoader,
+				await sessionRequest(
+					env,
+					"u_admin",
+					"http://localhost/admin/reviewers",
+				),
+			)) as {
+				data: {
+					reviewers: Array<{
+						id: string;
+						invited: boolean;
+						inviteLink: string | null;
+					}>;
+				};
+			};
+			return loaded.data.reviewers.find((r) => r.id === rosa?.id);
+		};
+		expect((await read())?.inviteLink).toBeTruthy();
+
+		await db
+			.update(passwordResets)
+			.set({ expiresAt: new Date(Date.now() - 1000) })
+			.where(eq(passwordResets.userId, rosa?.id ?? ""));
+		const expired = await read();
+		expect(expired?.inviteLink).toBeNull();
+		// …and the row still offers a way back: they remain "Invited", which is
+		// what renders the Re-invite control.
+		expect(expired?.invited).toBe(true);
+	});
+
+	it("a consumed invite token stops being offered, and the reviewer reads as active", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await post(
+			new URLSearchParams([
+				["intent", "add"],
+				["name", "Rosa"],
+				["email", "rosa@example.com"],
+				["trackIds", "t_ai"],
+			]),
+		);
+		const [rosa] = await db
+			.select()
+			.from(users)
+			.where(eq(users.email, "rosa@example.com"));
+		const [reset] = await db
+			.select()
+			.from(passwordResets)
+			.where(eq(passwordResets.userId, rosa?.id ?? ""));
+
+		const redeemed = (await setPasswordAction({
+			context: CONTEXT,
+			request: new Request(
+				`http://localhost/set-password/${reset?.token ?? ""}`,
+				{
+					method: "POST",
+					body: new URLSearchParams({
+						password: "FirstPassword1",
+						confirm: "FirstPassword1",
+					}),
+				},
+			),
+			params: { token: reset?.token ?? "" },
+		} as never)) as Response;
+		expect(redeemed.headers.get("Location")).toBe("/reviews");
+
+		const loaded = (await call(
+			reviewersLoader,
+			await sessionRequest(env, "u_admin", "http://localhost/admin/reviewers"),
+		)) as {
+			data: {
+				reviewers: Array<{
+					id: string;
+					invited: boolean;
+					inviteLink: string | null;
+				}>;
+			};
+		};
+		const row = loaded.data.reviewers.find((r) => r.id === rosa?.id);
+		expect(row?.invited).toBe(false);
+		expect(row?.inviteLink).toBeNull();
+	});
+});
+
+describe("adding someone who already has an account", () => {
+	it("keeps their password, marks them active, and tells them they're a reviewer", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await db.insert(users).values({
+			id: "u_existing",
+			email: "dana@test.co",
+			passwordHash: await hashPassword("TheirOwnPass1"),
+			name: "Dana Kowalski",
+			role: "speaker",
+		});
+		const response = (await post(
+			new URLSearchParams([
+				["intent", "add"],
+				["name", "Dana K."],
+				["email", "Dana@Test.co"],
+				["trackIds", "t_ai"],
+			]),
+		)) as Response;
+		expect(response.status).toBe(302);
+
+		const rows = await db
+			.select()
+			.from(users)
+			.where(eq(users.email, "dana@test.co"));
+		expect(rows).toHaveLength(1);
+		expect(
+			await verifyPassword("TheirOwnPass1", rows[0]?.passwordHash ?? ""),
+		).toBe(true);
+		// No invite token — their existing password still works.
+		expect(await db.select().from(passwordResets)).toHaveLength(0);
+		const outbox = await db.select().from(emailOutbox);
+		expect(outbox).toHaveLength(1);
+		expect(outbox[0]?.subject).toContain("now a reviewer");
+
+		// …and the organizer is not stranded: the row offers a fresh link.
+		const result = (await post(
+			new URLSearchParams([
+				["intent", "signin-link"],
+				["userId", "u_existing"],
+			]),
+		)) as { link?: string; formError?: string };
+		expect(result.formError).toBeUndefined();
+		expect(result.link).toContain("/set-password/");
 	});
 });
 
