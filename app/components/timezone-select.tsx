@@ -42,7 +42,15 @@ export function TimezoneSelect({
 	value: string | null | undefined;
 	error?: string;
 }) {
-	const timeZones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);
+	// A stored zone can be a legacy alias (`Asia/Calcutta`) that the canonical
+	// list omits; keep it as an option so editing an unrelated field can't
+	// silently rewrite it to whatever sorts first.
+	const timeZones = useMemo(() => {
+		const supported = Intl.supportedValuesOf("timeZone");
+		return value && !supported.includes(value)
+			? [value, ...supported]
+			: supported;
+	}, [value]);
 	const guess = useSyncExternalStore(
 		subscribe,
 		browserTimezone,
