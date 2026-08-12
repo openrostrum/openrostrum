@@ -30,7 +30,8 @@ import {
 	resolveTimezone,
 	zonedHour,
 } from "~/lib/event-time";
-import { formatDateLine, formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
+import { formatDateLine } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import {
 	ButtonLink,
@@ -228,7 +229,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 						: ("closed" as const),
 				// closeAt is a real instant: the day a form stops accepting is its
 				// EVENT-local date (formIsOpen flips at that wall clock), not UTC's.
-				closeDate: f.closeAt ? formatInTz(f.closeAt, tz, "date") : null,
+				closeDate: f.closeAt ? formatInTimeZone(f.closeAt, tz, "date") : null,
 				closesInDays:
 					isOpen && f.closeAt ? calendarDaysUntil(now, f.closeAt, tz) : null,
 				submitted: counts?.submitted ?? 0,
@@ -276,7 +277,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		title: r.title,
 		status: r.status,
 		formName: r.form?.internalName ?? "Manual",
-		submitted: formatInTz(r.createdAt, tz, "date"),
+		submitted: formatInTimeZone(r.createdAt, tz, "date"),
 		speakers: r.participants
 			.filter((p) => p.role === "speaker")
 			.sort(
@@ -291,9 +292,11 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			event: {
 				name: event.name,
 				startDate: event.startsAt
-					? formatInTz(event.startsAt, tz, "date")
+					? formatInTimeZone(event.startsAt, tz, "date")
 					: null,
-				endDate: event.endsAt ? formatInTz(event.endsAt, tz, "date") : null,
+				endDate: event.endsAt
+					? formatInTimeZone(event.endsAt, tz, "date")
+					: null,
 			},
 			greeting: greet(now, tz, firstName),
 			dateLine: formatDateLine(now, tz),

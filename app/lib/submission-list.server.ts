@@ -9,7 +9,7 @@ import {
 } from "~/db/constants";
 import { contacts, type events, submissions } from "~/db/schema";
 import { transitionSubmissions } from "~/domain/accept";
-import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
+import { formatInTimeZone, formatScheduleRange } from "~/lib/dates";
 import { likeContains } from "~/lib/like";
 import {
 	humanStatus,
@@ -226,7 +226,7 @@ export async function loadSubmissionList(
 						name: st.track.name,
 						color: st.track.color,
 					})),
-					submittedAt: formatInTimezone(r.createdAt, event.timezone, "date"),
+					submittedAt: formatInTimeZone(r.createdAt, event.timezone, "date"),
 				})),
 				contacts: contactRows.map((c) => ({
 					id: c.id,

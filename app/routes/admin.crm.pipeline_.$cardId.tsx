@@ -15,7 +15,7 @@ import {
 } from "~/domain/crm";
 import { requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
 import { PIPELINE_STAGE_LABEL, PIPELINE_STAGE_TONE } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -337,7 +337,7 @@ export default function CrmPipelineCard({
 						{history.map((h) => (
 							<Tr key={h.id}>
 								<Td kind="mono">
-									{formatInTz(h.createdAt, "UTC", "datetime")}
+									{formatInTimeZone(h.createdAt, "UTC", "datetime-zone")}
 								</Td>
 								<Td kind="strong">
 									{h.fromStage

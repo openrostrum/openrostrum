@@ -45,7 +45,7 @@ import {
 	safeRedirect,
 } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
+import { formatInTimeZone, formatScheduleRange } from "~/lib/dates";
 import { CONTENT_STATUS_TONE, humanStatus } from "~/lib/submission-list";
 import { CONTACT_PICKER_CAP } from "~/lib/submission-list.server";
 import { createTimings, track } from "~/lib/track";
@@ -243,13 +243,13 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				submitterLabel: row.submitter
 					? (row.submitter.name ?? row.submitter.email)
 					: null,
-				createdAt: formatInTimezone(row.createdAt, tz),
-				updatedAt: formatInTimezone(row.updatedAt, tz),
+				createdAt: formatInTimeZone(row.createdAt, tz),
+				updatedAt: formatInTimeZone(row.updatedAt, tz),
 				statusChangedAt: row.statusChangedAt
-					? formatInTimezone(row.statusChangedAt, tz)
+					? formatInTimeZone(row.statusChangedAt, tz)
 					: null,
 				notifiedAt: row.notifiedAt
-					? formatInTimezone(row.notifiedAt, tz)
+					? formatInTimeZone(row.notifiedAt, tz)
 					: null,
 				schedule: formatScheduleRange(row.startsAt, row.endsAt, tz),
 				roomName: row.room?.name ?? null,
@@ -258,7 +258,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 							by: withdrawnBy
 								? (withdrawnBy.name ?? withdrawnBy.email)
 								: "Unknown user",
-							at: formatInTimezone(row.withdrawnAt, tz),
+							at: formatInTimeZone(row.withdrawnAt, tz),
 							reason: row.withdrawnReason ?? "",
 						}
 					: null,
@@ -286,7 +286,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				id: r.id,
 				title: r.title,
 				editor: r.editorName ?? r.editorEmail ?? "Unknown",
-				at: formatInTimezone(r.createdAt, tz),
+				at: formatInTimeZone(r.createdAt, tz),
 			})),
 			revisionsTruncated,
 			files: fileRows.map((f) => ({
@@ -296,7 +296,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				version: f.version,
 				reviewStatus: f.reviewStatus,
 				size: formatBytes(f.sizeBytes),
-				at: formatInTimezone(f.createdAt, tz),
+				at: formatInTimeZone(f.createdAt, tz),
 			})),
 			reviews: {
 				tally,
@@ -305,7 +305,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					reviewer: r.reviewer.name ?? r.reviewer.email,
 					decision: r.decision,
 					comment: r.comment,
-					at: formatInTimezone(r.updatedAt, tz),
+					at: formatInTimeZone(r.updatedAt, tz),
 				})),
 			},
 			library,

@@ -16,23 +16,6 @@ export function parseDueDate(value: string): Date {
 	return new Date(`${value}T23:59:59Z`);
 }
 
-/** Render a real instant (session times, upload stamps) in the EVENT's timezone. */
-export function formatInTz(
-	date: Date,
-	timeZone: string,
-	style: "date" | "datetime" = "datetime",
-): string {
-	return new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-		...(style === "datetime"
-			? { hour: "numeric", minute: "2-digit", timeZoneName: "short" }
-			: {}),
-	}).format(date);
-}
-
 /** "Sunday, August 10, 2026" — the dashboard greeting's date line, in the event's timezone. */
 export function formatDateLine(date: Date, timeZone: string): string {
 	return new Intl.DateTimeFormat("en-US", {

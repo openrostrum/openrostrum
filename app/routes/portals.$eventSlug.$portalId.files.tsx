@@ -5,7 +5,8 @@ import { getDb } from "~/db";
 import { files } from "~/db/schema";
 import { getPortalContext, portalPath } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
-import { formatBytes, formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
+import { formatBytes } from "~/lib/format";
 import { createTimings } from "~/lib/track";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.files";
 
@@ -42,7 +43,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				id: f.id,
 				fileName: f.fileName,
 				size: formatBytes(f.sizeBytes),
-				sharedOn: formatInTz(f.createdAt, ctx.event.timezone, "date"),
+				sharedOn: formatInTimeZone(f.createdAt, ctx.event.timezone, "date"),
 			})),
 		},
 		{ headers: { "Server-Timing": timings.header() } },

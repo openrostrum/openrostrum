@@ -28,7 +28,8 @@ import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { resolveCommentDraft } from "~/lib/comment-draft";
 import { errorMessage } from "~/lib/errors";
 import { resolveTimezone } from "~/lib/event-time";
-import { formatBytes, formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
+import { formatBytes } from "~/lib/format";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
@@ -173,7 +174,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				version: v.version,
 				fileName: v.fileName,
 				sizeBytes: v.sizeBytes,
-				uploadedOn: formatInTz(v.createdAt, timezone),
+				uploadedOn: formatInTimeZone(v.createdAt, timezone, "datetime-zone"),
 				reviewStatus: v.reviewStatus,
 			})),
 			submission: submission ?? null,
@@ -185,7 +186,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				id: c.id,
 				author: c.authorName,
 				body: c.body,
-				on: formatInTz(c.createdAt, timezone),
+				on: formatInTimeZone(c.createdAt, timezone, "datetime-zone"),
 				version: versionById.get(c.fileId) ?? null,
 			})),
 			eventName: event.name,

@@ -16,14 +16,13 @@ import {
 	users,
 } from "~/db/schema";
 import { normalizeEmail } from "~/lib/auth";
-import { formatInTimeZone } from "~/lib/dates";
+import { formatInTimeZone, formatScheduleRange } from "~/lib/dates";
 import {
 	type MergeContext,
 	renderBody,
 	renderSubject,
 } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
-import { formatScheduleRange } from "~/lib/format-date";
 import { buildIcs } from "~/lib/ics";
 import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";

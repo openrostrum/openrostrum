@@ -57,7 +57,7 @@ import { submissions } from "~/db/schema";
 import { submitPath } from "~/domain/forms";
 import { getUser, requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
@@ -556,7 +556,12 @@ export default function SessionStep({
 			{state.loadedStatus === "draft" && savedAt !== null && (
 				<InfoNotice>
 					You are editing your draft. Last saved{" "}
-					{formatInTz(new Date(savedAt), layout.event.timezone)}.
+					{formatInTimeZone(
+						new Date(savedAt),
+						layout.event.timezone,
+						"datetime-zone",
+					)}
+					.
 				</InfoNotice>
 			)}
 			<Panel>
@@ -651,7 +656,11 @@ export function DraftsHub({
 									<StatusBadge tone="faint">Draft — not submitted</StatusBadge>
 									<MutedText>
 										Last updated{" "}
-										{formatInTz(new Date(draft.updatedAt), timezone)}
+										{formatInTimeZone(
+											new Date(draft.updatedAt),
+											timezone,
+											"datetime-zone",
+										)}
 									</MutedText>
 								</span>
 							</div>

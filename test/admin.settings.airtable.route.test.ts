@@ -1,4 +1,7 @@
 import { env } from "cloudflare:test";
+import { createElement, type ElementType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -9,7 +12,10 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { action, loader } from "../app/routes/admin.settings.airtable";
+import AirtableSync, {
+	action,
+	loader,
+} from "../app/routes/admin.settings.airtable";
 
 // The admin sync surface: the Demo-org binding is enforced with an explicit
 // "Airtable isn't configured for this organization" state (never a silent
@@ -128,12 +134,106 @@ describe("/admin/settings/airtable", () => {
 			secretSet: false,
 			refreshConfigured: false,
 			lastPingAt: null,
+			lastPingLabel: null,
 		});
 		expect(result.data.tables).toEqual([
 			expect.objectContaining({ table: "submissions", linked: 2 }),
 			expect.objectContaining({ table: "contacts", linked: 1 }),
 			expect.objectContaining({ table: "task_assignments", linked: 0 }),
 		]);
+	});
+
+	// 10:00 in the seeded event's zone (America/Los_Angeles) — a different
+	// calendar hour, and a different day, from the same instant read as UTC.
+	const PACIFIC_MORNING = "2026-10-12T17:00:00.000Z";
+	const PACIFIC_LABEL = "Oct 12, 2026, 10:00 AM PDT";
+
+	it("stamps every sync timestamp in the event's timezone", async () => {
+		await seedOrg("org_demo");
+		const db = getDb(env);
+		await db.insert(airtableLinks).values([
+			{
+				tableName: "$sync",
+				recordId: "state",
+				airtableId: "$sync:state",
+				baseSnapshot: {
+					lastRunAt: PACIFIC_MORNING,
+					lastRunTrigger: "manual",
+					lastRunStatus: "ok",
+					pausedAt: PACIFIC_MORNING,
+					pausedReason: "Airtable deleted 12 rows",
+					recentConflicts: [
+						{
+							at: PACIFIC_MORNING,
+							table: "submissions",
+							recordId: "s1",
+							field: "title",
+						},
+					],
+				},
+			},
+			{
+				tableName: "$sync",
+				recordId: "webhook",
+				airtableId: "$sync:webhook",
+				baseSnapshot: { lastWebhookAt: PACIFIC_MORNING },
+			},
+		]);
+		const request = await adminRequest("org_demo");
+		const { context } = makeContext(CONFIGURED);
+		const result = (await loader({
+			context,
+			request,
+			params: {},
+		} as unknown as LoaderArgs)) as unknown as {
+			data: {
+				webhook: { lastPingLabel: string | null };
+				paused: { atLabel: string } | null;
+				lastRun: { atLabel: string } | null;
+				recentConflicts: Array<{ atLabel: string }>;
+			};
+		};
+		expect(result.data.lastRun?.atLabel).toBe(PACIFIC_LABEL);
+		expect(result.data.paused?.atLabel).toBe(PACIFIC_LABEL);
+		expect(result.data.webhook.lastPingLabel).toBe(PACIFIC_LABEL);
+		expect(result.data.recentConflicts[0]?.atLabel).toBe(PACIFIC_LABEL);
+	});
+
+	it("renders the server-formatted stamps, so hydration cannot shift them", async () => {
+		await seedOrg("org_demo");
+		const db = getDb(env);
+		await db.insert(airtableLinks).values({
+			tableName: "$sync",
+			recordId: "state",
+			airtableId: "$sync:state",
+			baseSnapshot: {
+				lastRunAt: PACIFIC_MORNING,
+				lastRunTrigger: "manual",
+				lastRunStatus: "ok",
+			},
+		});
+		const request = await adminRequest("org_demo");
+		const { context } = makeContext(CONFIGURED);
+		const result = (await loader({
+			context,
+			request,
+			params: {},
+		} as unknown as LoaderArgs)) as unknown as { data: unknown };
+
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/",
+				Component: () =>
+					createElement(AirtableSync as ElementType, {
+						loaderData: result.data,
+						actionData: undefined,
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+		expect(html).toContain(PACIFIC_LABEL);
 	});
 
 	it("refuses the sync action outside the Demo org and schedules nothing", async () => {
