@@ -1,21 +1,51 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { createGitRepository } from "./repository.mjs";
 
+// These fixtures build throwaway git repositories. If one is ever created inside
+// this repository, `git init` finds the parent instead of making its own repo:
+// the fixture's commits land in real history and its `git config user.name`
+// rewrites the real identity. That happened — two worktrees ended up with a HEAD
+// whose whole tree was one fixture file, and every later commit was authored
+// "Review Test". So the sandbox is now proven, not assumed, and the identity
+// rides on the command instead of being written to config at all.
+const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
+const IDENTITY = [
+	"-c",
+	"user.name=Review Test",
+	"-c",
+	"user.email=review@example.test",
+];
+
+async function sandbox(t) {
+	const root = await realpath(await mkdtemp(join(tmpdir(), "agentic-review-")));
+	assert.ok(
+		!root.startsWith(REPO_ROOT),
+		`fixture sandbox ${root} is inside ${REPO_ROOT}; git would use the real repository`,
+	);
+	t.after(() => rm(root, { recursive: true, force: true }));
+	git(root, "init", "-q");
+	assert.equal(
+		git(root, "rev-parse", "--show-toplevel"),
+		root,
+		"fixture git commands must resolve to the sandbox, not an enclosing repository",
+	);
+	return root;
+}
+
 function git(cwd, ...args) {
-	return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+	return execFileSync("git", [...IDENTITY, ...args], {
+		cwd,
+		encoding: "utf8",
+	}).trim();
 }
 
 test("repository tools expose changed diffs and unchanged context on demand", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "agentic-review-"));
-	t.after(() => rm(root, { recursive: true, force: true }));
-	git(root, "init", "-q");
-	git(root, "config", "user.name", "Review Test");
-	git(root, "config", "user.email", "review@example.test");
+	const root = await sandbox(t);
 	await writeFile(join(root, "changed.ts"), "export const value = 1;\n");
 	await writeFile(
 		join(root, "unchanged.ts"),
@@ -59,11 +89,7 @@ test("repository tools expose changed diffs and unchanged context on demand", as
 });
 
 test("change manifest preserves rename metadata and counts", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "agentic-review-"));
-	t.after(() => rm(root, { recursive: true, force: true }));
-	git(root, "init", "-q");
-	git(root, "config", "user.name", "Review Test");
-	git(root, "config", "user.email", "review@example.test");
+	const root = await sandbox(t);
 	await writeFile(join(root, "before.ts"), "export const value = 1;\n");
 	git(root, "add", ".");
 	git(root, "commit", "-qm", "base");
@@ -85,11 +111,7 @@ test("change manifest preserves rename metadata and counts", async (t) => {
 });
 
 test("repository tools reject traversal and paginate large outputs", async (t) => {
-	const root = await mkdtemp(join(tmpdir(), "agentic-review-"));
-	t.after(() => rm(root, { recursive: true, force: true }));
-	git(root, "init", "-q");
-	git(root, "config", "user.name", "Review Test");
-	git(root, "config", "user.email", "review@example.test");
+	const root = await sandbox(t);
 	await writeFile(
 		join(root, "long.ts"),
 		Array.from(
