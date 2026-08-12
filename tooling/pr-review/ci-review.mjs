@@ -5,7 +5,7 @@
 // and reconciliation semantics live in inline.mjs and are documented in README.
 // Env (set by .github/workflows/ci.yml): DEEPSEEK_API_KEY, GH_TOKEN, REPO
 // (owner/repo), PR_NUMBER, BASE_SHA, HEAD_SHA.
-import { runRuleReviewers } from "./agent.mjs";
+import { runRuleReviewers, summaryLine } from "./agent.mjs";
 import { loadSystems, makeRuntime } from "./core.mjs";
 import {
 	anchorFinding,
@@ -252,12 +252,7 @@ const results = await runRuleReviewers({
 });
 const incomplete = results.filter((result) => result.status !== "complete");
 const reviewComplete = incomplete.length === 0;
-for (const result of results) {
-	console.log(
-		`${result.agent}: ${result.status}; turns=${result.turns}; tools=${result.toolCalls}` +
-			(result.reason ? `; reason=${result.reason}` : ""),
-	);
-}
+for (const result of results) console.log(summaryLine(result));
 
 const byFile = new Map();
 for (const result of results) {
@@ -327,12 +322,23 @@ if (skipped.length)
 		`_${skipped.length} of ${total} already posted on an earlier run — see the existing threads._`,
 	);
 const notes = [];
-if (incomplete.length)
+if (incomplete.length) {
+	// Findings submitted before a session failed are posted with the rest, so say
+	// so: otherwise a reader cannot tell whether an incomplete owner contributed
+	// nothing or stopped partway through contributing.
+	const banked = incomplete.reduce(
+		(sum, result) => sum + result.findings.length,
+		0,
+	);
 	notes.push(
 		`${incomplete.length} rule reviewer(s) incomplete: ${incomplete
 			.map((result) => result.agent)
-			.join(", ")}; this is not a clean review`,
+			.join(", ")}; this is not a clean review` +
+			(banked
+				? ` (the ${banked} finding(s) they submitted before stopping are included above)`
+				: ""),
 	);
+}
 const footer =
 	(notes.length ? `\n> ⚠️ ${notes.join("; ")}.\n` : "") +
 	`\n<sub>model: ${MODEL} · whole-PR sessions: ${agents.map((a) => a.id).join(", ")}</sub>`;
