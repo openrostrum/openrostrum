@@ -1,4 +1,7 @@
 import { env } from "cloudflare:test";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -18,7 +21,7 @@ import {
 	action as abstractsAction,
 	loader as abstractsLoader,
 } from "../app/routes/admin.abstracts";
-import {
+import Sessions, {
 	action as sessionsAction,
 	loader as sessionsLoader,
 } from "../app/routes/admin.sessions";
@@ -82,6 +85,22 @@ type ActionArgs = Parameters<typeof abstractsAction>[0];
 type SessionsLoaderArgs = Parameters<typeof sessionsLoader>[0];
 type SessionsActionArgs = Parameters<typeof sessionsAction>[0];
 
+function renderSessions(loaderData: SubmissionListData, initialEntry: string) {
+	const RouteComponent = Sessions as unknown as ComponentType<{
+		loaderData: SubmissionListData;
+		actionData?: unknown;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/admin/sessions",
+			Component: () => createElement(RouteComponent, { loaderData }),
+		},
+	]);
+	return renderToString(
+		createElement(RoutesStub, { initialEntries: [initialEntry] }),
+	);
+}
+
 describe("abstracts / sessions type partition", () => {
 	it("each tab lists only its own type, with counts excluding drafts from All", async () => {
 		const db = await seedWorld();
@@ -138,6 +157,29 @@ describe("abstracts / sessions type partition", () => {
 		);
 		expect(sessions.counts.all).toBe(1);
 		expect(sessions.rows.map((r) => r.id)).toEqual(["s1"]);
+	});
+
+	it("carries the exact filtered list URL into session details", async () => {
+		const db = await seedWorld();
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e1",
+			type: "session",
+			title: "RAG in production",
+			status: "accepted",
+		});
+		const listUrl = "/admin/sessions?status=accepted&q=RAG&page=1";
+		const loaded = unwrapRaw(
+			await sessionsLoader({
+				context: CONTEXT,
+				request: await requestAs(`http://localhost${listUrl}`),
+				params: {},
+			} as unknown as SessionsLoaderArgs),
+		);
+
+		expect(renderSessions(loaded, listUrl)).toContain(
+			'href="/admin/submissions/s1?returnTo=%2Fadmin%2Fsessions%3Fstatus%3Daccepted%26q%3DRAG%26page%3D1"',
+		);
 	});
 
 	it("search filters titles (wildcards escaped) and pagination clamps to real pages", async () => {

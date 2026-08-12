@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { isRouteErrorResponse, Link } from "react-router";
+import { ThemeToggle } from "~/components/theme-toggle";
 import { ButtonLink, EmptyState, Mark, Tab, Tabs } from "~/ui";
 import type { ProgramEvent } from "~/lib/program-types";
 
@@ -32,14 +33,19 @@ export function ProgramShell({
 	return (
 		<div className="flex min-h-screen flex-col">
 			<header className="mx-auto w-full max-w-5xl px-5 pt-8 md:px-8">
-				<h1 className="font-display text-[26px] font-semibold tracking-[-0.01em] text-fg">
-					{event.name}
-				</h1>
-				{(event.dateRange || event.location) && (
-					<p className="mt-1 text-[13.5px] text-fg-muted">
-						{[event.dateRange, event.location].filter(Boolean).join(" · ")}
-					</p>
-				)}
+				<div className="flex items-start justify-between gap-4">
+					<div className="min-w-0">
+						<h1 className="font-display text-[26px] font-semibold tracking-[-0.01em] text-fg">
+							{event.name}
+						</h1>
+						{(event.dateRange || event.location) && (
+							<p className="mt-1 text-[13.5px] text-fg-muted">
+								{[event.dateRange, event.location].filter(Boolean).join(" · ")}
+							</p>
+						)}
+					</div>
+					<ThemeToggle placement="below" />
+				</div>
 				<nav aria-label="Program" className="mt-5 overflow-x-auto">
 					<Tabs>
 						{PROGRAM_SURFACES.map((surface) => (

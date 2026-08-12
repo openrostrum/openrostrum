@@ -38,7 +38,12 @@ import {
 	type AddedParticipant,
 	notifyParticipantAdded,
 } from "~/domain/participant-notifications";
-import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
+import {
+	getActiveEvent,
+	normalizeEmail,
+	requireAdmin,
+	safeRedirect,
+} from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
 import { CONTENT_STATUS_TONE, humanStatus } from "~/lib/submission-list";
@@ -74,6 +79,29 @@ const CONTENT_STATUS_OPTIONS =
 	CONTENT_STATUS satisfies readonly Submission["contentStatus"][];
 
 const REVISION_LIST_LIMIT = 50;
+
+const SUBMISSION_LIST_LABELS = new Map([
+	["/admin/abstracts", "abstracts"],
+	["/admin/sessions", "sessions"],
+	["/admin/submissions", "submissions"],
+]);
+
+function submissionListOrigin(
+	requestUrl: string,
+	type: Submission["type"],
+): { href: string; label: string } {
+	const fallback =
+		type === "abstract"
+			? { href: "/admin/abstracts", label: "abstracts" }
+			: { href: "/admin/sessions", label: "sessions" };
+	const requested = new URL(requestUrl).searchParams.get("returnTo");
+	const href = requested ? safeRedirect(requested) : null;
+	if (!href) return fallback;
+	const label = SUBMISSION_LIST_LABELS.get(
+		new URL(href, "http://sentinel.invalid").pathname,
+	);
+	return label ? { href, label } : fallback;
+}
 
 const ACCEPTANCE_TONE = {
 	pending: "warning",
@@ -196,6 +224,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 
 		return {
 			eventName: event.name,
+			back: submissionListOrigin(request.url, row.type),
 			submission: {
 				id: row.id,
 				title: row.title,
@@ -426,10 +455,9 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				status: row.status,
 				type: row.type,
 			});
-			return redirect(
-				row.type === "abstract" ? "/admin/abstracts" : "/admin/sessions",
-				{ headers: { "Server-Timing": timings.header() } },
-			);
+			return redirect(submissionListOrigin(request.url, row.type).href, {
+				headers: { "Server-Timing": timings.header() },
+			});
 		}
 		return data(result, { headers: { "Server-Timing": timings.header() } });
 	} catch (error) {
@@ -1336,6 +1364,7 @@ export default function SubmissionDetail({
 	actionData,
 }: Route.ComponentProps) {
 	const {
+		back,
 		submission: s,
 		participants: participantRows,
 		answers,
@@ -1354,15 +1383,15 @@ export default function SubmissionDetail({
 	const languageOptions = library.languages.includes(s.language)
 		? library.languages
 		: [s.language, ...library.languages];
-	const backHref =
-		s.type === "abstract" ? "/admin/abstracts" : "/admin/sessions";
+	const revisionHistoryHref = `?${new URLSearchParams({
+		revisions: "all",
+		returnTo: back.href,
+	})}`;
 
 	return (
 		<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
 			<div>
-				<TextLink to={backHref}>
-					← Back to {s.type === "abstract" ? "abstracts" : "sessions"}
-				</TextLink>
+				<TextLink to={back.href}>{`← Back to ${back.label}`}</TextLink>
 			</div>
 			<PageHeader
 				title={s.title}
@@ -1466,7 +1495,9 @@ export default function SubmissionDetail({
 							{revisionsTruncated && (
 								<EmptyRow colSpan={4}>
 									Showing the latest {revisions.length} revisions.{" "}
-									<TextLink to="?revisions=all">Show the full history</TextLink>
+									<TextLink to={revisionHistoryHref}>
+										Show the full history
+									</TextLink>
 								</EmptyRow>
 							)}
 						</TBody>
@@ -1881,7 +1912,10 @@ export default function SubmissionDetail({
 									{s.roomName ? ` · ${s.roomName}` : ""}
 								</p>
 							) : (
-								<p>Not scheduled yet — place it from the Agenda.</p>
+								<p>
+									Not scheduled yet — place it from the{" "}
+									<TextLink to="/admin/agenda">Agenda</TextLink>.
+								</p>
 							)}
 						</div>
 					</Panel>

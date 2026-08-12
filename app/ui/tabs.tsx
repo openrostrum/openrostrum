@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "./motion-classes";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 import { cn } from "./cn";
@@ -6,7 +7,7 @@ import { cn } from "./cn";
 // shifts layout on every tab switch.
 const TAB = cn(
 	"-mb-px flex items-center gap-[7px] border-b-2 border-transparent px-[11px] pb-[10px] pt-2",
-	"text-[13.5px] font-medium text-fg-muted transition-colors duration-150 hover:text-fg",
+	`text-[13.5px] font-medium text-fg-muted transition-colors ${MOTION_FEEDBACK} hover:text-fg`,
 	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 );
 const TAB_ON = "border-petrol text-fg";

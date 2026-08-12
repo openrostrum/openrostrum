@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "./motion-classes";
 import type { ReactNode } from "react";
 import { Form, NavLink } from "react-router";
 import { Avatar } from "./avatar";
@@ -81,7 +82,7 @@ export function Sidebar({
 						type="submit"
 						aria-label="Log out"
 						disabled={logoutDisabled}
-						className="flex h-7 w-7 items-center justify-center rounded-control text-fg-faint transition-colors duration-150 hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+						className={`flex h-7 w-7 items-center justify-center rounded-control text-fg-faint transition-colors ${MOTION_FEEDBACK} hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol`}
 					>
 						<Icon name="logout" size={15} />
 					</button>
@@ -124,7 +125,7 @@ export function SideNavLink({
 			className={({ isActive }) =>
 				cn(
 					"flex h-[34px] items-center gap-[10px] rounded-control px-[10px] text-[13.5px] font-medium text-fg-muted",
-					"transition-colors duration-150 hover:bg-row-hover hover:text-fg",
+					`transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover hover:text-fg`,
 					"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 					isActive && "bg-chip text-fg",
 				)

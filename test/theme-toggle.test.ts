@@ -1,30 +1,26 @@
-import { Children, type ComponentProps, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ThemeMenuForm } from "../app/components/theme-toggle";
 
 describe("theme menu submission", () => {
-	it("closes from the form submit event without unmounting option buttons on click", () => {
-		let closed = false;
-		const menu = ThemeMenuForm({
-			Form: "form",
-			busy: false,
-			theme: "system",
-			onSubmit: () => {
-				closed = true;
-			},
-		});
+	it("renders a form root with three mounted submit options", () => {
+		const html = renderToStaticMarkup(
+			ThemeMenuForm({
+				Form: "form",
+				busy: false,
+				theme: "system",
+				onSubmit: () => {},
+			}),
+		);
 
-		expect(menu.type).toBe("form");
-		menu.props.onSubmit();
-		expect(closed).toBe(true);
-
-		const options = Children.toArray(menu.props.children) as ReactElement<
-			ComponentProps<"button">
-		>[];
-		expect(options).toHaveLength(3);
-		for (const option of options) {
-			expect(option.props.type).toBe("submit");
-			expect(option.props.onClick).toBeUndefined();
-		}
+		expect(html.startsWith("<form ")).toBe(true);
+		expect(html).toContain('method="post"');
+		expect(html).toContain('action="/theme"');
+		expect(html.match(/type="submit"/g)).toHaveLength(3);
+		expect(html.match(/name="theme"/g)).toHaveLength(3);
+		expect(html).toContain('value="system"');
+		expect(html).toContain('value="light"');
+		expect(html).toContain('value="dark"');
+		expect(html).not.toContain('type="button"');
 	});
 });

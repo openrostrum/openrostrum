@@ -61,7 +61,12 @@ export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
 		<ProgramShell event={event} active="schedule">
 			{surface ? (
 				<CalendarDownloadSurface href={calendarHref}>
-					<AgendaSurface data={surface} base={`/schedule/${event.slug}`} />
+					<AgendaSurface
+						data={surface}
+						base={`/schedule/${event.slug}`}
+						sessionsBase={`/sessions/${event.slug}`}
+						speakersBase={`/speakers/${event.slug}`}
+					/>
 				</CalendarDownloadSurface>
 			) : (
 				<AgendaUnpublished event={event} />

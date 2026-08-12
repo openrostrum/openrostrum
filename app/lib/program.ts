@@ -397,6 +397,7 @@ export function speakersFromSessions(
 				dateLabel: session.dateLabel,
 				timeRange: session.timeRange,
 				room: session.room,
+				roomId: session.roomId,
 			};
 			if (existing) {
 				existing.sessions.push(ref);

@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import { useState } from "react";
 import { Link } from "react-router";
 import type {
@@ -14,6 +15,7 @@ import {
 	ButtonLink,
 	Chip,
 	EmptyState,
+	MotionReveal,
 	Tab,
 	Tabs,
 	TextLink,
@@ -46,10 +48,14 @@ import { SessionCard, SpeakerRow } from "./session-card";
 export function SessionsSurface({
 	data,
 	base,
+	sessionsBase,
+	speakersBase,
 	hidden,
 }: {
 	data: SessionsSurfaceData;
 	base: string;
+	sessionsBase: string;
+	speakersBase: string;
 	hidden?: ReadonlySet<HideableField>;
 }) {
 	if (!data.hasAnySessions) {
@@ -69,6 +75,8 @@ export function SessionsSurface({
 				backHref={makeHref(base, listState)}
 				backLabel="All sessions"
 				hidden={hidden}
+				sessionsBase={sessionsBase}
+				speakersBase={speakersBase}
 			/>
 		);
 	}
@@ -121,10 +129,12 @@ function SpeakerDetail({
 	speaker,
 	backHref,
 	backLabel,
+	sessionsBase,
 }: {
 	speaker: PublicSpeakerProfile;
 	backHref: string;
 	backLabel: string;
+	sessionsBase: string;
 }) {
 	const role = [speaker.jobTitle, speaker.companyName]
 		.filter(Boolean)
@@ -152,13 +162,35 @@ function SpeakerDetail({
 					</h3>
 					{speaker.sessions.map((session) => (
 						<div key={session.id} className="flex flex-col">
-							<p className="text-[13.5px] font-medium text-fg">
+							<Link
+								to={makeHref(sessionsBase, { session: session.id })}
+								className="w-fit rounded-[3px] text-[13.5px] font-medium text-fg underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+							>
 								{session.title}
-							</p>
+							</Link>
 							<p className="font-mono text-[11.5px] tabular-nums text-fg-muted">
-								{[session.dateLabel, session.timeRange, session.room]
+								{[session.dateLabel, session.timeRange]
 									.filter(Boolean)
-									.join(" · ") || "Schedule to be announced"}
+									.join(" · ")}
+								{session.room && (
+									<>
+										{(session.dateLabel || session.timeRange) && " · "}
+										{session.roomId ? (
+											<Link
+												to={makeHref(sessionsBase, { room: session.roomId })}
+												className="rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+											>
+												{session.room}
+											</Link>
+										) : (
+											session.room
+										)}
+									</>
+								)}
+								{!session.dateLabel &&
+									!session.timeRange &&
+									!session.room &&
+									"Schedule to be announced"}
 							</p>
 						</div>
 					))}
@@ -171,9 +203,11 @@ function SpeakerDetail({
 export function SpeakersSurface({
 	data,
 	base,
+	sessionsBase,
 }: {
 	data: SpeakerDirectoryData;
 	base: string;
+	sessionsBase: string;
 }) {
 	if (data.detail) {
 		return (
@@ -181,6 +215,7 @@ export function SpeakersSurface({
 				speaker={data.detail}
 				backHref={makeHref(base, { q: data.q, page: data.page })}
 				backLabel="All speakers"
+				sessionsBase={sessionsBase}
 			/>
 		);
 	}
@@ -223,7 +258,7 @@ export function SpeakersSurface({
 									q: data.q,
 									page: data.page,
 								})}
-								className="flex items-center gap-3.5 border-t border-hair px-4 py-3 first:border-t-0 hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol"
+								className={`flex items-center gap-3.5 border-t border-hair px-4 py-3 first:border-t-0 transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
 							>
 								<SpeakerPhoto
 									name={speaker.name}
@@ -271,11 +306,15 @@ function SessionDetail({
 	session,
 	backHref,
 	backLabel,
+	sessionsBase,
+	speakersBase,
 	hidden,
 }: {
 	session: PublicSession;
 	backHref: string;
 	backLabel: string;
+	sessionsBase: string;
+	speakersBase: string;
 	/** An embed's hidden card fields stay hidden here too — the detail must
 	 * not undo the organizer's embed configuration one click deep. */
 	hidden?: ReadonlySet<HideableField>;
@@ -315,7 +354,18 @@ function SessionDetail({
 						</MetaRow>
 					)}
 					{show("room") && (
-						<MetaRow label="Room">{session.room ?? "To be announced"}</MetaRow>
+						<MetaRow label="Room">
+							{session.room && session.roomId ? (
+								<Link
+									to={makeHref(sessionsBase, { room: session.roomId })}
+									className="rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+								>
+									{session.room}
+								</Link>
+							) : (
+								(session.room ?? "To be announced")
+							)}
+						</MetaRow>
 					)}
 					{show("track") && session.tracks.length > 0 && (
 						<MetaRow label="Track">
@@ -339,7 +389,11 @@ function SessionDetail({
 							Speakers ({session.speakers.length})
 						</h3>
 						{session.speakers.map((speaker) => (
-							<SpeakerRow key={speaker.id} speaker={speaker} />
+							<SpeakerRow
+								key={speaker.id}
+								speaker={speaker}
+								detailHref={makeHref(speakersBase, { speaker: speaker.id })}
+							/>
 						))}
 					</div>
 				)}
@@ -351,10 +405,14 @@ function SessionDetail({
 export function AgendaSurface({
 	data,
 	base,
+	sessionsBase,
+	speakersBase,
 	hidden,
 }: {
 	data: AgendaSurfaceData;
 	base: string;
+	sessionsBase: string;
+	speakersBase: string;
 	hidden?: ReadonlySet<HideableField>;
 }) {
 	if (data.detail) {
@@ -363,6 +421,8 @@ export function AgendaSurface({
 				session={data.detail}
 				backHref={makeHref(base, { day: data.activeDay })}
 				backLabel="Back to agenda"
+				sessionsBase={sessionsBase}
+				speakersBase={speakersBase}
 				hidden={hidden}
 			/>
 		);
@@ -480,7 +540,7 @@ export function AgendaSurface({
 												session: block.sessionId,
 											})}
 											title={block.title}
-											className="absolute flex flex-col gap-0.5 overflow-hidden rounded-[6px] bg-canvas p-1.5 shadow-control hover:bg-chip focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol"
+											className={`absolute flex flex-col gap-0.5 overflow-hidden rounded-[6px] bg-canvas p-1.5 shadow-control transition-colors ${MOTION_FEEDBACK} hover:bg-chip focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
 											style={{
 												top:
 													(block.startMin - data.windowStartMin) * PX_PER_MIN +
@@ -539,12 +599,14 @@ export function AgendaSurface({
 export function ItinerarySurface({
 	data,
 	base,
+	sessionsBase,
 	eventId,
 	icsBase,
 	hidden,
 }: {
 	data: ItinerarySurfaceData;
 	base: string;
+	sessionsBase: string;
 	eventId: string;
 	icsBase: string;
 	hidden?: ReadonlySet<HideableField>;
@@ -579,7 +641,12 @@ export function ItinerarySurface({
 					</Tab>
 				))}
 				<Tab
-					to={makeHref(base, { view: "mine" })}
+					to={makeHref(base, {
+						day: data.activeDay,
+						q: data.filters.q,
+						track: data.filters.track,
+						view: "mine",
+					})}
 					active={data.view === "mine"}
 					count={schedule.ready ? starredCount : undefined}
 				>
@@ -626,9 +693,11 @@ export function ItinerarySurface({
 							</ResultCount>
 							<div className="ml-auto flex items-center gap-3">
 								{exported && (
-									<span className="text-[12.5px] text-fg-muted">
-										Downloaded — import the .ics into your calendar.
-									</span>
+									<MotionReveal kind="feedback">
+										<span className="text-[12.5px] text-fg-muted">
+											Downloaded — import the .ics into your calendar.
+										</span>
+									</MotionReveal>
 								)}
 								<Button
 									type="button"
@@ -654,6 +723,9 @@ export function ItinerarySurface({
 										session={session}
 										showDate={false}
 										hidden={hidden}
+										detailHref={makeHref(sessionsBase, {
+											session: session.id,
+										})}
 										action={
 											<StarButton
 												starred
@@ -721,6 +793,9 @@ export function ItinerarySurface({
 								session={session}
 								showDate={false}
 								hidden={hidden}
+								detailHref={makeHref(sessionsBase, {
+									session: session.id,
+								})}
 								action={
 									<StarButton
 										starred={schedule.ready && schedule.ids.has(session.id)}
@@ -742,9 +817,11 @@ export function ItinerarySurface({
 export function GallerySurface({
 	data,
 	base,
+	sessionsBase,
 }: {
 	data: SpeakerDirectoryData;
 	base: string;
+	sessionsBase: string;
 }) {
 	if (data.detail) {
 		return (
@@ -752,6 +829,7 @@ export function GallerySurface({
 				speaker={data.detail}
 				backHref={makeHref(base, { q: data.q, page: data.page })}
 				backLabel="Back to gallery"
+				sessionsBase={sessionsBase}
 			/>
 		);
 	}

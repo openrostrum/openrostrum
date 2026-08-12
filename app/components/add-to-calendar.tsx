@@ -1,11 +1,10 @@
 import { type ReactNode, useState } from "react";
-import { Button } from "~/ui";
+import { Button, MotionReveal } from "~/ui";
 
 /**
- * "Add to calendar" for one public session: downloads the per-session .ics
- * (the agenda feed narrowed to this session's id). Downloads via
- * location.assign — a client-side <Link> to a resource route won't stream the
- * attachment (same pattern as the itinerary's export).
+ * `location.assign` is required because a client-side `<Link>` to the resource
+ * route does not stream the generated attachment. This matches the itinerary's
+ * export behavior.
  */
 export function CalendarDownloadSurface({
 	href,
@@ -27,9 +26,11 @@ function AddToCalendar({ href }: { href: string }) {
 	return (
 		<div className="flex flex-wrap items-center justify-end gap-3">
 			{downloaded && (
-				<span className="text-[12.5px] text-fg-muted">
-					Download started — import the .ics into your calendar.
-				</span>
+				<MotionReveal kind="feedback">
+					<span className="text-[12.5px] text-fg-muted">
+						Download started — import the .ics into your calendar.
+					</span>
+				</MotionReveal>
 			)}
 			<Button
 				type="button"

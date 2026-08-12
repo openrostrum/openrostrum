@@ -1,5 +1,8 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -11,7 +14,10 @@ import {
 	users,
 } from "../app/db/schema";
 import { hashPassword } from "../app/lib/auth";
-import { action, loader } from "../app/routes/admin.crm.directory";
+import CrmDirectory, {
+	action,
+	loader,
+} from "../app/routes/admin.crm.directory";
 import { CONTEXT, requestAs, seedCrmBaseline } from "./crm-fixtures";
 
 type LoaderResult = {
@@ -46,7 +52,56 @@ async function runAction(userId: string, url: string, body: URLSearchParams) {
 	} as unknown as Parameters<typeof action>[0]);
 }
 
+function renderDirectory(actionData: unknown): string {
+	const Directory = CrmDirectory as unknown as ComponentType<{
+		loaderData: unknown;
+		actionData: unknown;
+	}>;
+	const loaderData = {
+		people: [],
+		total: 0,
+		page: 1,
+		perPage: 50,
+		filters: {},
+		events: [{ id: "e1", name: "DevFlow" }],
+		segment: null,
+	};
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/admin/crm/directory",
+			Component: () => createElement(Directory, { loaderData, actionData }),
+		},
+	]);
+	return renderToString(
+		createElement(RoutesStub, {
+			initialEntries: ["/admin/crm/directory"],
+		}),
+	);
+}
+
 describe("CRM directory", () => {
+	it("repopulates every add-person field after an error", () => {
+		const html = renderDirectory({
+			addPerson: true,
+			fieldErrors: { email: ["Enter a valid email address"] },
+			values: {
+				firstName: "Priya",
+				lastName: "Raman",
+				email: "not-an-email",
+				jobTitle: "Principal Engineer",
+				companyName: "Latticework Systems",
+				initialEventId: "e1",
+			},
+		});
+
+		expect(html).toMatch(/name="firstName"[^>]*value="Priya"/);
+		expect(html).toMatch(/name="lastName"[^>]*value="Raman"/);
+		expect(html).toMatch(/name="email"[^>]*value="not-an-email"/);
+		expect(html).toMatch(/name="jobTitle"[^>]*value="Principal Engineer"/);
+		expect(html).toMatch(/name="companyName"[^>]*value="Latticework Systems"/);
+		expect(html).toMatch(/<option value="e1" selected="">DevFlow<\/option>/);
+	});
+
 	it("unions appearances into one person per email and never crosses the org boundary", async () => {
 		await seedCrmBaseline();
 
@@ -248,6 +303,34 @@ describe("CRM directory", () => {
 		]);
 	});
 
+	it("retains every add-person field after validation fails", async () => {
+		await seedCrmBaseline();
+		const body = new URLSearchParams({
+			intent: "add-person",
+			firstName: "",
+			lastName: "Raman",
+			email: "not-an-email",
+			jobTitle: "Principal Engineer",
+			companyName: "Latticework Systems",
+			initialEventId: "e1",
+		});
+
+		const result = (await runAction(
+			"u_admin1",
+			"http://localhost/admin/crm/directory",
+			body,
+		)) as { data?: { values?: Record<string, string> } };
+
+		expect(result.data?.values).toEqual({
+			firstName: "",
+			lastName: "Raman",
+			email: "not-an-email",
+			jobTitle: "Principal Engineer",
+			companyName: "Latticework Systems",
+			initialEventId: "e1",
+		});
+	});
+
 	it("creates a new organization person in the selected event and redirects to their CRM profile", async () => {
 		await seedCrmBaseline();
 		const db = getDb(env);
@@ -296,8 +379,19 @@ describe("CRM directory", () => {
 				email: " PRIYA@EXAMPLE.COM ",
 				initialEventId: "e1",
 			}),
-		)) as { data?: { existing?: { email: string } } };
+		)) as {
+			data?: {
+				existing?: { email: string };
+				values?: Record<string, string>;
+			};
+		};
 		expect(exact.data?.existing?.email).toBe("priya@example.com");
+		expect(exact.data?.values).toMatchObject({
+			firstName: "Different",
+			lastName: "Name",
+			email: " PRIYA@EXAMPLE.COM ",
+			initialEventId: "e1",
+		});
 		expect(
 			(
 				await db
@@ -318,10 +412,21 @@ describe("CRM directory", () => {
 			"u_admin1",
 			"http://localhost/admin/crm/directory",
 			probableBody,
-		)) as { data?: { duplicate?: { name: string; email: string } } };
+		)) as {
+			data?: {
+				duplicate?: { name: string; email: string };
+				values?: Record<string, string>;
+			};
+		};
 		expect(warning.data?.duplicate).toEqual({
 			name: "Priya Raman",
 			email: "priya@example.com",
+		});
+		expect(warning.data?.values).toMatchObject({
+			firstName: "Priya",
+			lastName: "Raman",
+			email: "priya.third@example.com",
+			initialEventId: "e1",
 		});
 		expect(
 			await db
@@ -379,16 +484,64 @@ describe("CRM directory", () => {
 				email: "grace@example.com",
 				initialEventId: "e3",
 			}),
-		)) as { data?: { fieldErrors?: Record<string, string[]> } };
+		)) as {
+			data?: {
+				fieldErrors?: Record<string, string[]>;
+				values?: Record<string, string>;
+			};
+		};
 		expect(foreign.data?.fieldErrors?.initialEventId?.[0]).toMatch(
 			/organization/i,
 		);
+		expect(foreign.data?.values).toMatchObject({
+			firstName: "Grace",
+			lastName: "Hopper",
+			email: "grace@example.com",
+			initialEventId: "e3",
+		});
 		expect(
 			await db
 				.select({ id: contacts.id })
 				.from(contacts)
 				.where(eq(contacts.email, "grace@example.com")),
 		).toHaveLength(0);
+	});
+
+	it("retains every add-person field after a generic save failure", async () => {
+		await seedCrmBaseline();
+		const body = new URLSearchParams({
+			intent: "add-person",
+			firstName: "Ada",
+			lastName: "Lovelace",
+			email: "ada@example.com",
+			jobTitle: "Researcher",
+			companyName: "Analytical Engines",
+			initialEventId: "e1",
+		});
+		await env.DB.prepare(`
+			CREATE TRIGGER fail_crm_contact_insert
+			BEFORE INSERT ON contacts
+			BEGIN
+				SELECT RAISE(ABORT, 'forced failure');
+			END
+		`).run();
+
+		const result = (await runAction(
+			"u_admin1",
+			"http://localhost/admin/crm/directory",
+			body,
+		)) as { data?: { formError?: string; values?: Record<string, string> } };
+		await env.DB.prepare("DROP TRIGGER fail_crm_contact_insert").run();
+
+		expect(result.data?.formError).toMatch(/could not add/i);
+		expect(result.data?.values).toEqual({
+			firstName: "Ada",
+			lastName: "Lovelace",
+			email: "ada@example.com",
+			jobTitle: "Researcher",
+			companyName: "Analytical Engines",
+			initialEventId: "e1",
+		});
 	});
 
 	it("saves the current filter set as a segment and rejects blank or duplicate saves", async () => {

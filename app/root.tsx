@@ -10,7 +10,7 @@ import {
 } from "react-router";
 
 import { describeRouteError } from "~/lib/error-page";
-import { ButtonLink, EmptyState } from "~/ui";
+import { ButtonLink, EmptyState, MotionInputBoundary } from "~/ui";
 import type { Route } from "./+types/root";
 import "./app.css";
 import {
@@ -97,7 +97,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 				<Links />
 			</head>
 			<body>
-				{children}
+				<MotionInputBoundary>{children}</MotionInputBoundary>
 				<ScrollRestoration />
 				<Scripts />
 			</body>

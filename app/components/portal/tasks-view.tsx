@@ -32,7 +32,16 @@ export function TaskRows({
 							</Muted>
 						)}
 						{t.due && t.submissionTitle && <Muted> · </Muted>}
-						{t.submissionTitle && <Muted>{t.submissionTitle}</Muted>}
+						{t.submissionTitle &&
+							(t.submissionId ? (
+								<Muted>
+									<TextLink to={`${base}/submissions/${t.submissionId}`}>
+										{t.submissionTitle}
+									</TextLink>
+								</Muted>
+							) : (
+								<Muted>{t.submissionTitle}</Muted>
+							))}
 					</div>
 				</Row>
 			))}

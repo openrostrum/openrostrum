@@ -145,10 +145,20 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	);
 }
 
+type ContactValues = {
+	firstName: string;
+	lastName: string;
+	email: string;
+	jobTitle: string;
+	companyName: string;
+	bio: string;
+};
+
 type ActionResult = {
 	fieldErrors?: Record<string, string[] | undefined>;
 	formError?: string;
 	duplicate?: { name: string; email: string };
+	values?: ContactValues;
 };
 
 export async function action({
@@ -165,17 +175,26 @@ export async function action({
 	}
 	const db = getDb(env);
 	const form = await request.formData();
+	const values: ContactValues = {
+		firstName: String(form.get("firstName") ?? ""),
+		lastName: String(form.get("lastName") ?? ""),
+		email: String(form.get("email") ?? ""),
+		jobTitle: String(form.get("jobTitle") ?? ""),
+		companyName: String(form.get("companyName") ?? ""),
+		bio: String(form.get("bio") ?? ""),
+	};
 	const parsed = NewContact.safeParse({
-		firstName: form.get("firstName"),
-		lastName: form.get("lastName"),
-		email: normalizeEmail(String(form.get("email") ?? "")),
-		jobTitle: form.get("jobTitle") || null,
-		companyName: form.get("companyName") || null,
-		bio: form.get("bio") || null,
+		firstName: values.firstName,
+		lastName: values.lastName,
+		email: normalizeEmail(values.email),
+		jobTitle: values.jobTitle || null,
+		companyName: values.companyName || null,
+		bio: values.bio || null,
 	});
 	if (!parsed.success) {
 		return {
 			fieldErrors: z.flattenError(parsed.error).fieldErrors,
+			values,
 		};
 	}
 	const timings = createTimings();
@@ -203,6 +222,7 @@ export async function action({
 						name: `${parsed.data.firstName} ${parsed.data.lastName}`.trim(),
 						email: dup.email,
 					},
+					values,
 				},
 				{ headers: { "Server-Timing": timings.header() } },
 			);
@@ -225,6 +245,7 @@ export async function action({
 				fieldErrors: {
 					email: ["A contact with this email already exists for this event."],
 				},
+				values,
 			};
 		}
 		track("contact.create_failed", {
@@ -233,6 +254,7 @@ export async function action({
 		});
 		return {
 			formError: "Could not save the contact — please try again.",
+			values,
 		};
 	}
 }
@@ -301,6 +323,7 @@ export default function ContactsRoster({
 							<Input
 								name="firstName"
 								autoComplete="off"
+								defaultValue={actionData?.values?.firstName}
 								invalid={Boolean(actionData?.fieldErrors?.firstName?.[0])}
 							/>
 						</Field>
@@ -311,6 +334,7 @@ export default function ContactsRoster({
 							<Input
 								name="lastName"
 								autoComplete="off"
+								defaultValue={actionData?.values?.lastName}
 								invalid={Boolean(actionData?.fieldErrors?.lastName?.[0])}
 							/>
 						</Field>
@@ -319,18 +343,31 @@ export default function ContactsRoster({
 								name="email"
 								type="email"
 								autoComplete="off"
+								defaultValue={actionData?.values?.email}
 								invalid={Boolean(actionData?.fieldErrors?.email?.[0])}
 							/>
 						</Field>
 						<Field label="Job title">
-							<Input name="jobTitle" autoComplete="off" />
+							<Input
+								name="jobTitle"
+								autoComplete="off"
+								defaultValue={actionData?.values?.jobTitle}
+							/>
 						</Field>
 						<Field label="Company">
-							<Input name="companyName" autoComplete="off" />
+							<Input
+								name="companyName"
+								autoComplete="off"
+								defaultValue={actionData?.values?.companyName}
+							/>
 						</Field>
 					</div>
 					<Field label="Bio">
-						<Textarea name="bio" rows={3} />
+						<Textarea
+							name="bio"
+							rows={3}
+							defaultValue={actionData?.values?.bio}
+						/>
 					</Field>
 					<div className="flex flex-col gap-2">
 						{actionData?.duplicate && (

@@ -1,4 +1,7 @@
 import { env } from "cloudflare:test";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import { CONTACT_STATUS as CLIENT_CONTACT_STATUS } from "../app/db/constants";
@@ -11,7 +14,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { action, loader } from "../app/routes/admin.contacts";
+import ContactsRoster, { action, loader } from "../app/routes/admin.contacts";
 
 async function adminRequest(url: string, init?: RequestInit): Promise<Request> {
 	const db = getDb(env);
@@ -49,11 +52,58 @@ type LoaderResult = {
 	};
 };
 
+function renderRoster(actionData: unknown): string {
+	const Roster = ContactsRoster as unknown as ComponentType<{
+		loaderData: unknown;
+		actionData: unknown;
+	}>;
+	const loaderData = {
+		rows: [],
+		counts: { all: 0, pending: 0, invited: 0, confirmed: 0, declined: 0 },
+		total: 0,
+		page: 1,
+		perPage: 50,
+		q: "",
+		status: null,
+		eventName: "E",
+	};
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/admin/contacts",
+			Component: () => createElement(Roster, { loaderData, actionData }),
+		},
+	]);
+	return renderToString(
+		createElement(RoutesStub, { initialEntries: ["/admin/contacts"] }),
+	);
+}
+
 describe("contacts roster", () => {
 	// The client tuple in db/constants and the schema's column enum must never
 	// diverge — the roster's filter tabs are built from the client copy.
 	it("keeps the client CONTACT_STATUS tuple in lockstep with the schema", () => {
 		expect(CLIENT_CONTACT_STATUS).toEqual(SCHEMA_CONTACT_STATUS);
+	});
+
+	it("repopulates every add-speaker field after an error", () => {
+		const html = renderRoster({
+			fieldErrors: { email: ["Enter a valid email address"] },
+			values: {
+				firstName: "Priya",
+				lastName: "Raman",
+				email: "not-an-email",
+				jobTitle: "Principal Engineer",
+				companyName: "Latticework Systems",
+				bio: "Distributed builds.",
+			},
+		});
+
+		expect(html).toMatch(/name="firstName"[^>]*value="Priya"/);
+		expect(html).toMatch(/name="lastName"[^>]*value="Raman"/);
+		expect(html).toMatch(/name="email"[^>]*value="not-an-email"/);
+		expect(html).toMatch(/name="jobTitle"[^>]*value="Principal Engineer"/);
+		expect(html).toMatch(/name="companyName"[^>]*value="Latticework Systems"/);
+		expect(html).toMatch(/name="bio"[^>]*>Distributed builds\.<\/textarea>/);
 	});
 
 	it("filters by search and status server-side, scoped to the active event", async () => {
@@ -144,6 +194,41 @@ describe("contacts roster", () => {
 		expect(page2.data.rows).toHaveLength(10);
 	});
 
+	it("preserves every typed field after validation fails", async () => {
+		const body = new URLSearchParams({
+			firstName: "",
+			lastName: "Raman",
+			email: "not-an-email",
+			jobTitle: "Principal Engineer",
+			companyName: "Latticework Systems",
+			bio: "Distributed builds.",
+		});
+		const request = await adminRequest("http://localhost/admin/contacts", {
+			method: "POST",
+			body,
+		});
+		await seedEvent();
+
+		const result = (await action({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0])) as {
+			fieldErrors?: Record<string, string[]>;
+			values?: Record<string, string>;
+		};
+
+		expect(result.fieldErrors?.firstName?.[0]).toBeTruthy();
+		expect(result.values).toEqual({
+			firstName: "",
+			lastName: "Raman",
+			email: "not-an-email",
+			jobTitle: "Principal Engineer",
+			companyName: "Latticework Systems",
+			bio: "Distributed builds.",
+		});
+	});
+
 	it("creates a contact with a server-derived event and normalized email", async () => {
 		const db = getDb(env);
 		const body = new URLSearchParams({
@@ -201,10 +286,18 @@ describe("contacts roster", () => {
 			request,
 			params: {},
 		} as unknown as Parameters<typeof action>[0])) as unknown as {
-			data: { duplicate?: { name: string; email: string } };
+			data: {
+				duplicate?: { name: string; email: string };
+				values?: Record<string, string>;
+			};
 		};
 
 		expect(result.data.duplicate?.email).toBe("speaker@example.com");
+		expect(result.data.values).toMatchObject({
+			firstName: "sam",
+			lastName: "SPEAKER",
+			email: "sam.other@example.com",
+		});
 		expect(await db.select().from(contacts)).toHaveLength(1);
 
 		body.set("confirmDuplicate", "1");
@@ -255,6 +348,42 @@ describe("contacts roster", () => {
 		expect(result.fieldErrors?.email?.[0]).toMatch(/already exists/i);
 	});
 
+	it("preserves every typed field after a generic save failure", async () => {
+		const body = new URLSearchParams({
+			firstName: "Priya",
+			lastName: "Raman",
+			email: "priya@example.com",
+			jobTitle: "Principal Engineer",
+			companyName: "Latticework Systems",
+			bio: "Distributed builds.",
+		});
+		const request = await adminRequest("http://localhost/admin/contacts", {
+			method: "POST",
+			body,
+		});
+		await seedEvent();
+		await env.DB.prepare(`
+			CREATE TRIGGER fail_contact_insert
+			BEFORE INSERT ON contacts
+			BEGIN
+				SELECT RAISE(ABORT, 'forced failure');
+			END
+		`).run();
+
+		const result = (await action({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0])) as {
+			formError?: string;
+			values?: Record<string, string>;
+		};
+		await env.DB.prepare("DROP TRIGGER fail_contact_insert").run();
+
+		expect(result.formError).toMatch(/could not save/i);
+		expect(result.values).toEqual(Object.fromEntries(body));
+	});
+
 	it("rejects a duplicate email with a field error instead of a 500", async () => {
 		const db = getDb(env);
 		const body = new URLSearchParams({
@@ -281,9 +410,15 @@ describe("contacts roster", () => {
 			params: {},
 		} as unknown as Parameters<typeof action>[0])) as {
 			fieldErrors?: { email?: string[] };
+			values?: Record<string, string>;
 		};
 
 		expect(result.fieldErrors?.email?.[0]).toMatch(/already exists/i);
+		expect(result.values).toMatchObject({
+			firstName: "Priya",
+			lastName: "Raman",
+			email: "priya@example.com",
+		});
 		expect(await db.select().from(contacts)).toHaveLength(1);
 	});
 });

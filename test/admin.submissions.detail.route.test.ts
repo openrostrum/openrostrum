@@ -102,9 +102,12 @@ async function seedWorld() {
 	return db;
 }
 
-async function detailRequest(body?: URLSearchParams): Promise<Request> {
+async function detailRequest(
+	body?: URLSearchParams,
+	url = "http://localhost/admin/submissions/s1",
+): Promise<Request> {
 	const setCookie = await createSession(env, "u_admin");
-	return new Request("http://localhost/admin/submissions/s1", {
+	return new Request(url, {
 		method: body ? "POST" : "GET",
 		body,
 		headers: { Cookie: setCookie.split(";")[0] ?? "" },
@@ -240,6 +243,83 @@ describe("submission detail loader", () => {
 		expect(payload.answers).toEqual([
 			{ id: "a1", label: "Prior speaking experience", value: "Experienced" },
 		]);
+	});
+
+	it("returns to the exact allowed list origin", async () => {
+		const db = await seedWorld();
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e1",
+			title: "RAG in production",
+			status: "accepted",
+			type: "session",
+		});
+		const returnTo = "/admin/sessions?status=accepted&q=RAG&page=1";
+		const request = await detailRequest(
+			undefined,
+			`http://localhost/admin/submissions/s1?${new URLSearchParams({ returnTo })}`,
+		);
+		const loaded = unwrap(await callLoader(request)).data;
+		const html = renderDetail(loaded);
+
+		expect(html).toContain(
+			'href="/admin/sessions?status=accepted&amp;q=RAG&amp;page=1"',
+		);
+	});
+
+	it("rejects an unrelated internal return destination", async () => {
+		const db = await seedWorld();
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e1",
+			title: "RAG in production",
+			status: "accepted",
+			type: "session",
+		});
+		const returnTo = "/admin/contacts?q=Ada";
+		const request = await detailRequest(
+			undefined,
+			`http://localhost/admin/submissions/s1?${new URLSearchParams({ returnTo })}`,
+		);
+		const html = renderDetail(unwrap(await callLoader(request)).data);
+
+		expect(html).toContain('href="/admin/sessions"');
+		expect(html).not.toContain('href="/admin/contacts?q=Ada"');
+	});
+
+	it("returns to the exact central submissions origin", async () => {
+		const db = await seedWorld();
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e1",
+			title: "RAG in production",
+			status: "accepted",
+			type: "session",
+		});
+		const returnTo = "/admin/submissions?status=pending";
+		const request = await detailRequest(
+			undefined,
+			`http://localhost/admin/submissions/s1?${new URLSearchParams({ returnTo })}`,
+		);
+		const html = renderDetail(unwrap(await callLoader(request)).data);
+
+		expect(html).toContain('href="/admin/submissions?status=pending"');
+	});
+
+	it("links an unscheduled submission to the Agenda", async () => {
+		const db = await seedWorld();
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e1",
+			title: "RAG in production",
+			status: "accepted",
+			type: "session",
+		});
+		const html = renderDetail(
+			unwrap(await callLoader(await detailRequest())).data,
+		);
+
+		expect(html).toContain('href="/admin/agenda"');
 	});
 
 	it("404s another event's submission and unknown ids alike", async () => {
@@ -565,6 +645,27 @@ describe("guarded delete", () => {
 		expect(file?.submissionId).toBeNull();
 	});
 
+	it("redirects a deleted submission to its validated list origin", async () => {
+		const db = await seedWorld();
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e1",
+			title: "Doomed",
+			status: "declined",
+			type: "session",
+		});
+		const returnTo = "/admin/submissions?status=declined";
+		const response = (await callAction(
+			await detailRequest(
+				new URLSearchParams({ intent: "delete" }),
+				`http://localhost/admin/submissions/s1?${new URLSearchParams({ returnTo })}`,
+			),
+		)) as Response;
+
+		expect(response.status).toBe(302);
+		expect(response.headers.get("Location")).toBe(returnTo);
+	});
+
 	it("cannot delete another event's submission", async () => {
 		const db = await seedWorld();
 		await db.insert(submissions).values({
@@ -653,6 +754,22 @@ describe("revision history stays bounded on the loader", () => {
 		}
 		// 50 rows of metadata, independent of the 3KB bodies (was ~150KB+)
 		expect(JSON.stringify(payload.revisions).length).toBeLessThan(20_000);
+	});
+
+	it("preserves the list origin when opening full revision history", async () => {
+		await seedFatRevisions(60);
+		const returnTo = "/admin/sessions?status=accepted&q=RAG";
+		const request = await detailRequest(
+			undefined,
+			`http://localhost/admin/submissions/s1?${new URLSearchParams({ returnTo })}`,
+		);
+		const html = renderDetail(unwrap(await callLoader(request)).data);
+		const historyQuery = new URLSearchParams({
+			revisions: "all",
+			returnTo,
+		});
+
+		expect(html).toContain(historyQuery.toString().replaceAll("&", "&amp;"));
 	});
 
 	it("?revisions=all reaches the full history so no snapshot is stranded", async () => {

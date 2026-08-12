@@ -102,6 +102,14 @@ function lineMatches(lineText, fragments) {
 // README "Anchoring"): (1) quote match, added lines preferred; (2) `:N` read
 // as a SNIPPET line (all the model ever saw) mapped through parseDiff().map.
 export function anchorFinding(finding, newLines, snippetMap) {
+	if (Number.isInteger(finding.line) && finding.line > 0 && finding.quote) {
+		const claimed = newLines.find(
+			(candidate) => candidate.line === finding.line && candidate.added,
+		);
+		if (claimed && norm(claimed.text).includes(norm(finding.quote)))
+			return claimed.line;
+		if (!finding.location) return null;
+	}
 	for (const quote of extractQuotes(finding)) {
 		const fragments = fragmentsOf(quote);
 		if (!fragments.length) continue;
@@ -187,14 +195,24 @@ export function mergeFile(findings) {
 	for (const f of findings) {
 		const c = concept(f);
 		const g = groups.find((g) => similar(g.concept, c));
-		if (g) g.agents.add(f.agent);
-		else
+		if (g) {
+			g.agents.add(f.agent);
+			// Merging must not cost the group its anchor: the first reporter of a
+			// shared concern may be the one that could not cite a changed line.
+			if (g.line == null && f.line != null) {
+				g.line = f.line;
+				g.quote = f.quote;
+			}
+			if (!g.location && f.location) g.location = f.location;
+		} else
 			groups.push({
 				concept: c,
 				agents: new Set([f.agent]),
 				rule: f.rule,
 				why: f.why,
 				location: f.location,
+				line: f.line,
+				quote: f.quote,
 			});
 	}
 	return groups;
@@ -275,6 +293,12 @@ export function reconcile(groups, threads, prevBodyFindings = []) {
 		(t) => !matchedThreads.has(t.id) && !t.isResolved && !t.hasResolvedReply,
 	);
 	return { toPost, skipped, toResolve };
+}
+
+export function partitionStaleThreads(toResolve, reviewComplete) {
+	return reviewComplete
+		? { resolvable: toResolve, deferred: [] }
+		: { resolvable: [], deferred: toResolve };
 }
 
 // ---------------------------------------------------------------------------

@@ -53,6 +53,8 @@ export default function PublicSessions({ loaderData }: Route.ComponentProps) {
 				<SessionsSurface
 					data={loaderData.surface}
 					base={`/sessions/${loaderData.event.slug}`}
+					sessionsBase={`/sessions/${loaderData.event.slug}`}
+					speakersBase={`/speakers/${loaderData.event.slug}`}
 				/>
 			</CalendarDownloadSurface>
 		</ProgramShell>

@@ -172,7 +172,18 @@ export function TaskDetailView({
 									}
 								: null,
 							data.submissionTitle
-								? { label: "For session", value: data.submissionTitle }
+								? {
+										label: "For session",
+										value: data.submissionId ? (
+											<TextLink
+												to={`${data.base}/submissions/${data.submissionId}`}
+											>
+												{data.submissionTitle}
+											</TextLink>
+										) : (
+											data.submissionTitle
+										),
+									}
 								: null,
 							data.completedOn
 								? { label: "Completed", value: data.completedOn }
@@ -183,14 +194,13 @@ export function TaskDetailView({
 						<p className="text-[13px] text-fg-muted">{data.description}</p>
 					)}
 					{data.linkUrl && (
-						<a
+						<TextLink
 							href={data.linkUrl}
 							target="_blank"
 							rel="noopener noreferrer"
-							className="font-medium text-petrol underline underline-offset-2 hover:text-petrol-hover"
 						>
 							Open link ↗
-						</a>
+						</TextLink>
 					)}
 				</div>
 			</Card>

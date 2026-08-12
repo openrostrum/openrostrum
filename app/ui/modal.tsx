@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { Button } from "./button";
+import { DialogSurface } from "./motion";
 
 export function Modal({
 	open,
@@ -19,16 +20,8 @@ export function Modal({
 	const titleId = useId();
 	if (!open) return null;
 	return (
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.42)] p-4"
-			role="presentation"
-		>
-			<div
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby={titleId}
-				className="flex max-h-[92vh] w-full max-w-4xl flex-col gap-4 overflow-y-auto rounded-card bg-surface p-5 shadow-card"
-			>
+		<DialogSurface labelledBy={titleId} onDismiss={onClose}>
+			<div className="flex flex-col gap-4">
 				<div className="flex items-start justify-between gap-4">
 					<div>
 						<h2
@@ -52,6 +45,6 @@ export function Modal({
 					</div>
 				)}
 			</div>
-		</div>
+		</DialogSurface>
 	);
 }

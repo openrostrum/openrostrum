@@ -1,15 +1,9 @@
 import { and, eq } from "drizzle-orm";
-import {
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
 	data,
 	Form,
+	Link,
 	type ShouldRevalidateFunctionArgs,
 	useFetcher,
 	useFetchers,
@@ -910,9 +904,7 @@ export default function Agenda({
 	const placeFetcher = useFetcher<ActionResult>();
 	const publishFetcher = useFetcher<ActionResult>();
 	const updatesFetcher = useFetcher<ActionResult>();
-	// Search stays local state (not a URL param): a param write per keystroke
-	// would spam history with navigations for a filter nobody deep-links.
-	const [q, setQ] = useState("");
+	const q = searchParams.get("q") ?? "";
 	const [publishOpen, setPublishOpen] = useState(false);
 	const [publishAttempted, setPublishAttempted] = useState(false);
 	const { submitMutation, mutationError } = useMutationQueue();
@@ -941,15 +933,15 @@ export default function Agenda({
 		() => buildConflictRows(publicConflicts),
 		[publicConflicts],
 	);
-	const closePublish = useCallback(() => setPublishOpen(false), []);
-	const openPublish = useCallback(() => {
+	const closePublish = () => setPublishOpen(false);
+	const openPublish = () => {
 		setPublishAttempted(false);
 		setPublishOpen(true);
-	}, []);
-	const startUnpublish = useCallback(() => {
+	};
+	const startUnpublish = () => {
 		setPublishAttempted(false);
 		setPublishOpen(false);
-	}, []);
+	};
 
 	if (!event) {
 		return (
@@ -1230,7 +1222,12 @@ export default function Agenda({
 					<SearchInput
 						placeholder="Search sessions or speakers…"
 						value={q}
-						onChange={(e) => setQ(e.currentTarget.value)}
+						onChange={(e) =>
+							setSearchParams(
+								(prev) => patchParams(prev, { q: e.currentTarget.value }),
+								{ replace: true, preventScrollReset: true },
+							)
+						}
 						aria-label="Search sessions"
 					/>
 					<Field label="Track">
@@ -1579,7 +1576,7 @@ function ListView({
 								{byId.has(s.id) && (
 									<ConflictClock label="Scheduling conflict" />
 								)}
-								<span className="truncate">{s.title}</span>
+								<Link to={`/admin/submissions/${s.id}`}>{s.title}</Link>
 							</span>
 						</Td>
 						<Td>
