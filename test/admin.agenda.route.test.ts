@@ -795,7 +795,7 @@ function keynoteIcs(options: {
 }
 
 describe("calendar ledger lifecycle", () => {
-	// XM-S5 demands no orphans anywhere after a hard delete. The ledger adds two
+	// A hard delete may leave no orphan behind. The ledger adds two
 	// submission-keyed tables, so deleting a submission must take them with it —
 	// while the processed marker, which belongs to the immutable outbox row and
 	// not to the submission, must survive so history is never re-normalized.
