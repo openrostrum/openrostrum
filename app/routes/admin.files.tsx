@@ -244,7 +244,14 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 				)}
 			</Form>
 
-			<Form method="get" action="/admin/files/export.zip" id="zip-export">
+			{/* reloadDocument or the click is swallowed by the client router and
+			    lands on an empty page instead of saving a file */}
+			<Form
+				method="get"
+				action="/admin/files/export.zip"
+				id="zip-export"
+				reloadDocument
+			>
 				{/* selections made on OTHER pages have no checkbox in the DOM —
 				    without these the export silently drops them */}
 				{[...selected]
