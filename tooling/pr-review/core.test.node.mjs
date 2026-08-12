@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { makeRuntime, streamOptions } from "./core.mjs";
+import {
+	FINDING_LIMITS,
+	makeRuntime,
+	RESPONSE_CEILING,
+	streamOptions,
+	SUBMISSIONS_PER_RESPONSE,
+} from "./core.mjs";
 
 // The contract: reviewer sessions must reach DeepSeek through Pi's own DeepSeek
 // provider, so the wire format, compat quirks, and tool support come from Pi's
@@ -18,23 +24,58 @@ test("the runtime carries Pi's DeepSeek provider contract, not a hand-built mode
 	assert.equal(runtime.model.compat?.supportsDeveloperRole, false);
 	assert.equal(runtime.model.compat?.thinkingFormat, "deepseek");
 	assert.ok(runtime.model.contextWindow > 0);
-	// A hand-picked ceiling of 16000 truncated four of five reviewers on a
-	// 2700-line pull request. The catalog has to supply a real output limit,
-	// because that limit is now the only thing bounding a reviewer's answer.
+	// The model still has to be able to give a response the size our contract
+	// asks for; anything less and reviewers truncate for a reason we chose.
 	assert.ok(
-		runtime.model.maxTokens >= 100_000,
-		`catalog ceiling ${runtime.model.maxTokens} is too small to review a large diff`,
+		runtime.model.maxTokens >= RESPONSE_CEILING,
+		`catalog ceiling ${runtime.model.maxTokens} is below the ${RESPONSE_CEILING} a response can need`,
 	);
 });
 
-test("the output ceiling forwarded to the provider is the model's own", () => {
+// A response no longer carries the review — findings are submitted one tool call
+// at a time — so asking DeepSeek for the catalog's 384000 was requesting 47x
+// what any response can hold, from a provider that honours 8192 regardless. Ask
+// for what the contract can actually require.
+test("the ceiling asked for is the largest response this contract can require", () => {
 	const sent = streamOptions({
 		key: "test-key",
 		temperature: 0,
-		model: { maxTokens: 262_144 },
+		model: { maxTokens: 384_000 },
 	});
 
-	assert.equal(sent.maxTokens, 262_144);
+	assert.equal(sent.maxTokens, RESPONSE_CEILING);
+	assert.ok(RESPONSE_CEILING < 384_000);
+});
+
+test("a model that cannot reach the contract ceiling is asked for its own", () => {
+	const sent = streamOptions({
+		key: "test-key",
+		temperature: 0,
+		model: { maxTokens: 2048 },
+	});
+
+	assert.equal(sent.maxTokens, 2048);
+});
+
+// The ceiling is derived, so it must keep holding a worst-case response rather
+// than drifting into a number that truncates the contract it was derived from.
+test("the requested ceiling holds a full response of maximum-size findings", () => {
+	const maximal = JSON.stringify(
+		Array.from({ length: SUBMISSIONS_PER_RESPONSE }, () => ({
+			file: `${"deep-directory/".repeat(8)}${"n".repeat(60)}.tsx`,
+			line: 999_999,
+			quote: "q".repeat(FINDING_LIMITS.quote),
+			rule: "r".repeat(FINDING_LIMITS.rule),
+			why: "w".repeat(FINDING_LIMITS.why),
+		})),
+	);
+
+	// Four characters per token is generous for JSON carrying code and prose,
+	// and the ceiling has to leave the model room for its own words on top.
+	assert.ok(
+		RESPONSE_CEILING > maximal.length / 4,
+		`ceiling ${RESPONSE_CEILING} cannot hold ${SUBMISSIONS_PER_RESPONSE} maximum findings (${maximal.length} chars)`,
+	);
 });
 
 test("a caller may still narrow the ceiling below the model's limit", () => {
