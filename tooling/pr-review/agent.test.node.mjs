@@ -7,9 +7,19 @@ import {
 	fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { runRuleReviewer, runRuleReviewers } from "./agent.mjs";
-import { loadSystems } from "./core.mjs";
+import { FINDING_LIMITS, loadSystems } from "./core.mjs";
+import { anchorFinding } from "./inline.mjs";
 
 const stop = (value) => fauxAssistantMessage(JSON.stringify(value));
+
+const ENGINEERING = { id: "engineering", doc: "docs/rules/engineering.md" };
+
+function promptText(messages) {
+	const content = messages[0].content;
+	return Array.isArray(content)
+		? content.map((block) => block.text ?? "").join("")
+		: content;
+}
 
 function repository(changes, toolResults = {}) {
 	return {
@@ -188,6 +198,40 @@ test("a malformed terminal response is incomplete, not a clean review", async ()
 	assert.deepEqual(result.findings, []);
 });
 
+// Narrating instead of answering, answering with reasoning only, and answering
+// with nothing all reach the boundary as the same schema error. Production has
+// hit this on four separate runs, and the reason has to say which one it was.
+test("an unparseable terminal answer names what the model emitted", async () => {
+	const narration = "I checked every changed file and found no violations.";
+	const { runtime } = fauxRuntime([fauxAssistantMessage(narration)]);
+
+	const narrated = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository([{ status: "M", path: "app/x.ts" }]),
+		runtime,
+	});
+
+	assert.equal(narrated.status, "incomplete");
+	assert.match(narrated.reason, /must be object/);
+	assert.match(narrated.reason, /blocks text/);
+	assert.match(
+		narrated.reason,
+		new RegExp(`${narration.length} chars of text`),
+	);
+	assert.match(narrated.reason, /starting "I checked every changed file/);
+
+	const silent = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository([{ status: "M", path: "app/x.ts" }]),
+		runtime: fauxRuntime([fauxAssistantMessage("")]).runtime,
+	});
+
+	assert.equal(silent.status, "incomplete");
+	assert.match(silent.reason, /0 chars of text, no text emitted/);
+});
+
 test("a finding outside the pull request is incomplete", async () => {
 	const { runtime } = fauxRuntime([
 		stop({
@@ -213,6 +257,127 @@ test("a finding outside the pull request is incomplete", async () => {
 
 	assert.equal(result.status, "incomplete");
 	assert.match(result.reason, /does not change/i);
+});
+
+// The output budget is what truncated three of five reviewers on a 2700-line
+// pull request, so the prompt now states a per-field ceiling. It has to be the
+// same ceiling the boundary applies, or reviewers are held to a contract they
+// were never given.
+test("the finding budget the prompt states is the budget enforced", async () => {
+	const contexts = [];
+	const { runtime } = fauxRuntime([
+		(context) => {
+			contexts.push(structuredClone(context.messages));
+			return stop({ status: "complete", findings: [] });
+		},
+	]);
+
+	await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository([{ status: "M", path: "app/x.ts" }]),
+		runtime,
+	});
+
+	const prompt = promptText(contexts[0]);
+	assert.match(prompt, new RegExp(`at most ${FINDING_LIMITS.quote} char`));
+	assert.match(prompt, new RegExp(`at most ${FINDING_LIMITS.rule} char`));
+	assert.match(prompt, new RegExp(`at most ${FINDING_LIMITS.why}\\b`));
+});
+
+// Trimming, not rejecting: a verbose statement of a real violation is still a
+// real violation, and the posted comment only needs the cited line.
+test("an over-long finding is trimmed to the budget and still anchors", async () => {
+	const changedLine = `const value = compute(${"argument".repeat(50)});`;
+	const { runtime } = fauxRuntime([
+		stop({
+			status: "complete",
+			findings: [
+				{
+					file: "app/x.ts",
+					line: 12,
+					quote: changedLine,
+					rule: `Rule${"-restated".repeat(40)}`,
+					why: `This line ${"repeats itself ".repeat(40)}unnecessarily.`,
+				},
+			],
+		}),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository([{ status: "M", path: "app/x.ts" }]),
+		runtime,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	const [finding] = result.findings;
+	// The posting layer anchors by testing whether the cited changed line
+	// contains the quote, so a trimmed quote must stay a literal substring of
+	// it — an elided one anchors nowhere and demotes to a file-level comment.
+	assert.equal(
+		anchorFinding(
+			finding,
+			[{ line: 12, added: true, text: changedLine }],
+			null,
+		),
+		12,
+	);
+	assert.equal(finding.quote.length, FINDING_LIMITS.quote);
+	assert.ok(finding.rule.length <= FINDING_LIMITS.rule);
+	assert.ok(finding.why.length <= FINDING_LIMITS.why);
+	assert.ok(finding.rule.endsWith("…"));
+	assert.ok(finding.why.endsWith("…"));
+});
+
+// The faux provider estimates usage from the text it emits, but a truncation
+// diagnostic reports what the provider claims it produced — replace the
+// reported usage on the way out and leave the rest of the stream alone.
+function withUsage(runtime, usage) {
+	return {
+		...runtime,
+		streamFn(model, context, options) {
+			const stream = runtime.streamFn(model, context, options);
+			return {
+				[Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](),
+				result: async () => ({ ...(await stream.result()), usage }),
+			};
+		},
+	};
+}
+
+// "provider stopped with length" cannot distinguish an enormous answer from a
+// provider ceiling below the one we asked for; the numbers can.
+test("a truncated answer reports its size against the ceiling requested", async () => {
+	const { runtime } = fauxRuntime([
+		fauxAssistantMessage('{"status":"complete","findings":[', {
+			stopReason: "length",
+		}),
+	]);
+	const measured = withUsage(runtime, {
+		input: 40_000,
+		output: 8192,
+		reasoning: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: 48_192,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	});
+	measured.model = { ...runtime.model, maxTokens: 262_144 };
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository([{ status: "M", path: "app/x.ts" }]),
+		runtime: measured,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /length/);
+	assert.match(result.reason, /8192 output tokens/);
+	assert.match(result.reason, /0 of them reasoning/);
+	assert.match(result.reason, /ceiling requested 262144/);
 });
 
 test("provider failure and turn exhaustion are incomplete", async () => {
