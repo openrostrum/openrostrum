@@ -16,6 +16,7 @@ import {
 	mergeFile,
 	parseDiff,
 	parseFindingMarkers,
+	partitionStaleThreads,
 	reconcile,
 	resolvedReplyBody,
 	RESOLVED_MARKER,
@@ -163,6 +164,23 @@ test("anchorFinding: :N reads as a snippet line and maps through to the file lin
 	assert.equal(anchorFinding({ location: "app/x.ts:99" }, lines, map), null);
 });
 
+test("anchorFinding validates an agent's absolute line and exact quote", () => {
+	const { map, newLines: lines } = parseDiff(DIFF);
+	assert.equal(
+		anchorFinding(
+			{ line: 12, quote: "const z = 2;", location: "app/x.ts:999" },
+			lines,
+			map,
+		),
+		12,
+	);
+	// Never trust a numeric model claim when its quote does not match that line.
+	assert.equal(
+		anchorFinding({ line: 12, quote: "different code" }, lines, map),
+		null,
+	);
+});
+
 test("anchorFinding: nothing quotable, no :N → null (file-level fallback)", () => {
 	const { map, newLines: lines } = parseDiff(DIFF);
 	assert.equal(
@@ -230,6 +248,28 @@ test("mergeFile collapses near-identical findings and credits both agents", () =
 	]);
 	assert.equal(groups.length, 1);
 	assert.deepEqual([...groups[0].agents].sort(), ["engineering", "process"]);
+});
+
+test("a merged group keeps the anchor of whichever reporter could cite a line", () => {
+	const groups = mergeFile([
+		{
+			agent: "process",
+			rule: "Use safe helper",
+			why: "The new caller bypasses the safe helper.",
+			file: "app/x.ts",
+		},
+		{
+			agent: "engineering",
+			rule: "Use safe helper",
+			why: "The new caller bypasses the safe helper.",
+			file: "app/x.ts",
+			line: 12,
+			quote: "unsafeCall()",
+		},
+	]);
+	assert.equal(groups.length, 1);
+	assert.equal(groups[0].line, 12);
+	assert.equal(groups[0].quote, "unsafeCall()");
 });
 
 const mkGroup = (file, rule, why) => {
@@ -359,6 +399,20 @@ test("reconcile: markers from earlier review BODIES dedupe too", () => {
 	assert.equal(toPost.length, 0);
 	assert.equal(skipped.length, 1);
 	assert.equal(skipped[0].body.fp, g.fp);
+});
+
+test("incomplete reviewer runs defer every stale-thread transition", () => {
+	const first = mkGroup("a.ts", "no raw fetch", "Uses raw fetch.");
+	const second = mkGroup("b.ts", "missing opt-out", "No @public comment.");
+	const stale = [mkThread(first), mkThread(second, { id: 2 })];
+	assert.deepEqual(partitionStaleThreads(stale, true), {
+		resolvable: stale,
+		deferred: [],
+	});
+	assert.deepEqual(partitionStaleThreads(stale, false), {
+		resolvable: [],
+		deferred: stale,
+	});
 });
 
 test("buildReviewPayload: COMMENT event, anchored comments, unanchored section", () => {

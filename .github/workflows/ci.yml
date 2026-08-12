@@ -49,8 +49,7 @@ jobs:
   # COMMENT). Posts findings as one review with inline comments; posting model
   # and reconcile semantics: tooling/pr-review/README.md. Security boundary:
   # `pull_request` trigger (NOT pull_request_target) — fork PRs never receive
-  # the secret or write token (guard green-skips); within it the job runs only
-  # this repo's review scripts, no dependency install, no build.
+  # the secret or write token (guard green-skips).
   ai-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -78,10 +77,15 @@ jobs:
         if: steps.guard.outputs.go == 'true'
         with:
           fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        if: steps.guard.outputs.go == 'true'
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.go == 'true'
         with:
           node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        if: steps.guard.outputs.go == 'true'
       - name: Review the diff
         if: steps.guard.outputs.go == 'true'
         env:
@@ -110,11 +114,11 @@ jobs:
         run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
-      # Unit tests for tooling/pr-review/inline.mjs. Outside `pnpm test`
-      # (workerd has no node:test) and in THIS unconditional job, not the
-      # secret-gated ai-review — see tooling/pr-review/README.md.
+      # Node-only tests for PR-review tooling. Outside `pnpm test` (workerd has
+      # no node:test) and in THIS unconditional job, not the secret-gated
+      # ai-review — see tooling/pr-review/README.md.
       - name: Test PR-review tooling
-        run: node --test tooling/pr-review/inline.test.node.mjs
+        run: node --test tooling/pr-review/*.test.node.mjs
       - name: Build
         run: pnpm build
 
