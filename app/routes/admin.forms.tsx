@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { data, Form, useOutlet } from "react-router";
-import { and, desc, eq, gt, isNull, like, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { getDb } from "~/db";
 import { forms, submissions } from "~/db/schema";
 import { adminFormPath } from "~/domain/forms";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { effectiveFormStatus, FORM_STATUS_TONE } from "~/lib/forms";
+import { likeContains } from "~/lib/like";
 import { createTimings } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
@@ -77,8 +78,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		eq(forms.eventId, event.id),
 		q
 			? or(
-					like(forms.internalName, `%${q}%`),
-					like(forms.externalTitle, `%${q}%`),
+					likeContains(forms.internalName, q),
+					likeContains(forms.externalTitle, q),
 				)
 			: undefined,
 	);

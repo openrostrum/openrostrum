@@ -6,7 +6,6 @@ import {
 	eq,
 	inArray,
 	isNull,
-	like,
 	ne,
 	type SQL,
 } from "drizzle-orm";
@@ -26,6 +25,7 @@ import {
 	type SessionWithRelations,
 	type UnassignedStyle,
 } from "~/lib/compat/serializers";
+import { likeContains } from "~/lib/like";
 import {
 	type ApiApp,
 	type ApiContext,
@@ -235,7 +235,7 @@ export function registerSessionRoutes(app: ApiApp): void {
 			);
 		}
 		const search = url.searchParams.get("search");
-		if (search) conds.push(like(submissions.title, `%${search}%`));
+		if (search) conds.push(likeContains(submissions.title, search));
 		const { rows, total } = await pageOfSessions(
 			c,
 			conds,

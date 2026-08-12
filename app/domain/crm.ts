@@ -1,14 +1,4 @@
-import {
-	and,
-	type AnyColumn,
-	count,
-	desc,
-	eq,
-	inArray,
-	or,
-	type SQL,
-	sql,
-} from "drizzle-orm";
+import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Db } from "~/db";
 import { PIPELINE_STAGE } from "~/db/constants";
 import {
@@ -22,6 +12,7 @@ import {
 import { normalizeEmail } from "~/lib/auth";
 import type { CrmContactStatus, DirectoryFilters } from "~/lib/crm-filters";
 import { isUniqueViolation } from "~/lib/errors";
+import { likeContains } from "~/lib/like";
 import type { PipelineStage } from "~/lib/pipeline";
 
 /* -------------------------------------------------------------- directory --- */
@@ -33,12 +24,6 @@ import type { PipelineStage } from "~/lib/pipeline";
  * the org's appearances sharing a lowercased email. */
 const personEmail = sql<string>`lower(${contacts.email})`;
 const personName = sql<string>`lower(trim(${contacts.firstName}) || ' ' || trim(${contacts.lastName}))`;
-
-/** Escape LIKE wildcards so a user searching "100%" matches literally. */
-function likeContains(column: AnyColumn | SQL, q: string): SQL {
-	const pattern = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-	return sql`${column} LIKE ${pattern} ESCAPE '\\'`;
-}
 
 /**
  * Appearance-level predicate: a person matches when at least ONE of their

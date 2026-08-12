@@ -1,16 +1,8 @@
-import {
-	and,
-	type AnyColumn,
-	asc,
-	eq,
-	inArray,
-	or,
-	type SQL,
-	sql,
-} from "drizzle-orm";
+import { and, asc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Db } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import { contacts } from "~/db/schema";
+import { likeContains } from "~/lib/like";
 
 export type ContactStatus = (typeof CONTACT_STATUS)[number];
 
@@ -61,12 +53,6 @@ export function probableContactDuplicateKey(input: {
 		`${normalizeIdentityPart(input.firstName)} ${normalizeIdentityPart(input.lastName)}`.trim();
 	const company = normalizeIdentityPart(input.companyName ?? "");
 	return name && company ? `${name}\u0000${company}` : null;
-}
-
-/** Escape LIKE wildcards so a user searching "100%" matches literally. */
-function likeContains(column: AnyColumn | SQL, q: string): SQL {
-	const pattern = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-	return sql`${column} LIKE ${pattern} ESCAPE '\\'`;
 }
 
 /**

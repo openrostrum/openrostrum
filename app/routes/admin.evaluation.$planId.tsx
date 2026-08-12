@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { and, count, desc, eq, inArray, like, notInArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, notInArray } from "drizzle-orm";
 import { Form, data, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
@@ -39,6 +39,7 @@ import { Pager } from "~/lib/pager";
 import { loadPlanScores } from "~/lib/plan-scores";
 import { listEventReviewers } from "~/lib/reviewers";
 import { escapeHtmlText } from "~/lib/html";
+import { likeContains } from "~/lib/like";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import { getEmailSender } from "~/ports/email";
@@ -246,7 +247,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		const filter = and(
 			eq(submissions.eventId, event.id),
 			notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
-			q ? like(submissions.title, `%${q}%`) : undefined,
+			q ? likeContains(submissions.title, q) : undefined,
 		);
 		const [totals, subRows, eventTracks] = await timings.time("db-assign", () =>
 			Promise.all([

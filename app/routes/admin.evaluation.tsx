@@ -8,7 +8,6 @@ import {
 	eq,
 	inArray,
 	isNull,
-	like,
 	sql,
 } from "drizzle-orm";
 import { Form, Outlet, data, redirect } from "react-router";
@@ -40,6 +39,7 @@ import {
 import { deletePlanDeep } from "~/lib/assign";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
+import { likeContains } from "~/lib/like";
 import {
 	fetchChunked,
 	formatDay,
@@ -260,7 +260,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 					.where(
 						and(
 							inArray(submissions.id, chunk),
-							q ? like(submissions.title, `%${q}%`) : undefined,
+							q ? likeContains(submissions.title, q) : undefined,
 						),
 					),
 			)
@@ -312,7 +312,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		const reviewable = aiReviewableFilter(event.id);
 		const filter = and(
 			reviewable,
-			q ? like(submissions.title, `%${q}%`) : undefined,
+			q ? likeContains(submissions.title, q) : undefined,
 		);
 		const effective = sql`coalesce(${aiReviews.overrideScore}, ${aiReviews.score})`;
 		// SQLite sorts NULL smallest: DESC pushes unscored rows last for free;
