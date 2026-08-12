@@ -2,13 +2,10 @@ import type { ReactNode } from "react";
 import { cn } from "./cn";
 
 /**
- * The label voice: 11px semibold caps at +0.06em. It names a thing that is not
- * itself content — a column, a section, a field, a lane — and the design system
- * gives the whole tool exactly one of it.
- *
- * It owns the voice and nothing else. Padding, height, stickiness and
- * truncation belong to whatever box the caller is putting this label in, so
- * Caps sets no line-height and no layout: wrap it, don't configure it.
+ * The label voice: 11px semibold caps at +0.06em, naming a thing that is not
+ * itself content — a column, a section, a field, a lane. It owns the voice and
+ * nothing else: padding, height, stickiness and truncation belong to the box
+ * the caller wraps it in, so it sets no line-height and no layout.
  */
 const BASE = "text-[11px] font-semibold uppercase tracking-[0.06em]";
 

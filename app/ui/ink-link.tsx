@@ -4,13 +4,10 @@ import { Link } from "react-router";
 import { cn } from "./cn";
 
 /**
- * A link that reads as the text around it — no petrol, underline only on
- * hover. The counterpart to TextLink: petrol is reserved for prose links, so
- * titles, rows and metadata inside cards use this instead (the petrol law).
- *
- * It exists to own the focus ring. Hand-rolled copies of this recipe drifted
- * across six call sites and one of them shipped with no ring at all, which is
- * a keyboard user losing their place, not a cosmetic difference.
+ * A link that reads as the text around it — no petrol, underline on hover; the
+ * petrol law reserves that color for prose links (`TextLink`). It exists to own
+ * the focus ring: six hand-rolled copies drifted and one shipped with no ring
+ * at all, which is a keyboard user losing their place.
  */
 const BASE = cn(
 	`rounded-[3px] underline-offset-2 transition-colors ${MOTION_FEEDBACK} hover:underline`,

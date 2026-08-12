@@ -28,14 +28,10 @@ export function formatDateLine(date: Date, timeZone: string): string {
 }
 
 /**
- * "Job title · company" — the one way OpenRostrum writes a person's role, on
- * the public program and in the CRM alike. Either part may be missing, and
- * with neither the caller decides the fallback ("—", "No title or company on
- * record"), because that copy is the surface's, not the format's.
- *
- * `transform` maps each part before joining: the HTML feeds must escape the
- * parts but not the separator, and that is the only way to do it without
- * re-deriving which parts there are.
+ * "Job title · company" — the one way OpenRostrum writes a person's role. With
+ * neither part the caller picks the fallback, because that copy is the
+ * surface's. `transform` maps each part before joining: the HTML feeds must
+ * escape the parts but not the separator.
  */
 export function formatRole(
 	person: { jobTitle?: string | null; companyName?: string | null },
