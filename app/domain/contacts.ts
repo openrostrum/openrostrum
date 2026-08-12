@@ -64,13 +64,9 @@ export function probableContactDuplicateKey(input: {
 }
 
 /**
- * What follows a person from one event to another: their identity and profile,
- * never their workflow state. Both paths that give a directory person a new
- * appearance — "Add to event" and the organization CSV import — carry exactly
- * this set, so the two can't drift into copying different halves of a person.
- *
- * Status, travel notes, and anything else per-event stay behind; the caller
- * supplies `eventId`, `email`, and the starting `status`.
+ * Identity and profile follow a person to a new event; per-event workflow state
+ * stays behind. Both callers — "Add to event" and the organization CSV import —
+ * share this list so they can't drift into copying different halves of a person.
  */
 export function carriedProfile(source: typeof contacts.$inferSelect) {
 	return {

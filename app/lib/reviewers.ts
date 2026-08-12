@@ -198,22 +198,18 @@ async function mintOrgLessToken(
 }
 
 /**
- * Does this account reach beyond `organizationId`? A set-password link
- * overwrites the account's password, so an organizer may only be handed one
- * for an account that lives entirely inside their own org — otherwise adding
- * another org's admin (or speaker) as a reviewer, then copying their link,
- * would be an account takeover across the tenancy boundary.
- *
- * The four surfaces an account can hold standing on: org membership, reviewer
- * track assignments, contact records, and authored submissions. Round
- * evaluator rows can't exist without a track assignment (assignment validates
- * against the reviewer registry), so they need no separate probe.
+ * A set-password link overwrites the account's password, so an organizer may
+ * only be handed one for an account living entirely inside their own org —
+ * otherwise adding another org's admin as a reviewer and copying their link is
+ * an account takeover across the tenancy boundary.
  */
 export async function hasStandingOutsideOrg(
 	db: Db,
 	userId: string,
 	organizationId: string,
 ): Promise<boolean> {
+	// Evaluator rows can't exist without a track assignment, so `reviewing`
+	// already covers them.
 	const [memberships, reviewing, contactRows, authored] = await Promise.all([
 		db
 			.select({ id: organizationMembers.id })
