@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Chip, InkLink } from "~/ui";
-import { ShowMoreText, SpeakerPhoto, TagPill } from "./bits";
+import { Avatar, Chip, InkLink } from "~/ui";
+import { ShowMoreText, TagPill } from "./bits";
 import { formatRole } from "~/lib/format";
 import type { HideableField, PublicSession } from "~/lib/program-types";
 
@@ -14,7 +14,7 @@ export function SpeakerRow({
 	const role = formatRole(speaker);
 	const content = (
 		<>
-			<SpeakerPhoto name={speaker.name} photoUrl={speaker.photoUrl} size={30} />
+			<Avatar name={speaker.name} src={speaker.photoUrl} size={30} />
 			<div className="min-w-0">
 				<p className="truncate text-[13px] font-medium text-fg">
 					{speaker.name}

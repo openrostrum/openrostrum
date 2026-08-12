@@ -9,9 +9,11 @@ import {
 	pipelineCards,
 	pipelineStageChanges,
 } from "~/db/schema";
+import { carriedProfile } from "~/domain/contacts";
 import { normalizeEmail } from "~/lib/auth";
 import type { CrmContactStatus, DirectoryFilters } from "~/lib/crm-filters";
 import { isUniqueViolation } from "~/lib/errors";
+import { headshotUrl } from "~/lib/headshot";
 import { likeContains } from "~/lib/like";
 import type { PipelineStage } from "~/lib/pipeline";
 
@@ -89,6 +91,9 @@ export interface DirectoryPerson {
 	lastName: string;
 	jobTitle: string | null;
 	companyName: string | null;
+	/** Served from whichever appearance carries the photo — one person, one
+	 * face, regardless of which event's contact row it was uploaded against. */
+	headshotUrl: string | null;
 	appearances: DirectoryAppearance[];
 	possibleDuplicate: boolean;
 }
@@ -103,6 +108,7 @@ type AppearanceRow = {
 	status: CrmContactStatus;
 	eventId: string;
 	eventName: string;
+	headshotKey: string | null;
 };
 
 /**
@@ -121,6 +127,7 @@ function appearancesFor(db: Db, orgId: string, emails: string[]) {
 			status: contacts.status,
 			eventId: contacts.eventId,
 			eventName: events.name,
+			headshotKey: contacts.headshotKey,
 		})
 		.from(contacts)
 		.innerJoin(events, eq(events.id, contacts.eventId))
@@ -143,6 +150,7 @@ function composePeople(
 				lastName: row.lastName,
 				jobTitle: row.jobTitle,
 				companyName: row.companyName,
+				headshotUrl: null,
 				appearances: [],
 				possibleDuplicate: duplicateNames.has(
 					normalizedPersonName(row.firstName, row.lastName),
@@ -150,6 +158,10 @@ function composePeople(
 			};
 			byEmail.set(row.email, person);
 		}
+		person.headshotUrl ??= headshotUrl(
+			`/admin/contacts/${row.contactId}/headshot`,
+			row.headshotKey,
+		);
 		person.appearances.push({
 			contactId: row.contactId,
 			eventId: row.eventId,
@@ -468,31 +480,11 @@ async function copyPersonIntoEvent(
 		.where(and(eq(contacts.eventId, targetEventId), eq(personEmail, email)))
 		.limit(1);
 	if (existing) return "already";
-	const c = src.contact;
 	try {
 		await db.insert(contacts).values({
+			...carriedProfile(src.contact),
 			eventId: targetEventId,
-			userId: c.userId,
 			email,
-			firstName: c.firstName,
-			lastName: c.lastName,
-			salutation: c.salutation,
-			honorific: c.honorific,
-			pronouns: c.pronouns,
-			gender: c.gender,
-			jobTitle: c.jobTitle,
-			companyName: c.companyName,
-			mobilePhone: c.mobilePhone,
-			homePhone: c.homePhone,
-			zip: c.zip,
-			bio: c.bio,
-			// Headshot objects are content-addressed-ish (a new upload mints a new
-			// key, nothing deletes old ones) so sharing the key across events is safe.
-			headshotKey: c.headshotKey,
-			linkedinUrl: c.linkedinUrl,
-			twitterUrl: c.twitterUrl,
-			facebookUrl: c.facebookUrl,
-			websiteUrl: c.websiteUrl,
 			// Workflow state and travel notes are per-event — never carried over.
 			status: "pending",
 		});

@@ -54,6 +54,36 @@ export function probableContactDuplicateKey(input: {
 }
 
 /**
+ * Identity and profile follow a person to a new event; per-event workflow state
+ * stays behind. Both callers — "Add to event" and the organization CSV import —
+ * share this list so they can't drift into copying different halves of a person.
+ */
+export function carriedProfile(source: typeof contacts.$inferSelect) {
+	return {
+		userId: source.userId,
+		firstName: source.firstName,
+		lastName: source.lastName,
+		salutation: source.salutation,
+		honorific: source.honorific,
+		pronouns: source.pronouns,
+		gender: source.gender,
+		jobTitle: source.jobTitle,
+		companyName: source.companyName,
+		mobilePhone: source.mobilePhone,
+		homePhone: source.homePhone,
+		zip: source.zip,
+		bio: source.bio,
+		// Headshot objects are content-addressed-ish (a new upload mints a new
+		// key, nothing deletes old ones) so sharing the key across events is safe.
+		headshotKey: source.headshotKey,
+		linkedinUrl: source.linkedinUrl,
+		twitterUrl: source.twitterUrl,
+		facebookUrl: source.facebookUrl,
+		websiteUrl: source.websiteUrl,
+	};
+}
+
+/**
  * The one roster predicate — list, tab counts, and compose recipient
  * resolution all filter through this so "who matches" can never diverge
  * between the roster a user sees and the recipients a bulk send targets.

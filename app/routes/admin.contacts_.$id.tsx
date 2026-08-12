@@ -16,7 +16,6 @@ import {
 	users,
 } from "~/db/schema";
 import { FilePicker } from "~/components/file-picker";
-import { HeadshotAvatar } from "~/components/headshot-avatar";
 import { RichTextEditor } from "~/components/rich-text";
 import { type HeadshotUploadResult, uploadHeadshot } from "~/domain/files";
 import {
@@ -41,6 +40,7 @@ import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import { getEmailSender } from "~/ports/email";
 import {
+	Avatar,
 	Button,
 	ButtonLink,
 	ConfirmButton,
@@ -517,7 +517,7 @@ export default function ContactRecord({
 			<Panel>
 				<div className="flex flex-col gap-2">
 					<div className="flex items-center gap-3">
-						<HeadshotAvatar name={name} src={headshotSrc} size={34} />
+						<Avatar name={name} src={headshotSrc} size={34} />
 						<div className="flex flex-col">
 							<strong>Portal access</strong>
 							<span>
@@ -570,7 +570,7 @@ export default function ContactRecord({
 
 			<Panel>
 				<div className="flex flex-wrap items-start gap-5">
-					<HeadshotAvatar name={name} src={headshotSrc} size={96} />
+					<Avatar name={name} src={headshotSrc} size={96} />
 					<Form
 						method="post"
 						encType="multipart/form-data"

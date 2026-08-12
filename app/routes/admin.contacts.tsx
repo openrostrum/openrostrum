@@ -6,7 +6,6 @@ import { getDb } from "~/db";
 import { CONTACT_STATUS } from "~/db/constants";
 import { contacts, insertContactSchema } from "~/db/schema";
 import { CONTACT_STATUS_TONE } from "~/components/contact-status";
-import { HeadshotAvatar } from "~/components/headshot-avatar";
 import { contactFilter, contactStatus } from "~/domain/contacts";
 import { getActiveEvent, normalizeEmail, requireAdmin } from "~/lib/auth";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
@@ -15,6 +14,7 @@ import { headshotUrl } from "~/lib/headshot";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
+	Avatar,
 	Button,
 	ButtonLink,
 	EmptyRow,
@@ -461,7 +461,7 @@ export default function ContactsRoster({
 										to={`/admin/contacts/${c.id}`}
 										className="flex items-center gap-2"
 									>
-										<HeadshotAvatar name={name} src={c.headshotUrl} />
+										<Avatar name={name} src={c.headshotUrl} />
 										{name}
 									</Link>
 								</Td>

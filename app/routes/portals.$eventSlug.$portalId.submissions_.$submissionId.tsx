@@ -41,6 +41,7 @@ import { normalizeEmail, requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatInTimeZone } from "~/lib/dates";
 import { textLength } from "~/lib/format";
+import { headshotUrl } from "~/lib/headshot";
 import { sanitizeHtml } from "~/lib/html";
 import { createTimings, track } from "~/lib/track";
 import type { Route } from "./+types/portals.$eventSlug.$portalId.submissions_.$submissionId";
@@ -226,6 +227,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					firstName: contacts.firstName,
 					lastName: contacts.lastName,
 					contactUserId: contacts.userId,
+					headshotKey: contacts.headshotKey,
 				})
 				.from(participants)
 				.innerJoin(
@@ -322,6 +324,10 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				return {
 					id: p.id,
 					name: `${p.firstName} ${p.lastName}`,
+					photoUrl: headshotUrl(
+						portalPath(ctx, `/headshot?contact=${p.contactId}`),
+						p.headshotKey,
+					),
 					role: p.role,
 					roleLabel: PARTICIPANT_ROLE_LABELS[p.role],
 					isMe: mine,

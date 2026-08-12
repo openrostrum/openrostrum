@@ -94,7 +94,7 @@ export function HomeView({ data }: { data: HomeViewData }) {
 				>
 					{profile ? (
 						<div className="flex items-center gap-3">
-							<Avatar name={profile.name} size={40} />
+							<Avatar name={profile.name} src={profile.photoUrl} size={40} />
 							<div className="min-w-0">
 								<div className="text-[13px] font-medium text-fg">
 									{profile.name}

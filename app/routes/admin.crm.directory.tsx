@@ -617,6 +617,13 @@ export default function CrmDirectory({
 						<Button type="submit" icon="plus" disabled={busy}>
 							Add person
 						</Button>
+						<ButtonLink
+							to="/admin/crm/directory/import"
+							variant="ghost"
+							icon="export"
+						>
+							Import from CSV
+						</ButtonLink>
 						{duplicate && (
 							<Button
 								type="submit"
@@ -808,7 +815,7 @@ export default function CrmDirectory({
 									<Td kind="strong">
 										<div className="flex items-center gap-2">
 											<Link to={profile} className="flex items-center gap-2">
-												<Avatar name={name} />
+												<Avatar name={name} src={p.headshotUrl} />
 												{name}
 											</Link>
 											{p.possibleDuplicate && (
@@ -865,11 +872,16 @@ export default function CrmDirectory({
 					<EmptyState
 						icon="users"
 						title="No people in your organization yet"
-						body="Add a person above to start your organization directory. Each person has one cross-event profile with their event appearances and workflow history."
+						body="Add a person above to start your organization directory, or import a list. Each person has one cross-event profile with their event appearances and workflow history."
 						action={
-							<ButtonLink to="/admin/contacts" icon="plus">
-								Go to the event roster
-							</ButtonLink>
+							<div className="flex flex-wrap items-center gap-2">
+								<ButtonLink to="/admin/crm/directory/import" icon="export">
+									Import from CSV
+								</ButtonLink>
+								<ButtonLink to="/admin/contacts" variant="ghost" icon="plus">
+									Go to the event roster
+								</ButtonLink>
+							</div>
 						}
 					/>
 				</Panel>
