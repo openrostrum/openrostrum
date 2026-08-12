@@ -373,6 +373,11 @@ export async function runRuleReviewer({
 				closing = true;
 				limitReason = undefined;
 				turnCeiling = turns + CLOSE_TURNS;
+				// Telling a reviewer to stop reading is not enough — four of five kept
+				// reading anyway and spent the close allowance too. Taking the
+				// repository tools away leaves submitting and closing as the only
+				// calls it can make, and tool choice is already forced.
+				reviewer.state.tools = [sink.tool, terminal.tool];
 				ask = closePrompt(sink.findings.length);
 				continue;
 			}
