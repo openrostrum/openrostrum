@@ -62,6 +62,20 @@ Before you finish, answer this. It is the part most reviews skip and it is where
 
 A field required before its answer was knowable. A name that will live in a URL forever, demanded in the first sixty seconds. A word they had to interpret. A thing they finished without ever being told whether it worked. Every one of those is a candidate finding, and most of them satisfy their own specification perfectly.
 
+## The screens you walked past
+
+Then answer this one, and answer it by looking again rather than by remembering.
+
+You found most of the above where you got stuck. But a person in a hurry crosses most screens without stopping, and a screen nobody stops on is a screen nobody ever reviews. Those are the ones that quietly rot.
+
+So go back through the screenshots of the screens you passed straight through — the sign-up, the sign-in, the confirmation, the page you only opened on the way to somewhere else — and look at each one again as a picture, now, with the pressure of the goal off you. For each, ask:
+
+- **Does everything on it belong to the person who was standing there?** Anything addressed to a different reader — someone evaluating the project rather than using it, someone who already works here, someone deciding whether to install it — is in the wrong room, no matter how true it is.
+- **Does anything read as something it is not?** A shape in the position of a progress bar, a status, a control, a warning. What it was drawn to mean does not matter; what this person would take it for does.
+- **Is anything said twice, or said in a place that had no reason to say it?**
+
+A screen that did not slow you down can still be wrong, and it will stay wrong for far longer, precisely because it never bothered anyone enough to get looked at. Report what you find here the same way as anything else: screenshot, what this person would take it for, and what that costs them.
+
 ## House standard
 
 The product's own design and product rules follow. Use them as grounding — vocabulary for describing what you see, and a way to tell a deliberate house choice from an accident. They are not a checklist and they are not exhaustive. A screen can obey every one of them and still fail this person, and that failure is still your finding.`;

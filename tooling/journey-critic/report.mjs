@@ -200,7 +200,7 @@ ${narratives}
 
 - Judged by: ${engineLine(engine)}
 - Accounts this run could have created on the live product: ${identities.map((identity) => `\`${identity.email}\``).join(", ") || "none"}
-- Events this run created: ${[...ownedSlugs].map((slug) => `\`${slug}\``).join(", ") || "none"}
+- Event slugs this run claimed: ${[...ownedSlugs].map((slug) => `\`${slug}\``).join(", ") || "none"}${ownedSlugs.size > 1 ? " — a persona claims a slug as it types one, so a slug rejected as already taken is listed here too. This over-reports rather than under-reports what the run left behind." : ""}
 - Requests the safety guard blocked:
 
 ${guard}

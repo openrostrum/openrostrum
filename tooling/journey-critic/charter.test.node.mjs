@@ -108,6 +108,15 @@ test("the charter states the bar and refuses to become a checklist", () => {
 	assert.match(CHARTER, /Missing features/);
 });
 
+// The first live run reported 22 findings and every one came off a screen where
+// the persona stalled. Two known defects sat in an unread screenshot of a signup
+// it crossed in one turn, so the charter has to send it back to look.
+test("the charter sends the critic back to the screens it crossed without stopping", () => {
+	assert.match(CHARTER, /screens you (walked past|passed straight through)/i);
+	assert.match(CHARTER, /belong to the person who was standing there/);
+	assert.match(CHARTER, /read as something it is not/);
+});
+
 test("the house design and harness rules are loaded as grounding", async () => {
 	const loaded = await loadCharter();
 	assert.match(loaded, /docs\/rules\/design-system\.md/);

@@ -33,6 +33,12 @@ It is advisory. It blocks nothing.
   person have to invent, guess, or commit to before the product would let them
   proceed, and what did they still not know at the end? That question is what
   catches a screen that satisfies its own specification perfectly.
+- **The second look.** The first live run returned 22 findings and every one came
+  off a screen where the persona had stalled. A person in a hurry crosses most
+  screens without stopping, and a screen nobody stops on is a screen nobody ever
+  reviews — so the charter ends by sending the critic back through the shots it
+  walked past, asking whether everything on them is addressed to the person who
+  was standing there and whether anything reads as something it is not.
 - **Demanding, not cautious.** It is tuned to surface arguable findings. A gate
   narrow enough to only ever be right would have missed the two defects that
   prompted it. Being overruled is a fine outcome; silence is not.

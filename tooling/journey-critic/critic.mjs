@@ -44,7 +44,7 @@ You start at ${entry}. Open it and begin.
 
 Work the loop: look, say what you expect, act, look again. You have ${limits.maxLooks} screenshots and roughly ${limits.maxTurns - limits.wrapMargin} turns of walking before the harness stops you and takes your report — enough to finish the goal properly, not enough to wander. Spend them on the path this person would take.
 
-When the journey is over — goal reached, or abandoned the way this person would abandon it — reply with JSON only, in exactly this shape:
+When the journey is over — goal reached, or abandoned the way this person would abandon it — do the two passes the charter ends on before you write anything: the toll, and the second look at the screens you crossed without stopping. Then reply with JSON only, in exactly this shape:
 
 {"status":"complete",
  "outcome":"achieved"|"achieved-with-friction"|"abandoned",
@@ -61,7 +61,7 @@ Never answer "complete" if the browser, the network, or your own budget stopped 
 export function wrapPrompt(reason) {
 	return `Stop where you are — ${reason}. This is the harness running out of room, not this person giving up.
 
-Report the journey as far as you actually walked it, using only what you already saw. Reply with the JSON report now, in the shape you were given. Set "outcome" to what was true at the moment you stopped, and say plainly in the narrative where you had got to and what you never reached. Do not invent anything you did not see and do not pad the findings to look thorough.`;
+Report the journey as far as you actually walked it, using only what you already saw — including the second look at the screens you crossed without stopping, which costs you nothing now because those screenshots are already in front of you. Reply with the JSON report now, in the shape you were given. Set "outcome" to what was true at the moment you stopped, and say plainly in the narrative where you had got to and what you never reached. Do not invent anything you did not see and do not pad the findings to look thorough.`;
 }
 
 export function repairPrompt(problem) {
