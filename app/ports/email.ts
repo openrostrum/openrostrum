@@ -3,6 +3,7 @@ import { getDb, type Db } from "~/db";
 import { emailOutbox, emailSuppressions } from "~/db/schema";
 import { sha256Hex } from "~/lib/api-token";
 import { errorMessage } from "~/lib/errors";
+import { icsContentFingerprint } from "~/lib/ics";
 import { track } from "~/lib/track";
 
 /** Callers depend on this interface, never on Resend directly. */
@@ -199,6 +200,22 @@ function inFlightOutcome(
 	return { id: row.providerId ?? row.id, deduped: true, suppressed: false };
 }
 
+/** Column-for-column "the row still describes the message we just sent". */
+function deliveredPayloadMatches(msg: EmailMessage) {
+	const sameOrNull = <T>(
+		column: Parameters<typeof eq>[0],
+		value: T | null | undefined,
+	) => (value == null ? isNull(column) : eq(column, value));
+	return [
+		eq(emailOutbox.to, msg.to),
+		eq(emailOutbox.subject, msg.subject),
+		eq(emailOutbox.html, msg.html),
+		sameOrNull(emailOutbox.replyTo, msg.replyTo),
+		sameOrNull(emailOutbox.icsAttachment, msg.ics),
+		sameOrNull(emailOutbox.templateId, msg.templateId),
+	];
+}
+
 async function reconcileSendClaim(
 	db: Db,
 	outboxId: string,
@@ -228,22 +245,38 @@ async function reconcileSendClaim(
 	) {
 		return inFlightOutcome(onInFlight, current);
 	}
-	throw new Error(
-		`email_outbox delivery claim could not be reconciled from ${current.status}`,
+	// Someone else took the lease and already resolved the row (typically to
+	// `failed`), so this attempt has no claim left to settle. That is a delivery
+	// outcome for THIS recipient, not a broken invariant: raising a bare Error
+	// here would abort a whole send batch and discard every other recipient's
+	// recorded outcome. The row already carries the winning attempt's reason.
+	throw new EmailDeliveryError(
+		`Delivery could not be confirmed — another attempt on this key resolved it as ${current.status}. See Email history.`,
 	);
 }
 
 /**
  * Provider idempotency key: readable dedupeKey prefix (so a Resend log entry
- * still names the send) plus a digest of the key AND the exact request body.
+ * still names the send) plus a digest of the key AND the message's CONTENT.
  * The digest covers the full dedupeKey, so truncating the prefix cannot make
  * two different keys collide. Bounded well under Resend's 256-char limit.
+ *
+ * An ICS is hashed as normalized text rather than as the base64 attachment: its
+ * DTSTAMP is re-minted on every render (see `icsContentFingerprint`), so the
+ * raw attachment differs between two renders of one unchanged invite. Hashing
+ * it raw would give a resumed send a brand-new key, Resend's 24h replay would
+ * not recognise it, and the speaker would receive the invite twice.
  */
 async function payloadScopedIdempotencyKey(
 	dedupeKey: string,
 	body: Record<string, unknown>,
+	ics: string | undefined,
 ): Promise<string> {
-	const digest = await sha256Hex(`${dedupeKey}\n${JSON.stringify(body)}`);
+	const content = JSON.stringify({
+		...body,
+		attachments: ics === undefined ? undefined : icsContentFingerprint(ics),
+	});
+	const digest = await sha256Hex(`${dedupeKey}\n${content}`);
 	return `${dedupeKey.slice(0, 120)}:${digest.slice(0, 32)}`;
 }
 
@@ -397,6 +430,7 @@ export function createResendEmailSender(env: Env): EmailSender {
 				headers["Idempotency-Key"] = await payloadScopedIdempotencyKey(
 					msg.dedupeKey,
 					body,
+					msg.ics,
 				);
 			}
 
@@ -443,6 +477,15 @@ export function createResendEmailSender(env: Env): EmailSender {
 				throw deliveryError;
 			}
 
+			// A confirmed provider success is terminal truth about THIS content, so
+			// it still lands when a reclaimer re-took the lease to send the same
+			// payload (the reclaim is then a duplicate of a delivery that already
+			// happened). It must NOT land once the reclaimer rewrote the payload:
+			// the row is the delivery evidence and the calendar ledger's source, so
+			// signing someone else's content with our provider id would record an
+			// invite nobody received and file their separate delivery as our
+			// duplicate. Payload equality is exactly that test — the reclaim CAS
+			// above rewrites precisely these columns.
 			const [persisted] = await db
 				.update(emailOutbox)
 				.set({
@@ -458,6 +501,7 @@ export function createResendEmailSender(env: Env): EmailSender {
 						eq(emailOutbox.id, outboxId),
 						ne(emailOutbox.status, "sent"),
 						ne(emailOutbox.status, "bounced"),
+						...deliveredPayloadMatches(msg),
 					),
 				)
 				.returning({ id: emailOutbox.id });

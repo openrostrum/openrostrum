@@ -3,9 +3,11 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
 import { emailOutbox } from "../app/db/schema";
+import { buildIcs } from "../app/lib/ics";
 import {
 	createResendEmailSender,
 	EmailDeliveryError,
+	EmailSendInFlightError,
 	getEmailSender,
 } from "../app/ports/email";
 
@@ -485,6 +487,142 @@ describe("Resend email adapter", () => {
 		}
 	});
 
+	it("a timed-out claimant cannot stamp its send onto a reclaimed, corrected row", async () => {
+		// The reclaimer rewrites the row's payload (subject/html/ics) — it is the
+		// delivery evidence AND the calendar ledger's source. A stale claimant that
+		// completes afterwards must not sign that row with ITS provider id: the row
+		// would attest content nobody was sent, and the reclaimer's genuinely
+		// separate delivery would be filed as a duplicate of it.
+		let resolveFirst: ((response: Response) => void) | undefined;
+		let resolveSecond: ((response: Response) => void) | undefined;
+		let firstStarted: (() => void) | undefined;
+		let secondStarted: (() => void) | undefined;
+		const firstProviderStarted = new Promise<void>((resolve) => {
+			firstStarted = resolve;
+		});
+		const secondProviderStarted = new Promise<void>((resolve) => {
+			secondStarted = resolve;
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi
+				.fn()
+				.mockImplementationOnce(
+					() =>
+						new Promise<Response>((resolve) => {
+							resolveFirst = resolve;
+							firstStarted?.();
+						}),
+				)
+				.mockImplementationOnce(
+					() =>
+						new Promise<Response>((resolve) => {
+							resolveSecond = resolve;
+							secondStarted?.();
+						}),
+				),
+		);
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-08-11T18:00:00Z"));
+			const sender = createResendEmailSender(env);
+			const base = {
+				to: "a@b.com",
+				html: "h",
+				dedupeKey: "stale-claimant-corrected",
+				onInFlight: "reject" as const,
+			};
+			const first = sender.send({ ...base, subject: "wrong room" });
+			await firstProviderStarted;
+
+			vi.setSystemTime(new Date("2026-08-11T18:06:00Z"));
+			const second = sender.send({ ...base, subject: "corrected room" });
+			await secondProviderStarted;
+
+			resolveFirst?.(
+				new Response(JSON.stringify({ id: "resend-stale" }), { status: 200 }),
+			);
+			await expect(first).rejects.toBeInstanceOf(EmailSendInFlightError);
+
+			resolveSecond?.(
+				new Response(JSON.stringify({ id: "resend-corrected" }), {
+					status: 200,
+				}),
+			);
+			await expect(second).resolves.toMatchObject({
+				id: "resend-corrected",
+				deduped: false,
+			});
+			const rows = await outboxRows();
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({
+				status: "sent",
+				subject: "corrected room",
+				providerId: "resend-corrected",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("reports an unreconcilable claim as a delivery failure, not an unhandled fault", async () => {
+		// A stale claimant whose row was reclaimed AND then resolved to `failed` by
+		// someone else has no claim left to reconcile against. That is this
+		// recipient's delivery outcome — a caller sending a batch must be able to
+		// record it and carry on, not lose every other recipient's outcome to an
+		// error page.
+		let resolveFirst: ((response: Response) => void) | undefined;
+		let firstStarted: (() => void) | undefined;
+		const firstProviderStarted = new Promise<void>((resolve) => {
+			firstStarted = resolve;
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi
+				.fn()
+				.mockImplementationOnce(
+					() =>
+						new Promise<Response>((resolve) => {
+							resolveFirst = resolve;
+							firstStarted?.();
+						}),
+				)
+				.mockResolvedValueOnce(
+					new Response(JSON.stringify({ message: "provider down" }), {
+						status: 500,
+					}),
+				),
+		);
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-08-11T18:00:00Z"));
+			const sender = createResendEmailSender(env);
+			const base = {
+				to: "a@b.com",
+				html: "h",
+				dedupeKey: "unreconcilable-claim",
+			};
+			const first = sender.send({ ...base, subject: "wrong room" });
+			await firstProviderStarted;
+
+			vi.setSystemTime(new Date("2026-08-11T18:06:00Z"));
+			await expect(
+				sender.send({ ...base, subject: "corrected room" }),
+			).rejects.toBeInstanceOf(EmailDeliveryError);
+
+			resolveFirst?.(
+				new Response(JSON.stringify({ id: "resend-stale" }), { status: 200 }),
+			);
+			await expect(first).rejects.toBeInstanceOf(EmailDeliveryError);
+			expect((await outboxRows())[0]).toMatchObject({
+				status: "failed",
+				subject: "corrected room",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("reclaims an abandoned queued row instead of losing the send", async () => {
 		const db = getDb(env);
 		const [abandoned] = await db
@@ -585,6 +723,8 @@ describe("Resend email adapter", () => {
 		expect(keyOf(1)).not.toBe(keyOf(0));
 	});
 
+	// Attachment-free baseline. It does NOT certify the invariant for invites —
+	// the ICS case below does, and it is the one that can actually drift.
 	it("reuses the provider idempotency key when the retried payload is identical", async () => {
 		const fetchMock = vi
 			.fn()
@@ -608,6 +748,118 @@ describe("Resend email adapter", () => {
 				}
 			).headers["Idempotency-Key"];
 		expect(keyOf(1)).toBe(keyOf(0));
+	});
+
+	it("reuses the provider idempotency key when a resumed send re-renders the same invite", async () => {
+		// DTSTAMP is "when this payload was produced" (RFC 5545 §3.8.7.2), minted
+		// from the wall clock on every render — it is not part of what the invite
+		// SAYS. A send resumed after its lease re-renders the identical invite a
+		// second later; if that stamp reaches the provider key, Resend sees a new
+		// send and the speaker gets a second "You're accepted".
+		const invite = {
+			calendarName: "Test Event",
+			method: "PUBLISH" as const,
+			events: [
+				{
+					uid: "sub-1@openrostrum",
+					start: new Date("2026-09-01T09:00:00Z"),
+					end: new Date("2026-09-01T10:00:00Z"),
+					title: "Keynote",
+					sequence: 0,
+				},
+			],
+		};
+		vi.useFakeTimers();
+		let firstRender: string;
+		let secondRender: string;
+		try {
+			vi.setSystemTime(new Date("2026-08-12T07:36:12Z"));
+			firstRender = buildIcs(invite);
+			vi.setSystemTime(new Date("2026-08-12T07:36:13Z"));
+			secondRender = buildIcs(invite);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(secondRender).not.toBe(firstRender);
+		expect(secondRender.replace(/^DTSTAMP:.*$/gm, "")).toBe(
+			firstRender.replace(/^DTSTAMP:.*$/gm, ""),
+		);
+
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ message: "boom" }), { status: 500 }),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "resend-invite" }), { status: 200 }),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+		const sender = createResendEmailSender(env);
+		const base = {
+			to: "a@b.com",
+			subject: "You're accepted",
+			html: "h",
+			dedupeKey: "k12",
+		};
+
+		await expect(sender.send({ ...base, ics: firstRender })).rejects.toThrow(
+			/500/,
+		);
+		await sender.send({ ...base, ics: secondRender });
+
+		const keyOf = (call: number) =>
+			(
+				fetchMock.mock.calls[call]?.[1] as RequestInit & {
+					headers: Record<string, string>;
+				}
+			).headers["Idempotency-Key"];
+		expect(keyOf(1)).toBe(keyOf(0));
+	});
+
+	it("re-keys when the resumed send carries a moved invite", async () => {
+		// The inverse of the case above: normalizing DTSTAMP out must not blind the
+		// key to a real content change, or a corrected invite hits Resend's 409
+		// invalid_idempotent_request and can never be sent at all.
+		const at = (hour: number) =>
+			buildIcs({
+				calendarName: "Test Event",
+				method: "PUBLISH" as const,
+				events: [
+					{
+						uid: "sub-1@openrostrum",
+						start: new Date(
+							`2026-09-01T${String(hour).padStart(2, "0")}:00:00Z`,
+						),
+						end: new Date(
+							`2026-09-01T${String(hour + 1).padStart(2, "0")}:00:00Z`,
+						),
+						title: "Keynote",
+						sequence: 0,
+					},
+				],
+			});
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ message: "boom" }), { status: 500 }),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ id: "resend-moved" }), { status: 200 }),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+		const sender = createResendEmailSender(env);
+		const base = { to: "a@b.com", subject: "s", html: "h", dedupeKey: "k13" };
+
+		await expect(sender.send({ ...base, ics: at(9) })).rejects.toThrow(/500/);
+		await sender.send({ ...base, ics: at(14) });
+
+		const keyOf = (call: number) =>
+			(
+				fetchMock.mock.calls[call]?.[1] as RequestInit & {
+					headers: Record<string, string>;
+				}
+			).headers["Idempotency-Key"];
+		expect(keyOf(1)).not.toBe(keyOf(0));
 	});
 
 	it("records the retried payload on the row it reclaims", async () => {

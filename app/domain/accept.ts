@@ -24,7 +24,7 @@ import {
 } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
 import { formatScheduleRange } from "~/lib/format-date";
-import { buildIcs } from "~/lib/ics";
+import { buildIcs, icsContentFingerprint } from "~/lib/ics";
 import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";
 import {
@@ -580,7 +580,7 @@ async function fingerprintDecisionPlan(
 				to: item.to,
 				subject: item.subject,
 				html: item.html,
-				ics: item.ics?.replace(/^DTSTAMP:[^\r\n]*\r?\n/m, ""),
+				ics: item.ics && icsContentFingerprint(item.ics),
 				reason: item.reason,
 			})),
 		}),
