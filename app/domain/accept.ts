@@ -23,6 +23,7 @@ import {
 	renderSubject,
 } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
+import { escapeHtml } from "~/lib/html";
 import { buildIcs } from "~/lib/ics";
 import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";
@@ -1071,12 +1072,4 @@ function decisionDetailsHtml(
 		}
 	}
 	return `<hr>${lines.join("")}`;
-}
-
-function escapeHtml(s: string): string {
-	return s
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;");
 }

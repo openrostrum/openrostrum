@@ -17,6 +17,8 @@
  *   per-recipient preview instead of vanishing silently.
  */
 
+import { escapeHtml } from "~/lib/html";
+
 export const MERGE_TAGS = [
 	{ tag: "first_name", label: "Recipient's first name" },
 	{ tag: "last_name", label: "Recipient's last name" },
@@ -62,15 +64,6 @@ function contextKey(
 ) {
 	const normalized = (tripleTag ?? doubleTag ?? "").toLowerCase();
 	return CLASSIC_TAG_ALIASES[normalized] ?? normalized;
-}
-
-export function escapeHtml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
 }
 
 function substitute(

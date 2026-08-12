@@ -22,29 +22,35 @@ export function escapeHtmlText(text: string): string {
 /**
  * Rich-text HTML → plain text (tags removed, common entities decoded). For
  * surfaces that must never render user-authored markup (reviewer projections,
- * system emails) — strips to plain text so stored rich text can never execute
- * in a reviewer's browser.
+ * public feeds, system emails). The output is arbitrary TEXT that may itself
+ * contain angle brackets — markup safety lives at the sinks (React, the feeds'
+ * escapeHtml, JSON.stringify), never here.
  */
 export function stripHtml(html: string): string {
-	return html
-		.replace(/<(br|\/p|\/div|\/li|\/h[1-6])[^>]*>/gi, "\n")
-		.replace(/<[^>]*>/g, "")
-		.replaceAll("&nbsp;", " ")
-		.replaceAll("&amp;", "&")
-		.replaceAll("&lt;", "<")
-		.replaceAll("&gt;", ">")
-		.replaceAll("&quot;", '"')
-		.replaceAll("&#39;", "'")
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
+	return (
+		html
+			.replace(/<(br|\/p|\/div|\/li|\/h[1-6])[^>]*>/gi, "\n")
+			.replace(/<[^>]*>/g, "")
+			.replaceAll("&nbsp;", " ")
+			.replaceAll("&lt;", "<")
+			.replaceAll("&gt;", ">")
+			.replaceAll("&quot;", '"')
+			.replaceAll("&#39;", "'")
+			.replaceAll("&apos;", "'")
+			// &amp; LAST — decoding it first turns a stored "&amp;lt;" into "<" and
+			// hands the sink back the markup the author had escaped.
+			.replaceAll("&amp;", "&")
+			.replace(/\n{3,}/g, "\n\n")
+			.trim()
+	);
 }
 
 /**
- * Server-side rich-text sanitizer. Speaker-authored HTML (bio, descriptions)
- * renders in ADMIN browsers too — an unsanitized <script> in a bio is a
- * stored-XSS path to an organizer session, so every speaker-written HTML field
- * passes through here at WRITE time. Built on workerd's native HTMLRewriter
- * (streaming parser), not regex.
+ * THE server-side rich-text sanitizer — public CFP posts, portal profiles and
+ * admin edits all write the same columns, so they all pass through this one
+ * policy at WRITE time. Speaker-authored HTML renders in ADMIN browsers, so an
+ * unsanitized bio is a stored-XSS path to an organizer session. Built on
+ * workerd's native HTMLRewriter (streaming parser), not regex.
  */
 
 const KEEP_CONTENT = new Set([
@@ -68,7 +74,12 @@ const KEEP_CONTENT = new Set([
 	"pre",
 ]);
 
-/** Tags whose CONTENT must die with them (executable/embedding vectors). */
+/**
+ * Tags whose CONTENT must die with them. Two reasons, both fatal:
+ * executable/embedding vectors (script, iframe, …), and raw-text elements —
+ * the parser hands their contents back as a text node, so unwrapping one
+ * re-emits `<img src=x onerror=…>` as live markup instead of escaping it.
+ */
 const DROP_ENTIRELY = new Set([
 	"script",
 	"style",
@@ -81,6 +92,13 @@ const DROP_ENTIRELY = new Set([
 	"svg",
 	"math",
 	"template",
+	"noscript",
+	"textarea",
+	"title",
+	"xmp",
+	"noembed",
+	"noframes",
+	"plaintext",
 ]);
 
 export async function sanitizeHtml(html: string): Promise<string> {
@@ -117,10 +135,14 @@ export async function sanitizeHtml(html: string): Promise<string> {
 				el.removeAttribute(name);
 			}
 			if (tag === "a") {
-				el.setAttribute("rel", "noopener noreferrer");
+				el.setAttribute("rel", "noopener noreferrer nofollow");
 				el.setAttribute("target", "_blank");
 			}
 		},
+	});
+	// onDocument, not on("*"): a comment sitting between top-level elements is
+	// nobody's child, so an element selector never sees it.
+	rewriter.onDocument({
 		comments(c) {
 			c.remove();
 		},

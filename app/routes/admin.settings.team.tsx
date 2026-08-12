@@ -16,6 +16,7 @@ import {
 import { formatInTimeZone } from "~/lib/dates";
 import { errorMessage } from "~/lib/errors";
 import { resolveTimezone } from "~/lib/event-time";
+import { escapeHtml } from "~/lib/html";
 import { type Org, resolveOrg } from "~/lib/org.server";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -48,14 +49,6 @@ const InviteSchema = z.object({
 
 type Db = ReturnType<typeof getDb>;
 type AppUser = typeof users.$inferSelect;
-
-function escapeHtml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;");
-}
 
 // (Re)mints the invite token — run in ONE batch (with the user insert when the
 // account is new) so a failure can never strand a token-less sentinel. Old
