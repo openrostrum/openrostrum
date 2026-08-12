@@ -34,10 +34,10 @@ parallelism and safety limits.
 
 ## Completion semantics
 
-A session is complete only after DeepSeek returns `finish_reason: stop` with the
-validated terminal JSON shape. Provider errors, timeouts, malformed tool calls,
-non-terminal finish reasons, invalid findings, and exhausted budgets are
-**incomplete**, never clean.
+A session is complete only after the provider stops normally and its terminal JSON
+passes a TypeBox schema at the boundary — no hand-rolled shape checks. Provider
+errors, timeouts, malformed tool calls, aborted runs, findings that fail the schema
+or cite an unchanged file, and exhausted budgets are **incomplete**, never clean.
 
 Incomplete runs are named in the summary and fail the required AI-review check.
 Findings from completed sessions still post, but zero findings cannot render as “no

@@ -160,6 +160,61 @@ test("Pi keeps one session across model-selected changed and unchanged reads", a
 	assert.equal(result.findings[0].agent, "engineering");
 });
 
+test("a malformed terminal response is incomplete, not a clean review", async () => {
+	const { runtime } = fauxRuntime([
+		stop({
+			status: "complete",
+			findings: [
+				{
+					file: "app/x.ts",
+					line: 0,
+					quote: "",
+					rule: "Some rule",
+					why: "Missing a real anchor.",
+				},
+			],
+		}),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: { id: "engineering", doc: "docs/rules/engineering.md" },
+		system: "SYSTEM RULE",
+		repository: repository([{ status: "M", path: "app/x.ts" }]),
+		runtime,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /complete review/i);
+	assert.deepEqual(result.findings, []);
+});
+
+test("a finding outside the pull request is incomplete", async () => {
+	const { runtime } = fauxRuntime([
+		stop({
+			status: "complete",
+			findings: [
+				{
+					file: "app/never-changed.ts",
+					line: 4,
+					quote: "unsafeCall()",
+					rule: "Some rule",
+					why: "Cites a file this PR does not change.",
+				},
+			],
+		}),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: { id: "engineering", doc: "docs/rules/engineering.md" },
+		system: "SYSTEM RULE",
+		repository: repository([{ status: "M", path: "app/x.ts" }]),
+		runtime,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /does not change/i);
+});
+
 test("provider failure and turn exhaustion are incomplete", async () => {
 	const failedRuntime = fauxRuntime([
 		fauxAssistantMessage("", {

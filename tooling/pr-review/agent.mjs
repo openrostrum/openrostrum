@@ -1,6 +1,27 @@
 import { Agent } from "@earendil-works/pi-agent-core";
+import { Type } from "@earendil-works/pi-ai";
+import { Value } from "typebox/value";
 import { extractJson } from "./core.mjs";
 import { createRepositoryTools } from "./repository.mjs";
+
+const TERMINAL_RESPONSE = Type.Object(
+	{
+		status: Type.Literal("complete"),
+		findings: Type.Array(
+			Type.Object(
+				{
+					file: Type.String({ minLength: 1 }),
+					line: Type.Integer({ minimum: 1 }),
+					quote: Type.String({ minLength: 1 }),
+					rule: Type.String({ minLength: 1 }),
+					why: Type.String({ minLength: 1 }),
+				},
+				{ additionalProperties: false },
+			),
+		),
+	},
+	{ additionalProperties: false },
+);
 
 const DEFAULT_LIMITS = {
 	maxTurns: 20,
@@ -45,30 +66,18 @@ function incomplete(agent, reason, details = {}) {
 }
 
 function validateFindings(value, changedPaths, agent) {
-	if (value?.status !== "complete" || !Array.isArray(value.findings))
-		throw new Error("terminal response did not declare a complete review");
+	if (!Value.Check(TERMINAL_RESPONSE, value)) {
+		const [first] = [...Value.Errors(TERMINAL_RESPONSE, value)];
+		throw new Error(
+			`terminal response is not a complete review: ${first?.path || "/"} ${first?.message ?? "invalid shape"}`,
+		);
+	}
 	return value.findings.map((finding, index) => {
-		if (
-			typeof finding?.file !== "string" ||
-			!changedPaths.has(finding.file) ||
-			!Number.isInteger(finding.line) ||
-			finding.line < 1 ||
-			typeof finding.quote !== "string" ||
-			!finding.quote.trim() ||
-			typeof finding.rule !== "string" ||
-			!finding.rule.trim() ||
-			typeof finding.why !== "string" ||
-			!finding.why.trim()
-		)
-			throw new Error(`invalid finding ${index + 1}`);
-		return {
-			file: finding.file,
-			line: finding.line,
-			quote: finding.quote,
-			rule: finding.rule,
-			why: finding.why,
-			agent: agent.id,
-		};
+		if (!changedPaths.has(finding.file))
+			throw new Error(
+				`finding ${index + 1} cites ${finding.file}, which this pull request does not change`,
+			);
+		return { ...finding, agent: agent.id };
 	});
 }
 
