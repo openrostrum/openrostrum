@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatRole } from "~/lib/format";
 import type { loader } from "~/routes/portals.$eventSlug.$portalId.home";
 import { Avatar, EmptyState, StatusBadge, TextLink } from "~/ui";
 import { RichHtml } from "../rich-html";
@@ -32,6 +33,7 @@ export function HomeView({ data }: { data: HomeViewData }) {
 				: !isSubmissionTask(t),
 	);
 	const outstanding = tasks.filter((t) => t.open).length;
+	const profileRole = profile ? formatRole(profile) : "";
 
 	return (
 		<div className="flex flex-col gap-5">
@@ -100,11 +102,9 @@ export function HomeView({ data }: { data: HomeViewData }) {
 								<div className="truncate text-[12.5px] text-fg-muted">
 									{profile.email}
 								</div>
-								{(profile.jobTitle || profile.companyName) && (
+								{profileRole && (
 									<div className="truncate text-[12px] text-fg-faint">
-										{[profile.jobTitle, profile.companyName]
-											.filter(Boolean)
-											.join(" · ")}
+										{profileRole}
 									</div>
 								)}
 							</div>

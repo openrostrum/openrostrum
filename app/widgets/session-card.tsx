@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Chip, InkLink } from "~/ui";
 import { ShowMoreText, SpeakerPhoto, TagPill } from "./bits";
+import { formatRole } from "~/lib/format";
 import type { HideableField, PublicSession } from "~/lib/program-types";
 
 export function SpeakerRow({
@@ -10,9 +11,7 @@ export function SpeakerRow({
 	speaker: PublicSession["speakers"][number];
 	detailHref?: string;
 }) {
-	const role = [speaker.jobTitle, speaker.companyName]
-		.filter(Boolean)
-		.join(", ");
+	const role = formatRole(speaker);
 	const content = (
 		<>
 			<SpeakerPhoto name={speaker.name} photoUrl={speaker.photoUrl} size={30} />

@@ -24,6 +24,7 @@ import {
 	hasDirectoryFilters,
 } from "~/lib/crm-filters";
 import { errorMessage, isUniqueViolation } from "~/lib/errors";
+import { formatRole } from "~/lib/format";
 import { PIPELINE_STAGE_LABEL } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -823,10 +824,7 @@ export default function CrmDirectory({
 										</div>
 									</Td>
 									<Td kind="mono">{p.email}</Td>
-									<Td>
-										{[p.jobTitle, p.companyName].filter(Boolean).join(" · ") ||
-											"—"}
-									</Td>
+									<Td>{formatRole(p) || "—"}</Td>
 									<Td>
 										<div className="flex flex-col gap-1">
 											{p.appearances.slice(0, 3).map((a) => (

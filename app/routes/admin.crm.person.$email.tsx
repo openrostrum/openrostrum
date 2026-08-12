@@ -23,7 +23,7 @@ import {
 import { queryContactMergeHistory } from "~/domain/contact-merge";
 import { normalizeEmail, requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatDateUTC } from "~/lib/format";
+import { formatDateUTC, formatRole } from "~/lib/format";
 import { PIPELINE_STAGE_LABEL, PIPELINE_STAGE_TONE } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -349,10 +349,7 @@ export default function CrmPerson({
 					heading="Profile"
 					name={name}
 					email={email}
-					lines={[
-						[person.jobTitle, person.companyName].filter(Boolean).join(" · ") ||
-							"No title or company on record",
-					]}
+					lines={[formatRole(person) || "No title or company on record"]}
 				>
 					{person.bio && <RichHtml html={person.bio} />}
 				</IdentityPanel>

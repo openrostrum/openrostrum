@@ -27,6 +27,26 @@ export function formatDateLine(date: Date, timeZone: string): string {
 	}).format(date);
 }
 
+/**
+ * "Job title · company" — the one way OpenRostrum writes a person's role, on
+ * the public program and in the CRM alike. Either part may be missing, and
+ * with neither the caller decides the fallback ("—", "No title or company on
+ * record"), because that copy is the surface's, not the format's.
+ *
+ * `transform` maps each part before joining: the HTML feeds must escape the
+ * parts but not the separator, and that is the only way to do it without
+ * re-deriving which parts there are.
+ */
+export function formatRole(
+	person: { jobTitle?: string | null; companyName?: string | null },
+	transform?: (part: string) => string,
+): string {
+	const parts = [person.jobTitle, person.companyName].filter(
+		(part): part is string => Boolean(part),
+	);
+	return (transform ? parts.map(transform) : parts).join(" · ");
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
 	if (bytes == null) return "—";
 	if (bytes < 1024) return `${bytes} B`;
