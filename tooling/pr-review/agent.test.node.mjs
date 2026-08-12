@@ -24,6 +24,10 @@ const submits = (findings, tag) =>
 	);
 const done = (submitted) => stop({ status: "complete", submitted });
 
+// A missing signal is asked for once more, so a reviewer that fails the same way
+// to the end needs the same response queued for both asks.
+const twice = (response) => [response, response];
+
 const toolResultTexts = (messages) =>
 	messages
 		.filter((message) => message.role === "toolResult")
@@ -205,20 +209,22 @@ test("Pi keeps one session across model-selected changed and unchanged reads", a
 // signal has not submitted anything, so reading it as a clean review would post
 // "no issues found" on a pull request nobody reviewed.
 test("a terminal response that is not the completion signal is incomplete, not a clean review", async () => {
-	const { runtime } = fauxRuntime([
-		stop({
-			status: "complete",
-			findings: [
-				{
-					file: "app/x.ts",
-					line: 4,
-					quote: "unsafeCall()",
-					rule: "Some rule",
-					why: "Reported in the answer instead of submitted.",
-				},
-			],
-		}),
-	]);
+	const { runtime } = fauxRuntime(
+		twice(
+			stop({
+				status: "complete",
+				findings: [
+					{
+						file: "app/x.ts",
+						line: 4,
+						quote: "unsafeCall()",
+						rule: "Some rule",
+						why: "Reported in the answer instead of submitted.",
+					},
+				],
+			}),
+		),
+	);
 
 	const result = await runRuleReviewer({
 		agent: { id: "engineering", doc: "docs/rules/engineering.md" },
@@ -237,7 +243,7 @@ test("a terminal response that is not the completion signal is incomplete, not a
 // hit this on four separate runs, and the reason has to say which one it was.
 test("an unparseable terminal answer names what the model emitted", async () => {
 	const narration = "I checked every changed file and found no violations.";
-	const { runtime } = fauxRuntime([fauxAssistantMessage(narration)]);
+	const { runtime } = fauxRuntime(twice(fauxAssistantMessage(narration)));
 
 	const narrated = await runRuleReviewer({
 		agent: ENGINEERING,
@@ -259,7 +265,7 @@ test("an unparseable terminal answer names what the model emitted", async () => 
 		agent: ENGINEERING,
 		system: "SYSTEM RULE",
 		repository: repository([{ status: "M", path: "app/x.ts" }]),
-		runtime: fauxRuntime([fauxAssistantMessage("")]).runtime,
+		runtime: fauxRuntime(twice(fauxAssistantMessage(""))).runtime,
 	});
 
 	assert.equal(silent.status, "incomplete");
@@ -358,9 +364,9 @@ function withUsage(runtime, usage) {
 // "provider stopped with length" cannot distinguish an enormous answer from a
 // provider ceiling below the one we asked for; the numbers can.
 test("a truncated answer reports its size against the ceiling requested", async () => {
-	const { runtime } = fauxRuntime([
-		fauxAssistantMessage('{"status":"comp', { stopReason: "length" }),
-	]);
+	const { runtime } = fauxRuntime(
+		twice(fauxAssistantMessage('{"status":"comp', { stopReason: "length" })),
+	);
 	const measured = withUsage(runtime, {
 		input: 40_000,
 		output: 8192,
@@ -633,7 +639,7 @@ test("a submission that fails the finding schema is refused, not banked", async 
 test("a terminal count that disagrees with what was submitted is incomplete", async () => {
 	const { runtime } = fauxRuntime([
 		submits([violation(0), violation(1)], "a"),
-		done(5),
+		...twice(done(5)),
 	]);
 
 	const result = await runRuleReviewer({
@@ -676,4 +682,91 @@ test("submissions past the per-response cap are refused and can be re-issued", a
 	const capped = seen[0].filter((text) => /per response/.test(text));
 	assert.equal(capped.length, 1, JSON.stringify(seen[0]));
 	assert.match(capped[0], /at most 2/);
+});
+
+// ---------------------------------------------------------------------------
+// The terminal signal
+// ---------------------------------------------------------------------------
+
+const userTexts = (messages) =>
+	messages
+		.filter((message) => message.role === "user")
+		.map((message) =>
+			Array.isArray(message.content)
+				? message.content.map((block) => block.text ?? "").join("")
+				: message.content,
+		);
+
+// This PR's own reviewer ended with 8995 characters of reasoning about a
+// violation it never submitted: neither a review nor a signal, and the whole
+// session was thrown away. Asking costs one turn and recovers the review.
+test("a reviewer that ends in prose is asked once more for the signal", async () => {
+	const contexts = [];
+	const { runtime, faux } = fauxRuntime([
+		fauxAssistantMessage("Let me weigh whether this comment runs five lines."),
+		(context) => {
+			contexts.push(structuredClone(context.messages));
+			return submits([violation(0)], "reask");
+		},
+		done(1),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.findings.length, 1);
+	assert.equal(faux.state.callCount, 3);
+	// The re-ask has to carry the contract, not just repeat the complaint: the
+	// signal's exact shape, and that banked findings must not be sent again.
+	const reask = userTexts(contexts[0]).at(-1);
+	assert.match(reask, /do not submit them again/i);
+	assert.match(reask, /"status":"complete"/);
+});
+
+// One chance to say which it was, not an escape from the contract.
+test("a reviewer that misses the signal twice is incomplete", async () => {
+	const { runtime, faux } = fauxRuntime([
+		fauxAssistantMessage("First essay about the diff."),
+		fauxAssistantMessage("Second essay, still not the signal."),
+		done(0),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /Second essay/);
+	// The third response is queued to prove it is never reached.
+	assert.equal(faux.state.callCount, 2);
+	assert.deepEqual(result.findings, []);
+});
+
+// The re-ask must not cost a reviewer the review it already banked.
+test("findings banked before a missed signal survive the re-ask", async () => {
+	const { runtime, faux } = fauxRuntime([
+		submits([violation(0), violation(1)], "a"),
+		fauxAssistantMessage("Here is a summary of what I found."),
+		fauxAssistantMessage("Here is that summary again."),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.equal(faux.state.callCount, 3);
+	assert.equal(result.findings.length, 2);
+	assert.match(result.reason, /that summary again/);
 });

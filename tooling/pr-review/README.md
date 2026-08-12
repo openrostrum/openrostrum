@@ -79,6 +79,16 @@ passes a TypeBox schema at the boundary — no hand-rolled shape checks — and 
 aborted runs, exhausted budgets, an answer that is not the completion signal, and a
 count that disagrees with the bank are **incomplete**, never clean.
 
+A response that is not the signal earns **exactly one re-ask** before the session
+is called incomplete. The re-ask restates the signal's shape and tells the reviewer
+its banked findings are already recorded, so it must not send them again. This is a
+recovery, not a second chance at the contract: the turn, tool-call, and wall-time
+budgets are shared with the first ask, a reviewer that misses twice is incomplete,
+and the reason reported is the second failure. It exists because a reviewer that
+ends in reasoning has said neither “I finished” nor “I stopped” — production has
+seen a session close with 8995 characters of argument about a violation it never
+submitted, and one extra turn recovers that review instead of discarding it.
+
 A truncated answer (`stopReason: "length"`) stays incomplete and additionally
 reports the output tokens the provider says it produced, how many were reasoning,
 and the ceiling the request actually asked for — enough to tell an oversized answer
@@ -134,7 +144,9 @@ response, 24 findings reported across several responses, a session that dies wit
 findings banked, a session that never reaches the completion signal, duplicate
 submission, a submission citing an unchanged file, a submission that fails the
 schema, a terminal count that disagrees with the bank, the per-response cap and
-its re-issue, anchoring, fingerprints, dedupe, reconciliation, stale deferral, and
+its re-issue, a reviewer that ends in prose being re-asked once and recovering, a
+reviewer that misses the signal twice staying incomplete, findings surviving a
+re-ask, anchoring, fingerprints, dedupe, reconciliation, stale deferral, and
 posting payloads. CI runs this complete set in its unconditional quality job.
 
 A local production dry run performs real DeepSeek sessions but no GitHub writes:

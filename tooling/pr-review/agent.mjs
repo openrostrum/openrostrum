@@ -159,6 +159,20 @@ function createFindingSink(agent, changedPaths) {
 	};
 }
 
+// A reviewer that ends in prose has said neither "I finished" nor "I stopped",
+// and this PR's own reviewer did exactly that with 8995 characters of reasoning
+// about a violation it never submitted. One re-ask costs a turn; the bank is
+// already safe, so the second answer is the signal or the same failure.
+const TERMINAL_RETRIES = 1;
+
+function retryPrompt(failure) {
+	return `That response was not the completion signal. ${failure}
+
+Findings you already submitted are recorded — do not submit them again. Submit with a ${SUBMIT_TOOL} call anything you have proved but not yet submitted, then emit one JSON object and nothing else — no preface, no reasoning, no code fence, no trailing remarks:
+{"status":"complete","submitted":N}
+where N is the running total from your last ${SUBMIT_TOOL} result, or 0 if you submitted nothing. Never claim complete if tool or provider failures prevented a trustworthy review.`;
+}
+
 // The terminal response no longer carries the review, so all it proves is that
 // the reviewer knows it finished; the count is what makes that an assertion. A
 // tally that disagrees fails safe: banked findings still post, the session is
@@ -211,6 +225,23 @@ function answerDetail(message) {
 	const text = assistantText(message);
 	const opening = text.replace(/\s+/g, " ").trim().slice(0, ANSWER_EXCERPT);
 	return `blocks ${blocks.join("+") || "none"}, ${text.length} chars of text, ${opening ? `starting "${opening}"` : "no text emitted"}`;
+}
+
+// Null means the session ended the way the contract requires; anything else is
+// the reason it did not, phrased for both the CI summary and the re-ask.
+function terminalFailure(terminal, banked, model) {
+	if (!terminal || terminal.stopReason !== "stop")
+		return `provider stopped with ${stopDetail(terminal, model)}`;
+	try {
+		terminalCount(
+			extractJson(assistantText(terminal)),
+			banked,
+			answerDetail(terminal),
+		);
+		return null;
+	} catch (error) {
+		return error.message;
+	}
 }
 
 export async function runRuleReviewer({
@@ -278,55 +309,54 @@ export async function runRuleReviewer({
 		limitReason = "review timeout exceeded";
 		reviewer.abort();
 	}, limits.timeoutMs);
+	let ask = userPrompt(repository, agent, limits);
+	let asked = 0;
 	try {
-		await reviewer.prompt(userPrompt(repository, agent, limits));
-	} catch (error) {
-		return incomplete(agent, String(error?.message ?? error), sink.findings, {
-			turns,
-			toolCalls,
-		});
+		while (true) {
+			try {
+				await reviewer.prompt(ask);
+			} catch (error) {
+				return incomplete(
+					agent,
+					String(error?.message ?? error),
+					sink.findings,
+					{ turns, toolCalls },
+				);
+			}
+
+			if (limitReason)
+				return incomplete(agent, limitReason, sink.findings, {
+					turns,
+					toolCalls,
+				});
+			if (reviewer.state.errorMessage)
+				return incomplete(agent, reviewer.state.errorMessage, sink.findings, {
+					turns,
+					toolCalls,
+				});
+
+			const failure = terminalFailure(
+				reviewer.state.messages.findLast(
+					(message) => message.role === "assistant",
+				),
+				sink.findings.length,
+				runtime.model,
+			);
+			if (!failure)
+				return {
+					agent: agent.id,
+					doc: agent.doc,
+					status: "complete",
+					findings: sink.findings,
+					turns,
+					toolCalls,
+				};
+			if (asked++ >= TERMINAL_RETRIES)
+				return incomplete(agent, failure, sink.findings, { turns, toolCalls });
+			ask = retryPrompt(failure);
+		}
 	} finally {
 		clearTimeout(timer);
-	}
-
-	if (limitReason)
-		return incomplete(agent, limitReason, sink.findings, { turns, toolCalls });
-	if (reviewer.state.errorMessage)
-		return incomplete(agent, reviewer.state.errorMessage, sink.findings, {
-			turns,
-			toolCalls,
-		});
-
-	const terminal = reviewer.state.messages.findLast(
-		(message) => message.role === "assistant",
-	);
-	if (!terminal || terminal.stopReason !== "stop")
-		return incomplete(
-			agent,
-			`provider stopped with ${stopDetail(terminal, runtime.model)}`,
-			sink.findings,
-			{ turns, toolCalls },
-		);
-
-	try {
-		terminalCount(
-			extractJson(assistantText(terminal)),
-			sink.findings.length,
-			answerDetail(terminal),
-		);
-		return {
-			agent: agent.id,
-			doc: agent.doc,
-			status: "complete",
-			findings: sink.findings,
-			turns,
-			toolCalls,
-		};
-	} catch (error) {
-		return incomplete(agent, error.message, sink.findings, {
-			turns,
-			toolCalls,
-		});
 	}
 }
 
