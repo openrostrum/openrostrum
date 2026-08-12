@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { makeRuntime } from "./core.mjs";
+import { makeRuntime, streamOptions } from "./core.mjs";
 
 // The contract: reviewer sessions must reach DeepSeek through Pi's own DeepSeek
 // provider, so the wire format, compat quirks, and tool support come from Pi's
@@ -18,6 +18,20 @@ test("the runtime carries Pi's DeepSeek provider contract, not a hand-built mode
 	assert.equal(runtime.model.compat?.supportsDeveloperRole, false);
 	assert.equal(runtime.model.compat?.thinkingFormat, "deepseek");
 	assert.ok(runtime.model.contextWindow > 0);
+});
+
+// A reviewer truncated by the provider's default output cap can only be reported
+// as incomplete, so every request must carry an explicit ceiling of its own.
+test("every provider request asks for an explicit output ceiling", () => {
+	const sent = streamOptions({ key: "test-key", temperature: 0 });
+	assert.ok(sent.maxTokens >= 8000);
+
+	const caller = streamOptions({
+		key: "test-key",
+		temperature: 0,
+		options: { maxTokens: 4096 },
+	});
+	assert.equal(caller.maxTokens, 4096);
 });
 
 // A deployer may point DEEPSEEK_MODEL at a model newer than Pi's bundled

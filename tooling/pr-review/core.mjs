@@ -43,6 +43,21 @@ export async function loadSystems() {
 }
 
 const REQ_TIMEOUT_MS = Number(process.env.REQ_TIMEOUT_MS ?? 60000);
+// DeepSeek's own default output cap truncated a reviewer mid-answer, which the
+// completion contract can only report as incomplete. Ask for a cap wide enough
+// for a full findings list and still far below a runaway response.
+const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 16000);
+
+export function streamOptions({ key, temperature, options = {} }) {
+	return {
+		...options,
+		apiKey: key,
+		temperature,
+		maxTokens: options.maxTokens ?? MAX_OUTPUT_TOKENS,
+		timeoutMs: REQ_TIMEOUT_MS,
+		maxRetries: 3,
+	};
+}
 
 export function makeRuntime({ key, base, model, temperature }) {
 	const models = createModels();
@@ -79,13 +94,11 @@ export function makeRuntime({ key, base, model, temperature }) {
 		model: activeModel,
 		api,
 		streamFn(selectedModel, context, options = {}) {
-			return models.streamSimple(selectedModel, context, {
-				...options,
-				apiKey: key,
-				temperature,
-				timeoutMs: REQ_TIMEOUT_MS,
-				maxRetries: 3,
-			});
+			return models.streamSimple(
+				selectedModel,
+				context,
+				streamOptions({ key, temperature, options }),
+			);
 		},
 	};
 }
