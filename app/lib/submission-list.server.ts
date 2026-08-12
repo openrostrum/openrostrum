@@ -311,8 +311,13 @@ async function setSpeakerVisibility(
 					eq(contacts.eventId, eventId),
 				),
 			)
-			.returning({ id: contacts.id });
-		if (!updated[0]) {
+			.returning({
+				id: contacts.id,
+				firstName: contacts.firstName,
+				lastName: contacts.lastName,
+			});
+		const row = updated[0];
+		if (!row) {
 			return {
 				formError: "That speaker isn't part of this event.",
 			} satisfies ListActionData;
@@ -322,8 +327,16 @@ async function setSpeakerVisibility(
 			contactId: parsed.data.contactId,
 			publicVisible,
 		});
-		// Success needs no message: revalidation flips the eye/badge in place.
-		return {} satisfies ListActionData;
+		// The eye flipping in place was assumed to be enough. It isn't: this
+		// toggle reaches every session, embed, and feed the speaker appears in,
+		// and an evaluator who couldn't tell what one click had done pressed it
+		// four more times. Say the scope out loud.
+		const name = `${row.firstName} ${row.lastName}`.trim();
+		return {
+			notice: publicVisible
+				? `${name} is back on the public program.`
+				: `${name} is hidden from the public program — every session, embed, and feed.`,
+		} satisfies ListActionData;
 	});
 	return timed(timings, result);
 }

@@ -94,6 +94,11 @@ describe("sessions admin speaker visibility", () => {
 			await authedRequest(toggleBody("c_ada", "0")),
 		);
 		expect(result.formError).toBeUndefined();
+		// One click reaches every session, embed, and feed, so the confirmation
+		// has to name that scope: the evaluator who could only see an eye flip
+		// pressed it four more times and ended up back where it started.
+		expect(result.notice).toContain("Ada Zhang");
+		expect(result.notice).toMatch(/every session, embed, and feed/);
 
 		const [row] = await db
 			.select({ publicVisible: contacts.publicVisible })
@@ -117,6 +122,7 @@ describe("sessions admin speaker visibility", () => {
 			await authedRequest(toggleBody("c_hidden", "1")),
 		);
 		expect(result.formError).toBeUndefined();
+		expect(result.notice).toContain("back on the public program");
 		const [row] = await db
 			.select({ publicVisible: contacts.publicVisible })
 			.from(contacts)
