@@ -46,13 +46,18 @@ parallelism and safety limits.
 ## Incremental submission
 
 A reviewer reports each violation with a `submit_finding` call the moment it is
-sure of it, one finding per call, and the response that ends the session carries
-none of them — it is the fixed-size signal `{"status":"complete","submitted":N}`.
-No response therefore grows with the size of the review. This exists because
-DeepSeek caps a single completion at 8192 output tokens whatever ceiling is
-requested: under the previous contract, where one terminal JSON had to carry every
-finding, a reviewer with a lot to say about a large diff was cut off mid-answer and
-its entire review was discarded.
+sure of it, one finding per call, and closes the session with a `finish_review`
+call carrying only the running total. No response therefore grows with the size of
+the review. This exists because DeepSeek caps a single completion at 8192 output
+tokens whatever ceiling is requested: under the original contract, where one
+terminal JSON had to carry every finding, a reviewer with a lot to say about a
+large diff was cut off mid-answer and its entire review was discarded.
+
+Every request sets `toolChoice: "required"`, so a response can only be tool calls.
+Incremental submission alone did not fix the overflow — reviewers still spent whole
+8192-token responses on commentary, one of them reaching its cap by the fifth turn
+without ever submitting a finding. Prose was never read by anything; now there is
+no channel for it, which is enforcement rather than instruction.
 
 `submit_finding` is the validation boundary. Pi checks the arguments against the
 finding schema before the tool runs, so a malformed submission comes back as an
@@ -73,15 +78,25 @@ render as prose and are elided.
 
 ## Completion semantics
 
-A session is complete only after the provider stops normally, its terminal answer
-passes a TypeBox schema at the boundary — no hand-rolled shape checks — and its
-`submitted` count equals what actually reached the bank. Provider errors, timeouts,
-aborted runs, exhausted budgets, an answer that is not the completion signal, and a
-count that disagrees with the bank are **incomplete**, never clean.
+A session is complete only after `finish_review` is called, its arguments pass a
+TypeBox schema at the boundary — no hand-rolled shape checks — and its `submitted`
+count equals what actually reached the bank. Provider errors, timeouts, aborted
+runs, exhausted budgets, a session that never closes, and a count that disagrees
+with the bank are **incomplete**, never clean. The close is read off the tool call
+and ends the session there, so closing never depends on when a tool result is
+appended relative to the turn hook.
 
-A response that is not the signal earns **exactly one re-ask** before the session
-is called incomplete. The re-ask restates the signal's shape and tells the reviewer
-its banked findings are already recorded, so it must not send them again. This is a
+Because a response can only be tool calls, a reviewer cannot stop by saying it is
+done — it stops by calling `finish_review` or not at all. Reaching the turn budget
+is therefore treated as the moment to ask for the close, not the moment to give up
+on it: the session gets one explicit "investigation is over" ask with a small extra
+turn allowance, told what is already banked so it does not resubmit. A reviewer that
+ignores that ask too is incomplete, with its banked findings posted.
+
+A response that does not close the review earns **exactly one re-ask** before the
+session is called incomplete. The re-ask names the closing call and tells the
+reviewer its banked findings are already recorded, so it must not send them
+again. This is a
 recovery, not a second chance at the contract: the turn, tool-call, and wall-time
 budgets are shared with the first ask, a reviewer that misses twice is incomplete,
 and the reason reported is the second failure. It exists because a reviewer that
