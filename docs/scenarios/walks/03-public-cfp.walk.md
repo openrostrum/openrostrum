@@ -805,3 +805,120 @@ Always-block rejection writes nothing — the zero-rows probes (`users`, `contac
 
 ### CFP-S8 step 4 — UNCHANGED
 Token-less forged POST → 4xx before any insert — same G6-blocked artifact; no tenancy interaction.
+
+## 2026-08-11 re-walk — calendar revision ledger and provider send claims (design-time gate)
+
+**Gate trigger.** This file's `touches:` names `emailOutbox` and `ports: [email, turnstile, clock]`, and the
+branch changes `app/db/schema.ts` and `app/ports/email.ts`. All 59 steps are walked below — none
+pre-filtered. Shared structural findings **S1** (purely additive schema delta), **S2** (unchanged port
+shape; the new `onInFlight` is optional and defaults to main's behavior) and **S3** (new adapter behavior
+requires a `dedupeKey` collision) are stated in full in `01-auth-event-setup.walk.md` §"2026-08-11 re-walk".
+
+Scope note for this whole file: no public-CFP send carries an `ics` attachment, so no step here writes
+`calendar_invite_revisions`, `calendar_invite_processed_outbox` or `calendar_invite_sequence_frontiers`, and
+no step moves a sequence frontier. Calendar attachments enter only at decision-send (scenario 05) and
+schedule-update (scenarios 06/08).
+
+### CFP-S1 — first-time speaker submits end-to-end (10 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Admin edits `forms` success message. |
+| 2 | UNCHANGED | Logged-out public render: event name, close banner, limit copy, Turnstile presence. |
+| 3 | UNCHANGED | Welcome rich text → Get Started. |
+| 4 | UNCHANGED | Signup branch writes `users`/`contacts`; no send on this path. |
+| 5 | UNCHANGED | Submission step values + 255 counter. |
+| 6 | UNCHANGED | Participant step pre-fill and role banner. |
+| 7 | UNCHANGED | Review step verbatim values → Submit. |
+| 8 | UNCHANGED | Success page shows the sentinel message. |
+| 9 | UNCHANGED | 8–12 s auto-redirect to the portal (client timer). |
+| 10 | **CHANGED — same oracle, wider durable record.** | The confirmation send routes through `app/ports/email.ts:send`. Oracle unchanged: one `email_outbox` row to priya@example.com with `status = sent` and a working portal link. The row now also carries the two new NULLABLE claim columns (S1); after a completed send `send_claim_id` is cleared, so the organizer-visible outbox history renders identically. No `onInFlight` is passed here, so a double-submitted form still returns `{ deduped: true }` exactly as on `origin/main` (S2, S3). |
+
+### CFP-S2 — returning speaker logs in (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Public form → Account step. |
+| 2 | UNCHANGED | Existing-account branch + forgot-password link. |
+| 3 | UNCHANGED | Wrong password submitted. |
+| 4 | UNCHANGED | Inline error, email preserved, no session. |
+| 5 | UNCHANGED | Repeated failures stay consistent; no send is triggered by a failed login. |
+| 6 | UNCHANGED | Correct password advances the wizard. |
+| 7 | UNCHANGED | Logout does not resurrect the session. |
+
+### CFP-S3 — submission-step validation (8 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Description typed, Title empty, Next. |
+| 2 | UNCHANGED | Blocked with inline Title error; Description preserved. |
+| 3 | UNCHANGED | Zero-rows probe on `submissions` — an untouched table (S1). |
+| 4 | UNCHANGED | 255-char cap. |
+| 5 | UNCHANGED | Live counter. |
+| 6 | UNCHANGED | Dropdowns match the library one-for-one. |
+| 7 | UNCHANGED | Admin adds a Format option. |
+| 8 | UNCHANGED | Live-read pickup of the new option; wizard abandoned. |
+
+### CFP-S4 — draft, leave, resume (8 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Login and start. |
+| 2 | UNCHANGED | Save as draft writes `submissions` with draft status. |
+| 3 | UNCHANGED | Draft acknowledgment + last-saved timestamp. |
+| 4 | UNCHANGED | Window closed mid-flow. |
+| 5 | UNCHANGED | Resume prompt on re-login. |
+| 6 | UNCHANGED | Values pre-filled, bold intact. |
+| 7 | UNCHANGED | Draft visible in the portal with a Draft pill. |
+| 8 | UNCHANGED | Draft left unsubmitted; no send on the draft path. |
+
+### CFP-S5 — participant role counts (9 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Form duplicate + Min 2 / Max 4. |
+| 2 | UNCHANGED | Submission step filled. |
+| 3 | UNCHANGED | Progression blocked at 1 speaker. |
+| 4 | UNCHANGED | Live email validation on blur. |
+| 5 | UNCHANGED | Corrected co-speaker; banner updates. |
+| 6 | UNCHANGED | Max-4 cap enforced. |
+| 7 | UNCHANGED | Removal updates the banner instantly. |
+| 8 | UNCHANGED | Secondary contact added. |
+| 9 | **CHANGED — same oracle, wider durable record.** | Submit reaches the success page and fires the same confirmation send as CFP-S1.10, with the same durability delta (S1) and the same unchanged duplicate semantics (S2, S3). Co-speaker notification sends (`app/domain/participant-notifications.ts`) also route through the port and likewise pass no `onInFlight`. |
+
+### CFP-S6 — submission limit (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Account creation for Ravi. |
+| 2 | UNCHANGED | Submission #1 (its confirmation send inherits CFP-S1.10's verdict; no separate oracle asserted here). |
+| 3 | UNCHANGED | "Submit another session" restarts clean. |
+| 4 | UNCHANGED | Draft #2 saved. |
+| 5 | UNCHANGED | Submission #3 submitted. |
+| 6 | UNCHANGED | 4th blocked client-side; drafts count. |
+| 7 | UNCHANGED | Forged POST rejected 4xx; nothing persisted, so no outbox row and no claim column is written. |
+
+### CFP-S7 — closed form (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Close date set in the past; Forms list shows Closed. |
+| 2 | UNCHANGED | Closed state renders logged-out. |
+| 3 | UNCHANGED | Deep-link probe still closed. |
+| 4 | UNCHANGED | Draft cannot be resumed past close. |
+| 5 | UNCHANGED | Forged POST rejected; nothing persisted. |
+| 6 | UNCHANGED | Close date restored; form reopens. |
+
+### CFP-S8 — bot protection (4 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Turnstile widget present; the turnstile port is not touched by this branch. |
+| 2 | UNCHANGED | Always-pass signup succeeds with no challenge. |
+| 3 | UNCHANGED | Always-block signup rejected; no account, no session, no send. |
+| 4 | UNCHANGED | Token-less forged POST rejected 4xx before any insert. |
+
+### Re-walk verdict
+
+**59/59 steps re-walked. 2 CHANGED (CFP-S1.10, CFP-S5.9 — durability only, same observable outcome),
+57 UNCHANGED, 0 BLOCKER, 0 MAJOR.** No `touches:` update required.

@@ -735,3 +735,98 @@ Real PBKDF2 hash verify + session mint — no tenancy surface.
 0 BLOCKER, 0 MAJOR. Everything the migration leaves open on this file's path is an explicit
 Wave B/C/D commitment, cited per step. One prior gap is resolved by the migration itself
 (AE-S4.3 dual encoding); three others changed status (see state notes).
+
+## 2026-08-11 re-walk — calendar revision ledger and provider send claims (design-time gate)
+
+**Gate trigger.** Branch `fix/schedule-scale-hardening` changes `app/db/schema.ts`, `app/ports/email.ts`,
+`app/domain/accept.ts`, `app/domain/schedule-update.ts`, `app/lib/ics.ts` and `app/routes/admin.agenda.tsx`.
+This file's `touches:` names `emailOutbox` and `ports: [EmailSender]`, so the gate selects it. Every one of
+the 37 steps is walked below — none pre-filtered — and each gets either the changed concrete artifact or the
+reason it is unchanged.
+
+### Shared structural findings (established once, cited per step)
+
+- **S1 — the schema delta is purely additive.** Migration `0013_schedule_calendar_ledger.sql` creates
+  `calendar_invite_revisions`, `calendar_invite_processed_outbox` and `calendar_invite_sequence_frontiers`,
+  and adds two NULLABLE columns to `email_outbox` (`send_claim_id`, `send_claim_expires_at`). No existing
+  column changes type, nullability or default; no existing index is dropped. Every step that only reads or
+  writes pre-existing columns is byte-identical to `origin/main`.
+- **S2 — the port's public shape is unchanged.** `EmailMessage`, `EmailResult` and
+  `EmailSender.send(msg): Promise<EmailResult>` stay compatible with `origin/main`. The delta lives inside
+  the two adapters plus one OPTIONAL `onInFlight?: "dedupe" | "reject"` field whose default (`"dedupe"`)
+  reproduces main's behavior exactly. Callers that do not set it are unaffected.
+- **S3 — newly observable adapter behavior requires a `dedupeKey` collision with a prior row.** The local
+  adapter retries a non-`sent`/`bounced` collision in place (`deduped: false`). The Resend adapter wraps
+  provider/network faults in `EmailDeliveryError` — main already threw plain `Error`s from the same points,
+  so this is not a caller-visible change — and throws `EmailSendInFlightError` ONLY when the caller passes
+  `onInFlight: "reject"`, which on this branch is exactly two call sites (`app/domain/accept.ts:891`,
+  `app/domain/schedule-update.ts:1368`), neither reachable from this scenario file.
+
+### AE-S1 — admin signs in (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Logged-out deep-link gating reads `authSessions`/`users` only; no touched file is on this path (S1). |
+| 2 | UNCHANGED | Wrong-password rejection writes nothing; `email_outbox` is not read. |
+| 3 | UNCHANGED | Re-probe of the admin URL is the same session lookup as step 1. |
+| 4 | UNCHANGED | Successful login inserts `authSessions`; no touched column. |
+| 5 | UNCHANGED | Seed-event submissions list reads `submissions`/`events`; the three new tables are additive and unjoined here (S1). |
+| 6 | UNCHANGED | Logout deletes the session row; no email or calendar path. |
+
+### AE-S2 — create a brand-new event (8 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Same login path as AE-S1.4. |
+| 2 | UNCHANGED | Blank-name inline error is form validation only. |
+| 3 | UNCHANGED | Event insert touches `events`; `calendar_invite_processed_outbox.event_id` is a new FK *into* `events`, adding no constraint to inserts. |
+| 4 | UNCHANGED | Switcher lists `events` rows. |
+| 5 | UNCHANGED | Empty states across submissions/forms/library/evaluation. The new event has no `email_outbox` rows, so normalization has nothing to resume; the Agenda continuation affordance (the only new UI) is not on any of these screens. |
+| 6 | UNCHANGED | Location/end-date edit writes `events`; agenda-relevant columns (`agendaDayStartMin`, timezone) are unchanged by this branch. |
+| 7 | UNCHANGED | Hard-reload persistence is a plain reread. |
+| 8 | UNCHANGED | Seed event untouched — nothing in this branch writes cross-event state; the cross-event guard added to normalization *fails closed* rather than mutating. |
+
+### AE-S3 — build the library (9 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Library screen reads `tracks`/`tags`/`formats`/`levels`/`rooms`. |
+| 2 | UNCHANGED | Track create + blank-name error; no touched table. |
+| 3 | UNCHANGED | Tag create. |
+| 4 | UNCHANGED | Format create with default durations. `formats.defaultDurationMins` feeds agenda end-time auto-fill, which this branch does not modify. |
+| 5 | UNCHANGED | Level create. |
+| 6 | UNCHANGED | Room create. `rooms` is read by the ICS `LOCATION` builder, but only at send time (scenario 06/08), not here. |
+| 7 | UNCHANGED | Track rename + recolor. |
+| 8 | UNCHANGED | Level delete and dropdown propagation. |
+| 9 | UNCHANGED | Reload persistence. |
+
+### AE-S4 — custom-field library (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Fields area reads `fields`. |
+| 2 | UNCHANGED | Blank-name error, type retained. |
+| 3 | UNCHANGED | Five field creates across all six types; org-wide vs event scope is unaffected by S1. |
+| 4 | UNCHANGED | Rename. |
+| 5 | UNCHANGED | Delete + picker removal. |
+| 6 | UNCHANGED | Cross-event scope check reads `fields` with `eventId IS NULL`. |
+| 7 | UNCHANGED | Picker search narrowing is client-side over `fields`. |
+
+### AE-S5 — provision a reviewer (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Reviewer create writes `users`/`reviewerTracks`. |
+| 2 | UNCHANGED | Admin-side reviewer list. |
+| 3 | **CHANGED — same oracle, different failure surface.** | The invite send goes through `app/ports/email.ts`. The oracle is unchanged: an outbox row addressed to `nadia.kessler@example.com` with a working set-password link. What changed is the *duplicate* path. `mintInviteToken` derives its token deterministically (`sha256Hex("reviewer-invite:" + userId + ":" + sendKey)`, `app/lib/reviewers.ts:143`) and `admin.reviewers.tsx` only format-checks `sendKey` without consuming it, so a double-clicked Invite button produces a colliding `dedupeKey`. On `origin/main` the second request returned `{ deduped: true }`. Mid-branch it threw `EmailSendInFlightError`, which this route does not catch — a 500 page for a send that actually succeeded. Fixed before this gate closed by defaulting `onInFlight` to `"dedupe"` (S2), restoring main's behavior for this and every other un-opted-in caller. Regression test: `test/email.resend.test.ts` — "reports a concurrent claim as a duplicate for a caller that keeps no delivered-state". |
+| 4 | UNCHANGED | Invite link → set password → login reads `passwordResets`; the token row is written by `mintInviteToken`, not by the port. |
+| 5 | UNCHANGED | Empty reviewer queue. |
+| 6 | UNCHANGED | Admin-URL 403 for a reviewer. |
+| 7 | UNCHANGED | Logout / re-login durability. |
+
+### Re-walk verdict
+
+**37/37 steps re-walked. 1 CHANGED (AE-S5.3), 36 UNCHANGED, 0 BLOCKER, 0 MAJOR.** The single change is a
+regression this gate *found and fixed*: the branch's strict in-flight signal is now opt-in, so the ~12
+un-audited single-recipient route send sites — this invite among them — keep `origin/main`'s double-submit
+behavior. No `touches:` update required; `emailOutbox` and `ports: [EmailSender]` already select this file.

@@ -28,6 +28,17 @@ export interface EmailMessage {
 	 * unsubscribe footer. Callers of announcement sends MUST set "bulk".
 	 */
 	kind?: "transactional" | "bulk";
+	/**
+	 * What a LIVE claimant on the same `dedupeKey` means to this caller.
+	 * "dedupe" (default) — report it like any other duplicate: right for the
+	 * user-initiated route actions, where a double-clicked button must stay a
+	 * no-op instead of becoming an error page.
+	 * "reject" — throw `EmailSendInFlightError`. Required wherever the caller
+	 * writes durable delivered-state (`submissions.notified_at`, the calendar
+	 * sequence frontier) that must never be stamped for a delivery this request
+	 * did not complete.
+	 */
+	onInFlight?: "dedupe" | "reject";
 }
 
 export interface EmailResult {
@@ -175,9 +186,23 @@ function sendClaimIsActive(expiresAt: Date | null, now = Date.now()): boolean {
 	return expiresAt !== null && expiresAt.getTime() > now;
 }
 
+/**
+ * A live claimant owns this dedupe identity. Either that is this caller's
+ * problem (it keeps delivered-state) or it is the same outcome as any other
+ * duplicate — the winning request is delivering exactly this message.
+ */
+function inFlightOutcome(
+	onInFlight: EmailMessage["onInFlight"],
+	row: { id: string; providerId?: string | null },
+): EmailResult {
+	if (onInFlight === "reject") throw new EmailSendInFlightError();
+	return { id: row.providerId ?? row.id, deduped: true, suppressed: false };
+}
+
 async function reconcileSendClaim(
 	db: Db,
 	outboxId: string,
+	onInFlight: EmailMessage["onInFlight"],
 ): Promise<EmailResult> {
 	const [current] = await db
 		.select({
@@ -201,7 +226,7 @@ async function reconcileSendClaim(
 		current.status === "queued" &&
 		sendClaimIsActive(current.sendClaimExpiresAt)
 	) {
-		throw new EmailSendInFlightError();
+		return inFlightOutcome(onInFlight, current);
 	}
 	throw new Error(
 		`email_outbox delivery claim could not be reconciled from ${current.status}`,
@@ -305,7 +330,7 @@ export function createResendEmailSender(env: Env): EmailSender {
 					existing.status === "queued" &&
 					sendClaimIsActive(existing.sendClaimExpiresAt)
 				) {
-					throw new EmailSendInFlightError();
+					return inFlightOutcome(msg.onInFlight, existing);
 				}
 				const [claimed] = await db
 					.update(emailOutbox)
@@ -335,7 +360,7 @@ export function createResendEmailSender(env: Env): EmailSender {
 					)
 					.returning({ id: emailOutbox.id });
 				if (!claimed) {
-					throw new EmailSendInFlightError();
+					return inFlightOutcome(msg.onInFlight, existing);
 				}
 				outboxId = claimed.id;
 			}
@@ -408,7 +433,7 @@ export function createResendEmailSender(env: Env): EmailSender {
 						),
 					)
 					.returning({ id: emailOutbox.id });
-				if (!failed) return reconcileSendClaim(db, outboxId);
+				if (!failed) return reconcileSendClaim(db, outboxId, msg.onInFlight);
 				track("email.send_failed", {
 					outboxId,
 					eventId: msg.eventId,
@@ -436,7 +461,7 @@ export function createResendEmailSender(env: Env): EmailSender {
 					),
 				)
 				.returning({ id: emailOutbox.id });
-			if (!persisted) return reconcileSendClaim(db, outboxId);
+			if (!persisted) return reconcileSendClaim(db, outboxId, msg.onInFlight);
 			return {
 				id: providerData.id,
 				deduped: false,

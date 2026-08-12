@@ -6,6 +6,7 @@ import { getDb } from "../app/db";
 import {
 	calendarInviteProcessedOutbox,
 	calendarInviteRevisions,
+	calendarInviteSequenceFrontiers,
 	contacts,
 	emailOutbox,
 	events,
@@ -785,6 +786,61 @@ function keynoteIcs(options: {
 		],
 	});
 }
+
+describe("calendar ledger lifecycle", () => {
+	// XM-S5 demands no orphans anywhere after a hard delete. The ledger adds two
+	// submission-keyed tables, so deleting a submission must take them with it —
+	// while the processed marker, which belongs to the immutable outbox row and
+	// not to the submission, must survive so history is never re-normalized.
+	it("hard-deleting a submission takes its revisions and frontier, not the outbox marker", async () => {
+		const db = await invitedBaseline();
+		// Give the keynote a real slot and send the update, so the ledger holds
+		// every row shape: two revision attempts, a marker per outbox row, and the
+		// frontier the send allocated.
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		expect(await callAction({ intent: "schedule-updates" })).toMatchObject({
+			updates: { sent: 1, failed: 0 },
+		});
+		const forKeynote = eq(calendarInviteRevisions.submissionId, "s_keynote");
+		expect(
+			(await db.select().from(calendarInviteRevisions).where(forKeynote))
+				.length,
+		).toBeGreaterThan(0);
+		expect(
+			await db
+				.select()
+				.from(calendarInviteSequenceFrontiers)
+				.where(eq(calendarInviteSequenceFrontiers.submissionId, "s_keynote")),
+		).toHaveLength(1);
+
+		// The exact statement deleteSubmission issues; cascades own the children.
+		await db.delete(submissions).where(eq(submissions.id, "s_keynote"));
+
+		expect(
+			await db.select().from(calendarInviteRevisions).where(forKeynote),
+		).toHaveLength(0);
+		expect(
+			await db
+				.select()
+				.from(calendarInviteSequenceFrontiers)
+				.where(eq(calendarInviteSequenceFrontiers.submissionId, "s_keynote")),
+		).toHaveLength(0);
+		expect(
+			await db
+				.select()
+				.from(calendarInviteProcessedOutbox)
+				.where(
+					eq(calendarInviteProcessedOutbox.outboxId, "accept-keynote-initial"),
+				),
+		).toHaveLength(1);
+	});
+});
 
 describe("schedule-update emails (stale speaker calendars)", () => {
 	it("calendar invite ledger preserves immutable outbox attempts and processed markers", async () => {

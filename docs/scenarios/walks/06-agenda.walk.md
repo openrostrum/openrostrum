@@ -820,3 +820,137 @@ both editor paths.
   two-lane public room, track chip, and labeled Track metadata row.
 
 Result: 45 scenario steps walked — 34 unchanged, 5 changed, 6 new, 0 gaps.
+
+## 2026-08-11 re-walk — calendar revision ledger and provider send claims (design-time gate)
+
+**Gate trigger.** This file's `touches:` names `routes: [admin.agenda.tsx]`, and this branch changes
+`app/routes/admin.agenda.tsx` (+137/−41). All 45 steps are walked below — none pre-filtered. Shared
+structural findings **S1**, **S2** and **S3** are stated in full in `01-auth-event-setup.walk.md`
+§"2026-08-11 re-walk".
+
+### Concrete artifacts — what changed in `admin.agenda.tsx`
+
+The route delta is entirely on the **schedule-update maintenance surface**: the stale-speaker InfoBar, the
+`intent="schedule-updates"` action, and the outcome banners. The grid, drag/drop placement, conflict
+detection, Agenda Settings, unschedule, and publish paths are untouched. Four concrete changes:
+
+1. **Loader now surfaces `event.scheduleScanBlocked`** alongside the pre-existing `scheduleScanTruncated`
+   (`admin.agenda.tsx:308`), fed by `ScheduleChangeSet.blocked` (`app/domain/schedule-update.ts:73`).
+2. **A truncated scan is no longer a dead end.** The old banner read "Matching invite history exceeded the
+   check limit, so schedule-update counts may be incomplete." and offered nothing. It now renders inside an
+   `InfoBarActionRow` with a **"Continue checking invite history"** POST button (the same
+   `intent="schedule-updates"` form, extracted as `scheduleUpdateForm`), so the organizer has an actionable
+   continuation path instead of a permanent warning.
+3. **A new terminal-invalid banner**: "Invite history contains invalid sent records, so schedule updates are
+   blocked. Review Email history before retrying." with a `TextLink` to `/admin/emails/history`. It takes
+   precedence over the truncated banner, so the two never stack.
+4. **The action normalizes before it sends.** `intent="schedule-updates"` now runs
+   `normalizeCalendarInviteHistory(db, event.id)` first; if it did any work it returns early with
+   `{ normalization: { processed, remaining } }` and renders
+   `ScheduleHistoryNormalizationOutcome` — "N invite-history records normalized. More history remains;
+   continue before any email is sent." / "History is ready; continue to send the pending updates." — plus a
+   **"Continue schedule updates"** button. The delivery banner
+   (`ScheduleUpdateDeliveryOutcome`) gained one clause: "— N deliveries still in progress", so an active
+   claim held by a concurrent request reads as in-flight rather than as a failure.
+
+**Baseline precondition (governs the UNCHANGED verdicts below).** `computeScheduleChanges` only considers
+submissions with a non-NULL `notified_at` (`app/domain/schedule-update.ts:853`), and the seed sets
+`notified_at` nowhere. At the seed baseline there is therefore no calendar-bearing outbox history: the
+normalization preflight finds nothing, `staleSpeakers` is 0, and `truncated`/`blocked` are both false — so
+**none of the changed banners render on a baseline Agenda load**, and every screenshot oracle in this file
+is byte-identical to `origin/main`.
+
+### AG-S1 — Unscheduled panel at scale (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Seed reset + admin login → Oct 12 day×room grid. Loader runs the same change-set scan as on main; baseline precondition means it returns EMPTY and renders no banner. |
+| 2 | UNCHANGED | Scheduled (47) / Unscheduled (11) counts come from `submissions.starts_at`, untouched. |
+| 3 | UNCHANGED | Accepted-only card spot-check + DB cross-check. |
+| 4 | UNCHANGED | Negative probe on Pending / Accept Queue titles. |
+| 5 | UNCHANGED | "11 accepted sessions still need a time slot" alert. |
+| 6 | UNCHANGED | RV-S4 dependency check — provisioning is untouched (see `05-review-accept.walk.md` RV-S4). |
+| 7 | UNCHANGED | Oct 13 density scroll over 47 scheduled sessions. |
+
+### AG-S2 — drag to schedule, format default, then move (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Agenda Settings format mapping. |
+| 2 | UNCHANGED | Drag from Unscheduled to Main Hall 9:30. |
+| 3 | UNCHANGED | 45-min auto-fill, no modal. |
+| 4 | UNCHANGED | DB start/end + panel recount + alert. The placement action (`intent="place"`) is untouched; it does **not** send email, so no outbox row, no claim, no calendar-ledger write. |
+| 5 | UNCHANGED | Move across day and room, duration preserved. |
+| 6 | UNCHANGED | Placement persists across reload. |
+
+Note on the seam: after step 4 the session is scheduled but was never notified, so it still does not enter
+the change set — the stale-speaker banner stays absent, exactly as on main.
+
+### AG-S3 — same-room overlap conflicts (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Place the Talk at 10:00–10:30. |
+| 2 | UNCHANGED | Place the Panel at 10:15–11:15. |
+| 3 | UNCHANGED | Red-clock markers on both blocks. |
+| 4 | UNCHANGED | Exactly 1 logical Conflicts row naming both sessions and the shared slot. |
+| 5 | UNCHANGED | Open link launches the session editor. |
+| 6 | UNCHANGED | Resolve by moving to 11:30. |
+| 7 | UNCHANGED | Markers and row clear. Conflict detection reads `submissions`/`rooms` only — no email, port, or ledger involvement. |
+
+### AG-S4 — speaker double-booking vs. track collision (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Precondition carried from AG-S3. |
+| 2 | UNCHANGED | Cross-room overlap with a shared speaker. |
+| 3 | UNCHANGED | Markers + one logical row naming Marco Silva and both sessions. |
+| 4 | UNCHANGED | Negative probe: same track, no shared speaker → no conflict. |
+| 5 | UNCHANGED | Resolve by moving to 1:00 PM. |
+| 6 | UNCHANGED | Conflicts tab empty. |
+
+### AG-S5 — Agenda settings drive the grid (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Baseline 8 AM–6 PM gutter. |
+| 2 | UNCHANGED | 7 AM–10 PM after save (before/after screenshots). The settings action is untouched, and the baseline precondition keeps the changed banners off both screenshots. |
+| 3 | UNCHANGED | Schedulable statuses baseline = [Accepted]. |
+| 4 | UNCHANGED | Adding Accept Queue surfaces the card. |
+| 5 | UNCHANGED | Removing it hides the card again. |
+| 6 | UNCHANGED | Pending never schedulable. |
+| 7 | UNCHANGED | Restore baseline window. |
+
+### AG-S6 — unscheduling returns the session (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Record N and panel counts. |
+| 2 | UNCHANGED | Drag back to Unscheduled. |
+| 3 | UNCHANGED | Card returns, cell empty, DB start/end cleared. |
+| 4 | UNCHANGED | Alert reads N+1; counts move by exactly one. |
+| 5 | UNCHANGED | Survives reload. |
+| 6 | UNCHANGED | Re-drag restores the clean end state. |
+
+Seam note: clearing a scheduled slot on a *notified* submission is what puts it in the change set. That path
+is exercised by scenario 08 (EM-S5/EM-S6), already re-walked in `08-emails.walk.md`; at the seed baseline
+used here, no submission is notified, so the behavior in these six steps is identical to main.
+
+### AG-S7 — publishing with unresolved conflicts (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Recreate one unresolved logical conflict. |
+| 2 | UNCHANGED | In-app confirmation (never a native dialog) listing exactly 1 conflict and both sessions. The `publish` intent is a separate branch of the same action; the normalization preflight added in this branch is scoped to `intent === "schedule-updates"` only, so Publish is not gated on invite history. |
+| 3 | UNCHANGED | Cancel writes nothing; `agenda_published_at` stays NULL. |
+| 4 | UNCHANGED | Publish anyway; guarded while pending; header flips to Published. Double-submit hygiene here is the existing `busy` disable on the publish fetcher — the extracted `scheduleUpdateForm` helper shares the same `busy` flag but is a different form and does not affect it. |
+| 5 | UNCHANGED | Public schedule renders both overlapping cards with min width, title tooltips, and track badges. |
+| 6 | UNCHANGED | Session detail exposes the Track row. |
+
+### Re-walk verdict
+
+**45/45 steps re-walked. 0 CHANGED, 45 UNCHANGED, 0 BLOCKER, 0 MAJOR.** The route's delta is real but lands
+entirely on the schedule-update maintenance surface, which no AG step exercises and which is dormant at the
+seed baseline. The changed surface is covered by scenario 08 (`08-emails.walk.md`, EM-S1–EM-S6) and by
+`test/admin.agenda.route.test.ts`. No `touches:` update required — `routes: [admin.agenda.tsx]` already
+selects this file.

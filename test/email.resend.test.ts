@@ -275,6 +275,8 @@ describe("Resend email adapter", () => {
 			subject: "s",
 			html: "h",
 			dedupeKey: "concurrent-k1",
+			// The contract callers that keep delivered-state opt into.
+			onInFlight: "reject" as const,
 		};
 
 		const first = sender.send(msg);
@@ -291,6 +293,51 @@ describe("Resend email adapter", () => {
 
 		expect(await first).toMatchObject({
 			id: "resend-concurrent",
+			deduped: false,
+		});
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(await outboxRows()).toHaveLength(1);
+	});
+
+	it("reports a concurrent claim as a duplicate for a caller that keeps no delivered-state", async () => {
+		let releaseProvider: (() => void) | undefined;
+		const providerStarted = new Promise<void>((resolveStarted) => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(
+					() =>
+						new Promise<Response>((resolve) => {
+							releaseProvider = () =>
+								resolve(
+									new Response(JSON.stringify({ id: "resend-double-click" }), {
+										status: 200,
+									}),
+								);
+							resolveStarted();
+						}),
+				),
+			);
+		});
+		const fetchMock = vi.mocked(fetch);
+		const sender = createResendEmailSender(env);
+		// No `onInFlight` — the default every route action gets. A double-clicked
+		// invite button must be a no-op, never an error page.
+		const msg = {
+			to: "a@b.com",
+			subject: "s",
+			html: "h",
+			dedupeKey: "double-click-k1",
+		};
+
+		const first = sender.send(msg);
+		await providerStarted;
+		const second = await sender.send(msg);
+		releaseProvider?.();
+
+		expect(second).toMatchObject({ deduped: true, suppressed: false });
+		expect(second.id).not.toBe("");
+		expect(await first).toMatchObject({
+			id: "resend-double-click",
 			deduped: false,
 		});
 		expect(fetchMock).toHaveBeenCalledTimes(1);

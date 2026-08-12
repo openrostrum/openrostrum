@@ -952,3 +952,123 @@ Login → portal; H13's `redirectTo` landmine stands, tenancy-free.
 64 steps — 0 CHANGED, 63 UNCHANGED, 1 GAP (**T1, MINOR** at SP-S3.3). Pre-existing H1–H14 stand
 as filed, none widened by Wave A. Portal event resolution verified producing under
 `events.organizationId NOT NULL` (SP-S1.1 artifact). No `touches` update required.
+
+## 2026-08-11 re-walk — calendar revision ledger and provider send claims (design-time gate)
+
+**Gate trigger.** This file's `touches:` names `emailOutbox` and `ports: [email, clock]`, and the branch
+changes `app/db/schema.ts`, `app/ports/email.ts` and `app/domain/accept.ts`. All 64 steps are walked below —
+none pre-filtered. Shared structural findings **S1**, **S2** and **S3** are stated in full in
+`01-auth-event-setup.walk.md` §"2026-08-11 re-walk".
+
+Scope note: the `app/domain/accept.ts` delta is confined to `sendDecisionEmails` (the diff's three hunks all
+land at or after line 838). `transitionSubmissions` — the function behind every admin status change in this
+file — is byte-identical to `origin/main`, so status transitions here carry no new behavior.
+
+### SP-S1 — login gate, no data leak, masked queue pills (9 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Logged-out portal gate. |
+| 2 | UNCHANGED | Data-leak grep on the gate body. |
+| 3 | UNCHANGED | Autocomplete attributes on the login form. |
+| 4 | UNCHANGED | Portal login. |
+| 5 | UNCHANGED | Home's three zones read `submissions`/`contacts`/`taskAssignments`. |
+| 6 | UNCHANGED | Admin sets Accept Queue via `transitionSubmissions` — untouched. |
+| 7 | UNCHANGED | Queue masking still renders "Pending"; grep finds no queue wording. |
+| 8 | UNCHANGED | Decline Queue masking, same path. |
+| 9 | UNCHANGED | Final status Accepted + task auto-provisioning. This is a status transition, not a decision *send*; no `ics`, no outbox row, no frontier movement. |
+
+### SP-S2 — speaker edits her own profile (10 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Profile tab. |
+| 2 | UNCHANGED | Rich-text bio with bold + bullets. |
+| 3 | UNCHANGED | Job title / company. |
+| 4 | UNCHANGED | Headshot upload to R2. |
+| 5 | UNCHANGED | Three links saved. |
+| 6 | UNCHANGED | Invalid-URL inline error, junk not saved. |
+| 7 | UNCHANGED | 12 MB .bmp rejected; previous preview survives. |
+| 8 | UNCHANGED | Save + hard-reload persistence. |
+| 9 | UNCHANGED | Admin-side contact record shows the same data. |
+| 10 | UNCHANGED | Byte-for-byte checksum of the stored headshot. |
+
+### SP-S3 — one human, two submissions, one profile (8 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Marcus submits a second session naming Dana. |
+| 2 | UNCHANGED | Single-contact probe on `contacts`/`participants`. |
+| 3 | **CHANGED — same oracle, wider durable record.** | Dana's added-to-submission notification is sent through `app/ports/email.ts:send` from `app/domain/participant-notifications.ts`. Oracle unchanged: an outbox row to dana.okafor@example.com with a portal link that leads to the password gate. Its row now carries the two NULLABLE claim columns (S1); no `onInFlight` is passed, so a repeated add produces `{ deduped: true }` as on `origin/main` (S2, S3). No `ics`, so no calendar-ledger row. |
+| 4 | UNCHANGED | Both sessions listed in Dana's portal. |
+| 5 | UNCHANGED | Single profile, bio saved. |
+| 6 | UNCHANGED | Admin sees the shared bio on both submissions. |
+| 7 | UNCHANGED | Listing-level authz: none of Priya's items appear. |
+| 8 | UNCHANGED | Direct-URL authz: denied, body carries neither title nor email. |
+
+### SP-S4 — submissions search at scale (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | ≥300 submissions / ≥150 contacts fixture. |
+| 2 | UNCHANGED | Portal login as Alex. |
+| 3 | UNCHANGED | Exactly 8 rows, sub-second render. The new tables are unjoined on the portal read path (S1), so the fixture's size adds no work here. |
+| 4 | UNCHANGED | Type-ahead filter to 2. |
+| 5 | UNCHANGED | Clearing restores 8. |
+| 6 | UNCHANGED | Designed no-match empty state. |
+| 7 | UNCHANGED | Detail view with co-speakers. |
+
+### SP-S5 — per-person acceptance (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Panel set to Accepted via `transitionSubmissions` — untouched. |
+| 2 | UNCHANGED | Confirm/Withdraw controls scoped to Priya's participation. |
+| 3 | UNCHANGED | Confirm via in-app dialog. |
+| 4 | UNCHANGED | Dana's own controls; no controls on a Pending session. |
+| 5 | UNCHANGED | Withdraw. |
+| 6 | UNCHANGED | Cross-person isolation. |
+| 7 | UNCHANGED | Admin participants panel shows Confirmed / Withdrawn. |
+
+### SP-S6 — onboarding tasks (9 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Auto-provisioned task set. |
+| 2 | UNCHANGED | Tasks tab listing. |
+| 3 | UNCHANGED | Mark-as-complete on a simple task. |
+| 4 | UNCHANGED | Portal form renders. |
+| 5 | UNCHANGED | Required-field error saves nothing. |
+| 6 | UNCHANGED | Full submit flips the task to Complete. |
+| 7 | UNCHANGED | Stored response probe on `taskAssignments`. |
+| 8 | UNCHANGED | Admin reads the response. |
+| 9 | UNCHANGED | Home Tasks panel count drops. |
+
+### SP-S7 — files (5 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Designed empty state. |
+| 2 | UNCHANGED | Admin shares a PDF to R2. |
+| 3 | UNCHANGED | File listed with metadata. |
+| 4 | UNCHANGED | Download checksum matches. |
+| 5 | UNCHANGED | Logged-out download denied; object not publicly reachable. |
+
+### SP-S8 — forgot password end-to-end (9 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Forgot-password link from the gate. |
+| 2 | UNCHANGED | Request acknowledged on screen. |
+| 3 | UNCHANGED | Unknown-address request stays graceful and sends nothing — the port is never called, so no row and no claim column is written. |
+| 4 | **CHANGED — same oracle, wider durable record.** | The reset send routes through `app/ports/email.ts:send` from `forgot-password.tsx:82`. Oracle unchanged: a tokened reset link in an outbox row addressed to priya@example.com. The row now carries the two NULLABLE claim columns (S1). No `onInFlight` is passed, so a double-clicked "Send Reset Link" returns `{ deduped: true }` as on `origin/main` rather than erroring (S2, S3) — the fix recorded at AE-S5.3 in `01-auth-event-setup.walk.md` covers this call site too. |
+| 5 | UNCHANGED | Set-new-password page, weak password rejected. |
+| 6 | UNCHANGED | Strong password accepted. |
+| 7 | UNCHANGED | Old password rejected. |
+| 8 | UNCHANGED | New password logs in. |
+| 9 | UNCHANGED | Token reuse rejected. |
+
+### Re-walk verdict
+
+**64/64 steps re-walked. 2 CHANGED (SP-S3.3, SP-S8.4 — durability only, same observable outcome),
+62 UNCHANGED, 0 BLOCKER, 0 MAJOR.** No `touches:` update required.

@@ -1151,3 +1151,129 @@ re-checked against the new schema: none is fixed or worsened by the migration
 except as noted inline (G2 grows the three org rows; G3/G4/G21 route-collision
 halves closed by ROUTE-MAP pins; G5's missing-table half resolved by the `portals`
 table).
+
+## 2026-08-11 re-walk — calendar revision ledger and provider send claims (design-time gate)
+
+**Gate trigger.** This file's `touches:` names `emailOutbox`, `ports: [email]` and
+`domain: [app/domain/accept.ts]` — the densest match on this branch, which changes `app/db/schema.ts`,
+`app/ports/email.ts`, `app/domain/accept.ts` and `app/lib/ics.ts`. All 59 steps are walked below — none
+pre-filtered. Shared structural findings **S1**, **S2** and **S3** are stated in full in
+`01-auth-event-setup.walk.md` §"2026-08-11 re-walk".
+
+Two scope facts govern this file:
+
+- **The `accept.ts` delta is confined to `sendDecisionEmails`.** The diff's three hunks land at or after
+  line 838; `transitionSubmissions`, `withdrawSubmission`, `previewDecisionEmails`, `inviteRecipients`,
+  `inviteForSubmission` and `icsForInvites` are unchanged. Status flips and provisioning therefore carry no
+  new behavior.
+- **The `ics.ts` delta is on the READER, not the WRITER.** `parseIcsAttachment` was replaced by a stricter
+  `scanIcsEventBlocks` + envelope validator used to read *historic* attachments during normalization. The
+  serializer that produces outgoing invites is untouched, so every `.ics` a speaker receives is byte-shaped
+  exactly as on `origin/main`.
+
+### RV-S1 — All Submissions at 300 rows (8 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Seed baseline + admin login. |
+| 2 | UNCHANGED | Status tab counts read `submissions.status`. |
+| 3 | UNCHANGED | 25/page pagination and range indicator. |
+| 4 | UNCHANGED | Search filter and clear. |
+| 5 | UNCHANGED | Title and date sorts. |
+| 6 | UNCHANGED | Pending tab scoping. |
+| 7 | UNCHANGED | Abstracts/Sessions split. |
+| 8 | UNCHANGED | No-match empty state. |
+
+### RV-S2 — Accept Queue is silent staging (7 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Pill dropdown → Accept Queue via `transitionSubmissions`. |
+| 2 | UNCHANGED | Optimistic tab recount. |
+| 3 | UNCHANGED | Decline Queue flip. |
+| 4 | UNCHANGED | **Zero-email oracle holds.** Queue transitions never call the port, so no `email_outbox` row and no `send_claim_id` is written; the new claim columns cannot make a silent stage observable. |
+| 5 | UNCHANGED | Portal masks Accept Queue as Pending. |
+| 6 | UNCHANGED | Portal masks Decline Queue as Pending. |
+| 7 | UNCHANGED | Queue statuses persist on reload. |
+
+### RV-S3 — bulk accept end-to-end (8 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Bulk selection bar. |
+| 2 | UNCHANGED | Template pick + recipient preview — `previewDecisionEmails` is untouched. |
+| 3 | UNCHANGED | Flip both to Accepted. |
+| 4 | UNCHANGED | Table + tab counts. |
+| 5 | **CHANGED — same oracle, wider durable record.** | The two sends now run through `sendDecisionEmails`' claim path. Oracle unchanged: exactly 2 outbox rows ≥ T, one per recipient, each with the template subject and one `.ics` attachment. New durable side effects per row: a `calendar_invite_revisions` attempt row (immutable, keyed `(outbox_id, submission_id)`), a `calendar_invite_processed_outbox` marker, and an advanced `calendar_invite_sequence_frontiers` row for each submission. None of these are organizer-visible in the outbox view. |
+| 6 | UNCHANGED | The parsed `.ics` is produced by the untouched serializer: one balanced `VCALENDAR`, a `VEVENT` whose `SUMMARY` names the session and whose `DTSTART` falls in Oct 12–14 2026, plus the same stable `UID` (`icsUidForSubmission`) as on `origin/main`. |
+| 7 | **CHANGED — strictly stronger.** | The double-submit probe's oracle ("still exactly 2 rows, no duplicates") now holds under genuine concurrency, not just serial replay: the Resend adapter claims each row with a D1 compare-and-swap (`UPDATE … WHERE id = ? AND send_claim_id = ?`) and sends the dedupe identity as Resend's `Idempotency-Key`. Because `sendDecisionEmails` stamps `submissions.notified_at`, this is one of exactly two call sites that pass `onInFlight: "reject"` (`app/domain/accept.ts:891`) — a losing concurrent request reports the recipient as *in flight* rather than claiming a delivery it did not make. The UI surfaces that as "already being sent this decision — no action needed", never as a failure. |
+| 8 | UNCHANGED | Portal shows Accepted. |
+
+### RV-S4 — accepting auto-provisions the spine (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Pre-state DB probe. |
+| 2 | UNCHANGED | Inline flip to Accepted. |
+| 3 | UNCHANGED | Speaker/session/task provisioning — all in untouched code. |
+| 4 | UNCHANGED | Speaker portal shows open tasks + Accepted. |
+| 5 | UNCHANGED | **Zero-email oracle holds** — provisioning never calls the port, so no row, no claim, no calendar-ledger write. |
+| 6 | UNCHANGED | Re-flip idempotence of provisioning. |
+
+### RV-S5 — preview-confirm accept + send + finalize (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Locate the submission in Accept Queue. |
+| 2 | UNCHANGED | In-app preview dialog contents and Cancel-writes-nothing — `previewDecisionEmails` is untouched. |
+| 3 | UNCHANGED | Confirm and send. |
+| 4 | **CHANGED — same oracle, wider durable record.** | Same delta as RV-S3.5: exactly 1 outbox row ≥ T with the previewed subject/body and a parseable `.ics`, plus one new revision row, one processed marker, and a frontier at sequence 0 for this submission. Speaker record and Agenda placement are unchanged. |
+| 5 | **CHANGED — strictly stronger.** | The replay probe previously relied on the preview fingerprint + idempotency key alone. It now additionally survives a *concurrent* replay: the claim CAS admits one sender, the loser sees `EmailSendInFlightError` (opted in at `accept.ts:891`) and is reported as in-flight, and a lease takeover after an abandoned attempt cannot overwrite a confirmed provider success. Outbox still 1 row, one session record, no duplicate tasks. |
+| 6 | UNCHANGED | Portal shows Accepted + 2 tasks. |
+
+### RV-S6 — reviewer provisioning + track routing (10 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Reviewer create writes `users`/`reviewerTracks`. |
+| 2 | **CHANGED — same oracle, different duplicate surface.** | The invite send routes through the port. Oracle unchanged: exactly 1 outbox row ≥ T to rosa.delgado@example.com with a working set-password link. The duplicate path is the regression this gate found: `mintInviteToken` is deterministic in `sendKey` (`app/lib/reviewers.ts:143`) and `admin.reviewers.tsx` never consumes the key, so a double-clicked Invite collides. Mid-branch that threw an uncaught `EmailSendInFlightError` → a 500 page. Fixed by defaulting `onInFlight` to `"dedupe"` (S2); this site passes no `onInFlight`, so it returns `{ deduped: true }` as on `origin/main`. Full write-up at AE-S5.3 in `01-auth-event-setup.walk.md`. |
+| 3 | UNCHANGED | Set password from the link, land as reviewer. |
+| 4 | UNCHANGED | My Reviews queue = track-overlap join. |
+| 5 | UNCHANGED | Negative routing probe. |
+| 6 | UNCHANGED | Many-to-many overlap probe. |
+| 7 | UNCHANGED | Approve with comment. |
+| 8 | UNCHANGED | Decision change persists. |
+| 9 | UNCHANGED | Reviewer blocked from admin URLs. |
+| 10 | UNCHANGED | Per-submission tally with Rosa's comment. |
+
+### RV-S7 — committed decision-feedback email (6 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Open the queue item. |
+| 2 | UNCHANGED | Compose feedback + record decision. |
+| 3 | **CHANGED — same oracle, wider durable record.** | The feedback send (`reviews.$id.tsx:604`) routes through the port. Oracle unchanged: exactly 1 row ≥ T to sam.rivera@example.com containing the feedback verbatim. Row carries the two NULLABLE claim columns (S1); no `ics`, so no calendar-ledger write; no `onInFlight`, so duplicate semantics match `origin/main` (S2, S3). |
+| 4 | UNCHANGED | Tally recorded; admin status stays Pending. |
+| 5 | UNCHANGED | Deny without compose sends nothing — the port is never called. |
+| 6 | UNCHANGED | Portal still shows Pending. |
+
+### RV-S8 — withdrawal keeps the record (8 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Portal withdraw entry point. |
+| 2 | UNCHANGED | Empty-reason validation. |
+| 3 | UNCHANGED | Reason accepted. |
+| 4 | UNCHANGED | Portal shows Withdrawn. |
+| 5 | UNCHANGED | Withdrawn tab = 12; record intact. |
+| 6 | UNCHANGED | who/when/why metadata — `withdrawSubmission` is untouched. |
+| 7 | UNCHANGED | Session leaves the Unscheduled panel. Note: the submission's `calendar_invite_revisions` rows survive (they cascade only on submission *delete*), which is correct — organizer-visible invite history must stay immutable, and a withdrawn session is simply no longer schedulable. |
+| 8 | UNCHANGED | DB probe: content columns populated, withdrawal queryable. |
+
+### Re-walk verdict
+
+**59/59 steps re-walked. 6 CHANGED (RV-S3.5, RV-S3.7, RV-S5.4, RV-S5.5, RV-S6.2, RV-S7.3), 53 UNCHANGED,
+0 BLOCKER, 0 MAJOR.** Four of the six are durability-only (same observable outcome, more durable record);
+two (RV-S3.7, RV-S5.5) make an existing oracle strictly stronger under concurrency; one (RV-S6.2) records a
+regression found and fixed inside this gate. No `touches:` update required — `emailOutbox`, `ports: [email]`
+and `domain: [app/domain/accept.ts]` already select this file.

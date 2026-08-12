@@ -886,6 +886,9 @@ export async function sendDecisionEmails(
 				eventId: event.id,
 				templateId: template.id,
 				kind: "transactional",
+				// This request stamps `notified_at` on success, so a delivery another
+				// request owns must surface as in-flight, never as our own success.
+				onInFlight: "reject",
 			});
 		} catch (error) {
 			if (error instanceof EmailSendInFlightError) {

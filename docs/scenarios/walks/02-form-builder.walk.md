@@ -861,3 +861,100 @@ re-filed as gaps. Resolved-by-migration: walk 01's dual-encoding `[MINOR]` (scop
 eventId NULL) dies with the enum. All pre-existing gaps in the 2026-08-09 summary table
 either stand as filed (MINORs, `forms.config` contract) or were resolved by G2/G3/G4/G6/G8
 before this gate — none newly invalidated by tenancy.
+
+## 2026-08-11 re-walk — calendar revision ledger and provider send claims (design-time gate)
+
+**Gate trigger.** This file's `touches:` names `emailOutbox` and `ports: [EmailSender]`, and the branch
+changes `app/db/schema.ts` and `app/ports/email.ts`. All 53 steps are walked below — none pre-filtered.
+
+Shared structural findings **S1** (purely additive schema delta), **S2** (unchanged port shape, optional
+`onInFlight` defaulting to main's behavior) and **S3** (new adapter behavior needs a `dedupeKey` collision)
+are stated in full in `01-auth-event-setup.walk.md` §"2026-08-11 re-walk" and cited by tag here.
+
+### FB-S1 — start a form (8 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Form create writes `forms`; no touched table (S1). |
+| 2 | UNCHANGED | Submission-type choice + Participants toggle live in `forms.config`. |
+| 3 | UNCHANGED | Internal/external name fields. |
+| 4 | UNCHANGED | 15-char page-heading cap is client + server validation on `forms`. |
+| 5 | UNCHANGED | Heading set to a legal value. |
+| 6 | UNCHANGED | Rich-text welcome message; the shared editor was consolidated on `main` before this branch and is not touched here. |
+| 7 | UNCHANGED | Save → leave → re-open. |
+| 8 | UNCHANGED | Persistence of type/heading/title/formatting. |
+
+### FB-S2 — session information step (9 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Locked Title/Description rows read `formFields`. |
+| 2 | UNCHANGED | Create-new-field "Key takeaway". |
+| 3 | UNCHANGED | Create-new-field "Audience level" (Dropdown). |
+| 4 | UNCHANGED | Library reuse via picker search. |
+| 5 | UNCHANGED | Per-field required toggles. |
+| 6 | UNCHANGED | Drag reorder + persistence. |
+| 7 | UNCHANGED | Public link, logged-out signup as marie.dupont. Signup sends no email on this path. |
+| 8 | UNCHANGED | Public render order/required/options/date input. |
+| 9 | UNCHANGED | Inline required error preserves typed values. |
+
+### FB-S3 — conditional rules (10 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Two target fields added to `fields`/`formFields`. |
+| 2 | UNCHANGED | Built-in Format trigger rule. |
+| 3 | UNCHANGED | Custom-dropdown trigger rule. |
+| 4 | UNCHANGED | Save, logged-out open, login. |
+| 5 | UNCHANGED | Both targets absent with no Format chosen — client-side rule evaluation. |
+| 6 | UNCHANGED | Talk keeps the workshop field hidden. |
+| 7 | UNCHANGED | Workshop shows it; toggling back hides it. |
+| 8 | UNCHANGED | Audience-level trigger. |
+| 9 | UNCHANGED | Hidden-but-required must not block — server-side rule-aware validation, untouched. |
+| 10 | UNCHANGED | Visible-and-empty must block. |
+
+### FB-S4 — participant step (9 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Default Speaker minimum is 1; `forms.config` only. |
+| 2 | UNCHANGED | Inverted Min/Max rejected in the builder. |
+| 3 | UNCHANGED | Save role limits. |
+| 4 | UNCHANGED | Locked participant fields + Biography required. |
+| 5 | UNCHANGED | New submitter theo.marchand fills the submission step. |
+| 6 | UNCHANGED | Limits communicated; no Moderator section. |
+| 7 | UNCHANGED | 4-speaker cap enforced. |
+| 8 | UNCHANGED | 1-chairperson cap enforced. |
+| 9 | UNCHANGED | Removing back to 1 speaker allowed; Biography enforced. |
+
+### FB-S5 — settings + notifications (8 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Close date, reminder toggle, limit 3, drafts, redirect toggle, success message — all `forms`. |
+| 2 | UNCHANGED | Notification recipient config writes `forms.config`; the port is not called at config time. |
+| 3 | UNCHANGED | Public banner shows close date + limit. |
+| 4 | UNCHANGED | Full submission writes `submissions`/`submissionAnswers`/`participants`. |
+| 5 | UNCHANGED | Custom success message + ~10s auto-redirect. |
+| 6 | **CHANGED — same oracle, wider durable record.** | Both sends (submitter confirmation, admin notification) route through `app/ports/email.ts:send`. The oracle is unchanged: two `email_outbox` rows, one addressed to marie.dupont with a working portal link, one to ADMIN_EMAIL naming the submission. Their rows now also carry `send_claim_id`/`send_claim_expires_at` (S1), NULL after a completed send. Neither call site passes `onInFlight`, so a double-submitted form still yields `{ deduped: true }` exactly as on `origin/main` (S2, S3). These sends carry no `ics`, so no `calendar_invite_revisions` row is written and no sequence frontier moves. |
+| 7 | UNCHANGED | Closed-form state is a `forms.closeAt` comparison. |
+| 8 | UNCHANGED | Restoring the close date reopens the form. |
+
+### FB-S6 — publish and manage (9 steps)
+
+| Step | Verdict | Evidence |
+|---|---|---|
+| 1 | UNCHANGED | Copy Link reads `forms.publicId`. |
+| 2 | UNCHANGED | Logged-out welcome screen render. |
+| 3 | UNCHANGED | ⋯ menu contents. |
+| 4 | UNCHANGED | View Results / View Draft Submissions incl. designed empty state. |
+| 5 | UNCHANGED | Duplicate carries fields + rules, new public URL. |
+| 6 | UNCHANGED | Cancel-then-confirm delete dialog (in-app dialog, not native confirm). |
+| 7 | UNCHANGED | Duplicate gone, original intact. |
+| 8 | UNCHANGED | Deleted form's public URL → graceful not-found. |
+| 9 | UNCHANGED | Original public URL still works. |
+
+### Re-walk verdict
+
+**53/53 steps re-walked. 1 CHANGED (FB-S5.6, durability only — same observable outcome), 52 UNCHANGED,
+0 BLOCKER, 0 MAJOR.** No `touches:` update required.

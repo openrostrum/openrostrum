@@ -1363,6 +1363,9 @@ export async function sendScheduleUpdates(
 				dedupeKey,
 				eventId: event.id,
 				kind: "transactional",
+				// Success here advances the durable calendar sequence frontier, so a
+				// delivery another request owns must surface as in-flight, not as ours.
+				onInFlight: "reject",
 			});
 			if (sent.deduped) result.deduped += 1;
 			else result.sent += 1;
