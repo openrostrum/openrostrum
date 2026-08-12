@@ -482,7 +482,7 @@ export function createResendEmailSender(env: Env): EmailSender {
 			// A confirmed success is terminal truth about THIS content: the stamp
 			// still lands when a reclaimer re-sent the same payload, and must NOT
 			// land once it rewrote one — signing someone else's content with our
-			// provider id records an invite nobody received. 08-emails.walk.md.
+			// provider id records an invite nobody received.
 			const [persisted] = await db
 				.update(emailOutbox)
 				.set({

@@ -15,7 +15,7 @@ import { inspectIcsAttachment, type ParsedIcsEvent } from "~/lib/ics";
  * The delivery ledger: one row per (invite email, session) describing what that
  * speaker's calendar was told. Both producers — the durable scan and the send
  * paths — index through these functions, so a row written at send time is
- * byte-identical to the scan's. Notes: docs/scenarios/walks/08-emails.walk.md.
+ * byte-identical to the scan's.
  */
 
 /** How many rows one query may name — D1 binds parameters per statement. */
