@@ -9,7 +9,6 @@ import {
 	type Conflict,
 } from "../app/agenda/lib";
 import Agenda, {
-	ScheduleHistoryNormalizationOutcome,
 	ScheduleUpdateDeliveryOutcome,
 } from "../app/routes/admin.agenda";
 import type {
@@ -100,25 +99,9 @@ function renderAgendaLoaderData(loaderData: unknown): string {
 }
 
 describe("agenda invite-history continuation", () => {
-	it("renders normalization progress with an actionable continuation", () => {
-		const html = renderToString(
-			createElement(ScheduleHistoryNormalizationOutcome, {
-				result: { processed: 2, remaining: true },
-				continuation: createElement(
-					"button",
-					null,
-					"Continue schedule updates",
-				),
-			}),
-		);
-
-		const text = renderedText(html);
-		expect(text).toContain("2 invite-history records normalized");
-		expect(text).toContain("More history remains");
-		expect(text).toContain("Continue schedule updates");
-	});
-
-	it("renders active provider claims separately from failed delivery", () => {
+	// A claim another request still holds is not a delivery failure: presenting it
+	// as one sends the admin to Email history to retry a send that is succeeding.
+	it("never presents an active provider claim as a failure", () => {
 		const RoutesStub = createRoutesStub([
 			{
 				path: "/",
@@ -128,7 +111,7 @@ describe("agenda invite-history continuation", () => {
 							sent: 0,
 							deduped: 0,
 							failed: 0,
-							inFlight: 1,
+							inFlight: 3,
 							remaining: 0,
 						},
 					}),
@@ -139,8 +122,33 @@ describe("agenda invite-history continuation", () => {
 		);
 
 		const text = renderedText(html);
-		expect(text).toContain("1 delivery still in progress");
-		expect(text).not.toContain("failed");
+		expect(text).toContain("3");
+		expect(text).not.toMatch(/fail/i);
+		expect(html).not.toContain("/admin/emails/history");
+	});
+
+	it("sends failed deliveries to Email history to retry", () => {
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/",
+				Component: () =>
+					createElement(ScheduleUpdateDeliveryOutcome, {
+						result: {
+							sent: 0,
+							deduped: 0,
+							failed: 3,
+							inFlight: 0,
+							remaining: 0,
+						},
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+
+		expect(html).toContain("/admin/emails/history");
+		expect(renderedText(html)).toContain("3");
 	});
 
 	it("offers a POST action when invite history still needs checking", () => {

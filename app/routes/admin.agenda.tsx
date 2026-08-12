@@ -372,7 +372,7 @@ type ActionResult = {
 	};
 };
 
-export function ScheduleHistoryNormalizationOutcome({
+function ScheduleHistoryNormalizationOutcome({
 	result,
 	continuation,
 }: {
