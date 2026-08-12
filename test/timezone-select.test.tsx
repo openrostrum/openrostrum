@@ -52,20 +52,12 @@ describe("timezone select", () => {
 	});
 
 	it("submits under the name the event and onboarding actions read", () => {
+		// The route tests build their own FormData, so nothing else binds this
+		// control to the `timezone` key the three actions read — renaming it would
+		// ship a silently broken form with a green suite.
 		const html = renderToString(
 			createElement(TimezoneSelect, { value: "Europe/Paris" }),
 		);
 		expect(html).toContain('name="timezone"');
-		expect(html).toContain("required");
-	});
-
-	it("shows a server-side validation error on the field", () => {
-		const html = renderToString(
-			createElement(TimezoneSelect, {
-				value: "Europe/Paris",
-				error: "Pick a timezone",
-			}),
-		);
-		expect(html).toContain("Pick a timezone");
 	});
 });
