@@ -7,11 +7,7 @@ import { pipelineCards } from "~/db/schema";
 import { PipelineCardTile, PipelineColumn } from "~/components/pipeline-card";
 import { enrollInPipeline, movePipelineCard } from "~/domain/crm";
 import { normalizeEmail, requireAdmin, resolveActiveOrg } from "~/lib/auth";
-import {
-	isPipelineStage,
-	PIPELINE_STAGE_LABEL,
-	type PipelineStage,
-} from "~/lib/pipeline";
+import { PIPELINE_STAGE_LABEL, type PipelineStage } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
@@ -51,6 +47,9 @@ const Move = z.object({
 	cardId: z.string().min(1),
 	stage: z.enum(PIPELINE_STAGE),
 });
+
+/** What a move fetcher reads back — a refusal it must show on the card. */
+type MoveFetcherData = { formError?: string };
 
 export function headers({ actionHeaders, loaderHeaders }: Route.HeadersArgs) {
 	return actionHeaders.has("Server-Timing") ? actionHeaders : loaderHeaders;
@@ -213,17 +212,13 @@ function MoveControl({
 	stage: PipelineStage;
 }) {
 	const busy = useBusy();
-	const fetcher = useFetcher();
+	const fetcher = useFetcher<MoveFetcherData>();
 	const pending = fetcher.formData?.get("stage");
-	const shown = isPipelineStage(pending) ? pending : stage;
-	const inlineError =
-		!pending &&
-		fetcher.data &&
-		typeof fetcher.data === "object" &&
-		"formError" in fetcher.data &&
-		typeof fetcher.data.formError === "string"
-			? fetcher.data.formError
-			: undefined;
+	// The card moves optimistically to what this control just submitted. That
+	// value crossed FormData, so parse it back with the action's own schema.
+	const optimistic = Move.shape.stage.safeParse(pending);
+	const shown = optimistic.success ? optimistic.data : stage;
+	const inlineError = pending ? undefined : fetcher.data?.formError;
 	return (
 		<fetcher.Form method="post" className="flex flex-col gap-1">
 			<Input type="hidden" name="intent" value="move" />

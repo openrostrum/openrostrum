@@ -114,11 +114,11 @@ jobs:
         run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
-      # Node-only tests for tooling/. Outside `pnpm test` (workerd has no
-      # node:test) and in THIS unconditional job, not the secret-gated
+      # Node-only tests for every tooling/ suite. Outside `pnpm test` (workerd
+      # has no node:test) and in THIS unconditional job, not the secret-gated
       # ai-review — see tooling/pr-review/README.md.
       - name: Test tooling
-        run: pnpm test:node
+        run: pnpm test:tooling
       - name: Build
         run: pnpm build
 

@@ -1,11 +1,8 @@
 /**
- * Signed unsubscribe tokens. The token embeds the address and an HMAC so the
- * footer link works logged-out without letting anyone unsubscribe an
- * arbitrary address. Tokens never expire — links in already-sent emails must
- * keep resolving.
- *
- * Suppression is deliberately person-global: one address, one list, across
- * organizations — over-suppressing is the safe failure mode.
+ * Signed unsubscribe tokens: the token embeds the address and an HMAC, so the
+ * footer link works logged-out without letting anyone unsubscribe an arbitrary
+ * address. Tokens never expire — links in already-sent emails must keep working.
+ * Suppression is person-global; over-suppressing is the safe failure mode.
  */
 
 // Fallback for local dev/tests only. Any DEPLOYED instance (APP_ENV

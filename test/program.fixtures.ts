@@ -16,15 +16,15 @@ import {
 export const CONTEXT = { cloudflare: { env, ctx: {} } };
 
 /**
- * Public-projection oracle fixture. Exercises every deny rule the surfaces
- * must enforce: a non-approved accepted session, an approved pending
- * submission, a hidden speaker, and contact PII (email/phone) that must never
- * serialize. Times are UTC; the event runs in America/Los_Angeles (PDT,
- * UTC-7 in May) — s1 at 16:30Z renders 9:30 AM.
+ * Public-projection oracle fixture. Exercises every deny rule the surfaces must
+ * enforce: a non-approved accepted session, an approved pending submission, a
+ * hidden speaker, and contact PII (email/phone) that must never serialize.
  */
 export async function seedProgram(options?: { agendaPublished?: boolean }) {
 	const db = getDb(env);
 	await db.insert(organizations).values({ id: "org1", name: "Org" });
+	// Times are stored UTC while the event runs America/Los_Angeles (PDT, UTC-7
+	// in May), so s1 at 16:30Z must render as 9:30 AM.
 	await db.insert(events).values({
 		id: "e1",
 		organizationId: "org1",

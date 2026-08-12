@@ -4,9 +4,8 @@ import { cn } from "./cn";
 
 // Status colors follow web convention (green=positive, red=negative) and are
 // deliberately NOT skin tokens: they survive a re-skin unchanged. Like all
-// chrome they resolve via light-dark() — theme = color-scheme on <html>,
-// cookie-persisted, tri-state — so components never write `dark:` variants:
-// the media query desyncs the moment a visitor overrides the OS.
+// chrome they resolve via light-dark() palette pairs, never `dark:` variants
+// (docs/rules/design-system.md).
 const TONES = {
 	success:
 		"bg-[light-dark(var(--color-emerald-100),var(--color-emerald-950))] text-[light-dark(var(--color-emerald-800),var(--color-emerald-300))]",

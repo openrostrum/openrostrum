@@ -3,10 +3,9 @@ import type { SelfContact, WizardParticipant, WizardState } from "./definition";
 
 /**
  * Client-side wizard carrier: values live in React state owned by the wizard
- * layout and shared with the step routes via outlet context, so stepping
- * never persists anything server-side. The server sees data only on explicit
- * "Save as draft" and on Submit — a failed validation or an abandoned tab
- * leaves zero rows behind.
+ * layout and reach the step routes via outlet context, so stepping persists
+ * nothing server-side. The server sees data only on explicit "Save as draft"
+ * and Submit — a failed validation or an abandoned tab leaves zero rows behind.
  */
 export type WizardCtx = {
 	state: WizardState | null;

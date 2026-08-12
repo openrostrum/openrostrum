@@ -387,10 +387,9 @@ export async function sanitizeHtml(html: string): Promise<string> {
 
 /**
  * Attach an authenticated user to THIS event's roster contact carrying their
- * email — a speaker whose address the organizer already imported must land in
- * that contact's portal, not a duplicate identity. Scoped to one event and to
- * unlinked contacts only: it never claims across events and never steals a
- * contact already linked to another user.
+ * email, so a pre-imported speaker lands in that contact's portal instead of a
+ * duplicate identity. Scoped to one event and to unlinked contacts only: never
+ * claims across events, never steals a contact already linked to another user.
  */
 export async function linkUserToContacts(
 	db: Db,
@@ -619,11 +618,10 @@ export async function markPersistedParticipantRows(
 }
 
 /**
- * Plan the contact writes for the wizard's participants: existing contacts
- * are matched by normalized email and NOT overwritten (the organizer's data
- * wins over what a co-speaker typed); the submitter's own contact is theirs,
- * so its fields update; missing contacts get insert statements. Statements
- * join the caller's batch so the whole submission write stays atomic.
+ * Plan the contact writes for the wizard's participants: existing contacts match
+ * by normalized email and are NOT overwritten (the organizer's data beats what a
+ * co-speaker typed), the submitter's own contact updates, missing ones insert.
+ * Statements join the caller's batch so the whole submission write stays atomic.
  */
 async function planParticipantContacts(
 	db: Db,

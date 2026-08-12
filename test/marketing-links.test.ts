@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 // The homepage links into routes that other lanes own. Two oracles guard them:
 // docs/ROUTE-MAP.md (the authoritative URL assignment — a link that isn't in it
-// is a typo or an unclaimed route) and the route files themselves. While a
-// URL's map row says its owning lane hasn't landed yet, only the assignment is
-// checked; once the row's status flips, the route file must exist — after the
-// build wave completes this degenerates to strict route existence.
+// is a typo or an unclaimed route) and the route files themselves.
 import routeMap from "../docs/ROUTE-MAP.md?raw";
 import contentSource from "../app/marketing/content.ts?raw";
 import landingSource from "../app/marketing/landing.tsx?raw";
@@ -29,6 +26,9 @@ function routeFileExists(link: string): boolean {
 	);
 }
 
+// While a URL's map row says its owning lane hasn't landed, only the assignment
+// is checked; once the status flips, the route file must exist — so after the
+// build wave this degenerates to strict route existence.
 function mapRowIsTodo(link: string): boolean {
 	const row = routeMap
 		.split("\n")

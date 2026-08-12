@@ -286,6 +286,59 @@ describe("portal-form builder — validation (nothing persists)", () => {
 		expect(badType.fieldErrors?.fields?.[0]).toBeTruthy();
 		expect(await db.select().from(portalForms)).toHaveLength(1);
 	});
+
+	it("names the field that failed by its position in the list", async () => {
+		// A builder with a dozen rows is useless if the error says only "invalid":
+		// the number is how the admin finds the row to fix.
+		await seedTasksBaseline();
+		const rows = (bad: unknown) => [
+			{ name: "One", type: "text", required: true },
+			{ name: "Two", type: "text", required: false },
+			{ name: "Three", type: "text", required: true },
+			bad,
+			{ name: "Five", type: "text", required: false },
+		];
+		const nameless = (await post({
+			intent: "save-form",
+			name: "Nameless four",
+			title: "",
+			targetType: "contact",
+			fieldsJson: JSON.stringify(
+				rows({ name: "  ", type: "text", required: true }),
+			),
+		})) as ActionResult;
+		expect(nameless.fieldErrors?.fields?.[0]).toBe(
+			"Field 4: every field needs a name.",
+		);
+
+		const notAField = (await post({
+			intent: "save-form",
+			name: "Junk four",
+			title: "",
+			targetType: "contact",
+			fieldsJson: JSON.stringify(rows(42)),
+		})) as ActionResult;
+		expect(notAField.fieldErrors?.fields?.[0]).toMatch(/^Field 4: /);
+	});
+
+	it("refuses a field list past the cap without saving a truncated form", async () => {
+		const db = await seedTasksBaseline();
+		const result = (await post({
+			intent: "save-form",
+			name: "Too many",
+			title: "",
+			targetType: "contact",
+			fieldsJson: JSON.stringify(
+				Array.from({ length: 51 }, (_, i) => ({
+					name: `Field ${i}`,
+					type: "text",
+					required: false,
+				})),
+			),
+		})) as ActionResult;
+		expect(result.fieldErrors?.fields?.[0]).toMatch(/invalid/i);
+		expect(await db.select().from(portalForms)).toHaveLength(1);
+	});
 });
 
 describe("portal-form builder — update/delete/tenancy", () => {

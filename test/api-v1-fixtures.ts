@@ -3,6 +3,7 @@ import {
 	env,
 	waitOnExecutionContext,
 } from "cloudflare:test";
+import { z } from "zod";
 import { apiV1 } from "../app/api/v1/app";
 import { getDb } from "../app/db";
 import {
@@ -348,6 +349,12 @@ export async function api(
 	await waitOnExecutionContext(ctx);
 	return response;
 }
+
+/** The spec error body every non-2xx carries (app/api/v1/app.ts `onError`). */
+export const apiErrorEnvelope = z.object({
+	error: z.string().min(1),
+	message: z.string().min(1),
+});
 
 export async function apiJson<T = Record<string, unknown>>(
 	path: string,

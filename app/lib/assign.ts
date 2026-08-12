@@ -15,11 +15,9 @@ const INSERT_CHUNK = 10;
 
 /**
  * Mint pending `evaluations` rows for (submission × evaluator) pairs in one
- * round. Idempotent: pairs that already exist (any status) are skipped, so a
- * double-submitted assignment can never duplicate a queue entry or wipe a
- * completed review. Callers that already loaded the round's pairs pass them
- * as `preloaded` to skip the re-read; `onConflictDoNothing` stays the hard
- * guarantee either way. Returns how many rows were actually created.
+ * round, returning how many were created. Idempotent: existing pairs (any
+ * status) are skipped, so a double-submit can't duplicate a queue entry or wipe
+ * a completed review — `onConflictDoNothing` holds even if `preloaded` is stale.
  */
 export async function mintEvaluations(
 	db: Db,
@@ -71,9 +69,8 @@ export async function mintEvaluations(
 /**
  * Deleting a plan (or round) must delete its recorded answers FIRST:
  * `evaluation_answers.question_id` is RESTRICT (so a scorecard edit can never
- * silently destroy scores), which also aborts the parent cascade — without
- * this pre-delete, plan/round deletion fails permanently once anyone has
- * reviewed. Both statements run in one batch.
+ * silently destroy scores), and that also aborts the parent cascade — without
+ * this pre-delete, deletion fails forever once anyone has reviewed. One batch.
  */
 export async function deletePlanDeep(db: Db, planId: string): Promise<void> {
 	await db.batch([
@@ -114,14 +111,10 @@ export async function deleteRoundDeep(db: Db, roundId: string): Promise<void> {
 }
 
 /**
- * The zero-setup review path behind the reviewers page: an organizer can
- * provision a reviewer and hand them work in one sitting, before any plan
- * exists. Reuses the event's earliest round that is still WRITABLE (its plan
- * open and today inside its dates) — never a closed or expired round, which
- * would mint assignments the reviewer can never complete. When no writable
- * round exists it creates a "Review" plan with one always-open round and a
- * starter scorecard (required 1–5 rating + optional comment) in a single
- * atomic batch, ready for the organizer to refine in the plan editor.
+ * The zero-setup review path behind the reviewers page: an organizer provisions
+ * a reviewer and hands them work in one sitting, before any plan exists. Reuses
+ * the event's earliest WRITABLE round, else creates a "Review" plan with one
+ * always-open round and a starter scorecard in one atomic batch.
  */
 export async function ensureQuickRound(
 	db: Db,
@@ -138,6 +131,8 @@ export async function ensureQuickRound(
 		.innerJoin(evaluationPlans, eq(evaluationPlans.id, evaluationRounds.planId))
 		.where(eq(evaluationPlans.eventId, eventId))
 		.orderBy(evaluationRounds.createdAt);
+	// Writable only (plan open, today inside the round's dates): a closed or
+	// expired round would mint work the reviewer can never complete.
 	const writable = candidates.find(
 		(c) => roundWritable(c, c.planStatus).writable,
 	);
