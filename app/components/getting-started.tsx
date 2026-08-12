@@ -4,10 +4,11 @@ import type {
 	GettingStartedStepId,
 } from "~/domain/getting-started";
 import { useBusy } from "~/lib/use-busy";
-import { Button, Icon, Panel, TextLink } from "~/ui";
+import { Button, Panel, TextLink } from "~/ui";
 import { cn } from "~/ui/cn";
 import { CopyButton } from "./copy-button";
 import { SectionHeading } from "./section-heading";
+import { StepMarker } from "./step-marker";
 
 const STEP_COPY: Record<
 	GettingStartedStepId,
@@ -47,36 +48,6 @@ const STEP_COPY: Record<
 
 const NO_LINK_YET_WHY =
 	"Checks itself off when the first proposal lands — publish your form first to get a shareable link.";
-
-function StepMarker({
-	index,
-	done,
-	active,
-}: {
-	index: number;
-	done: boolean;
-	active: boolean;
-}) {
-	if (done) {
-		return (
-			<span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center text-fg-faint">
-				<Icon name="check-square" size={16} />
-			</span>
-		);
-	}
-	return (
-		<span
-			className={cn(
-				"flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-medium tabular-nums",
-				active
-					? "bg-petrol-wash text-petrol"
-					: "text-fg-faint shadow-[inset_0_0_0_1px_var(--color-hair-strong)]",
-			)}
-		>
-			{index + 1}
-		</span>
-	);
-}
 
 export function GettingStartedCard({
 	state,

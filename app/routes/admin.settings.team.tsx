@@ -4,7 +4,12 @@ import { Form, data, redirect } from "react-router";
 import { z } from "zod";
 import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
-import { organizationMembers, passwordResets, users } from "~/db/schema";
+import {
+	organizationMembers,
+	organizations,
+	passwordResets,
+	users,
+} from "~/db/schema";
 import {
 	destroySession,
 	getActiveEvent,
@@ -47,8 +52,23 @@ const InviteSchema = z.object({
 	email: z.string().trim().email("Enter a valid email address"),
 });
 
+const RenameSchema = z.object({
+	organizationName: z
+		.string()
+		.trim()
+		.min(1, "Your organization needs a name")
+		.max(200, "Keep the name under 200 characters"),
+});
+
 type Db = ReturnType<typeof getDb>;
 type AppUser = typeof users.$inferSelect;
+
+type ActionResult = {
+	fieldErrors?: Partial<
+		Record<"name" | "email" | "organizationName", string[]>
+	>;
+	formError?: string;
+};
 
 // (Re)mints the invite token — run in ONE batch (with the user insert when the
 // account is new) so a failure can never strand a token-less sentinel. Old
@@ -210,7 +230,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	);
 }
 
-export async function action({ context, request }: Route.ActionArgs) {
+export async function action({
+	context,
+	request,
+}: Route.ActionArgs): Promise<ActionResult | Response> {
 	const env = context.cloudflare.env;
 	// Actions self-authenticate — a POST never runs the layout loader.
 	const user = await requireAdmin(env, request);
@@ -232,6 +255,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 		// Buttons carry the row id as their value (`remove`/`revoke`/`resend`);
 		// the plain invite form is the default. Dispatch is key-presence.
 		const result = await timings.time("db", async () => {
+			if (form.has("organizationName")) {
+				return renameOrganization(db, org, form);
+			}
 			if (form.has("remove")) {
 				return removeMember(env, db, org, user, request, {
 					membershipId: String(form.get("remove")),
@@ -264,6 +290,34 @@ export async function action({ context, request }: Route.ActionArgs) {
 			formError: "Something went wrong — please try again.",
 		};
 	}
+}
+
+// First run names the organization after the first conference rather than
+// asking twice, so this is where an organizer corrects it once the two names
+// diverge ("Devcon 2027" the event, "Devcon Foundation" the organization).
+async function renameOrganization(
+	db: Db,
+	org: Org,
+	form: FormData,
+): Promise<ActionResult | Response> {
+	const parsed = RenameSchema.safeParse({
+		organizationName: form.get("organizationName"),
+	});
+	if (!parsed.success) {
+		return {
+			fieldErrors: z.flattenError(parsed.error).fieldErrors,
+			formError: undefined,
+		};
+	}
+	if (parsed.data.organizationName === org.name) {
+		return redirect("/admin/settings/team");
+	}
+	await db
+		.update(organizations)
+		.set({ name: parsed.data.organizationName })
+		.where(eq(organizations.id, org.id));
+	track("team.org_renamed", { orgId: org.id });
+	return redirect("/admin/settings/team");
 }
 
 async function inviteMember(
@@ -543,6 +597,32 @@ export default function Team({ loaderData, actionData }: Route.ComponentProps) {
 			/>
 
 			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
+
+			<Panel>
+				{/* Keyed by the stored name so a successful rename re-seeds the
+				    uncontrolled input from the loader instead of keeping the old one. */}
+				<Form
+					method="post"
+					key={org.name}
+					className="flex flex-wrap items-end gap-3"
+				>
+					<Field
+						label="Organization name"
+						error={actionData?.fieldErrors?.organizationName?.[0]}
+					>
+						<Input
+							name="organizationName"
+							required
+							maxLength={200}
+							defaultValue={org.name}
+							invalid={Boolean(actionData?.fieldErrors?.organizationName?.[0])}
+						/>
+					</Field>
+					<Button type="submit" variant="ghost" disabled={busy}>
+						Rename
+					</Button>
+				</Form>
+			</Panel>
 
 			<Panel>
 				{/* Keyed by the last invited email so a successful invite remounts

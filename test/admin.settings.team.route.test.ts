@@ -505,4 +505,76 @@ describe("cross-org isolation", () => {
 		expect(resets).toHaveLength(1);
 		expect(resets[0]?.organizationId).toBe("orgA");
 	});
+
+	it("renames only the seat's own organization, never another one", async () => {
+		const db = await seedOrgA();
+		await seedOrgB();
+
+		await runAction(
+			await authedRequest(post({ organizationName: "Devcon Foundation" })),
+		);
+
+		const orgs = await db.select().from(organizations);
+		expect(Object.fromEntries(orgs.map((o) => [o.id, o.name]))).toEqual({
+			orgA: "Devcon Foundation",
+			orgB: "Org B",
+		});
+	});
+});
+
+// First run names the organization after the first conference, so this page is
+// the only place the two names can be told apart afterwards.
+describe("organization rename", () => {
+	it("renames the organization and reflects it back on the page", async () => {
+		const db = await seedOrgA();
+
+		const response = (await runAction(
+			await authedRequest(post({ organizationName: "  Devcon Foundation  " })),
+		)) as Response;
+
+		expect(response.status).toBe(302);
+		expect(response.headers.get("Location")).toBe("/admin/settings/team");
+		const [org] = await db.select().from(organizations);
+		expect(org?.name).toBe("Devcon Foundation");
+
+		const page = await runLoader(await authedRequest());
+		expect(page.data.org?.name).toBe("Devcon Foundation");
+	});
+
+	it("refuses a blank name and keeps the old one", async () => {
+		const db = await seedOrgA();
+
+		const result = (await runAction(
+			await authedRequest(post({ organizationName: "   " })),
+		)) as ActionResult;
+
+		expect(result.fieldErrors?.organizationName?.[0]).toBeTruthy();
+		const [org] = await db.select().from(organizations);
+		expect(org?.name).toBe("Org A");
+	});
+
+	it("refuses a name longer than the field allows", async () => {
+		const db = await seedOrgA();
+
+		const result = (await runAction(
+			await authedRequest(post({ organizationName: "x".repeat(201) })),
+		)) as ActionResult;
+
+		expect(result.fieldErrors?.organizationName?.[0]).toBeTruthy();
+		const [org] = await db.select().from(organizations);
+		expect(org?.name).toBe("Org A");
+	});
+
+	it("does not fall through to the invite form when renaming", async () => {
+		const db = await seedOrgA();
+
+		await runAction(
+			await authedRequest(
+				post({ organizationName: "Devcon Foundation", name: "", email: "" }),
+			),
+		);
+
+		expect(await db.select().from(passwordResets)).toHaveLength(0);
+		expect(await db.select().from(users)).toHaveLength(1);
+	});
 });

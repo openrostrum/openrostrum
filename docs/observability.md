@@ -25,4 +25,5 @@
 | Which D1 queries are slow | `pnpm exec wrangler d1 insights openrostrum` |
 | Did the email go out, to whom, with what body | `/admin/emails/history` — the in-app send log (also the judge's delivery evidence) |
 | What did the Airtable sync do | sync `track()` events + `airtable_links` snapshot rows |
+| Where new organizers drop out of first run | filter `evt` by the `onboarding.` prefix and compare counts per step: `signup.created` → `onboarding.event_created` → `onboarding.dates_saved`/`dates_skipped` → `onboarding.completed`. A step whose skip count dwarfs its save count is a question worth cutting, not a funnel to nag harder |
 | Local dev | events print as JSON lines in the `pnpm dev:worktree` terminal |

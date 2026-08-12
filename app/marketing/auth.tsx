@@ -5,12 +5,12 @@ import { ThemeToggle } from "~/components/theme-toggle";
 import { TextLink, Wordmark } from "~/ui";
 import { cn } from "~/ui/cn";
 import { GITHUB_URL } from "./content";
-import { FOCUS_RING, PLATFORM_BAR } from "./primitives";
+import { FOCUS_RING } from "./primitives";
 
-// The auth doorway — one composition shared by /login, /signup,
-// /forgot-password, and /set-password, so the four routes stay layout-only.
-// The card standing on a petrol platform is the brand mark drawn at page
-// scale (the O on the rostrum), the same move as the landing hero.
+// One composition shared by /login, /signup, /forgot-password and
+// /set-password, so those four routes stay layout-only. Plainer than the
+// landing hero on purpose: the plinth reads as a progress bar above a submit
+// button, and licence terms are a decision made before you reach the door.
 
 const TITLE_TONES = {
 	default: "text-fg",
@@ -72,11 +72,8 @@ export function AuthPage({
 							</p>
 						)}
 					</div>
-					<div className="flex flex-col">
-						<div className="rounded-card bg-surface p-6 shadow-card sm:p-7">
-							{children}
-						</div>
-						<div aria-hidden="true" className={cn(PLATFORM_BAR, "mx-9")} />
+					<div className="rounded-card bg-surface p-6 shadow-card sm:p-7">
+						{children}
 					</div>
 					{below && (
 						<div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[13px] text-fg-muted">
@@ -86,8 +83,6 @@ export function AuthPage({
 				</div>
 			</main>
 			<footer className="flex items-center justify-center gap-[6px] px-6 pb-7 pt-4 text-[12px] text-fg-faint">
-				<span>Free and open source · MIT license</span>
-				<span aria-hidden="true">·</span>
 				<a
 					href={GITHUB_URL}
 					target="_blank"

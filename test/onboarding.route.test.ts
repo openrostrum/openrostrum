@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -10,7 +11,19 @@ import {
 	organizations,
 	users,
 } from "../app/db/schema";
-import { action, loader } from "../app/routes/onboarding";
+import { deriveGettingStarted } from "../app/domain/getting-started";
+import {
+	action as datesAction,
+	loader as datesLoader,
+} from "../app/routes/onboarding.dates";
+import {
+	action as placeAction,
+	loader as placeLoader,
+} from "../app/routes/onboarding.place";
+import {
+	action as startAction,
+	loader as startLoader,
+} from "../app/routes/onboarding._index";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
@@ -51,47 +64,74 @@ async function seedSessionUser(opts?: {
 const SETUP_ORGANIZATION_ID = "11111111-1111-4111-8111-111111111111";
 const SETUP_EVENT_ID = "22222222-2222-4222-8222-222222222222";
 
-const VALID_FORM = {
+const NAME_FORM = {
 	setupOrganizationId: SETUP_ORGANIZATION_ID,
 	setupEventId: SETUP_EVENT_ID,
-	organizationName: "Devcon Collective",
-	eventName: "Devcon 2027",
-	slug: "devcon-2027",
-	startsAt: "2027-06-10",
-	endsAt: "2027-06-12",
-	timezone: "Europe/Paris",
+	conferenceName: "Devcon 2027",
 };
 
-function act(body: Record<string, string>, cookie?: string) {
-	return action({
+type Handler = (args: never) => unknown;
+
+function call<H extends Handler>(
+	handler: H,
+	path: string,
+	init: RequestInit,
+	cookie?: string,
+) {
+	const headers = new Headers(init.headers);
+	if (cookie) headers.set("Cookie", cookie);
+	return handler({
 		context: CONTEXT,
-		request: new Request("http://localhost/onboarding", {
-			method: "POST",
-			body: new URLSearchParams(body),
-			headers: cookie ? { Cookie: cookie } : {},
-		}),
+		request: new Request(`http://localhost${path}`, { ...init, headers }),
 		params: {},
-	} as unknown as Parameters<typeof action>[0]);
+	} as unknown as never) as ReturnType<H>;
 }
 
-function load(cookie?: string) {
-	return loader({
-		context: CONTEXT,
-		request: new Request("http://localhost/onboarding", {
-			headers: cookie ? { Cookie: cookie } : {},
-		}),
-		params: {},
-	} as unknown as Parameters<typeof loader>[0]);
+function post<H extends Handler>(
+	handler: H,
+	path: string,
+	body: Record<string, string>,
+	cookie?: string,
+) {
+	return call(
+		handler,
+		path,
+		{ method: "POST", body: new URLSearchParams(body) },
+		cookie,
+	);
 }
 
-describe("onboarding route", () => {
+/** Every step redirects rather than returning data on success, and the gates
+ * throw redirects — one helper so both read the same at the call site. */
+async function settled(promise: unknown): Promise<unknown> {
+	return await Promise.resolve(promise).catch((thrown: unknown) => thrown);
+}
+
+function locationOf(result: unknown): string | null {
+	expect(result).toBeInstanceOf(Response);
+	return (result as Response).headers.get("Location");
+}
+
+/** Walks a brand-new user through step 1 so steps 2 and 3 have an event. */
+async function completeStepOne(cookie: string, name = "Devcon 2027") {
+	const result = await settled(
+		post(
+			startAction,
+			"/onboarding",
+			{ ...NAME_FORM, conferenceName: name },
+			cookie,
+		),
+	);
+	expect(locationOf(result)).toBe("/onboarding/dates");
+	const [event] = await getDb(env).select().from(events);
+	return event;
+}
+
+describe("onboarding step 1 — name your conference", () => {
 	it("mints UUID setup IDs that the form can preserve across a replay", async () => {
 		const { cookie } = await seedSessionUser();
 
-		const data = (await load(cookie)) as {
-			setupOrganizationId: string;
-			setupEventId: string;
-		};
+		const data = await call(startLoader, "/onboarding", {}, cookie);
 
 		expect(data.setupOrganizationId).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -102,17 +142,21 @@ describe("onboarding route", () => {
 		expect(data.setupOrganizationId).not.toBe(data.setupEventId);
 	});
 
-	it("creates org + membership + first event + default templates and activates the event", async () => {
+	it("turns one name into org + membership + event + templates and moves to the dates step", async () => {
 		const { cookie, userId } = await seedSessionUser();
-		const res = (await act(VALID_FORM, cookie)) as Response;
 
-		expect(res.status).toBe(302);
-		expect(res.headers.get("Location")).toBe("/admin");
+		const result = await settled(
+			post(startAction, "/onboarding", NAME_FORM, cookie),
+		);
+
+		expect(locationOf(result)).toBe("/onboarding/dates");
 
 		const db = getDb(env);
 		const orgs = await db.select().from(organizations);
 		expect(orgs).toHaveLength(1);
-		expect(orgs[0]?.name).toBe("Devcon Collective");
+		// The organization is named after the first conference — nobody is asked
+		// twice on their first screen; /admin/settings/team renames it later.
+		expect(orgs[0]?.name).toBe("Devcon 2027");
 
 		const members = await db.select().from(organizationMembers);
 		expect(members).toHaveLength(1);
@@ -122,16 +166,8 @@ describe("onboarding route", () => {
 		const [event] = await db.select().from(events);
 		expect(event?.organizationId).toBe(orgs[0]?.id);
 		expect(event?.name).toBe("Devcon 2027");
+		// Derived, never asked: the public URL falls out of the name.
 		expect(event?.slug).toBe("devcon-2027");
-		expect(event?.timezone).toBe("Europe/Paris");
-		// Date-only starts use local midnight; ends use local 23:59 so the
-		// selected final calendar day remains part of the event.
-		expect(event?.startsAt?.getTime()).toBe(
-			Date.parse("2027-06-10T00:00:00+02:00"),
-		);
-		expect(event?.endsAt?.getTime()).toBe(
-			Date.parse("2027-06-12T23:59:00+02:00"),
-		);
 
 		const templates = await db.select().from(emailTemplates);
 		expect(templates.map((t) => t.key).sort()).toEqual(DEFAULT_TEMPLATE_KEYS);
@@ -149,7 +185,7 @@ describe("onboarding route", () => {
 		expect(founder?.activeEventId).toBe(event?.id);
 	});
 
-	it("a taken slug returns a field error and rolls back everything (no partial org)", async () => {
+	it("works around a slug another organization already took instead of blocking on it", async () => {
 		const { cookie } = await seedSessionUser();
 		const db = getDb(env);
 		await db.insert(organizations).values({ id: "org_other", name: "Other" });
@@ -160,67 +196,83 @@ describe("onboarding route", () => {
 			slug: "devcon-2027",
 		});
 
-		const result = await act(VALID_FORM, cookie);
+		const result = await settled(
+			post(startAction, "/onboarding", NAME_FORM, cookie),
+		);
 
-		expect(result).toHaveProperty("fieldErrors");
-		expect(
-			(result as { fieldErrors?: { slug?: string[] } }).fieldErrors?.slug?.[0],
-		).toMatch(/taken/i);
-
-		// Atomicity: the failed batch left NO new org, membership, or templates.
-		expect(await db.select().from(organizations)).toHaveLength(1);
-		expect(await db.select().from(organizationMembers)).toHaveLength(0);
-		expect(await db.select().from(emailTemplates)).toHaveLength(0);
+		expect(locationOf(result)).toBe("/onboarding/dates");
+		const [created] = await db
+			.select()
+			.from(events)
+			.where(eq(events.id, SETUP_EVENT_ID));
+		expect(created?.slug).toBe("devcon-2027-2");
 	});
 
-	it("rejects an end date before the start date and creates nothing", async () => {
+	it("falls back to a usable slug when the name has no URL-safe characters", async () => {
 		const { cookie } = await seedSessionUser();
-		const result = await act(
-			{ ...VALID_FORM, startsAt: "2027-06-12", endsAt: "2027-06-10" },
+
+		const result = await settled(
+			post(
+				startAction,
+				"/onboarding",
+				{ ...NAME_FORM, conferenceName: "!!!" },
+				cookie,
+			),
+		);
+
+		expect(locationOf(result)).toBe("/onboarding/dates");
+		const [created] = await getDb(env).select().from(events);
+		expect(created?.slug).toBe("event");
+		expect(created?.name).toBe("!!!");
+	});
+
+	it("rejects an empty name and creates nothing", async () => {
+		const { cookie } = await seedSessionUser();
+
+		const result = await post(
+			startAction,
+			"/onboarding",
+			{ ...NAME_FORM, conferenceName: "   " },
 			cookie,
 		);
 
 		expect(
-			(result as { fieldErrors?: { endsAt?: string[] } }).fieldErrors
-				?.endsAt?.[0],
+			(result as { fieldErrors?: { conferenceName?: string[] } }).fieldErrors
+				?.conferenceName?.[0],
 		).toBeTruthy();
 		expect(await getDb(env).select().from(organizations)).toHaveLength(0);
 	});
 
-	it("resumes a membership-only setup by creating the first event in the existing organization", async () => {
+	it("resumes a membership-only setup into the existing organization without renaming it", async () => {
 		const { cookie } = await seedSessionUser({ withOrg: true });
 
-		const result = await act(VALID_FORM, cookie).catch(
-			(response: unknown) => response,
+		const result = await settled(
+			post(startAction, "/onboarding", NAME_FORM, cookie),
 		);
 
-		expect(result).toBeInstanceOf(Response);
-		expect((result as Response).headers.get("Location")).toBe("/admin");
-
+		expect(locationOf(result)).toBe("/onboarding/dates");
 		const db = getDb(env);
 		const orgs = await db.select().from(organizations);
 		expect(orgs).toHaveLength(1);
 		expect(orgs[0]?.id).toBe("org1");
+		// An invited member arriving here must not rename their colleagues' org.
+		expect(orgs[0]?.name).toBe("Existing Org");
 
 		const eventRows = await db.select().from(events);
 		expect(eventRows).toHaveLength(1);
 		expect(eventRows[0]?.organizationId).toBe("org1");
-		expect(eventRows[0]?.slug).toBe(VALID_FORM.slug);
 	});
 
-	it("coalesces concurrent setup submissions into one organization and first event", async () => {
+	it("coalesces concurrent submissions into one organization and first event", async () => {
 		const { cookie } = await seedSessionUser();
 
-		const results = await Promise.all(
-			[act(VALID_FORM, cookie), act(VALID_FORM, cookie)].map((request) =>
-				request.catch((response: unknown) => response),
-			),
-		);
+		const results = await Promise.all([
+			settled(post(startAction, "/onboarding", NAME_FORM, cookie)),
+			settled(post(startAction, "/onboarding", NAME_FORM, cookie)),
+		]);
 
-		expect(results).toHaveLength(2);
 		for (const result of results) {
-			expect(result).toBeInstanceOf(Response);
-			expect((result as Response).headers.get("Location")).toBe("/admin");
+			expect(locationOf(result)).toBe("/onboarding/dates");
 		}
 		const db = getDb(env);
 		expect(await db.select().from(organizations)).toHaveLength(1);
@@ -228,23 +280,27 @@ describe("onboarding route", () => {
 		expect(await db.select().from(events)).toHaveLength(1);
 	});
 
-	it("does not treat a reused setup ID with different details as a successful replay", async () => {
+	it("does not treat a reused setup ID with a different name as a successful replay", async () => {
 		const { cookie } = await seedSessionUser();
 
 		const results = await Promise.all([
-			act(VALID_FORM, cookie),
-			act({ ...VALID_FORM, eventName: "Different Event" }, cookie),
+			settled(post(startAction, "/onboarding", NAME_FORM, cookie)),
+			settled(
+				post(
+					startAction,
+					"/onboarding",
+					{ ...NAME_FORM, conferenceName: "Different Event" },
+					cookie,
+				),
+			),
 		]);
 
-		expect(results.filter((result) => result instanceof Response)).toHaveLength(
-			1,
-		);
+		expect(results.filter((r) => r instanceof Response)).toHaveLength(1);
 		expect(
 			results.filter(
-				(result) =>
-					!(result instanceof Response) &&
-					"formError" in result &&
-					Boolean(result.formError),
+				(r) =>
+					!(r instanceof Response) &&
+					Boolean((r as { formError?: string }).formError),
 			),
 		).toHaveLength(1);
 		const db = getDb(env);
@@ -252,35 +308,376 @@ describe("onboarding route", () => {
 		expect(await db.select().from(events)).toHaveLength(1);
 	});
 
-	it("redirects completed onboarding replays without minting another organization or event", async () => {
+	it("sends an organizer who already has an event to the dashboard, not back through setup", async () => {
 		const { cookie } = await seedSessionUser();
-		await act(VALID_FORM, cookie);
+		await completeStepOne(cookie);
 
-		const thrownFromLoader = await load(cookie).catch(
-			(response: unknown) => response,
-		);
-		expect(thrownFromLoader).toBeInstanceOf(Response);
-		expect((thrownFromLoader as Response).headers.get("Location")).toBe(
-			"/admin",
-		);
-
-		const thrownFromAction = await act(VALID_FORM, cookie).catch(
-			(response: unknown) => response,
-		);
-		expect(thrownFromAction).toBeInstanceOf(Response);
-		expect((thrownFromAction as Response).headers.get("Location")).toBe(
-			"/admin",
-		);
+		expect(
+			locationOf(await settled(call(startLoader, "/onboarding", {}, cookie))),
+		).toBe("/admin");
+		expect(
+			locationOf(
+				await settled(post(startAction, "/onboarding", NAME_FORM, cookie)),
+			),
+		).toBe("/admin");
 		const db = getDb(env);
 		expect(await db.select().from(organizations)).toHaveLength(1);
 		expect(await db.select().from(events)).toHaveLength(1);
 	});
 
-	it("uses the shared auth gate for anonymous visitors", async () => {
-		const thrown = await load().catch((response: unknown) => response);
-		expect(thrown).toBeInstanceOf(Response);
-		expect((thrown as Response).headers.get("Location")).toBe(
-			"/login?redirectTo=%2Fonboarding",
+	it("refuses a setup form that lost its minted IDs instead of creating a second organization", async () => {
+		const { cookie } = await seedSessionUser();
+
+		const result = await post(
+			startAction,
+			"/onboarding",
+			{ conferenceName: "Devcon 2027" },
+			cookie,
 		);
+
+		expect((result as { formError?: string }).formError).toMatch(/expired/i);
+		expect(await getDb(env).select().from(organizations)).toHaveLength(0);
+	});
+
+	it("uses the shared auth gate for anonymous visitors", async () => {
+		expect(
+			locationOf(await settled(call(startLoader, "/onboarding", {}))),
+		).toBe("/login?redirectTo=%2Fonboarding");
+	});
+});
+
+describe("onboarding step 2 — dates", () => {
+	it("stores both days in the chosen zone and moves to the location step", async () => {
+		const { cookie } = await seedSessionUser();
+		const event = await completeStepOne(cookie);
+
+		const result = await settled(
+			post(
+				datesAction,
+				"/onboarding/dates",
+				{
+					startsAt: "2027-06-10",
+					endsAt: "2027-06-12",
+					timezone: "Europe/Paris",
+				},
+				cookie,
+			),
+		);
+
+		expect(locationOf(result)).toBe("/onboarding/place");
+		const [saved] = await getDb(env)
+			.select()
+			.from(events)
+			.where(eq(events.id, event?.id ?? ""));
+		expect(saved?.timezone).toBe("Europe/Paris");
+		// Date-only picks use local midnight to open and local 23:59 to close, so
+		// the selected final calendar day stays part of the event.
+		expect(saved?.startsAt?.getTime()).toBe(
+			Date.parse("2027-06-10T00:00:00+02:00"),
+		);
+		expect(saved?.endsAt?.getTime()).toBe(
+			Date.parse("2027-06-12T23:59:00+02:00"),
+		);
+	});
+
+	it("lets an organizer skip undecided dates but keeps the timezone they were shown", async () => {
+		const { cookie } = await seedSessionUser();
+		const event = await completeStepOne(cookie);
+
+		const result = await settled(
+			post(
+				datesAction,
+				"/onboarding/dates",
+				{ startsAt: "", endsAt: "", timezone: "Europe/Paris", intent: "skip" },
+				cookie,
+			),
+		);
+
+		expect(locationOf(result)).toBe("/onboarding/place");
+		const [saved] = await getDb(env)
+			.select()
+			.from(events)
+			.where(eq(events.id, event?.id ?? ""));
+		expect(saved?.startsAt).toBeNull();
+		expect(saved?.endsAt).toBeNull();
+		expect(saved?.timezone).toBe("Europe/Paris");
+	});
+
+	it("treats a submit with both dates left blank as a skip rather than an error", async () => {
+		const { cookie } = await seedSessionUser();
+		await completeStepOne(cookie);
+
+		const result = await settled(
+			post(
+				datesAction,
+				"/onboarding/dates",
+				{ startsAt: "", endsAt: "", timezone: "Europe/Paris" },
+				cookie,
+			),
+		);
+
+		expect(locationOf(result)).toBe("/onboarding/place");
+	});
+
+	it("rejects an end before the start and leaves the event untouched", async () => {
+		const { cookie } = await seedSessionUser();
+		const event = await completeStepOne(cookie);
+
+		const result = await post(
+			datesAction,
+			"/onboarding/dates",
+			{
+				startsAt: "2027-06-12",
+				endsAt: "2027-06-10",
+				timezone: "Europe/Paris",
+			},
+			cookie,
+		);
+
+		expect(
+			(result as { fieldErrors?: { endsAt?: string[] } }).fieldErrors
+				?.endsAt?.[0],
+		).toBeTruthy();
+		const [saved] = await getDb(env)
+			.select()
+			.from(events)
+			.where(eq(events.id, event?.id ?? ""));
+		expect(saved?.startsAt).toBeNull();
+		expect(saved?.timezone).toBe("America/Los_Angeles");
+	});
+
+	it("rejects a half-filled pair", async () => {
+		const { cookie } = await seedSessionUser();
+		await completeStepOne(cookie);
+
+		const result = await post(
+			datesAction,
+			"/onboarding/dates",
+			{ startsAt: "2027-06-10", endsAt: "", timezone: "Europe/Paris" },
+			cookie,
+		);
+
+		expect(
+			(result as { fieldErrors?: { endsAt?: string[] } }).fieldErrors
+				?.endsAt?.[0],
+		).toBeTruthy();
+	});
+
+	it("ignores a timezone the runtime does not recognise instead of corrupting the event", async () => {
+		const { cookie } = await seedSessionUser();
+		const event = await completeStepOne(cookie);
+
+		await settled(
+			post(
+				datesAction,
+				"/onboarding/dates",
+				{
+					startsAt: "",
+					endsAt: "",
+					timezone: "Mars/Olympus_Mons",
+					intent: "skip",
+				},
+				cookie,
+			),
+		);
+
+		const [saved] = await getDb(env)
+			.select()
+			.from(events)
+			.where(eq(events.id, event?.id ?? ""));
+		expect(saved?.timezone).toBe("America/Los_Angeles");
+	});
+
+	it("offers the browser's own zone on a brand-new event rather than a default nobody picked", async () => {
+		const { cookie } = await seedSessionUser();
+		await completeStepOne(cookie);
+
+		const data = await call(datesLoader, "/onboarding/dates", {}, cookie);
+
+		expect(data.eventName).toBe("Devcon 2027");
+		expect(data.timezone).toBeNull();
+		expect(data.startsAt).toBe("");
+	});
+
+	it("restarts the wizard when there is no event to fill in yet", async () => {
+		const { cookie } = await seedSessionUser();
+
+		expect(
+			locationOf(
+				await settled(call(datesLoader, "/onboarding/dates", {}, cookie)),
+			),
+		).toBe("/onboarding");
+		expect(
+			locationOf(
+				await settled(
+					post(datesAction, "/onboarding/dates", { intent: "skip" }, cookie),
+				),
+			),
+		).toBe("/onboarding");
+	});
+});
+
+describe("onboarding step 3 — location", () => {
+	it("saves the location and finishes on the dashboard", async () => {
+		const { cookie } = await seedSessionUser();
+		const event = await completeStepOne(cookie);
+
+		const result = await settled(
+			post(
+				placeAction,
+				"/onboarding/place",
+				{ location: " Lyon, France " },
+				cookie,
+			),
+		);
+
+		expect(locationOf(result)).toBe("/admin");
+		const [saved] = await getDb(env)
+			.select()
+			.from(events)
+			.where(eq(events.id, event?.id ?? ""));
+		expect(saved?.location).toBe("Lyon, France");
+	});
+
+	it("leaves an already-known location alone when the organizer skips", async () => {
+		const { cookie } = await seedSessionUser();
+		const event = await completeStepOne(cookie);
+		await getDb(env)
+			.update(events)
+			.set({ location: "Lyon, France" })
+			.where(eq(events.id, event?.id ?? ""));
+
+		const result = await settled(
+			post(
+				placeAction,
+				"/onboarding/place",
+				{ location: "", intent: "skip" },
+				cookie,
+			),
+		);
+
+		expect(locationOf(result)).toBe("/admin");
+		const [saved] = await getDb(env)
+			.select()
+			.from(events)
+			.where(eq(events.id, event?.id ?? ""));
+		expect(saved?.location).toBe("Lyon, France");
+	});
+
+	it("clears the location when the organizer deliberately empties the box", async () => {
+		const { cookie } = await seedSessionUser();
+		const event = await completeStepOne(cookie);
+		await getDb(env)
+			.update(events)
+			.set({ location: "Lyon, France" })
+			.where(eq(events.id, event?.id ?? ""));
+
+		await settled(
+			post(placeAction, "/onboarding/place", { location: "" }, cookie),
+		);
+
+		const [saved] = await getDb(env)
+			.select()
+			.from(events)
+			.where(eq(events.id, event?.id ?? ""));
+		expect(saved?.location).toBeNull();
+	});
+
+	it("rejects a location longer than the column allows", async () => {
+		const { cookie } = await seedSessionUser();
+		await completeStepOne(cookie);
+
+		const result = await post(
+			placeAction,
+			"/onboarding/place",
+			{ location: "x".repeat(201) },
+			cookie,
+		);
+
+		expect(
+			(result as { fieldErrors?: { location?: string[] } }).fieldErrors
+				?.location?.[0],
+		).toBeTruthy();
+	});
+
+	it("restarts the wizard when there is no event to describe yet", async () => {
+		const { cookie } = await seedSessionUser();
+
+		expect(
+			locationOf(
+				await settled(call(placeLoader, "/onboarding/place", {}, cookie)),
+			),
+		).toBe("/onboarding");
+	});
+});
+
+describe("onboarding hands the dashboard a head start", () => {
+	it("finishes every step with the dashboard's first checklist item already done", async () => {
+		const { cookie } = await seedSessionUser();
+		const event = await completeStepOne(cookie);
+		await settled(
+			post(
+				datesAction,
+				"/onboarding/dates",
+				{
+					startsAt: "2027-06-10",
+					endsAt: "2027-06-12",
+					timezone: "Europe/Paris",
+				},
+				cookie,
+			),
+		);
+		await settled(
+			post(
+				placeAction,
+				"/onboarding/place",
+				{ location: "Lyon, France" },
+				cookie,
+			),
+		);
+
+		const [saved] = await getDb(env)
+			.select()
+			.from(events)
+			.where(eq(events.id, event?.id ?? ""));
+		const state = deriveGettingStarted({
+			hasDates: Boolean(saved?.startsAt && saved?.endsAt),
+			hasLocation: Boolean(saved?.location),
+			trackCount: 0,
+			formatCount: 0,
+			publishedFormCount: 0,
+			reviewerCount: 0,
+			submissionCount: 0,
+		});
+		expect(state.steps.find((s) => s.id === "basics")?.done).toBe(true);
+		expect(state.doneCount).toBe(1);
+		expect(state.activeStepId).toBe("program");
+	});
+
+	it("reports an honest zero when both steps are skipped", async () => {
+		const { cookie } = await seedSessionUser();
+		const event = await completeStepOne(cookie);
+		await settled(
+			post(datesAction, "/onboarding/dates", { intent: "skip" }, cookie),
+		);
+		await settled(
+			post(placeAction, "/onboarding/place", { intent: "skip" }, cookie),
+		);
+
+		const [saved] = await getDb(env)
+			.select()
+			.from(events)
+			.where(eq(events.id, event?.id ?? ""));
+		const state = deriveGettingStarted({
+			hasDates: Boolean(saved?.startsAt && saved?.endsAt),
+			hasLocation: Boolean(saved?.location),
+			trackCount: 0,
+			formatCount: 0,
+			publishedFormCount: 0,
+			reviewerCount: 0,
+			submissionCount: 0,
+		});
+		expect(state.doneCount).toBe(0);
+		expect(state.activeStepId).toBe("basics");
 	});
 });

@@ -8,7 +8,7 @@ This file feeds the eval kit's `submissionNotes` and is written for whoever poin
 |---|---|
 | App root (links the showcased public pages) | `https://openrostrum.com/` |
 | Organizer admin | `/admin` (also `/dashboard`, `/organizer`) |
-| Organizer sign-up and first-run setup | `/signup` → `/onboarding` → `/admin` |
+| Organizer sign-up and first-run setup | `/signup` → `/onboarding` (conference name) → `/onboarding/dates` → `/onboarding/place` → `/admin`. Only the name is required; the last two steps can be skipped and set later in `/admin/settings` |
 | Speaker CRM | `/admin/crm` · directory `/admin/crm/directory` · sourcing pipeline `/admin/crm/pipeline` |
 | Agenda builder | `/admin/agenda` |
 | AI review | `/admin/evaluation?tab=ai` |
