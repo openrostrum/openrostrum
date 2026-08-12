@@ -327,10 +327,9 @@ async function setSpeakerVisibility(
 			contactId: parsed.data.contactId,
 			publicVisible,
 		});
-		// The eye flipping in place was assumed to be enough. It isn't: this
-		// toggle reaches every session, embed, and feed the speaker appears in,
-		// and an evaluator who couldn't tell what one click had done pressed it
-		// four more times. Say the scope out loud.
+		// One click reaches every session, embed, and feed this contact appears
+		// in, and an eye flipping in one table cell cannot show that reach. An
+		// organizer who can't tell what a click did presses it again.
 		const name = `${row.firstName} ${row.lastName}`.trim();
 		return {
 			notice: publicVisible

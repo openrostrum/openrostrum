@@ -55,11 +55,15 @@ describe("speaker visibility cell", () => {
 		expect(hidden).toContain("Hidden");
 	});
 
-	it("shows what the last toggle did", () => {
+	it("keeps what the toggle did next to the toggle", () => {
 		const html = render({
 			visible: false,
 			notice: "Priya Raman is hidden from the public program.",
 		});
-		expect(html).toContain("Priya Raman is hidden from the public program.");
+		// Inside the form, after the controls: a notice that rendered above the
+		// row, or on some page-level flash, is not attached to the eye pressed.
+		expect(html).toMatch(
+			/aria-label="Show Priya Raman[^]*?Priya Raman is hidden from the public program\.[^]*?<\/form>/,
+		);
 	});
 });
