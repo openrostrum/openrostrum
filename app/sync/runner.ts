@@ -91,13 +91,13 @@ export type SyncRunResult =
 type DecisionTarget = (typeof DECISION_STATUS)[number];
 
 // Reserved tableName='$sync' rows survive across ticks/isolates; every
-// reconciliation select filters tableName to SYNCED_TABLES so these rows never
-// enter a plan. The webhook high-water mark has its OWN row: its writer (the
-// route) does not hold the run lock, so it must never share a blob with the
-// runner's state.
+// reconciliation select filters tableName to SYNCED_TABLES, so these rows never
+// enter a plan.
 const STATE_TABLE = "$sync";
 const STATE_RECORD = "state";
 const LOCK_RECORD = "lock";
+// The webhook high-water mark gets its OWN row: its writer (the route) does not
+// hold the run lock, so it must never share a blob with the runner's state.
 const WEBHOOK_RECORD = "webhook";
 // A tick is seconds of wall time; a lock this old belongs to a crashed run.
 const LOCK_TTL_MS = 5 * 60_000;
@@ -236,11 +236,10 @@ async function releaseRunLock(db: Db): Promise<void> {
 		);
 }
 
-// Snapshot marker for a link whose base row the team deleted: the local row
-// was archived (or has no archive state) and must NOT be re-pushed — the
-// delete is honored, recreation is the zombie-row failure mode. Cleared
-// automatically when the row is restored from Airtable's trash (snapshots are
-// rebuilt from the live projection).
+// Snapshot marker for a link whose base row the team deleted: the local row was
+// archived (or has no archive state) and must NOT be re-pushed — the delete is
+// honored, recreation is the zombie-row failure mode. Cleared when the row is
+// restored from Airtable's trash (snapshots rebuild from the live projection).
 const REMOTE_DELETED_MARKER = "$remoteDeleted";
 // >20% of linked rows absent in one tick = a probable select-all accident:
 // pause and alert instead of mass-archiving.

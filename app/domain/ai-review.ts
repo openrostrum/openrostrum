@@ -288,14 +288,10 @@ export async function loadAiReviewContexts(
 }
 
 /**
- * Persist a fresh AI verdict — replaces any previous run in place and clears a
- * standing override: a new AI pass makes the old human correction stale, and
- * the organizer can override again from the new score.
- *
- * Compare-and-set on `expected` (the row's updatedAt when the run started,
- * null = no row existed): model calls take tens of seconds, and anything
- * written meanwhile — an override, another run's result — must win over this
- * late save. Returns false when the save was skipped for that reason.
+ * Persist a fresh AI verdict: replaces the previous run in place and clears a
+ * standing override, since a new pass makes the old human correction stale.
+ * Compare-and-set on `expected` — the row's updatedAt when the run started,
+ * null = no row. False = a concurrent override or newer run won; nothing saved.
  */
 export async function saveAiReview(
 	db: Db,

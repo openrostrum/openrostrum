@@ -311,10 +311,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 	if (intent === "delete-form") {
 		const formId = String(form.get("formId") ?? "");
 		// The task FK is SET NULL — an unguarded delete would silently turn
-		// "Fill in: <form>" tasks into bare mark-as-done tasks. The tenant guard
-		// AND the no-references condition live IN the delete statement (D1 has
-		// no transactions, so check-then-delete would race a concurrent attach);
-		// the refusal copy is computed only after a zero-row delete.
+		// "Fill in: <form>" tasks into bare mark-as-done tasks, so both the tenant
+		// guard and the no-references check live IN the delete statement; the
+		// refusal copy is computed only after a zero-row delete.
 		try {
 			const gone = await timings.time("db", () =>
 				db
@@ -323,6 +322,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 						and(
 							eq(portalForms.id, formId),
 							eq(portalForms.eventId, event.id),
+							// In the statement, never check-then-delete: D1 has no
+							// transactions, so a separate read would race an attach.
 							notExists(
 								db
 									.select({ one: tasks.id })

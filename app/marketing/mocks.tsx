@@ -4,11 +4,10 @@ import { cn } from "~/ui/cn";
 // Faithful, static renderings of real product surfaces, built from the same
 // @theme tokens the live app uses — so the marketing page shows the actual
 // thing, not a stylized impression. Presentational only (aria-hidden).
-//
-// Status tones mirror StatusBadge's light half as static palette classes —
-// the landing is pinned light, so StatusBadge's light-dark() pairs would
-// always resolve to these values anyway.
 
+// Status tones mirror StatusBadge's light half as static palette classes — the
+// landing is pinned light, so StatusBadge's light-dark() pairs would always
+// resolve to these values anyway.
 const STATUS = {
 	accepted: "bg-emerald-100 text-emerald-800",
 	pending: "bg-amber-100 text-amber-800",

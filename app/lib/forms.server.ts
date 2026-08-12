@@ -15,10 +15,9 @@ export type RuleOptionMap = Record<
 
 /**
  * Rule `value` stores exactly what the public form control submits for the
- * trigger: taxonomy row IDS for Format/Tags/Track/Level, the language NAME
- * for Language (submissions.language is a name column). The builder's value
- * pickers, its set-rule validation, and the public renderer's rule evaluation
- * must all read THIS map — one source of truth.
+ * trigger: taxonomy row IDS for Format/Tags/Track/Level, the language NAME for
+ * Language (submissions.language is a name column). The builder's pickers, its
+ * set-rule validation, and the public renderer must all read THIS map.
  */
 export async function loadRuleOptions(
 	db: Db,

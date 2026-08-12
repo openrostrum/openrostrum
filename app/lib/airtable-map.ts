@@ -13,9 +13,8 @@ import type { AirtableFields, AirtableFieldValue } from "~/ports/airtable";
 /**
  * The ONE declaration of what syncs and how (docs/airtable-sync-design.md,
  * Decision 2): app-owned = inbound edits corrected back · descriptive =
- * three-way merged, Airtable wins conflicts · workflow = transition request
- * through the domain path. Anything NOT declared here is team-private —
- * never read from the base, never written, never snapshotted.
+ * three-way merged, Airtable wins · workflow = transition through the domain
+ * path. Undeclared fields are team-private: never read, written, or snapshotted.
  */
 export type FieldClass = "app-owned" | "descriptive" | "workflow";
 

@@ -5,11 +5,10 @@ import { HOURLY_CRON } from "./cadence";
 import type { ScheduledJob } from "./registry";
 
 /**
- * The full-base reconciliation poll — the safety net under the webhook
- * trigger (docs/airtable-sync-design.md): it self-heals missed pings and
- * refreshes the webhook's expiry; a full pass is idempotent, so any cadence
- * is safe. Hourly: until a webhook is provisioned this poll is the only pull
- * path, and team edits landing once a day would read as data loss.
+ * The full-base reconciliation poll — the safety net under the webhook trigger
+ * (docs/airtable-sync-design.md): it self-heals missed pings and refreshes the
+ * webhook's expiry. A full pass is idempotent, so any cadence is safe; hourly,
+ * because until a webhook exists this poll is the only pull path.
  */
 const job: ScheduledJob = {
 	name: "airtable-sync",
@@ -18,11 +17,10 @@ const job: ScheduledJob = {
 		try {
 			await runAirtableSync(env, { trigger: "cron" });
 		} catch (error) {
-			// Expected operational failures (rate limits, breaker) never throw —
-			// the runner returns them as typed statuses. Anything landing here is
-			// infrastructure-level (D1/lock writes failing): track it under the
-			// sync-health name, then rethrow so the registry fails the tick and
-			// the crash stays visible at error level.
+			// Operational failures (rate limits, breaker) never throw — the runner
+			// returns them as typed statuses. Anything here is infrastructure-level
+			// (D1/lock writes failing): track it under the sync-health name, then
+			// rethrow so the registry fails the tick and the crash stays visible.
 			track("sync.job_failed", { error: errorMessage(error) });
 			throw error;
 		}

@@ -142,11 +142,10 @@ function parseStamp(value: string): Date | null {
 }
 
 /**
- * Read back the VEVENTs of an invite WE sent (the `email_outbox` ledger) —
- * both this serializer's output and the npm `ics` payloads earlier accept
- * emails attached. UTC-stamped events only (all our invites are); anything
- * unparseable is skipped, never thrown, so one malformed historic row can't
- * take down schedule-change detection.
+ * Read back the VEVENTs of an invite WE sent (the `email_outbox` ledger): both
+ * this serializer's output and the npm `ics` payloads earlier accept emails
+ * attached. UTC-stamped events only; anything unparseable is skipped rather
+ * than thrown, so one malformed historic row can't take down change detection.
  */
 export function parseIcsAttachment(ics: string): ParsedIcsEvent[] {
 	// Unfold RFC 5545 §3.1 continuations, tolerating bare-LF payloads.

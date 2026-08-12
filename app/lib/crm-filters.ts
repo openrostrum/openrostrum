@@ -4,9 +4,8 @@ import { CONTACT_STATUS } from "~/db/constants";
 /**
  * The directory filter set — ONE optional-field shape used verbatim as the
  * URL-param codec's output, the stored segment JSON (JSON.stringify drops
- * undefined keys), and the query input, so the directory page, saved
- * segments, and pagination links can never disagree about what a filter set
- * means. Client-safe (no drizzle): route components build links from it.
+ * undefined keys), and the query input, so the directory page, saved segments,
+ * and pagination links can never disagree. Client-safe: no drizzle imports.
  */
 export interface DirectoryFilters {
 	q?: string;

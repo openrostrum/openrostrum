@@ -450,10 +450,9 @@ export type EditWindow = {
 
 /**
  * Speakers edit their SUBMITTED proposal until the source form's close date;
- * withdrawn rows and organizer-created rows (no source form) have no edit
- * path. The same rule gates content edits AND participant edits; per-person
- * Confirm/Withdraw is deliberately NOT close-gated — acceptance happens after
- * the CFP closes.
+ * withdrawn and organizer-created rows (no source form) have no edit path. The
+ * same rule gates content AND participant edits; per-person Confirm/Withdraw is
+ * deliberately NOT close-gated, since acceptance happens after the CFP closes.
  */
 export async function getEditWindow(
 	env: Env,

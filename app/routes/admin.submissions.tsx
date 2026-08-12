@@ -226,10 +226,8 @@ export async function action({ context, request }: Route.ActionArgs) {
 /**
  * The ONE manual-create path — the inline form on this page AND the
  * "+ Add Submission / Add Session" drawer on the Abstracts/Sessions tabs both
- * POST here (the drawer adds description + speaker participants and a `drawer`
- * flag so errors render in place instead of navigating). Creating AS accepted
- * routes through the accept spine so provisioning and content gating behave
- * exactly like a review-time accept.
+ * POST here; the drawer adds description + speaker participants and a `drawer`
+ * flag so errors render in place instead of navigating.
  */
 async function createSubmission(
 	db: ReturnType<typeof getDb>,

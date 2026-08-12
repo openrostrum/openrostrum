@@ -1,10 +1,8 @@
 /**
  * Thin record I/O against one Airtable base — the transport under the sync
  * engine (docs/airtable-sync-design.md). The port carries NO sync logic: field
- * classes, three-way reconciliation, and tenancy filtering live in
- * app/sync/* + app/lib/airtable-map.ts. All Airtable I/O is background-only,
- * never in the request path: the API caps at 5 req/s per base, so D1 stays
- * the serving layer.
+ * classes, reconciliation, and tenancy live in app/sync/* + lib/airtable-map.ts.
+ * Background-only: the API caps at 5 req/s per base, so D1 stays the server.
  */
 
 import { z } from "zod";

@@ -7,11 +7,10 @@ import type {
 import { recordKey } from "~/ports/airtable";
 
 /**
- * Snapshot three-way reconciliation, pure: the caller loads/filters rows
- * (the tenant guard happens BEFORE this module) and applies the returned
- * plan. Per mapped field vs the
- * last-synced snapshot: only-local-changed → push, only-remote-changed →
- * pull (class-routed), both changed → the class rule.
+ * Snapshot three-way reconciliation, pure: the caller loads/filters rows (the
+ * tenant guard happens BEFORE this module) and applies the returned plan. Per
+ * mapped field vs the last-synced snapshot: only-local-changed → push,
+ * only-remote-changed → pull (class-routed), both changed → the class rule.
  */
 
 export interface LocalProjection {

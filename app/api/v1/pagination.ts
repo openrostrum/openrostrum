@@ -1,10 +1,8 @@
 /**
  * Sessionboard's pagination contract: `page` (1–999) + `pageSize` (1–100,
- * default 25), travelling as query params (search endpoints also accept them
- * in the body). Two envelope dialects exist in their spec and both are
- * reproduced verbatim — search/list responses use `results` + camelCase
- * pagination, the sessions CRUD proxy uses `data` + snake_case. Compat means
- * matching each endpoint, never normalizing.
+ * default 25) as query params, also read from the body on search endpoints.
+ * Their spec carries TWO envelope dialects and both are reproduced verbatim
+ * (`results`+camelCase, `data`+snake_case) — compat matches, never normalizes.
  */
 
 import { z } from "zod";
