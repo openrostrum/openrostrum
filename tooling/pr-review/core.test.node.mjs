@@ -18,37 +18,30 @@ test("the runtime carries Pi's DeepSeek provider contract, not a hand-built mode
 	assert.equal(runtime.model.compat?.supportsDeveloperRole, false);
 	assert.equal(runtime.model.compat?.thinkingFormat, "deepseek");
 	assert.ok(runtime.model.contextWindow > 0);
+	// A hand-picked ceiling of 16000 truncated four of five reviewers on a
+	// 2700-line pull request. The catalog has to supply a real output limit,
+	// because that limit is now the only thing bounding a reviewer's answer.
+	assert.ok(
+		runtime.model.maxTokens >= 100_000,
+		`catalog ceiling ${runtime.model.maxTokens} is too small to review a large diff`,
+	);
 });
 
-// A hand-picked ceiling of 16000 truncated four of five reviewers on a
-// 2700-line pull request, which the completion contract could only report as
-// incomplete. The ceiling has to track the model's real limit.
-test("the output ceiling comes from the model, not a hardcoded number", () => {
-	const runtime = makeRuntime({
-		key: "test-key",
-		base: "https://api.deepseek.test",
-		model: "deepseek-v4-flash",
-		temperature: 0,
-	});
-
+test("the output ceiling forwarded to the provider is the model's own", () => {
 	const sent = streamOptions({
 		key: "test-key",
 		temperature: 0,
-		model: runtime.model,
+		model: { maxTokens: 262_144 },
 	});
 
-	assert.equal(sent.maxTokens, runtime.model.maxTokens);
-	assert.ok(
-		sent.maxTokens > 16000,
-		`ceiling ${sent.maxTokens} is no better than the cap that truncated reviewers`,
-	);
+	assert.equal(sent.maxTokens, 262_144);
 });
 
 test("a caller may still narrow the ceiling below the model's limit", () => {
 	const caller = streamOptions({
 		key: "test-key",
 		temperature: 0,
-		model: { maxTokens: 384000 },
+		model: { maxTokens: 262_144 },
 		options: { maxTokens: 4096 },
 	});
 
