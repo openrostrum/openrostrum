@@ -130,39 +130,145 @@ function unescapeText(value: string): string {
 function parseStamp(value: string): Date | null {
 	const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(value.trim());
 	if (!m) return null;
-	return new Date(
-		Date.UTC(
-			Number(m[1]),
-			Number(m[2]) - 1,
-			Number(m[3]),
-			Number(m[4]),
-			Number(m[5]),
-			Number(m[6]),
-		),
-	);
+	const [year, month, day, hour, minute, second] = m
+		.slice(1)
+		.map((component) => Number(component)) as [
+		number,
+		number,
+		number,
+		number,
+		number,
+		number,
+	];
+	const stamp = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+	if (
+		stamp.getUTCFullYear() !== year ||
+		stamp.getUTCMonth() !== month - 1 ||
+		stamp.getUTCDate() !== day ||
+		stamp.getUTCHours() !== hour ||
+		stamp.getUTCMinutes() !== minute ||
+		stamp.getUTCSeconds() !== second
+	) {
+		return null;
+	}
+	return stamp;
 }
 
+type IcsEventBlock = { lines: string[]; nested: boolean };
+
 /**
- * Read back the VEVENTs of an invite WE sent (the `email_outbox` ledger) —
- * both this serializer's output and the npm `ics` payloads earlier accept
- * emails attached. UTC-stamped events only (all our invites are); anything
- * unparseable is skipped, never thrown, so one malformed historic row can't
- * take down schedule-change detection.
+ * Splits VEVENT bodies out of a calendar, rejecting the whole attachment when
+ * its envelope is not exactly one balanced VCALENDAR wrapping balanced VEVENTs.
+ * A truncated or concatenated fragment is structurally ambiguous — clients may
+ * read it differently than we do, so it must never become a delivery baseline.
  */
-export function parseIcsAttachment(ics: string): ParsedIcsEvent[] {
-	// Unfold RFC 5545 §3.1 continuations, tolerating bare-LF payloads.
-	const unfolded = ics.replace(/\r?\n[ \t]/g, "");
+function scanIcsEventBlocks(
+	ics: string,
+	maxEvents: number,
+): {
+	blocks: IcsEventBlock[];
+	eventCount: number;
+} {
+	const lines = ics.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
+	const blocks: IcsEventBlock[] = [];
+	let eventCount = 0;
+	let body: IcsEventBlock | null = null;
+	let inEvent = false;
+	let inCalendar = false;
+	let calendarsOpened = 0;
+	let calendarsClosed = 0;
+	let malformed = false;
+	for (const line of lines) {
+		if (line === "BEGIN:VCALENDAR") {
+			if (inCalendar || inEvent) malformed = true;
+			inCalendar = true;
+			calendarsOpened += 1;
+			continue;
+		}
+		if (line === "END:VCALENDAR") {
+			if (!inCalendar || inEvent) malformed = true;
+			inCalendar = false;
+			calendarsClosed += 1;
+			continue;
+		}
+		if (line === "BEGIN:VEVENT") {
+			eventCount += 1;
+			if (!inCalendar || inEvent) malformed = true;
+			inEvent = true;
+			body = eventCount <= maxEvents ? { lines: [], nested: false } : null;
+			continue;
+		}
+		if (line === "END:VEVENT") {
+			if (!inEvent) malformed = true;
+			if (body !== null) blocks.push(body);
+			inEvent = false;
+			body = null;
+			continue;
+		}
+		// A component we do not model (VALARM, …) makes this event's properties
+		// ambiguous; keep counting it but never trust its parse.
+		if (body !== null && line.startsWith("BEGIN:")) body.nested = true;
+		body?.lines.push(line);
+	}
+	if (inEvent || inCalendar || calendarsOpened !== 1 || calendarsClosed !== 1) {
+		malformed = true;
+	}
+	return { blocks: malformed ? [] : blocks, eventCount };
+}
+
+/** Groups a VEVENT body by property name, keeping repeats so they can be
+ * rejected. Names bind exactly: `UIDX` is not `UID`, and only RFC 5545
+ * `;parameters` may follow the name. */
+function readEventProperties(lines: readonly string[]): Map<string, string[]> {
+	const properties = new Map<string, string[]>();
+	for (const line of lines) {
+		const colon = line.indexOf(":");
+		if (colon < 0) continue;
+		const name = line.slice(0, colon).split(";", 1)[0] ?? "";
+		// Strip only the CR: TEXT values keep their exact content (a trimmed
+		// value would break the sent-vs-current equality the ledger exists for).
+		const value = line.slice(colon + 1).replace(/\r$/, "");
+		const existing = properties.get(name);
+		if (existing) existing.push(value);
+		else properties.set(name, [value]);
+	}
+	return properties;
+}
+
+/** Properties this parser reads: a repeat means clients could disagree with us
+ * about the delivered schedule, so the event is quarantined rather than read. */
+const SINGLETON_ICS_PROPERTIES = [
+	"UID",
+	"DTSTART",
+	"DTEND",
+	"SEQUENCE",
+	"SUMMARY",
+	"LOCATION",
+] as const;
+
+export type IcsAttachmentInspection = {
+	events: ParsedIcsEvent[];
+	eventCount: number;
+};
+
+/** Parses supported UTC events while retaining every structural VEVENT count. */
+export function inspectIcsAttachment(
+	ics: string,
+	maxEvents = Number.POSITIVE_INFINITY,
+): IcsAttachmentInspection {
+	const { blocks, eventCount } = scanIcsEventBlocks(ics, maxEvents);
+	if (eventCount > maxEvents) return { events: [], eventCount };
 	const events: ParsedIcsEvent[] = [];
-	for (const block of unfolded.split(/BEGIN:VEVENT/).slice(1)) {
-		const body = block.split(/END:VEVENT/)[0] ?? "";
-		const prop = (name: string): string | null => {
-			// Properties may carry parameters (e.g. "DTSTART;TZID=…:") — match the
-			// name at line start up to the first colon. Strip only the CR: TEXT
-			// values keep their exact content (a trimmed value would break the
-			// sent-vs-current equality the ledger exists for).
-			const m = new RegExp(`^${name}[^:\\r\\n]*:(.*?)\\r?$`, "m").exec(body);
-			return m?.[1] ?? null;
-		};
+	for (const block of blocks) {
+		const properties = readEventProperties(block.lines);
+		const ambiguous =
+			block.nested ||
+			SINGLETON_ICS_PROPERTIES.some(
+				(name) => (properties.get(name)?.length ?? 0) > 1,
+			);
+		if (ambiguous) continue;
+		const prop = (name: string): string | null =>
+			properties.get(name)?.[0] ?? null;
 		const uid = prop("UID");
 		const start = parseStamp(prop("DTSTART") ?? "");
 		const end = parseStamp(prop("DTEND") ?? "");
@@ -183,5 +289,9 @@ export function parseIcsAttachment(ics: string): ParsedIcsEvent[] {
 			sequence,
 		});
 	}
-	return events;
+	return { events, eventCount };
+}
+
+export function parseIcsAttachment(ics: string): ParsedIcsEvent[] {
+	return inspectIcsAttachment(ics).events;
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildIcs, parseIcsAttachment } from "../app/lib/ics";
+import {
+	buildIcs,
+	inspectIcsAttachment,
+	parseIcsAttachment,
+} from "../app/lib/ics";
 
 // Oracles from RFC 5545: §3.1 line folding (75 octets, continuation = CRLF +
 // space, no character split) and §3.3.11 TEXT escaping.
@@ -152,10 +156,222 @@ describe("parseIcsAttachment (the outbox ledger reader)", () => {
 		}
 	});
 
+	it("rejects impossible UTC timestamp components", () => {
+		for (const start of [
+			"20260230T150000Z",
+			"20261301T150000Z",
+			"20261012T240000Z",
+			"20261012T156000Z",
+			"20261012T150060Z",
+		]) {
+			const ics = [
+				"BEGIN:VCALENDAR",
+				"BEGIN:VEVENT",
+				"UID:submission-s1@openrostrum",
+				`DTSTART:${start}`,
+				"DTEND:20261012T170000Z",
+				"SUMMARY:Talk",
+				"SEQUENCE:0",
+				"END:VEVENT",
+				"END:VCALENDAR",
+			].join("\r\n");
+
+			expect(parseIcsAttachment(ics), start).toEqual([]);
+		}
+	});
+
+	it("treats VEVENT tokens inside a title as text, not structure", () => {
+		const title = "Literal BEGIN:VEVENT and END:VEVENT tokens";
+		const ics = buildIcs({
+			calendarName: "T",
+			events: [
+				{
+					uid: "submission-tokens@openrostrum",
+					start: new Date("2027-05-12T16:30:00Z"),
+					end: new Date("2027-05-12T17:00:00Z"),
+					title,
+				},
+			],
+		});
+
+		expect(parseIcsAttachment(ics)).toEqual([
+			expect.objectContaining({
+				uid: "submission-tokens@openrostrum",
+				title,
+			}),
+		]);
+	});
+
+	it("inspects event count and parsed events in one result", () => {
+		const valid = buildIcs({
+			calendarName: "T",
+			events: [
+				{
+					uid: "submission-valid@openrostrum",
+					start: new Date("2027-05-12T16:30:00Z"),
+					end: new Date("2027-05-12T17:00:00Z"),
+					title: "Talk",
+				},
+			],
+		});
+		const malformed = [
+			"BEGIN:VEVENT",
+			"UID:submission-malformed@openrostrum",
+			"END:VEVENT",
+		].join("\r\n");
+		const ics = valid.replace("END:VCALENDAR", `${malformed}\r\nEND:VCALENDAR`);
+
+		expect(inspectIcsAttachment(ics)).toEqual({
+			eventCount: 2,
+			events: [
+				expect.objectContaining({
+					uid: "submission-valid@openrostrum",
+					title: "Talk",
+				}),
+			],
+		});
+	});
+
+	it("stops retaining parsed events after the inspection ceiling", () => {
+		const ics = buildIcs({
+			calendarName: "T",
+			events: Array.from({ length: 4 }, (_, index) => ({
+				uid: `submission-${index}@openrostrum`,
+				start: new Date("2027-05-12T16:30:00Z"),
+				end: new Date("2027-05-12T17:00:00Z"),
+				title: `Talk ${index}`,
+			})),
+		});
+
+		expect(inspectIcsAttachment(ics, 3)).toEqual({
+			eventCount: 4,
+			events: [],
+		});
+	});
+
 	it("skips unparseable blocks instead of throwing", () => {
 		expect(parseIcsAttachment("BEGIN:VEVENT\r\nUID:x\r\nEND:VEVENT")).toEqual(
 			[],
 		);
 		expect(parseIcsAttachment("not an ics at all")).toEqual([]);
+	});
+
+	it("never reads a prefix-named property as the property it shadows", () => {
+		// A client that wrote UIDX/DTSTARTX/SUMMARY-OTHER never wrote UID/DTSTART/
+		// SUMMARY. Reading the impostor would let a malformed attachment become a
+		// trusted delivery baseline and suppress the corrective invite.
+		const withImpostor = (real: string, impostor: string) =>
+			inspectIcsAttachment(
+				[
+					"BEGIN:VCALENDAR",
+					"BEGIN:VEVENT",
+					"UID:submission-s1@openrostrum",
+					"DTSTART:20270512T163000Z",
+					"DTEND:20270512T170000Z",
+					"SUMMARY:Talk",
+					"LOCATION:Room A",
+					"END:VEVENT",
+					"END:VCALENDAR",
+				]
+					.map((line) => (line === real ? impostor : line))
+					.join("\r\n"),
+			);
+
+		// A missing UID/DTSTART leaves nothing to compare against, so the event is
+		// dropped while the structural count stands — the row is then quarantined.
+		for (const [real, impostor] of [
+			["UID:submission-s1@openrostrum", "UIDX:submission-s1@openrostrum"],
+			["DTSTART:20270512T163000Z", "DTSTARTX:20270512T163000Z"],
+			["DTEND:20270512T170000Z", "DTENDX:20270512T170000Z"],
+		] as const) {
+			expect(withImpostor(real, impostor), impostor).toEqual({
+				eventCount: 1,
+				events: [],
+			});
+		}
+
+		// SUMMARY/LOCATION are optional in RFC 5545, so the impostor must simply
+		// not be read as the real value.
+		expect(withImpostor("SUMMARY:Talk", "SUMMARY-OTHER:Talk").events).toEqual([
+			expect.objectContaining({ title: null }),
+		]);
+		expect(
+			withImpostor("LOCATION:Room A", "LOCATION-OTHER:Room A").events,
+		).toEqual([expect.objectContaining({ location: null })]);
+	});
+
+	it("still reads properties that carry RFC 5545 parameters", () => {
+		const ics = [
+			"BEGIN:VCALENDAR",
+			"BEGIN:VEVENT",
+			"UID:submission-s1@openrostrum",
+			"DTSTART;VALUE=DATE-TIME:20270512T163000Z",
+			"DTEND;VALUE=DATE-TIME:20270512T170000Z",
+			"SUMMARY;LANGUAGE=en-US:Talk",
+			"END:VEVENT",
+			"END:VCALENDAR",
+		].join("\r\n");
+
+		expect(parseIcsAttachment(ics)).toEqual([
+			expect.objectContaining({
+				uid: "submission-s1@openrostrum",
+				start: new Date("2027-05-12T16:30:00Z"),
+				end: new Date("2027-05-12T17:00:00Z"),
+				title: "Talk",
+			}),
+		]);
+	});
+
+	it("quarantines events that repeat a property clients disagree on", () => {
+		for (const duplicate of [
+			"UID:submission-other@openrostrum",
+			"DTSTART:20270512T180000Z",
+			"DTEND:20270512T190000Z",
+			"SUMMARY:Other talk",
+			"LOCATION:Room B",
+			"SEQUENCE:4",
+		]) {
+			const ics = [
+				"BEGIN:VCALENDAR",
+				"BEGIN:VEVENT",
+				"UID:submission-s1@openrostrum",
+				"DTSTART:20270512T163000Z",
+				"DTEND:20270512T170000Z",
+				"SUMMARY:Talk",
+				"LOCATION:Room A",
+				"SEQUENCE:1",
+				duplicate,
+				"END:VEVENT",
+				"END:VCALENDAR",
+			].join("\r\n");
+
+			expect(inspectIcsAttachment(ics), duplicate).toEqual({
+				eventCount: 1,
+				events: [],
+			});
+		}
+	});
+
+	it("rejects events that are not wrapped in a VCALENDAR envelope", () => {
+		const event = [
+			"BEGIN:VEVENT",
+			"UID:submission-s1@openrostrum",
+			"DTSTART:20270512T163000Z",
+			"DTEND:20270512T170000Z",
+			"SUMMARY:Talk",
+			"END:VEVENT",
+		];
+
+		for (const lines of [
+			event,
+			["BEGIN:VCALENDAR", ...event],
+			[...event, "END:VCALENDAR"],
+			["BEGIN:VCALENDAR", ...event, "END:VCALENDAR", ...event],
+			["BEGIN:VCALENDAR", "BEGIN:VEVENT", ...event, "END:VEVENT"],
+		]) {
+			const inspection = inspectIcsAttachment(lines.join("\r\n"));
+			expect(inspection.events, lines.join(" | ")).toEqual([]);
+			expect(inspection.eventCount, lines.join(" | ")).toBeGreaterThan(0);
+		}
 	});
 });

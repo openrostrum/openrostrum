@@ -1,7 +1,6 @@
 import {
 	and,
 	asc,
-	desc,
 	eq,
 	inArray,
 	isNotNull,
@@ -25,6 +24,7 @@ import {
 	icsForInvites,
 	inviteForSubmission,
 	inviteRecipients,
+	submissionIdFromIcsUid,
 	type SubmissionInvite,
 } from "~/domain/accept";
 import { sha256Hex } from "~/lib/api-token";
@@ -32,9 +32,13 @@ import { normalizeEmail } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatScheduleRange } from "~/lib/format-date";
 import { escapeHtml } from "~/lib/html";
-import { type ParsedIcsEvent, parseIcsAttachment } from "~/lib/ics";
+import { inspectIcsAttachment, type ParsedIcsEvent } from "~/lib/ics";
 import { track } from "~/lib/track";
-import { getEmailSender } from "~/ports/email";
+import {
+	EmailDeliveryError,
+	EmailSendInFlightError,
+	getEmailSender,
+} from "~/ports/email";
 
 /**
  * Schedule-update notifications: when the agenda moves an already-invited
@@ -63,26 +67,64 @@ export type ScheduleChangeSet = {
 	changes: ScheduleChange[];
 	/** Distinct emailable recipients — the "N speakers" the agenda banner shows. */
 	speakers: number;
-	/** Completeness could not be established — no changes were inferred. */
+	/** Durable normalization has more rows — a later request can resume it. */
 	truncated: boolean;
+	/** Sent history is invalid — operator diagnosis is required before delivery. */
+	blocked: boolean;
 };
 
-const EMPTY: ScheduleChangeSet = { changes: [], speakers: 0, truncated: false };
+const EMPTY: ScheduleChangeSet = {
+	changes: [],
+	speakers: 0,
+	truncated: false,
+	blocked: false,
+};
 
 const OUTBOX_NORMALIZE_PAGE = 200;
+const SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT = 200;
 const D1_QUERY_CHUNK = 80;
 const ATTEMPT_INSERT_CHUNK = 8;
 const MARKER_INSERT_CHUNK = 25;
-// Reserve 400 D1 statements for change detection, delivery, and post-send
-// normalization that share the same Worker request.
+// Normalization runs in its own action phase. Keep each pass below D1's
+// per-invocation statement ceiling so continuation requests always have room.
 const NORMALIZATION_STATEMENT_BUDGET = 600;
+// Attachment metadata is read before any body. Large individual bodies are
+// quarantined, while the aggregate cap bounds each Worker's response memory.
+const MAX_ICS_ATTACHMENT_BYTES = 512 * 1024;
+const MAX_NORMALIZATION_ATTACHMENT_BYTES = 1024 * 1024;
+// The only multi-event producer is schedule updates, which select at most this
+// many submissions. Larger historical attachments cannot be product output.
+const MAX_ICS_EVENTS_PER_OUTBOX = SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT;
 
-const NORMALIZATION_COLUMNS = {
+/** Correlated SQL form of inviteRecipients' primary-speaker/fallback rule. */
+function inviteRecipientEmailSql() {
+	return sql<string | null>`coalesce(
+		(select c.email
+			from participants p
+			inner join contacts c on c.id = p.contact_id
+			where p.submission_id = ${submissions.id} and p.role = 'speaker'
+			order by p.is_primary desc, p.position asc
+			limit 1),
+		(select u.email from users u where u.id = ${submissions.submitterId})
+	)`;
+}
+
+const NORMALIZATION_METADATA_COLUMNS = {
 	id: emailOutbox.id,
 	dedupeKey: emailOutbox.dedupeKey,
 	to: emailOutbox.to,
-	ics: emailOutbox.icsAttachment,
 	createdAt: emailOutbox.createdAt,
+	hasIcs: sql<number>`case when ${emailOutbox.icsAttachment} is null then 0 else 1 end`,
+	icsBytes: sql<number>`coalesce(length(cast(${emailOutbox.icsAttachment} as blob)), 0)`,
+};
+
+type NormalizationMetadataRow = {
+	id: string;
+	dedupeKey: string | null;
+	to: string;
+	createdAt: Date;
+	hasIcs: number;
+	icsBytes: number;
 };
 
 type NormalizationRow = {
@@ -90,6 +132,7 @@ type NormalizationRow = {
 	dedupeKey: string | null;
 	to: string;
 	ics: string | null;
+	attachmentOversized: boolean;
 	createdAt: Date;
 };
 
@@ -99,6 +142,80 @@ type ParsedNormalizationRow = NormalizationRow & {
 	associatedSubmissionIds: Set<string>;
 	icsEventCount: number;
 };
+
+type NormalizationMetadataPrefix = {
+	rows: NormalizationMetadataRow[];
+	bodyStatements: number;
+	deferred: boolean;
+};
+
+function normalizationMetadataPrefix(
+	rows: readonly NormalizationMetadataRow[],
+	bodyStatementBudget: number,
+): NormalizationMetadataPrefix {
+	const selected: NormalizationMetadataRow[] = [];
+	let attachmentBytes = 0;
+	let bodyCount = 0;
+
+	for (const row of rows) {
+		const bytes = Number(row.icsBytes);
+		const oversized = bytes > MAX_ICS_ATTACHMENT_BYTES;
+		const needsBody = row.hasIcs !== 0 && !oversized;
+		if (
+			!oversized &&
+			attachmentBytes + bytes > MAX_NORMALIZATION_ATTACHMENT_BYTES
+		) {
+			break;
+		}
+		const nextBodyCount = bodyCount + (needsBody ? 1 : 0);
+		if (chunkCount(nextBodyCount, D1_QUERY_CHUNK) > bodyStatementBudget) {
+			break;
+		}
+		selected.push(row);
+		if (!oversized) attachmentBytes += bytes;
+		bodyCount = nextBodyCount;
+	}
+
+	return {
+		rows: selected,
+		bodyStatements: chunkCount(bodyCount, D1_QUERY_CHUNK),
+		deferred: selected.length < rows.length,
+	};
+}
+
+async function normalizationRowsWithBodies(
+	db: Db,
+	metadataRows: readonly NormalizationMetadataRow[],
+): Promise<NormalizationRow[]> {
+	const bodyIds = metadataRows
+		.filter(
+			(row) =>
+				row.hasIcs !== 0 && Number(row.icsBytes) <= MAX_ICS_ATTACHMENT_BYTES,
+		)
+		.map((row) => row.id);
+	const bodies = new Map<string, string | null>();
+	for (let offset = 0; offset < bodyIds.length; offset += D1_QUERY_CHUNK) {
+		const rows = await db
+			.select({ id: emailOutbox.id, ics: emailOutbox.icsAttachment })
+			.from(emailOutbox)
+			.where(
+				inArray(emailOutbox.id, bodyIds.slice(offset, offset + D1_QUERY_CHUNK)),
+			);
+		for (const row of rows) bodies.set(row.id, row.ics);
+	}
+
+	return metadataRows.map((row) => ({
+		id: row.id,
+		dedupeKey: row.dedupeKey,
+		to: row.to,
+		ics:
+			row.hasIcs !== 0 && Number(row.icsBytes) <= MAX_ICS_ATTACHMENT_BYTES
+				? (bodies.get(row.id) ?? null)
+				: null,
+		attachmentOversized: Number(row.icsBytes) > MAX_ICS_ATTACHMENT_BYTES,
+		createdAt: row.createdAt,
+	}));
+}
 
 function chunkCount(rows: number, chunkSize: number): number {
 	return Math.ceil(rows / chunkSize);
@@ -126,23 +243,32 @@ function normalizationPrefixWithinBudget(
 	rows: readonly ParsedNormalizationRow[],
 	statementBudget: number,
 ): ParsedNormalizationRow[] {
-	for (let length = rows.length; length > 0; length -= 1) {
-		const prefix = rows.slice(0, length);
-		if (normalizationStatementUpperBound(prefix) <= statementBudget) {
-			return prefix;
+	const associatedSubmissionIds = new Set<string>();
+	let attemptUpperBound = 0;
+	let length = 0;
+	for (const row of rows) {
+		let newSubmissionIds = 0;
+		for (const submissionId of row.associatedSubmissionIds) {
+			if (!associatedSubmissionIds.has(submissionId)) newSubmissionIds += 1;
 		}
+		const nextAttemptUpperBound =
+			attemptUpperBound + row.associatedSubmissionIds.size;
+		const nextStatementUpperBound =
+			chunkCount(
+				associatedSubmissionIds.size + newSubmissionIds,
+				D1_QUERY_CHUNK,
+			) +
+			chunkCount(nextAttemptUpperBound, ATTEMPT_INSERT_CHUNK) +
+			chunkCount(length + 1, MARKER_INSERT_CHUNK);
+		if (nextStatementUpperBound > statementBudget) break;
+		for (const submissionId of row.associatedSubmissionIds) {
+			associatedSubmissionIds.add(submissionId);
+		}
+		attemptUpperBound = nextAttemptUpperBound;
+		length += 1;
 	}
-	return [];
+	return rows.slice(0, length);
 }
-
-type InviteBaseline = {
-	start: Date;
-	end: Date;
-	title: string;
-	location: string | null;
-	sequence: number;
-	to: string;
-};
 
 type RevisionInsert = typeof calendarInviteRevisions.$inferInsert;
 type ProcessedOutboxInsert = typeof calendarInviteProcessedOutbox.$inferInsert;
@@ -153,29 +279,20 @@ function acceptanceSubmissionId(dedupeKey: string | null): string | null {
 	return submissionId.length > 0 ? submissionId : null;
 }
 
-function stableUidSubmissionId(uid: string): string | null {
-	const prefix = "submission-";
-	const suffix = "@openrostrum";
-	if (!uid.startsWith(prefix) || !uid.endsWith(suffix)) return null;
-	const submissionId = uid.slice(prefix.length, -suffix.length);
-	return submissionId.length > 0 ? submissionId : null;
-}
-
-function countIcsEvents(ics: string): number {
-	const unfolded = ics.replace(/\r?\n[ \t]/g, "");
-	return unfolded.match(/^BEGIN:VEVENT\r?$/gm)?.length ?? 0;
-}
-
 function parseNormalizationRows(
 	rows: readonly NormalizationRow[],
 ): ParsedNormalizationRow[] {
 	return rows.map((row) => {
-		const invites = parseIcsAttachment(row.ics ?? "");
+		const inspection = row.attachmentOversized
+			? { events: [], eventCount: 0 }
+			: inspectIcsAttachment(row.ics ?? "", MAX_ICS_EVENTS_PER_OUTBOX);
 		const acceptedId = acceptanceSubmissionId(row.dedupeKey);
+		const tooManyEvents = inspection.eventCount > MAX_ICS_EVENTS_PER_OUTBOX;
+		const invites = tooManyEvents ? [] : inspection.events;
 		const associatedSubmissionIds = new Set<string>();
 		if (acceptedId) associatedSubmissionIds.add(acceptedId);
 		for (const invite of invites) {
-			const submissionId = stableUidSubmissionId(invite.uid);
+			const submissionId = submissionIdFromIcsUid(invite.uid);
 			if (submissionId) associatedSubmissionIds.add(submissionId);
 		}
 		return {
@@ -183,30 +300,36 @@ function parseNormalizationRows(
 			invites,
 			acceptanceSubmissionId: acceptedId,
 			associatedSubmissionIds,
-			icsEventCount: row.ics === null ? 0 : countIcsEvents(row.ics),
+			icsEventCount: row.ics === null ? 0 : inspection.eventCount,
 		};
 	});
 }
 
-async function eventSubmissionIds(
+type SubmissionIdScopes = {
+	currentEvent: Set<string>;
+	known: Set<string>;
+};
+
+async function submissionIdScopes(
 	db: Db,
 	eventId: string,
 	ids: readonly string[],
-): Promise<Set<string>> {
-	const validIds = new Set<string>();
+): Promise<SubmissionIdScopes> {
+	const currentEvent = new Set<string>();
+	const known = new Set<string>();
 	for (let offset = 0; offset < ids.length; offset += D1_QUERY_CHUNK) {
 		const rows = await db
-			.select({ id: submissions.id })
+			.select({ id: submissions.id, eventId: submissions.eventId })
 			.from(submissions)
 			.where(
-				and(
-					eq(submissions.eventId, eventId),
-					inArray(submissions.id, ids.slice(offset, offset + D1_QUERY_CHUNK)),
-				),
+				inArray(submissions.id, ids.slice(offset, offset + D1_QUERY_CHUNK)),
 			);
-		for (const row of rows) validIds.add(row.id);
+		for (const row of rows) {
+			known.add(row.id);
+			if (row.eventId === eventId) currentEvent.add(row.id);
+		}
 	}
-	return validIds;
+	return { currentEvent, known };
 }
 
 async function normalizedInviteStateHash(
@@ -231,9 +354,12 @@ async function normalizedInviteStateHash(
 function normalizationRowIsInvalid(
 	row: ParsedNormalizationRow,
 	validSubmissionIds: ReadonlySet<string>,
+	knownSubmissionIds: ReadonlySet<string>,
 ): boolean {
+	if (row.attachmentOversized) return true;
+	if (row.icsEventCount > MAX_ICS_EVENTS_PER_OUTBOX) return true;
 	const submissionIds = row.invites.map((invite) =>
-		stableUidSubmissionId(invite.uid),
+		submissionIdFromIcsUid(invite.uid),
 	);
 	const parsedCompletely =
 		row.ics !== null &&
@@ -245,7 +371,8 @@ function normalizationRowIsInvalid(
 			invite.title !== null &&
 			submissionId !== null &&
 			submissionId !== undefined &&
-			validSubmissionIds.has(submissionId)
+			(validSubmissionIds.has(submissionId) ||
+				!knownSubmissionIds.has(submissionId))
 		);
 	});
 	const uniqueSubmissions = new Set(submissionIds.filter((id) => id !== null));
@@ -254,7 +381,13 @@ function normalizationRowIsInvalid(
 
 	if (row.dedupeKey?.startsWith("decision:accept:")) {
 		const acceptedId = row.acceptanceSubmissionId;
-		if (!acceptedId || !validSubmissionIds.has(acceptedId)) return true;
+		if (
+			!acceptedId ||
+			(knownSubmissionIds.has(acceptedId) &&
+				!validSubmissionIds.has(acceptedId))
+		) {
+			return true;
+		}
 		if (row.ics === null) return false;
 		return (
 			!parsedCompletely ||
@@ -271,12 +404,17 @@ async function normalizationAttemptsForRow(
 	row: ParsedNormalizationRow,
 	eventId: string,
 	validSubmissionIds: ReadonlySet<string>,
+	knownSubmissionIds: ReadonlySet<string>,
 ): Promise<{ attempts: RevisionInsert[]; invalid: boolean }> {
-	const invalid = normalizationRowIsInvalid(row, validSubmissionIds);
+	const invalid = normalizationRowIsInvalid(
+		row,
+		validSubmissionIds,
+		knownSubmissionIds,
+	);
 	const attempts = new Map<string, RevisionInsert>();
 
 	for (const invite of row.invites) {
-		const submissionId = stableUidSubmissionId(invite.uid);
+		const submissionId = submissionIdFromIcsUid(invite.uid);
 		if (!submissionId || !validSubmissionIds.has(submissionId)) continue;
 		if (attempts.has(submissionId)) continue;
 		attempts.set(submissionId, {
@@ -307,7 +445,9 @@ async function normalizationAttemptsForRow(
 		!attempts.has(acceptedId)
 	) {
 		const markerKind =
-			row.ics === null ? "acceptance-without-ics" : "invalid-acceptance-ics";
+			row.ics === null && !row.attachmentOversized
+				? "acceptance-without-ics"
+				: "invalid-acceptance-ics";
 		attempts.set(acceptedId, {
 			id: crypto.randomUUID(),
 			submissionId: acceptedId,
@@ -338,6 +478,7 @@ async function insertNormalizationAttempts(
 	db: Db,
 	attempts: readonly RevisionInsert[],
 ): Promise<void> {
+	const statements = [];
 	for (
 		let offset = 0;
 		offset < attempts.length;
@@ -345,44 +486,60 @@ async function insertNormalizationAttempts(
 	) {
 		const chunk = attempts.slice(offset, offset + ATTEMPT_INSERT_CHUNK);
 		if (chunk.length === 0) continue;
-		await db
-			.insert(calendarInviteRevisions)
-			.values(chunk)
-			.onConflictDoNothing({
-				target: [
-					calendarInviteRevisions.outboxId,
-					calendarInviteRevisions.submissionId,
-				],
-			});
+		statements.push(
+			db
+				.insert(calendarInviteRevisions)
+				.values(chunk)
+				.onConflictDoNothing({
+					target: [
+						calendarInviteRevisions.outboxId,
+						calendarInviteRevisions.submissionId,
+					],
+				}),
+		);
 	}
+	const [first, ...rest] = statements;
+	if (first) await db.batch([first, ...rest]);
 }
 
 async function insertProcessedOutboxMarkers(
 	db: Db,
 	markers: readonly ProcessedOutboxInsert[],
 ): Promise<void> {
+	const statements = [];
 	for (let offset = 0; offset < markers.length; offset += MARKER_INSERT_CHUNK) {
 		const chunk = markers.slice(offset, offset + MARKER_INSERT_CHUNK);
 		if (chunk.length === 0) continue;
-		await db
-			.insert(calendarInviteProcessedOutbox)
-			.values(chunk)
-			.onConflictDoNothing({
-				target: calendarInviteProcessedOutbox.outboxId,
-			});
+		statements.push(
+			db
+				.insert(calendarInviteProcessedOutbox)
+				.values(chunk)
+				.onConflictDoNothing({
+					target: calendarInviteProcessedOutbox.outboxId,
+				}),
+		);
 	}
+	const [first, ...rest] = statements;
+	if (first) await db.batch([first, ...rest]);
 }
+
+export type CalendarHistoryNormalizationResult = {
+	processed: number;
+	remaining: boolean;
+};
 
 export async function normalizeCalendarInviteHistory(
 	db: Db,
 	eventId: string,
-): Promise<void> {
+): Promise<CalendarHistoryNormalizationResult> {
 	let remainingStatements = NORMALIZATION_STATEMENT_BUDGET;
+	let processed = 0;
 	while (remainingStatements > 1) {
-		// The page read itself consumes one D1 statement.
+		// The page read itself consumes one D1 statement. Keep one statement in
+		// reserve to determine whether another request must continue the scan.
 		remainingStatements -= 1;
-		const page = await db
-			.select(NORMALIZATION_COLUMNS)
+		const metadataPage = await db
+			.select(NORMALIZATION_METADATA_COLUMNS)
 			.from(emailOutbox)
 			.leftJoin(
 				calendarInviteProcessedOutbox,
@@ -400,23 +557,28 @@ export async function normalizeCalendarInviteHistory(
 			)
 			.orderBy(asc(emailOutbox.createdAt), asc(emailOutbox.id))
 			.limit(OUTBOX_NORMALIZE_PAGE);
-		if (page.length === 0) return;
+		if (metadataPage.length === 0) return { processed, remaining: false };
 
+		const metadataPrefix = normalizationMetadataPrefix(
+			metadataPage,
+			remainingStatements - 1,
+		);
+		if (metadataPrefix.rows.length === 0) {
+			return { processed, remaining: true };
+		}
+		remainingStatements -= metadataPrefix.bodyStatements;
+		const page = await normalizationRowsWithBodies(db, metadataPrefix.rows);
 		const parsedPage = parseNormalizationRows(page);
 		const parsed = normalizationPrefixWithinBudget(
 			parsedPage,
-			remainingStatements,
+			remainingStatements - 1,
 		);
-		if (parsed.length === 0) return;
+		if (parsed.length === 0) return { processed, remaining: true };
 		remainingStatements -= normalizationStatementUpperBound(parsed);
 		const associatedIds = [
 			...new Set(parsed.flatMap((row) => [...row.associatedSubmissionIds])),
 		];
-		const validSubmissionIds = await eventSubmissionIds(
-			db,
-			eventId,
-			associatedIds,
-		);
+		const scopes = await submissionIdScopes(db, eventId, associatedIds);
 		const attempts: RevisionInsert[] = [];
 		const markers: ProcessedOutboxInsert[] = [];
 		const processedAt = new Date();
@@ -425,7 +587,8 @@ export async function normalizeCalendarInviteHistory(
 			const normalized = await normalizationAttemptsForRow(
 				row,
 				eventId,
-				validSubmissionIds,
+				scopes.currentEvent,
+				scopes.known,
 			);
 			attempts.push(...normalized.attempts);
 			markers.push({
@@ -438,8 +601,18 @@ export async function normalizeCalendarInviteHistory(
 
 		await insertNormalizationAttempts(db, attempts);
 		await insertProcessedOutboxMarkers(db, markers);
-		if (parsed.length < parsedPage.length) return;
+		processed += markers.length;
+		if (parsed.length < parsedPage.length || metadataPrefix.deferred) {
+			return { processed, remaining: true };
+		}
+		if (metadataPage.length < OUTBOX_NORMALIZE_PAGE) {
+			return { processed, remaining: false };
+		}
 	}
+	return {
+		processed,
+		remaining: await hasUnprocessedCalendarInviteHistory(db, eventId),
+	};
 }
 
 async function hasUnprocessedCalendarInviteHistory(
@@ -489,119 +662,143 @@ async function hasUnsafeSentCalendarHistory(
 	return row !== undefined;
 }
 
-async function trackedSubmissionIds(
-	db: Db,
-	submissionIds: readonly string[],
-): Promise<Set<string>> {
-	const tracked = new Set<string>();
-	for (
-		let offset = 0;
-		offset < submissionIds.length;
-		offset += D1_QUERY_CHUNK
-	) {
-		const rows = await db
-			.selectDistinct({ submissionId: calendarInviteRevisions.submissionId })
-			.from(calendarInviteRevisions)
-			.innerJoin(
-				emailOutbox,
-				eq(calendarInviteRevisions.outboxId, emailOutbox.id),
-			)
-			.where(
-				and(
-					inArray(
-						calendarInviteRevisions.submissionId,
-						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
-					),
-					eq(calendarInviteRevisions.invalid, false),
-				),
-			);
-		for (const row of rows) tracked.add(row.submissionId);
-	}
-	return tracked;
-}
+async function staleScheduleCandidates(db: Db, event: EventRow) {
+	// A queued or failed attempt may still have reached the speaker — the
+	// provider hand-off is not transactional with the row that records it. So
+	// the baseline is the newest ATTEMPT, not the newest confirmed send: if the
+	// schedule later returns to what was last confirmed, that attempt is what
+	// the speaker's calendar is still showing and it must be corrected.
+	const ranked = db
+		.select({
+			submissionId: calendarInviteRevisions.submissionId,
+			sequence: calendarInviteRevisions.sequence,
+			startsAt: calendarInviteRevisions.startsAt,
+			endsAt: calendarInviteRevisions.endsAt,
+			title: calendarInviteRevisions.title,
+			location: calendarInviteRevisions.location,
+			to: emailOutbox.to,
+			status: emailOutbox.status,
+			deliveryRank: sql<number>`row_number() over (
+				partition by ${calendarInviteRevisions.submissionId}
+				order by ${calendarInviteRevisions.sequence} desc,
+					coalesce(${emailOutbox.sentAt}, ${emailOutbox.createdAt}) asc,
+					${emailOutbox.id} asc
+			)`.as("delivery_rank"),
+		})
+		.from(calendarInviteRevisions)
+		.innerJoin(
+			emailOutbox,
+			eq(calendarInviteRevisions.outboxId, emailOutbox.id),
+		)
+		.where(
+			and(
+				eq(emailOutbox.eventId, event.id),
+				inArray(emailOutbox.status, ["sent", "queued", "failed"]),
+				eq(calendarInviteRevisions.invalid, false),
+				isNotNull(calendarInviteRevisions.sequence),
+				isNotNull(calendarInviteRevisions.startsAt),
+				isNotNull(calendarInviteRevisions.endsAt),
+				isNotNull(calendarInviteRevisions.title),
+			),
+		)
+		.as("ranked_attempted_schedule_invites");
+	const latest = db
+		.select({
+			submissionId: ranked.submissionId,
+			sequence: ranked.sequence,
+			startsAt: ranked.startsAt,
+			endsAt: ranked.endsAt,
+			title: ranked.title,
+			location: ranked.location,
+			to: ranked.to,
+			status: ranked.status,
+		})
+		.from(ranked)
+		.where(eq(ranked.deliveryRank, 1))
+		.as("latest_attempted_schedule_invites");
+	const scheduled = sql`${submissions.startsAt} is not null and ${submissions.endsAt} is not null`;
+	const eventStartsAt = event.startsAt
+		? Math.floor(event.startsAt.getTime() / 1000)
+		: null;
+	const eventEndsAt = event.endsAt
+		? Math.floor(event.endsAt.getTime() / 1000)
+		: null;
+	const currentRecipient = inviteRecipientEmailSql();
+	const hasCurrentInvite =
+		eventStartsAt !== null && eventEndsAt !== null ? sql`1` : scheduled;
+	const stateChanged = sql`
+		${latest.startsAt} is not (case when ${scheduled} then ${submissions.startsAt} else ${eventStartsAt} end)
+		or ${latest.endsAt} is not (case when ${scheduled} then ${submissions.endsAt} else ${eventEndsAt} end)
+		or ${latest.title} is not (case when ${scheduled}
+			then ${submissions.title} || ' — ' || ${event.name}
+			else ${event.name} || ' (save the date): ' || ${submissions.title}
+		end)
+		or ${latest.location} is not (case when ${scheduled}
+			then coalesce(${rooms.name}, ${event.location})
+			else ${event.location}
+		end)
+		or lower(trim(${latest.to})) is not lower(trim(${currentRecipient}))
+	`;
+	// An unconfirmed newest attempt stays in the change set even when its content
+	// already matches: the retry click is the only thing that can turn a failed
+	// or abandoned attempt into a delivery.
+	const attemptUnconfirmed = sql`${latest.status} is not 'sent'`;
 
-async function sentInviteBaselines(
-	db: Db,
-	submissionIds: readonly string[],
-): Promise<Map<string, InviteBaseline>> {
-	const baselines = new Map<string, InviteBaseline>();
-	for (
-		let offset = 0;
-		offset < submissionIds.length;
-		offset += D1_QUERY_CHUNK
-	) {
-		const ranked = db
+	return (
+		db
 			.select({
-				submissionId: calendarInviteRevisions.submissionId,
-				sequence: calendarInviteRevisions.sequence,
-				startsAt: calendarInviteRevisions.startsAt,
-				endsAt: calendarInviteRevisions.endsAt,
-				title: calendarInviteRevisions.title,
-				location: calendarInviteRevisions.location,
-				to: emailOutbox.to,
-				deliveryRank: sql<number>`row_number() over (
-					partition by ${calendarInviteRevisions.submissionId}
-					order by ${calendarInviteRevisions.sequence} desc,
-						coalesce(${emailOutbox.sentAt}, ${emailOutbox.createdAt}) asc,
-						${emailOutbox.id} asc
-				)`.as("delivery_rank"),
+				id: submissions.id,
+				title: submissions.title,
+				startsAt: submissions.startsAt,
+				endsAt: submissions.endsAt,
+				roomId: submissions.roomId,
+				roomName: rooms.name,
+				lastSubmissionId: latest.submissionId,
+				lastSequence: latest.sequence,
+				lastStartsAt: latest.startsAt,
+				lastEndsAt: latest.endsAt,
+				lastTitle: latest.title,
+				lastLocation: latest.location,
+				lastTo: latest.to,
+				lastStatus: latest.status,
 			})
-			.from(calendarInviteRevisions)
-			.innerJoin(
-				emailOutbox,
-				eq(calendarInviteRevisions.outboxId, emailOutbox.id),
-			)
+			.from(submissions)
+			.leftJoin(latest, eq(latest.submissionId, submissions.id))
+			.leftJoin(rooms, eq(rooms.id, submissions.roomId))
 			.where(
 				and(
-					inArray(
-						calendarInviteRevisions.submissionId,
-						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
-					),
-					eq(emailOutbox.status, "sent"),
-					eq(calendarInviteRevisions.invalid, false),
-					isNotNull(calendarInviteRevisions.sequence),
-					isNotNull(calendarInviteRevisions.startsAt),
-					isNotNull(calendarInviteRevisions.endsAt),
-					isNotNull(calendarInviteRevisions.title),
+					eq(submissions.eventId, event.id),
+					eq(submissions.status, "accepted"),
+					isNotNull(submissions.notifiedAt),
+					isNull(submissions.parentId),
+					hasCurrentInvite,
+					sql`exists (
+					select 1 from calendar_invite_revisions tracked
+					inner join email_outbox tracked_outbox
+						on tracked_outbox.id = tracked.outbox_id
+					where tracked.submission_id = ${submissions.id}
+						and tracked_outbox.event_id = ${event.id}
+						and tracked.invalid = 0
+				)`,
+					or(isNull(latest.submissionId), stateChanged, attemptUnconfirmed),
 				),
 			)
-			.as("ranked_sent_calendar_invites");
-		const rows = await db
-			.select({
-				submissionId: ranked.submissionId,
-				sequence: ranked.sequence,
-				startsAt: ranked.startsAt,
-				endsAt: ranked.endsAt,
-				title: ranked.title,
-				location: ranked.location,
-				to: ranked.to,
-			})
-			.from(ranked)
-			.where(eq(ranked.deliveryRank, 1));
-		for (const row of rows) {
-			if (
-				row.sequence === null ||
-				row.startsAt === null ||
-				row.endsAt === null ||
-				row.title === null
-			) {
-				continue;
-			}
-			baselines.set(row.submissionId, {
-				start: row.startsAt,
-				end: row.endsAt,
-				title: row.title,
-				location: row.location,
-				sequence: row.sequence,
-				to: row.to,
-			});
-		}
-	}
-	return baselines;
+			// Deliverable sessions first. A session whose speaker contact is gone can
+			// never leave the change set, so on identifier order alone a batch of them
+			// would occupy the whole window forever and no speaker anywhere in the
+			// event would ever receive an update. They still surface — as the failed
+			// count that tells an admin whose contact to fix — but from the tail.
+			.orderBy(
+				sql`case when ${currentRecipient} is null then 1 else 0 end`,
+				asc(submissions.id),
+			)
+			.limit(SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT + 1)
+	);
 }
 
 async function latestBounces(
 	db: Db,
+	eventId: string,
 	submissionIds: readonly string[],
 ): Promise<Map<string, string>> {
 	const bounces = new Map<string, string>();
@@ -627,6 +824,7 @@ async function latestBounces(
 			)
 			.where(
 				and(
+					eq(emailOutbox.eventId, eventId),
 					inArray(
 						calendarInviteRevisions.submissionId,
 						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
@@ -660,61 +858,36 @@ export async function computeScheduleChanges(
 		return { ...EMPTY, truncated: true };
 	}
 	if (await hasUnsafeSentCalendarHistory(db, event.id)) {
-		return { ...EMPTY, truncated: true };
+		return { ...EMPTY, blocked: true };
 	}
 
-	const candidates = await db
-		.select({
-			id: submissions.id,
-			title: submissions.title,
-			startsAt: submissions.startsAt,
-			endsAt: submissions.endsAt,
-			roomId: submissions.roomId,
-		})
-		.from(submissions)
-		.where(
-			and(
-				eq(submissions.eventId, event.id),
-				eq(submissions.status, "accepted"),
-				isNotNull(submissions.notifiedAt),
-				isNull(submissions.parentId),
-			),
-		);
+	const candidates = await staleScheduleCandidates(db, event);
 	if (candidates.length === 0) return EMPTY;
 
 	const candidateIds = candidates.map((candidate) => candidate.id);
-	const [trackedCandidates, lastSent, latestBounce, recipientById] =
-		await Promise.all([
-			trackedSubmissionIds(db, candidateIds),
-			sentInviteBaselines(db, candidateIds),
-			latestBounces(db, candidateIds),
-			inviteRecipients(db, candidateIds),
-		]);
-	const roomIds = [
-		...new Set(candidates.map((c) => c.roomId).filter((v): v is string => !!v)),
-	];
-	const roomRows: { id: string; name: string }[] = [];
-	for (let offset = 0; offset < roomIds.length; offset += D1_QUERY_CHUNK) {
-		roomRows.push(
-			...(await db
-				.select({ id: rooms.id, name: rooms.name })
-				.from(rooms)
-				.where(
-					inArray(rooms.id, roomIds.slice(offset, offset + D1_QUERY_CHUNK)),
-				)),
-		);
-	}
-	const roomName = new Map(roomRows.map((r) => [r.id, r.name]));
+	const [latestBounce, recipientById] = await Promise.all([
+		latestBounces(db, event.id, candidateIds),
+		inviteRecipients(db, candidateIds),
+	]);
 
 	const changes: ScheduleChange[] = [];
 	for (const row of candidates) {
-		if (!trackedCandidates.has(row.id)) continue;
-		const last = lastSent.get(row.id);
-		const invite = inviteForSubmission(
-			row,
-			event,
-			row.roomId ? roomName.get(row.roomId) : undefined,
-		);
+		const last =
+			row.lastSubmissionId !== null &&
+			row.lastSequence !== null &&
+			row.lastStartsAt !== null &&
+			row.lastEndsAt !== null &&
+			row.lastTitle !== null
+				? {
+						start: row.lastStartsAt,
+						end: row.lastEndsAt,
+						title: row.lastTitle,
+						location: row.lastLocation,
+						sequence: row.lastSequence,
+						to: row.lastTo ?? "",
+					}
+				: undefined;
+		const invite = inviteForSubmission(row, event, row.roomName ?? undefined);
 		if (!invite) continue;
 		const to = recipientById.get(row.id) ?? null;
 		const inviteUnchanged =
@@ -727,13 +900,19 @@ export async function computeScheduleChanges(
 			last !== undefined &&
 			to !== null &&
 			normalizeEmail(last.to) === normalizeEmail(to);
-		if (inviteUnchanged && recipientUnchanged) continue;
+		// An attempt the provider never confirmed may or may not have reached the
+		// speaker, so an unchanged invite still belongs in the change set —
+		// resending is the only way to close that gap. It keeps the attempt's own
+		// SEQUENCE: a client that already has the entry then sees no revision,
+		// while one that never received it gets the invite for the first time.
+		const retryUnchanged = inviteUnchanged && recipientUnchanged;
+		if (retryUnchanged && row.lastStatus === "sent") continue;
 		changes.push({
 			submissionId: row.id,
 			submissionTitle: row.title,
 			scheduled: Boolean(row.startsAt && row.endsAt),
 			invite,
-			nextSequence: last ? last.sequence + 1 : 0,
+			nextSequence: last ? last.sequence + (retryUnchanged ? 0 : 1) : 0,
 			to,
 			retryAfterBounceId: latestBounce.get(row.id) ?? null,
 		});
@@ -745,7 +924,7 @@ export async function computeScheduleChanges(
 			change.to === null ? [] : [normalizeEmail(change.to)],
 		),
 	).size;
-	return { changes, speakers, truncated: false };
+	return { changes, speakers, truncated: false, blocked: false };
 }
 
 export type ScheduleUpdateSendResult = {
@@ -753,9 +932,31 @@ export type ScheduleUpdateSendResult = {
 	sent: number;
 	deduped: number;
 	failed: number;
+	inFlight: number;
 	/** Speakers beyond the batch cap — still pending after this call. */
 	remaining: number;
 };
+
+type RecipientGroup<T extends ScheduleChange = ScheduleChange> = {
+	to: string;
+	items: T[];
+};
+
+function groupChangesByRecipient<T extends ScheduleChange>(
+	changes: readonly T[],
+): Map<string, RecipientGroup<T>> {
+	const groups = new Map<string, RecipientGroup<T>>();
+	for (const change of [...changes].sort((a, b) =>
+		a.submissionId.localeCompare(b.submissionId),
+	)) {
+		if (change.to === null) continue;
+		const identity = normalizeEmail(change.to);
+		const group = groups.get(identity);
+		if (group) group.items.push(change);
+		else groups.set(identity, { to: change.to, items: [change] });
+	}
+	return groups;
+}
 
 function sessionBlockHtml(change: ScheduleChange, event: EventRow): string {
 	const lines = [
@@ -795,81 +996,91 @@ function updateEmailHtml(
 
 type AttemptFrontier = { sequence: number; stateHash: string };
 
-async function currentInviteStateHashes(
+type CurrentInviteSnapshot = {
+	stateHash: string;
+	frontier: AttemptFrontier | null;
+};
+
+async function currentInviteSnapshots(
 	db: Db,
 	event: EventRow,
-	changes: readonly ScheduleChange[],
-): Promise<Map<string, string>> {
-	const submissionIds = [
-		...new Set(changes.map((change) => change.submissionId)),
-	];
-	const currentRows: {
-		id: string;
-		title: string;
-		startsAt: Date | null;
-		endsAt: Date | null;
-		roomId: string | null;
-	}[] = [];
+	submissionIds: readonly string[],
+): Promise<Map<string, CurrentInviteSnapshot>> {
+	const snapshots = new Map<string, CurrentInviteSnapshot>();
+	const currentRecipient = inviteRecipientEmailSql();
 	for (
 		let offset = 0;
 		offset < submissionIds.length;
 		offset += D1_QUERY_CHUNK
 	) {
-		currentRows.push(
-			...(await db
-				.select({
-					id: submissions.id,
-					title: submissions.title,
-					startsAt: submissions.startsAt,
-					endsAt: submissions.endsAt,
-					roomId: submissions.roomId,
-				})
-				.from(submissions)
-				.where(
-					and(
-						eq(submissions.eventId, event.id),
-						eq(submissions.status, "accepted"),
-						isNotNull(submissions.notifiedAt),
-						isNull(submissions.parentId),
-						inArray(
-							submissions.id,
-							submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
-						),
-					),
-				)),
-		);
-	}
-	const roomIds = [
-		...new Set(
-			currentRows
-				.map((row) => row.roomId)
-				.filter((roomId): roomId is string => roomId !== null),
-		),
-	];
-	const roomNames = new Map<string, string>();
-	for (let offset = 0; offset < roomIds.length; offset += D1_QUERY_CHUNK) {
 		const rows = await db
-			.select({ id: rooms.id, name: rooms.name })
-			.from(rooms)
-			.where(inArray(rooms.id, roomIds.slice(offset, offset + D1_QUERY_CHUNK)));
-		for (const row of rows) roomNames.set(row.id, row.name);
+			.select({
+				id: submissions.id,
+				title: submissions.title,
+				startsAt: submissions.startsAt,
+				endsAt: submissions.endsAt,
+				roomId: submissions.roomId,
+				roomName: rooms.name,
+				recipient: currentRecipient,
+				frontierSequence: calendarInviteSequenceFrontiers.sequence,
+				frontierStateHash: calendarInviteSequenceFrontiers.stateHash,
+			})
+			.from(submissions)
+			.leftJoin(rooms, eq(rooms.id, submissions.roomId))
+			.leftJoin(
+				calendarInviteSequenceFrontiers,
+				eq(calendarInviteSequenceFrontiers.submissionId, submissions.id),
+			)
+			.where(
+				and(
+					eq(submissions.eventId, event.id),
+					eq(submissions.status, "accepted"),
+					isNotNull(submissions.notifiedAt),
+					isNull(submissions.parentId),
+					inArray(
+						submissions.id,
+						submissionIds.slice(offset, offset + D1_QUERY_CHUNK),
+					),
+				),
+			);
+		for (const row of rows) {
+			if (!row.recipient) continue;
+			const invite = inviteForSubmission(row, event, row.roomName ?? undefined);
+			if (!invite) continue;
+			snapshots.set(row.id, {
+				stateHash: await normalizedInviteStateHash(
+					event.id,
+					row.id,
+					row.recipient,
+					invite,
+				),
+				frontier:
+					row.frontierSequence === null || row.frontierStateHash === null
+						? null
+						: {
+								sequence: row.frontierSequence,
+								stateHash: row.frontierStateHash,
+							},
+			});
+		}
 	}
-	const recipients = await inviteRecipients(db, submissionIds);
-	const hashes = new Map<string, string>();
-	for (const row of currentRows) {
-		const to = recipients.get(row.id);
-		const invite = inviteForSubmission(
-			row,
-			event,
-			row.roomId ? roomNames.get(row.roomId) : undefined,
-		);
-		if (!to || !invite) continue;
-		hashes.set(
-			row.id,
-			await normalizedInviteStateHash(event.id, row.id, to, invite),
-		);
-	}
-	return hashes;
+	return snapshots;
+}
+
+async function currentInviteStateHashes(
+	db: Db,
+	event: EventRow,
+	changes: readonly ScheduleChange[],
+): Promise<Map<string, string>> {
+	const snapshots = await currentInviteSnapshots(db, event, [
+		...new Set(changes.map((change) => change.submissionId)),
+	]);
+	return new Map(
+		[...snapshots].map(([submissionId, snapshot]) => [
+			submissionId,
+			snapshot.stateHash,
+		]),
+	);
 }
 
 async function latestAttemptFrontiers(
@@ -882,11 +1093,17 @@ async function latestAttemptFrontiers(
 		offset < submissionIds.length;
 		offset += D1_QUERY_CHUNK
 	) {
-		const rows = await db
+		const ranked = db
 			.select({
 				submissionId: calendarInviteRevisions.submissionId,
 				sequence: calendarInviteRevisions.sequence,
 				stateHash: calendarInviteRevisions.stateHash,
+				frontierRank: sql<number>`row_number() over (
+					partition by ${calendarInviteRevisions.submissionId}
+					order by ${calendarInviteRevisions.sequence} desc,
+						${calendarInviteRevisions.createdAt} desc,
+						${calendarInviteRevisions.id} desc
+				)`.as("frontier_rank"),
 			})
 			.from(calendarInviteRevisions)
 			.innerJoin(
@@ -904,13 +1121,17 @@ async function latestAttemptFrontiers(
 					isNotNull(calendarInviteRevisions.sequence),
 				),
 			)
-			.orderBy(
-				desc(calendarInviteRevisions.sequence),
-				desc(calendarInviteRevisions.createdAt),
-				desc(calendarInviteRevisions.id),
-			);
+			.as("ranked_calendar_attempt_frontiers");
+		const rows = await db
+			.select({
+				submissionId: ranked.submissionId,
+				sequence: ranked.sequence,
+				stateHash: ranked.stateHash,
+			})
+			.from(ranked)
+			.where(eq(ranked.frontierRank, 1));
 		for (const row of rows) {
-			if (row.sequence === null || frontiers.has(row.submissionId)) continue;
+			if (row.sequence === null) continue;
 			frontiers.set(row.submissionId, {
 				sequence: row.sequence,
 				stateHash: row.stateHash,
@@ -920,11 +1141,52 @@ async function latestAttemptFrontiers(
 	return frontiers;
 }
 
+type ClaimedScheduleChange = ScheduleChange & { stateHash: string };
+
+/**
+ * The event row feeds every invite (session titles carry the event name, an
+ * unscheduled hold carries its dates and location), so a request holding a
+ * stale copy would reconstruct — and re-deliver — an invite the organizer has
+ * already replaced. Both claiming and per-recipient revalidation therefore read
+ * the event fresh; a stale caller then fails its own hash check and drops out.
+ */
+async function reloadEvent(db: Db, eventId: string): Promise<EventRow | null> {
+	return (
+		(await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, eventId),
+		})) ?? null
+	);
+}
+
+async function revalidateScheduleClaims(
+	db: Db,
+	eventId: string,
+	changes: readonly ClaimedScheduleChange[],
+): Promise<{ event: EventRow; items: ClaimedScheduleChange[] } | null> {
+	if (changes.length === 0) return null;
+	const event = await reloadEvent(db, eventId);
+	if (!event) return null;
+	const snapshots = await currentInviteSnapshots(
+		db,
+		event,
+		changes.map((change) => change.submissionId),
+	);
+	const items = changes.filter((change) => {
+		const snapshot = snapshots.get(change.submissionId);
+		return (
+			snapshot?.stateHash === change.stateHash &&
+			snapshot.frontier?.stateHash === change.stateHash &&
+			snapshot.frontier.sequence === change.nextSequence
+		);
+	});
+	return { event, items };
+}
+
 async function claimScheduleSequences(
 	db: Db,
 	event: EventRow,
 	changes: readonly ScheduleChange[],
-): Promise<ScheduleChange[]> {
+): Promise<ClaimedScheduleChange[]> {
 	if (changes.length === 0) return [];
 	const [priorFrontiers, currentStateHashes] = await Promise.all([
 		latestAttemptFrontiers(
@@ -933,9 +1195,12 @@ async function claimScheduleSequences(
 		),
 		currentInviteStateHashes(db, event, changes),
 	]);
-	const claimed: ScheduleChange[] = [];
-	const claimedStateHashes = new Map<string, string>();
-
+	type ClaimPlan = {
+		change: ScheduleChange;
+		stateHash: string;
+		proposedSequence: number;
+	};
+	const claimPlans: ClaimPlan[] = [];
 	for (const change of changes) {
 		if (change.to === null) continue;
 		const stateHash = await normalizedInviteStateHash(
@@ -946,44 +1211,58 @@ async function claimScheduleSequences(
 		);
 		if (currentStateHashes.get(change.submissionId) !== stateHash) continue;
 		const prior = priorFrontiers.get(change.submissionId);
-		const proposedSequence =
-			prior?.stateHash === stateHash
-				? prior.sequence
-				: Math.max(change.nextSequence, (prior?.sequence ?? -1) + 1);
-		const [frontier] = await db
-			.insert(calendarInviteSequenceFrontiers)
-			.values({
-				submissionId: change.submissionId,
-				sequence: proposedSequence,
-				stateHash,
-			})
-			.onConflictDoUpdate({
-				target: calendarInviteSequenceFrontiers.submissionId,
-				set: {
-					sequence: sql<number>`case
-						when ${calendarInviteSequenceFrontiers.stateHash} = excluded.state_hash
-							then max(${calendarInviteSequenceFrontiers.sequence}, excluded.sequence)
-						else max(${calendarInviteSequenceFrontiers.sequence} + 1, excluded.sequence)
-					end`,
-					stateHash: sql`excluded.state_hash`,
-					updatedAt: new Date(),
-				},
-			})
-			.returning({ sequence: calendarInviteSequenceFrontiers.sequence });
-		if (!frontier) throw new Error("Calendar sequence claim returned no row");
-		claimed.push({ ...change, nextSequence: frontier.sequence });
-		claimedStateHashes.set(change.submissionId, stateHash);
+		claimPlans.push({
+			change,
+			stateHash,
+			proposedSequence:
+				prior?.stateHash === stateHash
+					? Math.max(change.nextSequence, prior.sequence)
+					: Math.max(change.nextSequence, (prior?.sequence ?? -1) + 1),
+		});
 	}
 
-	// A schedule can move after the pre-claim snapshot. Re-read after every claim:
-	// if a newer state claimed first, this drops the stale higher sequence; if the
-	// move happens later, its claim necessarily receives the higher sequence.
-	const latestStateHashes = await currentInviteStateHashes(db, event, claimed);
-	return claimed.filter(
-		(change) =>
-			latestStateHashes.get(change.submissionId) ===
-			claimedStateHashes.get(change.submissionId),
-	);
+	const claimed: ClaimedScheduleChange[] = [];
+	for (let offset = 0; offset < claimPlans.length; offset += D1_QUERY_CHUNK) {
+		const chunk = claimPlans.slice(offset, offset + D1_QUERY_CHUNK);
+		const statements = chunk.map(({ change, stateHash, proposedSequence }) =>
+			db
+				.insert(calendarInviteSequenceFrontiers)
+				.values({
+					submissionId: change.submissionId,
+					sequence: proposedSequence,
+					stateHash,
+				})
+				.onConflictDoUpdate({
+					target: calendarInviteSequenceFrontiers.submissionId,
+					set: {
+						sequence: sql<number>`case
+							when ${calendarInviteSequenceFrontiers.stateHash} = excluded.state_hash
+								then max(${calendarInviteSequenceFrontiers.sequence}, excluded.sequence)
+							else max(${calendarInviteSequenceFrontiers.sequence} + 1, excluded.sequence)
+						end`,
+						stateHash: sql`excluded.state_hash`,
+						updatedAt: new Date(),
+					},
+				})
+				.returning({ sequence: calendarInviteSequenceFrontiers.sequence }),
+		);
+		const first = statements[0];
+		if (!first) continue;
+		const frontiers = await db.batch([first, ...statements.slice(1)]);
+		for (const [index, plan] of chunk.entries()) {
+			const frontier = frontiers[index]?.[0];
+			if (!frontier) throw new Error("Calendar sequence claim returned no row");
+			claimed.push({
+				...plan.change,
+				nextSequence: frontier.sequence,
+				stateHash: plan.stateHash,
+			});
+		}
+	}
+
+	// Per-recipient revalidation immediately before the provider effect is the
+	// relevant race closure; a global pass here would duplicate those reads.
+	return claimed;
 }
 
 /**
@@ -1002,43 +1281,56 @@ export async function sendScheduleUpdates(
 		sent: 0,
 		deduped: 0,
 		failed: 0,
+		inFlight: 0,
 		remaining: 0,
 	};
-	type RecipientGroup = { to: string; items: ScheduleChange[] };
-	const sendable: ScheduleChange[] = [];
-	for (const change of [...changes].sort((a, b) =>
-		a.submissionId.localeCompare(b.submissionId),
-	)) {
-		if (change.to === null) {
-			// No speaker or submitter email — surfaced as a failure, not skipped
-			// silently; the row stays flagged for a later retry.
-			result.failed += 1;
+	result.failed += changes.filter((change) => change.to === null).length;
+	const pendingByRecipient = groupChangesByRecipient(changes);
+
+	// Claim only work this invocation can send. The submission cap bounds the
+	// one-statement-per-frontier CAS even when one speaker owns many sessions.
+	const selected: ScheduleChange[] = [];
+	let selectedRecipients = 0;
+	for (const recipient of [...pendingByRecipient.keys()].sort()) {
+		const group = pendingByRecipient.get(recipient);
+		if (!group) continue;
+		const capacity = SCHEDULE_UPDATE_SUBMISSION_BATCH_LIMIT - selected.length;
+		if (selectedRecipients >= EMAIL_BATCH_LIMIT || capacity <= 0) {
+			result.remaining += 1;
 			continue;
 		}
-		sendable.push(change);
+		const items = group.items.slice(0, capacity);
+		selected.push(...items);
+		selectedRecipients += 1;
+		if (items.length < group.items.length) result.remaining += 1;
 	}
 
-	const byRecipient = new Map<string, RecipientGroup>();
-	for (const change of await claimScheduleSequences(db, event, sendable)) {
-		if (change.to === null) continue;
-		const identity = normalizeEmail(change.to);
-		const group = byRecipient.get(identity);
-		if (group) group.items.push(change);
-		else byRecipient.set(identity, { to: change.to, items: [change] });
-	}
-	const recipients = [...byRecipient.keys()].sort();
-	const batch = recipients.slice(0, EMAIL_BATCH_LIMIT);
-	result.remaining = recipients.length - batch.length;
+	const claimEvent = await reloadEvent(db, event.id);
+	if (!claimEvent) return result;
+	const byRecipient = groupChangesByRecipient(
+		await claimScheduleSequences(db, claimEvent, selected),
+	);
+	const batch = [...byRecipient.keys()].sort();
 
 	const sender = getEmailSender(env);
 	for (const recipient of batch) {
 		const group = byRecipient.get(recipient);
 		if (!group) continue;
-		const { to, items } = group;
+		const { to } = group;
+		// Each provider call gets a fresh D1 snapshot. A remote HTTP side effect
+		// cannot share a transaction with D1, so provider idempotency and monotonic
+		// SEQUENCE protect the irreducible interval after this read.
+		const revalidated = await revalidateScheduleClaims(
+			db,
+			event.id,
+			group.items,
+		);
+		if (!revalidated) continue;
+		const { event: current, items } = revalidated;
 		const first = items[0];
 		if (!first) continue;
 		const ics = icsForInvites(
-			event,
+			current,
 			items.map((c) => ({
 				submissionId: c.submissionId,
 				invite: c.invite,
@@ -1064,9 +1356,9 @@ export async function sendScheduleUpdates(
 				to,
 				subject:
 					items.length === 1
-						? `Schedule update: ${first.submissionTitle} — ${event.name}`
-						: `Schedule updates: ${items.length} of your sessions — ${event.name}`,
-				html: updateEmailHtml(items, event),
+						? `Schedule update: ${first.submissionTitle} — ${current.name}`
+						: `Schedule updates: ${items.length} of your sessions — ${current.name}`,
+				html: updateEmailHtml(items, current),
 				ics,
 				dedupeKey,
 				eventId: event.id,
@@ -1080,8 +1372,17 @@ export async function sendScheduleUpdates(
 				deduped: sent.deduped,
 			});
 		} catch (error) {
-			// One undeliverable recipient must not sink the batch — their rows stay
-			// detected as changed and a retry click re-sends them.
+			if (error instanceof EmailSendInFlightError) {
+				result.inFlight += 1;
+				track("email.schedule_update_in_flight", {
+					eventId: event.id,
+					sessions: items.length,
+				});
+				continue;
+			}
+			if (!(error instanceof EmailDeliveryError)) throw error;
+			// One provider-rejected recipient must not sink the batch — their rows
+			// stay detected as changed and a retry click re-sends them.
 			result.failed += 1;
 			track("email.schedule_update_failed", {
 				eventId: event.id,

@@ -1,8 +1,12 @@
-import { createElement } from "react";
+import { createElement, type ComponentType } from "react";
 import { renderToString } from "react-dom/server";
 import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { PublishAgendaDialog } from "../app/agenda/board";
+import Agenda, {
+	ScheduleHistoryNormalizationOutcome,
+	ScheduleUpdateDeliveryOutcome,
+} from "../app/routes/admin.agenda";
 import { buildConflictRows, type Conflict } from "../app/agenda/lib";
 import type {
 	AgendaSurfaceData,
@@ -61,6 +65,126 @@ describe("agenda publish confirmation", () => {
 		])) {
 			expect(html).toContain(title);
 		}
+	});
+});
+
+function renderedText(html: string): string {
+	return html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "");
+}
+
+function renderAdminAgenda(loaderData: unknown): string {
+	const RouteComponent = Agenda as unknown as ComponentType<{
+		loaderData: unknown;
+		actionData?: unknown;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/",
+			Component: () => createElement(RouteComponent, { loaderData }),
+		},
+	]);
+	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
+}
+
+describe("agenda invite-history continuation", () => {
+	it("renders normalization progress with an actionable continuation", () => {
+		const html = renderToString(
+			createElement(ScheduleHistoryNormalizationOutcome, {
+				result: { processed: 2, remaining: true },
+				continuation: createElement(
+					"button",
+					null,
+					"Continue schedule updates",
+				),
+			}),
+		);
+
+		const text = renderedText(html);
+		expect(text).toContain("2 invite-history records normalized");
+		expect(text).toContain("More history remains");
+		expect(text).toContain("Continue schedule updates");
+	});
+
+	it("renders active provider claims separately from failed delivery", () => {
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/",
+				Component: () =>
+					createElement(ScheduleUpdateDeliveryOutcome, {
+						result: {
+							sent: 0,
+							deduped: 0,
+							failed: 0,
+							inFlight: 1,
+							remaining: 0,
+						},
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+
+		const text = renderedText(html);
+		expect(text).toContain("1 delivery still in progress");
+		expect(text).not.toContain("failed");
+	});
+
+	it("offers a POST action when invite history still needs checking", () => {
+		const html = renderAdminAgenda({
+			event: {
+				id: "event-1",
+				name: "Scale Conference",
+				slug: "scale",
+				timezone: "UTC",
+				dayStartMin: 540,
+				dayEndMin: 1020,
+				schedulableStatuses: ["accepted"],
+				publishedAt: null,
+				days: ["2026-10-12"],
+				hiddenFromPublic: 0,
+				staleSpeakers: 0,
+				scheduleScanTruncated: true,
+				scheduleScanBlocked: false,
+			},
+			rooms: [],
+			tracks: [],
+			formats: [],
+			sessions: [],
+			statusOptions: ["accepted"],
+		});
+
+		expect(html).toContain('method="post"');
+		expect(html).toContain('name="intent"');
+		expect(html).toContain('value="schedule-updates"');
+	});
+
+	it("links terminally invalid invite history to diagnosis without a retry form", () => {
+		const html = renderAdminAgenda({
+			event: {
+				id: "event-1",
+				name: "Scale Conference",
+				slug: "scale",
+				timezone: "UTC",
+				dayStartMin: 540,
+				dayEndMin: 1020,
+				schedulableStatuses: ["accepted"],
+				publishedAt: null,
+				days: ["2026-10-12"],
+				hiddenFromPublic: 0,
+				staleSpeakers: 0,
+				scheduleScanTruncated: false,
+				scheduleScanBlocked: true,
+			},
+			rooms: [],
+			tracks: [],
+			formats: [],
+			sessions: [],
+			statusOptions: ["accepted"],
+		});
+
+		expect(html).toContain("/admin/emails/history");
+		expect(html).not.toContain('value="schedule-updates"');
 	});
 });
 

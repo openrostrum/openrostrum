@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { detectConflicts, isSessionVisible } from "../app/agenda/lib";
 import { getDb } from "../app/db";
 import {
@@ -147,7 +147,12 @@ type ActionData = {
 		sent: number;
 		deduped: number;
 		failed: number;
+		inFlight: number;
 		remaining: number;
+	};
+	normalization?: {
+		processed: number;
+		remaining: boolean;
 	};
 };
 
@@ -167,6 +172,14 @@ async function callAction(fields: Record<string, string>): Promise<ActionData> {
 	return unwrap<ActionData>(result);
 }
 
+async function finishScheduleUpdateAction(): Promise<ActionData> {
+	for (let request = 0; request < 100; request += 1) {
+		const result = await callAction({ intent: "schedule-updates" });
+		if (!result.normalization) return result;
+	}
+	throw new Error("Schedule-update normalization did not converge");
+}
+
 type LoaderData = {
 	event: {
 		days: string[];
@@ -177,6 +190,7 @@ type LoaderData = {
 		hiddenFromPublic: number;
 		staleSpeakers: number;
 		scheduleScanTruncated: boolean;
+		scheduleScanBlocked: boolean;
 	} | null;
 	sessions: {
 		id: string;
@@ -901,6 +915,56 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		).toEqual([]);
 	});
 
+	it("finishes history normalization before a later request sends updates", async () => {
+		const db = await seedBaseline();
+		await db.insert(emailOutbox).values({
+			id: "accept-two-phase",
+			eventId: "e1",
+			dedupeKey: "decision:accept:two-phase:s_keynote",
+			to: "marco@test.co",
+			subject: "Your session was accepted",
+			html: "<p>you're in</p>",
+			icsAttachment: HISTORIC_NPM_ICS_INVITE,
+			status: "sent",
+		});
+		await db
+			.update(submissions)
+			.set({ notifiedAt: new Date() })
+			.where(eq(submissions.id, "s_keynote"));
+		await db.insert(participants).values({
+			id: "p_keynote_two_phase",
+			submissionId: "s_keynote",
+			contactId: "c_marco",
+		});
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+
+		const normalized = await callAction({ intent: "schedule-updates" });
+
+		expect(normalized).toMatchObject({
+			ok: true,
+			normalization: { processed: 1, remaining: false },
+		});
+		expect(normalized.updates).toBeUndefined();
+		expect(
+			(await db.select().from(emailOutbox)).filter((row) =>
+				row.dedupeKey?.startsWith("schedule-update:"),
+			),
+		).toEqual([]);
+
+		const delivered = await callAction({ intent: "schedule-updates" });
+		expect(delivered.updates).toMatchObject({
+			sent: 1,
+			failed: 0,
+			inFlight: 0,
+		});
+	});
+
 	it("resolves recipients beyond D1's 100-bound-parameter limit", async () => {
 		const db = await seedBaseline();
 		const inserted = await env.DB.prepare(`
@@ -958,7 +1022,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		});
 		// The ledger advanced: nothing is flagged and a repeat click sends nothing.
 		expect((await callLoader()).event?.staleSpeakers).toBe(0);
-		const repeat = await callAction({ intent: "schedule-updates" });
+		const repeat = await finishScheduleUpdateAction();
 		expect(repeat.updates).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
 	});
 
@@ -1009,7 +1073,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			staleSpeakers: 0,
 			scheduleScanTruncated: true,
 		});
-		const result = await callAction({ intent: "schedule-updates" });
+		const result = await finishScheduleUpdateAction();
 		expect(result.ok).toBe(false);
 		expect(result.formError).toMatch(/history/i);
 		expect(
@@ -1031,6 +1095,192 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 					eq(calendarInviteRevisions.outboxId, "accept-keynote-malformed"),
 				),
 		).toEqual([{ invalid: true }]);
+		expect((await callLoader()).event).toMatchObject({
+			scheduleScanTruncated: false,
+			scheduleScanBlocked: true,
+		});
+	});
+
+	it("quarantines sent history whose ICS only looks structurally complete", async () => {
+		const db = await invitedBaseline();
+		// Prefix-named property (UIDX, not UID) and a second VCALENDAR: a client
+		// reading either differently than we do would leave the speaker holding a
+		// state we cannot see, so this must never become a trusted baseline.
+		for (const [id, icsAttachment] of [
+			[
+				"update-prefix-named-uid",
+				[
+					"BEGIN:VCALENDAR",
+					"BEGIN:VEVENT",
+					"UIDX:submission-s_keynote@openrostrum",
+					"DTSTART:20261012T150000Z",
+					"DTEND:20261012T160000Z",
+					"SUMMARY:Closing Keynote",
+					"SEQUENCE:1",
+					"END:VEVENT",
+					"END:VCALENDAR",
+				].join("\r\n"),
+			],
+			[
+				"update-duplicate-dtstart",
+				[
+					"BEGIN:VCALENDAR",
+					"BEGIN:VEVENT",
+					"UID:submission-s_keynote@openrostrum",
+					"DTSTART:20261012T150000Z",
+					"DTSTART:20261012T180000Z",
+					"DTEND:20261012T160000Z",
+					"SUMMARY:Closing Keynote",
+					"SEQUENCE:1",
+					"END:VEVENT",
+					"END:VCALENDAR",
+				].join("\r\n"),
+			],
+		] as const) {
+			await db.insert(emailOutbox).values({
+				id,
+				eventId: "e1",
+				dedupeKey: `schedule-update:${id}`,
+				to: "marco@test.co",
+				subject: "Schedule update",
+				html: "<p>update</p>",
+				icsAttachment,
+				status: "sent",
+				sentAt: new Date(),
+			});
+		}
+		await normalizeCalendarInviteHistory(db, "e1");
+
+		expect(
+			await db
+				.select({
+					outboxId: calendarInviteProcessedOutbox.outboxId,
+					invalid: calendarInviteProcessedOutbox.invalid,
+				})
+				.from(calendarInviteProcessedOutbox)
+				.where(eq(calendarInviteProcessedOutbox.invalid, true))
+				.orderBy(calendarInviteProcessedOutbox.outboxId),
+		).toEqual([
+			{ outboxId: "update-duplicate-dtstart", invalid: true },
+			{ outboxId: "update-prefix-named-uid", invalid: true },
+		]);
+		expect((await callLoader()).event).toMatchObject({
+			scheduleScanBlocked: true,
+		});
+		const result = await finishScheduleUpdateAction();
+		expect(result.ok).toBe(false);
+		expect(result.formError).toMatch(/history/i);
+	});
+
+	it("does not let an orphaned historical invite block active submissions", async () => {
+		const db = await invitedBaseline();
+		await db.insert(emailOutbox).values({
+			id: "update-deleted-submission",
+			eventId: "e1",
+			dedupeKey: "schedule-update:deleted-submission",
+			to: "former@test.co",
+			subject: "Schedule update",
+			html: "<p>old update</p>",
+			icsAttachment: buildIcs({
+				calendarName: "AI.Engineer Sandbox Event",
+				method: "PUBLISH",
+				events: [
+					{
+						uid: "submission-s_deleted@openrostrum",
+						start: utc(2026, 10, 12, 15),
+						end: utc(2026, 10, 12, 16),
+						title: "Deleted session",
+						sequence: 4,
+					},
+				],
+			}),
+			status: "sent",
+			sentAt: new Date(),
+		});
+		await normalizeCalendarInviteHistory(db, "e1");
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+
+		const result = await callAction({ intent: "schedule-updates" });
+
+		expect(result).toMatchObject({ ok: true });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
+		expect(
+			await db
+				.select({ invalid: calendarInviteProcessedOutbox.invalid })
+				.from(calendarInviteProcessedOutbox)
+				.where(
+					eq(
+						calendarInviteProcessedOutbox.outboxId,
+						"update-deleted-submission",
+					),
+				),
+		).toEqual([{ invalid: false }]);
+	});
+
+	it("fails closed when matching history names another event's submission", async () => {
+		const db = await seedBaseline();
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org1",
+			name: "Other event",
+			slug: "other-event",
+		});
+		await db.insert(submissions).values({
+			id: "s_other_event",
+			eventId: "e2",
+			title: "Other event session",
+			status: "accepted",
+		});
+		await db.insert(emailOutbox).values({
+			id: "update-cross-event-submission",
+			eventId: "e1",
+			dedupeKey: "schedule-update:cross-event-submission",
+			to: "speaker@test.co",
+			subject: "Schedule update",
+			html: "<p>unsafe update</p>",
+			icsAttachment: buildIcs({
+				calendarName: "AI.Engineer Sandbox Event",
+				method: "PUBLISH",
+				events: [
+					{
+						uid: "submission-s_other_event@openrostrum",
+						start: utc(2026, 10, 12, 15),
+						end: utc(2026, 10, 12, 16),
+						title: "Other event session",
+						sequence: 3,
+					},
+				],
+			}),
+			status: "sent",
+			sentAt: new Date(),
+		});
+
+		await normalizeCalendarInviteHistory(db, "e1");
+
+		expect(
+			await db
+				.select({ invalid: calendarInviteProcessedOutbox.invalid })
+				.from(calendarInviteProcessedOutbox)
+				.where(
+					eq(
+						calendarInviteProcessedOutbox.outboxId,
+						"update-cross-event-submission",
+					),
+				),
+		).toEqual([{ invalid: true }]);
+		expect((await callLoader()).event).toMatchObject({
+			scheduleScanTruncated: false,
+			scheduleScanBlocked: true,
+		});
+		const result = await callAction({ intent: "schedule-updates" });
+		expect(result).toMatchObject({ ok: false });
+		expect(result.formError).toMatch(/email history/i);
 	});
 
 	it("rejects a fractional schedule-update sequence as unsafe history", async () => {
@@ -1051,7 +1301,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		});
 
 		expect((await callLoader()).event?.scheduleScanTruncated).toBe(true);
-		const result = await callAction({ intent: "schedule-updates" });
+		const result = await finishScheduleUpdateAction();
 		expect(result.ok).toBe(false);
 		expect(
 			await db
@@ -1113,9 +1363,11 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			start: utc(2026, 10, 12, 15),
 			end: utc(2026, 10, 15, 1),
 		});
-		expect(
-			(await callAction({ intent: "schedule-updates" })).updates,
-		).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+		expect((await finishScheduleUpdateAction()).updates).toMatchObject({
+			sent: 0,
+			deduped: 0,
+			failed: 0,
+		});
 	});
 
 	it("recovers calendar delivery from normalized queued and failed invite attempts", async () => {
@@ -1286,7 +1538,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 				sequence: 0,
 			}),
 			status: "sent",
-			createdAt: new Date("2026-08-10T19:59:00Z"),
+			createdAt: new Date("2026-08-10T20:02:00Z"),
 			sentAt: new Date("2026-08-10T20:03:00Z"),
 		});
 		await normalizeCalendarInviteHistory(db, "e1");
@@ -1405,6 +1657,7 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		expect(
 			(await callAction({ intent: "schedule-updates" })).updates,
 		).toMatchObject({ sent: 1, deduped: 0 });
+		await normalizeCalendarInviteHistory(db, "e1");
 		const first = await latestUpdateInvite(db);
 		if (!first.row) throw new Error("Expected first schedule update");
 		await db
@@ -1424,9 +1677,11 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			"bounced",
 			"sent",
 		]);
-		expect(
-			(await callAction({ intent: "schedule-updates" })).updates,
-		).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+		expect((await finishScheduleUpdateAction()).updates).toMatchObject({
+			sent: 0,
+			deduped: 0,
+			failed: 0,
+		});
 	});
 
 	it("finds an affected session's old invite behind 1001 newer unrelated invites", async () => {
@@ -1611,6 +1866,246 @@ END:VCALENDAR
 		).toHaveLength(3);
 	});
 
+	it("quarantines an impossible oversized attachment without blocking later history", async () => {
+		const db = await seedBaseline();
+		const oversized = buildIcs({
+			calendarName: "AI.Engineer Sandbox Event",
+			method: "PUBLISH",
+			events: Array.from({ length: 4400 }, (_, index) => ({
+				uid: `submission-deleted-${index}@openrostrum`,
+				start: utc(2026, 10, 12, 15),
+				end: utc(2026, 10, 12, 16),
+				title: `Deleted session ${index}`,
+				sequence: index,
+			})),
+		});
+		await db.insert(emailOutbox).values([
+			{
+				id: "oversized-history",
+				eventId: "e1",
+				dedupeKey: "schedule-update:oversized-history",
+				to: "speaker@test.co",
+				subject: "Oversized history",
+				html: "<p>oversized</p>",
+				icsAttachment: oversized,
+				status: "sent",
+				createdAt: new Date("2026-08-11T17:00:00Z"),
+			},
+			{
+				id: "history-after-oversized",
+				eventId: "e1",
+				dedupeKey: "decision:accept:after-oversized:s_keynote",
+				to: "marco@test.co",
+				subject: "Accepted",
+				html: "<p>accepted</p>",
+				icsAttachment: HISTORIC_NPM_ICS_INVITE,
+				status: "sent",
+				createdAt: new Date("2026-08-11T17:01:00Z"),
+			},
+		]);
+
+		await normalizeCalendarInviteHistory(db, "e1");
+
+		expect(
+			await db
+				.select({
+					outboxId: calendarInviteProcessedOutbox.outboxId,
+					invalid: calendarInviteProcessedOutbox.invalid,
+				})
+				.from(calendarInviteProcessedOutbox),
+		).toEqual(
+			expect.arrayContaining([
+				{ outboxId: "oversized-history", invalid: true },
+				{ outboxId: "history-after-oversized", invalid: false },
+			]),
+		);
+	});
+
+	it("ranks delivered revisions only within the current event", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org1",
+			name: "Other Event",
+			slug: "other-event",
+			timezone: "UTC",
+			startsAt: utc(2027, 1, 1, 9),
+			endsAt: utc(2027, 1, 1, 17),
+		});
+		await db.insert(emailOutbox).values({
+			id: "cross-event-revision-outbox",
+			eventId: "e2",
+			dedupeKey: "schedule-update:cross-event",
+			to: "marco@test.co",
+			subject: "Other event update",
+			html: "<p>other</p>",
+			status: "sent",
+			createdAt: new Date("2026-08-11T18:00:00Z"),
+			sentAt: new Date("2026-08-11T18:01:00Z"),
+		});
+		await db.insert(calendarInviteRevisions).values({
+			id: "cross-event-revision",
+			submissionId: "s_keynote",
+			sequence: 99,
+			stateHash: "cross-event-state",
+			recipient: "marco@test.co",
+			startsAt: utc(2027, 1, 1, 9),
+			endsAt: utc(2027, 1, 1, 10),
+			location: "Elsewhere",
+			title: "Other event",
+			outboxId: "cross-event-revision-outbox",
+			invalid: false,
+			createdAt: new Date("2026-08-11T18:00:00Z"),
+		});
+
+		const result = await computeScheduleChanges(db, event);
+
+		expect(result.changes).toHaveLength(1);
+		expect(result.changes[0]?.nextSequence).toBe(1);
+	});
+
+	it("preflights attachment bytes before loading safe calendar bodies", async () => {
+		await seedBaseline();
+		await getDb(env)
+			.insert(emailOutbox)
+			.values([
+				{
+					id: "two-megabyte-history",
+					eventId: "e1",
+					dedupeKey: "schedule-update:two-megabyte-history",
+					to: "speaker@test.co",
+					subject: "Malformed large history",
+					html: "<p>large</p>",
+					icsAttachment: "X".repeat(2 * 1024 * 1024 - 1024),
+					status: "sent",
+					createdAt: new Date("2026-08-11T17:00:00Z"),
+				},
+				{
+					id: "safe-history-after-large",
+					eventId: "e1",
+					dedupeKey: "decision:accept:after-large:s_keynote",
+					to: "marco@test.co",
+					subject: "Accepted",
+					html: "<p>accepted</p>",
+					icsAttachment: HISTORIC_NPM_ICS_INVITE,
+					status: "sent",
+					createdAt: new Date("2026-08-11T17:01:00Z"),
+				},
+			]);
+		const prepared: Array<{ query: string; params: unknown[] }> = [];
+		const observedDatabase = new Proxy(env.DB, {
+			get(target, property) {
+				if (property === "prepare") {
+					return (query: string) => {
+						const statement = target.prepare(query);
+						return new Proxy(statement, {
+							get(preparedStatement, statementProperty) {
+								if (statementProperty === "bind") {
+									return (
+										...params: Parameters<D1PreparedStatement["bind"]>
+									) => {
+										prepared.push({ query, params });
+										return preparedStatement.bind(...params);
+									};
+								}
+								const value = Reflect.get(preparedStatement, statementProperty);
+								return typeof value === "function"
+									? value.bind(preparedStatement)
+									: value;
+							},
+						});
+					};
+				}
+				const value = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+
+		await normalizeCalendarInviteHistory(
+			getDb({ DB: observedDatabase } as Env),
+			"e1",
+		);
+
+		const bodyReads = prepared.filter(
+			({ query }) =>
+				query.includes('"ics_attachment"') &&
+				!query.toLowerCase().includes("length(cast"),
+		);
+		expect(bodyReads).toHaveLength(1);
+		expect(bodyReads[0]?.params).toContain("safe-history-after-large");
+		expect(bodyReads[0]?.params).not.toContain("two-megabyte-history");
+	});
+
+	it("defers a safe attachment when the aggregate body budget is exhausted", async () => {
+		const db = await seedBaseline();
+		const paddedInvite = (sequence: number) =>
+			`${keynoteIcs({
+				start: new Date("2026-10-12T18:00:00Z"),
+				end: new Date("2026-10-12T19:00:00Z"),
+				sequence,
+			})}\r\n${"X".repeat(460 * 1024)}`;
+		await db.insert(emailOutbox).values(
+			Array.from({ length: 3 }, (_, index) => ({
+				id: `aggregate-history-${index}`,
+				eventId: "e1",
+				dedupeKey: `schedule-update:aggregate-history-${index}`,
+				to: "marco@test.co",
+				subject: "Schedule update",
+				html: "<p>update</p>",
+				icsAttachment: paddedInvite(index),
+				status: "sent" as const,
+				createdAt: new Date(`2026-08-11T17:0${index}:00Z`),
+			})),
+		);
+
+		const first = await normalizeCalendarInviteHistory(db, "e1");
+		expect(first).toEqual({ processed: 2, remaining: true });
+		const second = await normalizeCalendarInviteHistory(db, "e1");
+		expect(second).toEqual({ processed: 1, remaining: false });
+	});
+
+	it("batches normalization ledger writes into D1 round trips", async () => {
+		const db = await seedBaseline();
+		await db.insert(emailOutbox).values({
+			id: "history-for-batched-writes",
+			eventId: "e1",
+			dedupeKey: "decision:accept:batched:s_keynote",
+			to: "marco@test.co",
+			subject: "Accepted",
+			html: "<p>accepted</p>",
+			icsAttachment: HISTORIC_NPM_ICS_INVITE,
+			status: "sent",
+			createdAt: new Date("2026-08-11T17:00:00Z"),
+		});
+		const batch = vi.fn(env.DB.batch.bind(env.DB));
+		const observedDatabase = new Proxy(env.DB, {
+			get(target, property) {
+				if (property === "batch") return batch;
+				const value = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+
+		const result = await normalizeCalendarInviteHistory(
+			getDb({ DB: observedDatabase } as Env),
+			"e1",
+		);
+
+		expect(result).toEqual({ processed: 1, remaining: false });
+		expect(batch).toHaveBeenCalled();
+	});
+
 	it("normalizes 1,001 attempts within D1 query limits and advances above the true maximum", async () => {
 		const db = await invitedBaseline();
 		await callAction({
@@ -1661,7 +2156,7 @@ END:VCALENDAR
 			scheduleScanTruncated: true,
 		});
 
-		const result = await callAction({ intent: "schedule-updates" });
+		const result = await finishScheduleUpdateAction();
 		expect(result).toMatchObject({ ok: true });
 		expect(result.updates).toMatchObject({ sent: 1, failed: 0 });
 		const { vevent } = await latestUpdateInvite(db);
@@ -1714,7 +2209,10 @@ END:VCALENDAR
 		expect(history.meta.changes).toBe(5600);
 
 		const first = await callAction({ intent: "schedule-updates" });
-		expect(first.ok).toBe(false);
+		expect(first).toMatchObject({
+			ok: true,
+			normalization: { remaining: true },
+		});
 		expect((await callLoader()).event).toMatchObject({
 			staleSpeakers: 0,
 			scheduleScanTruncated: true,
@@ -1725,7 +2223,7 @@ END:VCALENDAR
 		expect(firstProcessed?.count).toBeGreaterThan(1001);
 		expect(firstProcessed?.count).toBeLessThan(5600);
 
-		const resumed = await callAction({ intent: "schedule-updates" });
+		const resumed = await finishScheduleUpdateAction();
 		expect(resumed).toMatchObject({ ok: true });
 		expect(resumed.updates).toMatchObject({ sent: 1, failed: 0 });
 		const completed = await env.DB.prepare(
@@ -1786,7 +2284,7 @@ END:VCALENDAR
 			day: "2026-10-13",
 			startMinutes: "840",
 		});
-		const second = await callAction({ intent: "schedule-updates" });
+		const second = await finishScheduleUpdateAction();
 		expect(second.updates).toMatchObject({ sent: 1, deduped: 0 });
 		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
 			row.dedupeKey?.startsWith("schedule-update:"),
@@ -1941,6 +2439,436 @@ END:VCALENDAR
 		expect(updateRows).toHaveLength(0);
 	});
 
+	it("revalidates each recipient immediately before provider delivery", async () => {
+		const db = await invitedBaseline();
+		await db
+			.update(contacts)
+			.set({ email: "a-first@test.co" })
+			.where(eq(contacts.id, "c_marco"));
+		await db.insert(contacts).values({
+			id: "c_second",
+			eventId: "e1",
+			email: "z-second@test.co",
+			firstName: "Second",
+			lastName: "Speaker",
+		});
+		await db.insert(submissions).values({
+			id: "s_second",
+			eventId: "e1",
+			title: "Second scheduled session",
+			status: "accepted",
+			formatId: "fmt_talk",
+			notifiedAt: new Date(),
+		});
+		await db.insert(participants).values({
+			id: "p_second",
+			submissionId: "s_second",
+			contactId: "c_second",
+		});
+		await db.insert(emailOutbox).values({
+			id: "accept-second-initial",
+			eventId: "e1",
+			dedupeKey: "decision:accept:initial:s_second",
+			to: "z-second@test.co",
+			subject: "Your session was accepted",
+			html: "<p>you're in</p>",
+			icsAttachment: buildIcs({
+				calendarName: "AI.Engineer Sandbox Event",
+				method: "PUBLISH",
+				events: [
+					{
+						uid: "submission-s_second@openrostrum",
+						start: utc(2026, 10, 12, 15),
+						end: utc(2026, 10, 15, 1),
+						title:
+							"AI.Engineer Sandbox Event (save the date): Second scheduled session",
+						sequence: 0,
+					},
+				],
+			}),
+			status: "sent",
+			createdAt: new Date("2026-08-10T20:02:00Z"),
+			sentAt: new Date("2026-08-10T20:03:00Z"),
+		});
+		await normalizeCalendarInviteHistory(db, "e1");
+		await db
+			.update(submissions)
+			.set({
+				roomId: "room_main",
+				startsAt: utc(2026, 10, 12, 16, 30),
+				endsAt: utc(2026, 10, 12, 17),
+			})
+			.where(eq(submissions.id, "s_second"));
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+		const staleState = await computeScheduleChanges(db, event);
+		const replacementStart = utc(2026, 10, 13, 21);
+		const replacementEnd = utc(2026, 10, 13, 21, 30);
+		await env.DB.prepare(`
+			CREATE TRIGGER move_second_after_first_delivery
+			AFTER INSERT ON email_outbox
+			WHEN NEW.dedupe_key LIKE 'schedule-update:%'
+			BEGIN
+				UPDATE submissions
+				SET room_id = 'room_305',
+					starts_at = ${Math.floor(replacementStart.getTime() / 1000)},
+					ends_at = ${Math.floor(replacementEnd.getTime() / 1000)}
+				WHERE id = 's_second';
+			END
+		`).run();
+
+		let outcome: Awaited<ReturnType<typeof sendScheduleUpdates>>;
+		try {
+			outcome = await sendScheduleUpdates(db, env, event, staleState.changes);
+		} finally {
+			await env.DB.prepare(
+				"DROP TRIGGER move_second_after_first_delivery",
+			).run();
+		}
+
+		expect(outcome).toMatchObject({ sent: 1, deduped: 0, failed: 0 });
+		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(updateRows).toHaveLength(1);
+		expect(updateRows[0]?.to).toBe("a-first@test.co");
+		expect(
+			parseIcsAttachment(updateRows[0]?.icsAttachment ?? "").map(
+				(invite) => invite.uid,
+			),
+		).toEqual(["submission-s_keynote@openrostrum"]);
+	});
+
+	it("corrects a calendar left stale by a possibly-delivered failed attempt", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+		const scheduled = await computeScheduleChanges(db, event);
+		expect(
+			await sendScheduleUpdates(db, env, event, scheduled.changes),
+		).toMatchObject({ sent: 1, failed: 0 });
+		const delivered = await latestUpdateInvite(db);
+		if (!delivered.row) throw new Error("Expected the scheduled update");
+		// The provider took the message but recording the outcome lost: the speaker
+		// may be holding this slot even though our row reads `failed`.
+		await db
+			.update(emailOutbox)
+			.set({ status: "failed" })
+			.where(eq(emailOutbox.id, delivered.row.id));
+
+		// Pulling the session back off the agenda restores exactly the invite the
+		// last CONFIRMED send carried, so only the failed attempt makes it stale.
+		await callAction({ intent: "unschedule", submissionId: "s_keynote" });
+		await normalizeCalendarInviteHistory(db, "e1");
+		const reverted = await computeScheduleChanges(db, event);
+		expect(reverted.changes).toHaveLength(1);
+		expect(
+			await sendScheduleUpdates(db, env, event, reverted.changes),
+		).toMatchObject({ sent: 1, failed: 0 });
+
+		const { vevent } = await latestUpdateInvite(db);
+		expect(vevent).toMatchObject({
+			uid: "submission-s_keynote@openrostrum",
+			sequence: 2,
+			start: utc(2026, 10, 12, 15),
+			end: utc(2026, 10, 15, 1),
+		});
+	});
+
+	it("keeps a failed attempt retryable when the schedule has not moved", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+		const scheduled = await computeScheduleChanges(db, event);
+		expect(
+			await sendScheduleUpdates(db, env, event, scheduled.changes),
+		).toMatchObject({ sent: 1, failed: 0 });
+		const delivered = await latestUpdateInvite(db);
+		if (!delivered.row) throw new Error("Expected the scheduled update");
+		await db
+			.update(emailOutbox)
+			.set({ status: "failed" })
+			.where(eq(emailOutbox.id, delivered.row.id));
+
+		await normalizeCalendarInviteHistory(db, "e1");
+
+		const retry = await computeScheduleChanges(db, event);
+		expect(retry.changes).toHaveLength(1);
+		expect(
+			await sendScheduleUpdates(db, env, event, retry.changes),
+		).toMatchObject({ sent: 1, failed: 0 });
+		// The retry carries the attempt's OWN sequence: a speaker who did receive
+		// the first copy sees no revision, one who did not finally gets the slot.
+		const { vevent } = await latestUpdateInvite(db);
+		expect(vevent).toMatchObject({
+			sequence: 1,
+			start: utc(2026, 10, 12, 16, 30),
+			location: "Main Hall",
+		});
+	});
+
+	it("drops a claim whose event snapshot lost a concurrent rename", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		await db
+			.update(events)
+			.set({ name: "Renamed Once" })
+			.where(eq(events.id, "e1"));
+		const staleEvent = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!staleEvent) throw new Error("Expected seeded event");
+		const staleState = await computeScheduleChanges(db, staleEvent);
+		expect(staleState.changes).toHaveLength(1);
+
+		// A newer request renames again and delivers that name to the speaker.
+		await db
+			.update(events)
+			.set({ name: "Renamed Twice" })
+			.where(eq(events.id, "e1"));
+		const freshEvent = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!freshEvent) throw new Error("Expected seeded event");
+		const freshState = await computeScheduleChanges(db, freshEvent);
+		expect(
+			await sendScheduleUpdates(db, env, freshEvent, freshState.changes),
+		).toMatchObject({ sent: 1, failed: 0 });
+		expect((await latestUpdateInvite(db)).vevent).toMatchObject({
+			sequence: 1,
+			title: "Closing Keynote: The Post-SaaS Stack — Renamed Twice",
+		});
+
+		expect(
+			await sendScheduleUpdates(db, env, staleEvent, staleState.changes),
+		).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+
+		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(updateRows).toHaveLength(1);
+		expect((await latestUpdateInvite(db)).vevent).toMatchObject({
+			sequence: 1,
+			title: "Closing Keynote: The Post-SaaS Stack — Renamed Twice",
+		});
+	});
+
+	it("revalidates the event itself after claiming a sequence", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+		const staleState = await computeScheduleChanges(db, event);
+		await env.DB.prepare(`
+			CREATE TRIGGER rename_event_during_frontier_claim
+			BEFORE INSERT ON calendar_invite_sequence_frontiers
+			WHEN NEW.submission_id = 's_keynote'
+			BEGIN
+				UPDATE events SET name = 'Renamed Mid-Claim' WHERE id = 'e1';
+			END
+		`).run();
+
+		let outcome: Awaited<ReturnType<typeof sendScheduleUpdates>>;
+		try {
+			outcome = await sendScheduleUpdates(db, env, event, staleState.changes);
+		} finally {
+			await env.DB.prepare(
+				"DROP TRIGGER rename_event_during_frontier_claim",
+			).run();
+		}
+
+		expect(outcome).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(updateRows).toHaveLength(0);
+	});
+
+	it("reports an active provider claim as in flight instead of failed", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+		const changes = (await computeScheduleChanges(db, event)).changes;
+		let releaseProvider: (() => void) | undefined;
+		let providerStarted: (() => void) | undefined;
+		const started = new Promise<void>((resolve) => {
+			providerStarted = resolve;
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				() =>
+					new Promise<Response>((resolve) => {
+						releaseProvider = () =>
+							resolve(
+								new Response(JSON.stringify({ id: "resend-schedule" }), {
+									status: 200,
+								}),
+							);
+						providerStarted?.();
+					}),
+			),
+		);
+		const resendEnv = {
+			...env,
+			RESEND_API_KEY: "re_test",
+			EMAIL_FROM: "OpenRostrum <noreply@test.example>",
+		} as unknown as Env;
+		try {
+			const first = sendScheduleUpdates(db, resendEnv, event, changes);
+			await started;
+			const second = await sendScheduleUpdates(db, resendEnv, event, changes);
+			expect(second).toMatchObject({
+				sent: 0,
+				deduped: 0,
+				failed: 0,
+				inFlight: 1,
+			});
+			releaseProvider?.();
+			await expect(first).resolves.toMatchObject({ sent: 1, failed: 0 });
+		} finally {
+			releaseProvider?.();
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("propagates unexpected D1 delivery failures", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+		const changes = (await computeScheduleChanges(db, event)).changes;
+		await env.DB.prepare(`
+			CREATE TRIGGER fail_schedule_outbox_insert
+			BEFORE INSERT ON email_outbox
+			WHEN NEW.dedupe_key LIKE 'schedule-update:%'
+			BEGIN
+				SELECT RAISE(ABORT, 'forced D1 failure');
+			END
+		`).run();
+
+		try {
+			await expect(
+				sendScheduleUpdates(db, env, event, changes),
+			).rejects.toThrow(/Failed query: insert into "email_outbox"/);
+		} finally {
+			await env.DB.prepare("DROP TRIGGER fail_schedule_outbox_insert").run();
+		}
+	});
+
+	it("drops an ABA snapshot after a newer frontier claim", async () => {
+		const db = await invitedBaseline();
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const staleState = await computeScheduleChanges(db, event);
+		const originalStart = utc(2026, 10, 12, 16, 30);
+		const originalEnd = utc(2026, 10, 12, 17, 15);
+		const replacementStart = utc(2026, 10, 13, 21, 0);
+		const replacementEnd = utc(2026, 10, 13, 21, 30);
+		await env.DB.prepare(`
+			CREATE TRIGGER advance_frontier_during_aba
+			AFTER INSERT ON calendar_invite_sequence_frontiers
+			WHEN NEW.submission_id = 's_keynote'
+			BEGIN
+				UPDATE submissions
+				SET room_id = 'room_305',
+					starts_at = ${Math.floor(replacementStart.getTime() / 1000)},
+					ends_at = ${Math.floor(replacementEnd.getTime() / 1000)}
+				WHERE id = 's_keynote';
+				UPDATE calendar_invite_sequence_frontiers
+				SET sequence = NEW.sequence + 1,
+					state_hash = 'newer-claim'
+				WHERE submission_id = NEW.submission_id;
+				UPDATE submissions
+				SET room_id = 'room_main',
+					starts_at = ${Math.floor(originalStart.getTime() / 1000)},
+					ends_at = ${Math.floor(originalEnd.getTime() / 1000)}
+				WHERE id = 's_keynote';
+			END
+		`).run();
+
+		let outcome: Awaited<ReturnType<typeof sendScheduleUpdates>>;
+		try {
+			outcome = await sendScheduleUpdates(db, env, event, staleState.changes);
+		} finally {
+			await env.DB.prepare("DROP TRIGGER advance_frontier_during_aba").run();
+		}
+
+		expect(outcome).toMatchObject({ sent: 0, deduped: 0, failed: 0 });
+		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(updateRows).toHaveLength(0);
+	});
+
 	it("unscheduling an invited session reverts the calendar to the save-the-date hold", async () => {
 		const db = await invitedBaseline();
 		await callAction({
@@ -1951,6 +2879,7 @@ END:VCALENDAR
 			startMinutes: "570",
 		});
 		await callAction({ intent: "schedule-updates" });
+		await normalizeCalendarInviteHistory(db, "e1");
 		await callAction({ intent: "unschedule", submissionId: "s_keynote" });
 		expect((await callLoader()).event?.staleSpeakers).toBe(1);
 		const result = await callAction({ intent: "schedule-updates" });
@@ -2041,6 +2970,282 @@ END:VCALENDAR
 		]);
 	});
 
+	it("bounds candidate discovery before dependent history and recipient queries", async () => {
+		const db = await seedBaseline();
+		await env.DB.prepare(`
+			WITH RECURSIVE scale(n) AS (
+				SELECT 1
+				UNION ALL
+				SELECT n + 1 FROM scale WHERE n < 401
+			)
+			INSERT INTO submissions (
+				id, event_id, type, title, status, submitter_id, notified_at,
+				starts_at, ends_at, created_at, updated_at
+			)
+			SELECT
+				'bounded-' || n,
+				'e1',
+				'session',
+				'Bounded session ' || n,
+				'accepted',
+				'u_admin',
+				unixepoch(),
+				unixepoch('2026-10-12T16:00:00Z'),
+				unixepoch('2026-10-12T16:30:00Z'),
+				unixepoch(),
+				unixepoch()
+			FROM scale
+		`).run();
+		await env.DB.prepare(`
+			WITH RECURSIVE scale(n) AS (
+				SELECT 1
+				UNION ALL
+				SELECT n + 1 FROM scale WHERE n < 401
+			)
+			INSERT INTO email_outbox (
+				id, event_id, dedupe_key, "to", subject, html, status,
+				created_at, sent_at
+			)
+			SELECT
+				'bounded-outbox-' || n,
+				'e1',
+				'legacy-bounded:' || n,
+				'admin@test.co',
+				'Accepted',
+				'<p>accepted</p>',
+				'sent',
+				unixepoch(),
+				unixepoch()
+			FROM scale
+		`).run();
+		await env.DB.prepare(`
+			WITH RECURSIVE scale(n) AS (
+				SELECT 1
+				UNION ALL
+				SELECT n + 1 FROM scale WHERE n < 401
+			)
+			INSERT INTO calendar_invite_revisions (
+				id, submission_id, sequence, state_hash, recipient, starts_at,
+				ends_at, location, title, outbox_id, invalid, created_at
+			)
+			SELECT
+				'bounded-revision-' || n,
+				'bounded-' || n,
+				0,
+				'old-state-' || n,
+				'admin@test.co',
+				unixepoch('2026-10-12T16:00:00Z'),
+				unixepoch('2026-10-12T16:30:00Z'),
+				NULL,
+				case when n = 401
+					then 'Old session 401'
+					else 'Bounded session ' || n || ' — AI.Engineer Sandbox Event'
+				end,
+				'bounded-outbox-' || n,
+				0,
+				unixepoch()
+			FROM scale
+		`).run();
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+
+		let statements = 0;
+		const countedDatabase = new Proxy(env.DB, {
+			get(target, property) {
+				if (property === "prepare") {
+					return (query: string) => {
+						statements += 1;
+						return target.prepare(query);
+					};
+				}
+				const value = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+		const changes = await computeScheduleChanges(
+			getDb({ DB: countedDatabase } as Env),
+			event,
+		);
+
+		expect(changes.changes).toHaveLength(1);
+		expect(changes.changes[0]?.submissionId).toBe("bounded-401");
+		expect(statements).toBeLessThanOrEqual(8);
+	});
+
+	it("claims at most 200 submission revisions before sending a batch", async () => {
+		const db = await seedBaseline();
+		const inserted = await env.DB.prepare(`
+			WITH RECURSIVE scale(n) AS (
+				SELECT 1
+				UNION ALL
+				SELECT n + 1 FROM scale WHERE n < 201
+			)
+			INSERT INTO submissions (
+				id, event_id, type, title, status, submitter_id, notified_at,
+				created_at, updated_at
+			)
+			SELECT
+				'scale-' || n,
+				'e1',
+				'session',
+				'Scale session ' || n,
+				'accepted',
+				'u_admin',
+				unixepoch(),
+				unixepoch(),
+				unixepoch()
+			FROM scale
+		`).run();
+		expect(inserted.meta.changes).toBe(201);
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		const eventStartsAt = event?.startsAt;
+		const eventEndsAt = event?.endsAt;
+		if (!event || !eventStartsAt || !eventEndsAt) {
+			throw new Error("Expected seeded event dates");
+		}
+		const changes = Array.from({ length: 201 }, (_, index) => {
+			const position = index + 1;
+			return {
+				submissionId: `scale-${position}`,
+				submissionTitle: `Scale session ${position}`,
+				scheduled: false,
+				invite: {
+					title: `${event.name} (save the date): Scale session ${position}`,
+					start: eventStartsAt,
+					end: eventEndsAt,
+					location: event.location,
+				},
+				nextSequence: 0,
+				to: "admin@test.co",
+				retryAfterBounceId: null,
+			};
+		});
+
+		const result = await sendScheduleUpdates(db, env, event, changes);
+
+		expect(result).toMatchObject({
+			sent: 1,
+			failed: 0,
+			remaining: 1,
+		});
+		const [update] = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(parseIcsAttachment(update?.icsAttachment ?? "")).toHaveLength(200);
+		const frontierCount = await env.DB.prepare(
+			"SELECT count(*) AS count FROM calendar_invite_sequence_frontiers WHERE submission_id LIKE 'scale-%'",
+		).first<{ count: number }>();
+		expect(frontierCount?.count).toBe(200);
+	});
+
+	it("reaches a deliverable speaker behind a full window of unreachable sessions", async () => {
+		const db = await seedBaseline();
+		const event = await db.query.events.findFirst({
+			where: (row, { eq }) => eq(row.id, "e1"),
+		});
+		if (!event) throw new Error("Expected seeded event");
+		// 201 accepted sessions whose speaker contact is gone — an import that
+		// dropped emails, a bulk contact cleanup. They can never be delivered, and
+		// they sort ahead of every reachable session.
+		await env.DB.prepare(`
+			WITH RECURSIVE orphan(n) AS (
+				SELECT 1
+				UNION ALL
+				SELECT n + 1 FROM orphan WHERE n < 201
+			)
+			INSERT INTO submissions (
+				id, event_id, type, title, status, notified_at,
+				starts_at, ends_at, room_id, format_id, created_at, updated_at
+			)
+			SELECT
+				'aaa-' || printf('%03d', n),
+				'e1',
+				'session',
+				'Orphan session ' || n,
+				'accepted',
+				unixepoch(),
+				unixepoch('2026-10-12 16:00:00'),
+				unixepoch('2026-10-12 16:30:00'),
+				'room_main',
+				'fmt_talk',
+				unixepoch(),
+				unixepoch()
+			FROM orphan
+		`).run();
+		await db.insert(submissions).values({
+			id: "zzz-reachable",
+			eventId: "e1",
+			title: "Reachable session",
+			status: "accepted",
+			notifiedAt: new Date(),
+			startsAt: utc(2026, 10, 12, 17),
+			endsAt: utc(2026, 10, 12, 17, 30),
+			roomId: "room_main",
+			formatId: "fmt_talk",
+		});
+		await db.insert(participants).values({
+			id: "p-reachable",
+			submissionId: "zzz-reachable",
+			contactId: "c_marco",
+		});
+		const delivered = [
+			...Array.from({ length: 201 }, (_, index) => ({
+				submissionId: `aaa-${String(index + 1).padStart(3, "0")}`,
+				to: `orphan-${index + 1}@test.co`,
+				title: `Orphan session ${index + 1}`,
+			})),
+			{
+				submissionId: "zzz-reachable",
+				to: "marco@test.co",
+				title: "Reachable session",
+			},
+		];
+		for (let offset = 0; offset < delivered.length; offset += 10) {
+			await db.insert(emailOutbox).values(
+				delivered.slice(offset, offset + 10).map((invite) => ({
+					id: `accept-${invite.submissionId}`,
+					eventId: "e1",
+					dedupeKey: `decision:accept:initial:${invite.submissionId}`,
+					to: invite.to,
+					subject: "Your session was accepted",
+					html: "<p>you're in</p>",
+					icsAttachment: buildIcs({
+						calendarName: "AI.Engineer Sandbox Event",
+						events: [
+							{
+								uid: `submission-${invite.submissionId}@openrostrum`,
+								start: utc(2026, 10, 11, 9),
+								end: utc(2026, 10, 11, 10),
+								title: invite.title,
+								sequence: 0,
+							},
+						],
+					}),
+					status: "sent" as const,
+				})),
+			);
+		}
+		for (let pass = 0; pass < 10; pass += 1) {
+			if (!(await normalizeCalendarInviteHistory(db, "e1")).remaining) break;
+		}
+
+		const changes = await computeScheduleChanges(db, event);
+		const result = await sendScheduleUpdates(db, env, event, changes.changes);
+
+		// The unreachable sessions are still reported — as many as the bounded
+		// window holds — but they no longer consume all of it: one broken contact
+		// set cannot silence every speaker in the event.
+		expect(result).toMatchObject({ sent: 1, failed: 200 });
+		const [update] = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(update?.to).toBe("marco@test.co");
+	});
+
 	it("uses one fixed-length opaque key for seven UUID-shaped submission revisions", async () => {
 		const db = await seedBaseline();
 		const ids = Array.from(
@@ -2101,7 +3306,7 @@ END:VCALENDAR
 			})),
 		);
 
-		const result = await callAction({ intent: "schedule-updates" });
+		const result = await finishScheduleUpdateAction();
 		expect(result.updates).toMatchObject({ sent: 1, failed: 0, remaining: 0 });
 		const updateRows = (await db.select().from(emailOutbox)).filter((row) =>
 			row.dedupeKey?.startsWith("schedule-update:"),

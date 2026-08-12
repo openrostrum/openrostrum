@@ -1,5 +1,12 @@
 import { and, eq } from "drizzle-orm";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	data,
 	Form,
@@ -304,6 +311,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				hiddenFromPublic,
 				staleSpeakers: changeSet.speakers,
 				scheduleScanTruncated: changeSet.truncated,
+				scheduleScanBlocked: changeSet.blocked,
 			},
 			rooms: roomRows.map((r) => ({
 				id: r.id,
@@ -361,9 +369,75 @@ type ActionResult = {
 		sent: number;
 		deduped: number;
 		failed: number;
+		inFlight: number;
 		remaining: number;
 	};
+	normalization?: {
+		processed: number;
+		remaining: boolean;
+	};
 };
+
+export function ScheduleHistoryNormalizationOutcome({
+	result,
+	continuation,
+}: {
+	result: NonNullable<ActionResult["normalization"]>;
+	continuation: ReactNode;
+}) {
+	return (
+		<InfoBar>
+			<InfoBarActionRow>
+				<span>
+					{result.processed} invite-history{" "}
+					{result.processed === 1 ? "record" : "records"} normalized.{" "}
+					{result.remaining
+						? "More history remains; continue before any email is sent."
+						: "History is ready; continue to send the pending updates."}
+				</span>
+				{continuation}
+			</InfoBarActionRow>
+		</InfoBar>
+	);
+}
+
+export function ScheduleUpdateDeliveryOutcome({
+	result,
+}: {
+	result: NonNullable<ActionResult["updates"]>;
+}) {
+	return (
+		<InfoBar>
+			Sent <Strong>{result.sent}</Strong> schedule-update{" "}
+			{result.sent === 1 ? "email" : "emails"}
+			{result.deduped > 0 && <> — {result.deduped} already delivered</>}
+			{result.failed > 0 && (
+				<>
+					{" "}
+					— <Strong>{result.failed}</Strong> failed (see{" "}
+					<TextLink to="/admin/emails/history">Email history</TextLink> and
+					retry)
+				</>
+			)}
+			{result.inFlight > 0 && (
+				<>
+					{" "}
+					— <Strong>{result.inFlight}</Strong>{" "}
+					{result.inFlight === 1
+						? "delivery still in progress"
+						: "deliveries still in progress"}
+				</>
+			)}
+			{result.remaining > 0 && (
+				<>
+					{" "}
+					— <Strong>{result.remaining}</Strong> more to send, click again
+				</>
+			)}
+			.
+		</InfoBar>
+	);
+}
 
 const fail = (formError: string): ActionResult => ({ ok: false, formError });
 const failFields = (
@@ -572,12 +646,30 @@ export async function action({ context, request }: Route.ActionArgs) {
 		}
 
 		if (intent === "schedule-updates") {
-			await timings.time("db-write", () =>
+			const normalization = await timings.time("db-write", () =>
 				normalizeCalendarInviteHistory(db, event.id),
 			);
+			if (normalization.processed > 0) {
+				track("agenda.schedule_history_normalized", {
+					eventId: event.id,
+					processed: normalization.processed,
+					remaining: normalization.remaining,
+				});
+				return data(ok({ normalization }), {
+					headers: { "Server-Timing": timings.header() },
+				});
+			}
 			const changeSet = await timings.time("db", () =>
 				computeScheduleChanges(db, event),
 			);
+			if (changeSet.blocked) {
+				return data(
+					fail(
+						"Calendar invite history contains invalid sent records. Review Email history before sending schedule updates.",
+					),
+					{ headers: { "Server-Timing": timings.header() } },
+				);
+			}
 			if (changeSet.truncated) {
 				return data(
 					fail(
@@ -589,14 +681,12 @@ export async function action({ context, request }: Route.ActionArgs) {
 			const outcome = await timings.time("send", () =>
 				sendScheduleUpdates(db, env, event, changeSet.changes),
 			);
-			await timings.time("db-write", () =>
-				normalizeCalendarInviteHistory(db, event.id),
-			);
 			track("agenda.schedule_updates_sent", {
 				eventId: event.id,
 				sent: outcome.sent,
 				deduped: outcome.deduped,
 				failed: outcome.failed,
+				inFlight: outcome.inFlight,
 				remaining: outcome.remaining,
 			});
 			return data(ok({ updates: outcome }), {
@@ -932,6 +1022,19 @@ export default function Agenda({
 
 	const showsBoard = view === "day" || view === "week" || view === "track";
 	const showsDayStrip = view === "day" || view === "track";
+	const scheduleUpdateForm = (idleLabel: string, pendingLabel: string) => (
+		<updatesFetcher.Form method="post">
+			<Button
+				type="submit"
+				variant="ghost"
+				name="intent"
+				value="schedule-updates"
+				disabled={busy}
+			>
+				{updatesFetcher.state === "idle" ? idleLabel : pendingLabel}
+			</Button>
+		</updatesFetcher.Form>
+	);
 
 	return (
 		<div className="mx-auto flex max-w-[1400px] flex-col gap-4 px-7 py-6">
@@ -1014,53 +1117,46 @@ export default function Agenda({
 							unsent schedule updates — their calendars still show the last
 							invite they were emailed.
 						</span>
-						<updatesFetcher.Form method="post">
-							<Button
-								type="submit"
-								variant="ghost"
-								name="intent"
-								value="schedule-updates"
-								disabled={busy}
-							>
-								{updatesFetcher.state === "idle"
-									? "Send schedule updates"
-									: "Sending…"}
-							</Button>
-						</updatesFetcher.Form>
+						{scheduleUpdateForm("Send schedule updates", "Sending…")}
 					</InfoBarActionRow>
 				</InfoBar>
 			)}
-			{event.staleSpeakers === 0 && event.scheduleScanTruncated && (
+			{event.staleSpeakers === 0 && event.scheduleScanBlocked && (
 				<InfoBar>
-					Matching invite history exceeded the check limit, so schedule-update
-					counts may be incomplete.
+					Invite history contains invalid sent records, so schedule updates are
+					blocked.{" "}
+					<TextLink to="/admin/emails/history">Review Email history</TextLink>
+					before retrying.
 				</InfoBar>
 			)}
+			{event.staleSpeakers === 0 &&
+				!event.scheduleScanBlocked &&
+				event.scheduleScanTruncated && (
+					<InfoBar>
+						<InfoBarActionRow>
+							<span>
+								Matching invite history exceeded the check limit, so
+								schedule-update counts may be incomplete.
+							</span>
+							{scheduleUpdateForm(
+								"Continue checking invite history",
+								"Checking…",
+							)}
+						</InfoBarActionRow>
+					</InfoBar>
+				)}
+			{updatesFetcher.data?.normalization &&
+				updatesFetcher.state === "idle" && (
+					<ScheduleHistoryNormalizationOutcome
+						result={updatesFetcher.data.normalization}
+						continuation={scheduleUpdateForm(
+							"Continue schedule updates",
+							"Checking…",
+						)}
+					/>
+				)}
 			{updatesFetcher.data?.updates && updatesFetcher.state === "idle" && (
-				<InfoBar>
-					Sent <Strong>{updatesFetcher.data.updates.sent}</Strong>{" "}
-					schedule-update{" "}
-					{updatesFetcher.data.updates.sent === 1 ? "email" : "emails"}
-					{updatesFetcher.data.updates.deduped > 0 && (
-						<> — {updatesFetcher.data.updates.deduped} already delivered</>
-					)}
-					{updatesFetcher.data.updates.failed > 0 && (
-						<>
-							{" "}
-							— <Strong>{updatesFetcher.data.updates.failed}</Strong> failed
-							(see <TextLink to="/admin/emails/history">Email history</TextLink>{" "}
-							and retry)
-						</>
-					)}
-					{updatesFetcher.data.updates.remaining > 0 && (
-						<>
-							{" "}
-							— <Strong>{updatesFetcher.data.updates.remaining}</Strong> more to
-							send, click again
-						</>
-					)}
-					.
-				</InfoBar>
+				<ScheduleUpdateDeliveryOutcome result={updatesFetcher.data.updates} />
 			)}
 			{placeFetcher.data?.placed !== undefined &&
 				placeFetcher.state === "idle" && (
