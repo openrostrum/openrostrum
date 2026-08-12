@@ -18,6 +18,7 @@ import {
 	ErrorText,
 	Field,
 	Input,
+	MotionReveal,
 	PageHeader,
 	Panel,
 	SearchInput,
@@ -400,12 +401,14 @@ export function SubmissionListPage({
 			/>
 
 			{drawerOpen && (
-				<AddSubmissionDrawer
-					kind={kind}
-					contacts={loaded.contacts}
-					contactsTruncated={loaded.contactsTruncated}
-					onClose={() => setDrawerOpen(false)}
-				/>
+				<MotionReveal>
+					<AddSubmissionDrawer
+						kind={kind}
+						contacts={loaded.contacts}
+						contactsTruncated={loaded.contactsTruncated}
+						onClose={() => setDrawerOpen(false)}
+					/>
+				</MotionReveal>
 			)}
 
 			{kind === "session" && (

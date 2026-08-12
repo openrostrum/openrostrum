@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Icon, type IconName } from "~/ui";
@@ -25,9 +26,9 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 
 const CTA_BASE = cn(
 	"inline-flex items-center justify-center gap-2 rounded-control font-medium",
-	"transition-[background-color,transform,box-shadow] duration-160 ease-out",
+	`transition-[background-color,transform,box-shadow] ${MOTION_FEEDBACK}`,
 	FOCUS_RING,
-	"active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
+	"active:scale-[0.97] motion-reduce:active:scale-100",
 );
 
 const CTA_SIZE = {

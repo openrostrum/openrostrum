@@ -8,6 +8,12 @@ export { ErrorText } from "./error-text";
 export { Field, Input, Select } from "./field";
 export { Icon, type IconName } from "./icon";
 export { Modal } from "./modal";
+export {
+	DialogSurface,
+	MotionInputBoundary,
+	MotionReveal,
+	PopoverSurface,
+} from "./motion";
 export { PageHeader } from "./page-header";
 export { Panel } from "./panel";
 // RichText deliberately NOT re-exported here: the barrel is imported by every
