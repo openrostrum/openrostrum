@@ -28,6 +28,10 @@ House conventions only. The **mandatory platform rules** (D1 batch, react-router
 
 **Never `events.findMany({ limit: 1 })`.** Call `getActiveEvent(env, user)` and scope every query to that event; the app is multi-event (there is an event switcher).
 
+## Schema conventions
+
+`app/db/schema.ts` is integration-owned: feature worktrees import from it and never edit it or mint migrations (lefthook + CI enforce it) — request columns from the integration owner. Its column conventions: text UUID primary keys via `crypto.randomUUID()`; timestamps as unix epoch (`integer`, `mode: "timestamp"`); enums as `text` with a checked `{ enum: [...] }` union, whose tuple is declared in `app/db/constants.ts` (pure data, no drizzle import) so a route COMPONENT can read an enum without pulling the ORM runtime into the client bundle; every event-scoped row cascades from its event. Person identity lives on `contacts`, never on `participants` — a participant is a role on a submission, so profile edits stay consistent across a speaker's talks.
+
 ## Double-submit hygiene
 
 **Every mutating control disables while a request is in flight, and every genuinely duplicating action is idempotent server-side.** The one client guard is `useBusy()` (`app/lib/use-busy.ts`) — true while the pending navigation or ANY fetcher is non-idle — wired to `disabled` on each submit control. New code uses it; how the routes still hand-rolling `useNavigation().state !== "idle"` converge is the integration owner's call, registered as [`GAP-REGISTER.md`](../scenarios/GAP-REGISTER.md) FH1. One carve-out: a surface built on deliberately-concurrent optimistic fetchers (the agenda board's drag-drop queue) guards per control, not globally — a global disable would fight its optimistic design. The guard is UX only: actions that double-write under a replayed POST (final submits, email sends, token mints) ALSO carry a client-minted key the server scopes its writes to, so a double POST without JS still writes once — precedents: the CFP wizard's `wizardId` doubles as the submission PK (a replayed create trips the PK and reports success), and a loader-minted `sendKey` echoed through the form scopes email `dedupeKey`s and derived invite tokens (compose, reviewer invites). A missing/invalid key may fall back to a fresh server key ONLY where it scopes dedupe alone (compose); where it derives a credential, fail closed instead (reviewer invites; trade recorded in FH2). A retry after failure keeps the SAME key so it resumes instead of duplicating; a fresh render mints a fresh one.
@@ -63,6 +67,19 @@ Add your route as a **new file** in `app/routes/` per [`ROUTE-MAP.md`](../ROUTE-
 
 **Reviewer obligation:** *"does this change leave two ways to do the same thing?"* If yes, one of them dies before merge. A shim is a deferral wearing a different coat ("I'll delete the old path later") — the No-shortcuts escalation valve applies: if the forward migration genuinely can't happen in this change, that's an integration-owner decision, not a shim.
 
+## Shape at the boundary [lint-enforced: `no-runtime-typeof`, `no-generic-instanceof`, `no-loose-variant-objects`]
+
+**The rule:** a value's shape is settled where it enters the program, never re-litigated downstream. `typeof x === "string"` deep in domain logic is not a safety net — it's a confession that nobody upstream knew what they were holding, and it's weaker than it looks (`typeof null === "object"`, `typeof NaN === "number"`).
+
+There are exactly two remedies, and picking the right one is the work:
+
+1. **Data from outside the program** — a request body, `FormData`, JSON in a column, `localStorage`, a cookie, a third-party API response — is **parsed once, at the edge**, and everything below it receives a typed value. If a shape check sits deep in the call graph, the bug is usually that the boundary above it never parsed. Fix the boundary, not the branch. The parse must accept everything the UI legitimately sends: an absent `FormData` key and a blank one arrive differently but usually mean the same thing.
+2. **A value the program itself produces in more than one shape** is **modeled**: a discriminated union, an overload, or a narrower parameter type. Nothing to parse — the type just never said what the code already knew. A schema call here is the wrong tool; it re-validates data the program authored.
+
+Some sites are neither, and the answer is to restructure so the question never arises: an "optional" field that the caller fakes with `|| undefined` and un-fakes with `?? null` was never optional — give it a default in the schema and delete the round-trip.
+
+**Corollaries.** `Array.isArray` is the sanctioned array check (`instanceof Array` is not). An `unknown` parameter that immediately probes its own shape is a boundary that leaked one frame too far. An object schema pairing an enum with several optional siblings is a discriminated union that hasn't admitted it yet — model the branches so each one names the fields it carries, and the cross-field `superRefine` that was policing them by hand disappears.
+
 ## Tests — every test must be able to catch a regression [lint-assisted: `meaningful-tests`]
 
 **The rule:** a test earns its place only by pinning a contract the code could plausibly violate later, with its expected value stated independently of the implementation — from the spec, the scenario, the bug, or the boundary, **never read off the code under test**. If deleting the test would lose nothing a future change could contradict, don't write it.
@@ -82,8 +99,8 @@ Assertions: every test asserts at least one **observable outcome** (return value
 
 Anti-patterns (delete on sight): pass-through tautology (`toHaveBeenCalledWith(input)` on unchanged input) · mock theater (everything mocked, assertions confirm the wiring) · re-derived oracle (expected value computed by the logic under test) · copy/prompt literal (`expect(IMPORTED).toContain("<its own source string>")`) · snapshot-as-coverage. The lint rule catches the mechanical subset; the litmus catches the rest. The true mechanical backstop is mutation testing (Stryker) — post-deadline.
 
-## Comments — write fewer, smaller, on the first try [lint-assisted: `no-citation-comments`]
+## Comments — write fewer, smaller, on the first try [lint-assisted: `no-citation-comments`, `no-long-comments`]
 
 The default is **no comment**. Write one only when it carries a non-obvious WHY: a hidden constraint, a subtle invariant, a workaround for a specific bug, a security-load-bearing claim, behavior that would surprise a reader. The test — if you delete it, would the next reader **misunderstand** the code? If no, don't write it.
 
-Never write: WHAT the code does (names already say it); change narration ("was P2", "rev. 2", "un-cut"); **references to SCOPE tiers, eval-kit rubric IDs, GAP-REGISTER rows, plans, or tickets** — state the load-bearing constraint directly, without the citation (the crosswalk and register hold those mappings; code never does); restatements of the obvious; multi-paragraph essays (3–4 lines is the ceiling — a longer WHY moves to a doc); self-references. Schema and port files are NOT exempt: the contract is the types and names; a comment there still has to pass the delete test.
+Never write: WHAT the code does (names already say it); change narration ("was P2", "rev. 2", "un-cut"); **references to SCOPE tiers, eval-kit rubric IDs, GAP-REGISTER rows, plans, or tickets** — state the load-bearing constraint directly, without the citation (the crosswalk and register hold those mappings; code never does); restatements of the obvious; multi-paragraph essays (4 lines is the ceiling, and a run of consecutive `//` lines counts as one comment — a longer WHY moves to a doc and the code links it); self-references. Schema and port files are NOT exempt: the contract is the types and names; a comment there still has to pass the delete test.

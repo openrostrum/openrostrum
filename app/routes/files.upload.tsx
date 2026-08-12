@@ -19,11 +19,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 }
 
 /**
- * Admin upload chokepoint: bytes go Worker-mediated into the private R2
- * bucket (never presigned — the bucket has no public read path), the row is
- * scoped to the ACTIVE event server-side, and a re-upload of the same name to
- * the same target continues that chain at version + 1. Speaker uploads go
- * through the portal task route instead.
+ * Admin upload chokepoint — speaker uploads go through the portal task route.
+ * Bytes go Worker-mediated into the private R2 bucket (never presigned — the
+ * bucket has no public read path), the row is scoped to the ACTIVE event
+ * server-side, and re-uploading a name to the same target is that chain + 1.
  */
 export async function action({ context, request }: Route.ActionArgs) {
 	const env = context.cloudflare.env;

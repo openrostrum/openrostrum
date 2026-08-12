@@ -29,6 +29,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
+import { thrownStatus } from "./thrown";
 import SubmissionDetail, {
 	action,
 	loader,
@@ -148,11 +149,7 @@ function renderDetail(loaderData: unknown): string {
 	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
 }
 
-const is404 = (thrown: unknown) =>
-	typeof thrown === "object" &&
-	thrown !== null &&
-	"init" in thrown &&
-	(thrown as { init: { status?: number } }).init?.status === 404;
+const is404 = (thrown: unknown) => thrownStatus(thrown) === 404;
 
 describe("submission detail loader", () => {
 	it("returns the full record: per-participant acceptance, answers, withdrawal metadata", async () => {

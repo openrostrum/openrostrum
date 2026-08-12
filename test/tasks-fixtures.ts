@@ -172,9 +172,4 @@ export function postForm(
 	};
 }
 
-export function unwrap<T>(result: unknown): T {
-	const maybe = result as { data?: T };
-	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
-		? maybe.data
-		: (result as T);
-}
+export { unwrap } from "./route-data";

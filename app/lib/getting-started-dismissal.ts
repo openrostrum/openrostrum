@@ -1,4 +1,5 @@
 import { createCookie } from "react-router";
+import { StoredIds } from "./stored-ids";
 
 /**
  * "Don't show again" for the getting-started checklist: an HttpOnly cookie
@@ -20,12 +21,9 @@ function dismissalPair(userId: string, eventId: string): string {
 }
 
 async function readPairs(request: Request): Promise<string[]> {
-	const value: unknown = await dismissCookie.parse(
-		request.headers.get("Cookie"),
+	return StoredIds.parse(
+		await dismissCookie.parse(request.headers.get("Cookie")),
 	);
-	return Array.isArray(value)
-		? value.filter((v): v is string => typeof v === "string")
-		: [];
 }
 
 export async function isGettingStartedDismissed(

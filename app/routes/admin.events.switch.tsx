@@ -11,7 +11,11 @@ import type { Route } from "./+types/admin.events.switch";
 // current event. The membership check is the tenancy guard — activeEventId can
 // only ever point at an event of an org the caller belongs to.
 
-const SwitchRequest = z.object({ eventId: z.string().min(1) });
+const SwitchRequest = z.object({
+	eventId: z.string().min(1),
+	// A missing or non-text redirectTo is not a bad request — it means "home".
+	redirectTo: z.string().nullish().catch(null),
+});
 
 // A bare GET (typed URL, stale link) has nothing to show — send it home.
 export async function loader({ context, request }: Route.LoaderArgs) {
@@ -24,11 +28,14 @@ export async function action({ context, request }: Route.ActionArgs) {
 	// Actions MUST self-authenticate — a POST does not run any layout loader.
 	const user = await requireAdmin(env, request);
 	const form = await request.formData();
-	const parsed = SwitchRequest.safeParse({ eventId: form.get("eventId") });
+	const parsed = SwitchRequest.safeParse({
+		eventId: form.get("eventId"),
+		redirectTo: form.get("redirectTo"),
+	});
 	if (!parsed.success) {
 		return Response.json({ error: "eventId is required." }, { status: 400 });
 	}
-	const { eventId } = parsed.data;
+	const { eventId, redirectTo } = parsed.data;
 
 	// One 403 for both "another org's event" and "no such event" — a different
 	// answer per case would disclose which event ids exist across tenants.
@@ -49,9 +56,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 	);
 	track("event.switched", { eventId, userId: user.id });
 
-	const requested = form.get("redirectTo");
-	const dest =
-		(typeof requested === "string" ? safeRedirect(requested) : null) ??
-		"/admin";
+	const dest = safeRedirect(redirectTo ?? "") ?? "/admin";
 	return redirect(dest, { headers: { "Server-Timing": timings.header() } });
 }

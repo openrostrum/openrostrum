@@ -7,15 +7,14 @@ import wrangler from "../wrangler.json";
 import worker from "../workers/app";
 import { DAY_MS, seedTasksBaseline } from "./tasks-fixtures";
 
-// Contract under test: the worker's scheduled() handler routes each cron tick
-// to the jobs declaring that cadence — the daily tick sends task reminders,
-// the hourly tick runs the Airtable reconciliation poll — and every cadence a
-// job declares is registered in wrangler.json `triggers.crons` (an
-// unregistered cadence = a job that silently never runs). Ticks run the REAL
-// jobs: outcomes are observed in D1 (email_outbox), so a job whose `cron`
-// field breaks (e.g. the registry⇄job import cycle that once left it
-// `undefined`) fails on missing/extra sends, not on wiring introspection.
+// Contract under test: the worker's scheduled() handler routes each cron tick to
+// the jobs declaring that cadence — daily sends task reminders, hourly runs the
+// Airtable reconciliation poll — and every cadence a job declares is registered
+// in wrangler.json `triggers.crons` (unregistered = a job that never runs).
 
+/** Runs the REAL jobs, so outcomes are observed in D1 (email_outbox): a job
+ * whose `cron` field breaks (the registry⇄job import cycle that once left it
+ * `undefined`) fails on missing/extra sends, not on wiring introspection. */
 async function tick(cron: string) {
 	const controller = {
 		cron,
@@ -68,10 +67,7 @@ describe("scheduled() cron dispatch", () => {
 		const crons: string[] = wrangler.triggers.crons;
 		expect(scheduledJobs.length).toBeGreaterThanOrEqual(2);
 		for (const job of scheduledJobs) {
-			expect(
-				typeof job.cron === "string" && job.cron.length > 0,
-				`"${job.name}" declares no cadence`,
-			).toBe(true);
+			expect(job.cron, `"${job.name}" declares no cadence`).not.toBe("");
 			expect(
 				crons,
 				`"${job.name}" cadence "${job.cron}" missing from wrangler.json`,

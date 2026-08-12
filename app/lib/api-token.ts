@@ -32,11 +32,10 @@ export async function sha256Hex(value: string): Promise<string> {
 }
 
 /**
- * Resolve a presented raw token to its tenant, or null (respond 401). Lookup
- * is by SHA-256 — the raw value is never stored. `lastUsedAt` is stamped only
- * on a hit, so garbage tokens can't cause write amplification. Pass
- * `waitUntil` (request handlers) to stamp off the critical path; without it
- * the stamp is awaited (deterministic for tests and jobs).
+ * Resolve a presented raw token to its tenant, or null (respond 401). Lookup is
+ * by SHA-256 — the raw value is never stored. `lastUsedAt` is stamped only on a
+ * hit, so garbage tokens can't amplify writes. Pass `waitUntil` to stamp off the
+ * critical path; without it the stamp is awaited (deterministic in tests/jobs).
  */
 export async function authenticateApiToken(
 	env: Env,

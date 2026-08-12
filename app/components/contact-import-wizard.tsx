@@ -28,9 +28,7 @@ import {
 
 /**
  * The CSV importer: upload → map columns → review probable duplicates → done.
- *
- * Both import screens (event roster, organization directory) render THIS —
- * they differ only in the copy and in what they carry through the steps, so a
+ * Both import screens (event roster, organization directory) render THIS, so a
  * fix to the wizard can never land on one importer and miss the other.
  */
 export interface ContactImportWizardProps {

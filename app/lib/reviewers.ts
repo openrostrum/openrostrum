@@ -16,11 +16,9 @@ import { fetchChunked } from "~/lib/evaluation";
 
 /**
  * Invited-but-not-yet-onboarded users carry an UNVERIFIABLE password hash:
- * `verifyPassword` only accepts the `pbkdf2$…` scheme, so this sentinel can
- * never log in until the set-password link replaces it (the schema-blessed
- * invite pattern on `passwordResets`). The `invite-pending$` prefix is the
- * shared cross-lane convention (see `admin.settings.team.tsx`), so team-invite
- * flows recognize these accounts as credential-less too.
+ * `verifyPassword` only accepts `pbkdf2$…`, so this sentinel can never log in
+ * until the set-password link replaces it. The prefix is the shared cross-lane
+ * convention (see `admin.settings.team.tsx`) — team invites recognize it too.
  */
 export const SENTINEL_HASH_PREFIX = "invite-pending$";
 
@@ -141,13 +139,10 @@ export const SEND_KEY_RE =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Mint a set-password token for an invited reviewer. `organizationId` stays
- * NULL deliberately: the accept flow derives what a token grants from that
- * column, and a reviewer token must never create an org membership.
- *
- * Derived, not random: a replayed POST re-mints the SAME token, and the
- * token-scoped email dedupeKey then suppresses the resend. Unpredictability
- * rests on the sendKey being a server-minted UUID — anything else throws.
+ * Mint a set-password token for an invited reviewer. Derived, not random: a
+ * replayed POST re-mints the SAME token, and the token-scoped email dedupeKey
+ * then suppresses the resend. Unpredictability rests on the sendKey being a
+ * server-minted UUID — anything else throws.
  */
 export async function mintInviteToken(
 	db: Db,
@@ -158,12 +153,8 @@ export async function mintInviteToken(
 }
 
 /**
- * Mint a fresh set-password link for a reviewer who ALREADY has a working
- * password — the only credential an organizer can hand out once the invite
- * has been redeemed. Same org-less token, different derivation purpose so an
- * invite and a sign-in link minted under one page's sendKey never collide.
- *
- * Callers MUST gate this on `hasStandingOutsideOrg` — redeeming the link
+ * Mint a fresh set-password link for a reviewer who already has a password.
+ * Callers MUST gate this on `hasStandingOutsideOrg`: redeeming the link
  * replaces the account's password, so minting one for an account with reach
  * beyond the organizer's own org would be a cross-tenant takeover.
  */
@@ -189,6 +180,8 @@ async function mintOrgLessToken(
 		.insert(passwordResets)
 		.values({
 			userId,
+			// NULL deliberately: the accept flow derives what a token grants from
+			// this column, and a reviewer token must never create a membership.
 			organizationId: null,
 			token,
 			expiresAt: new Date(Date.now() + INVITE_TTL_MS),

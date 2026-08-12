@@ -4,7 +4,7 @@ import type { Db } from "~/db";
 import { contacts, events } from "~/db/schema";
 import {
 	carriedProfile,
-	isContactStatus,
+	contactStatus,
 	probableContactDuplicateKey,
 	splitFullName,
 } from "~/domain/contacts";
@@ -22,13 +22,10 @@ import { normalizeXUrl } from "~/lib/social";
 import type { createTimings } from "~/lib/track";
 
 /**
- * The import engine: one planner and one writer behind both CSV importers.
- *
- * The event roster imports into a single event; the organization directory
- * imports into a chosen event but matches against the whole organization, so a
- * person already in the directory gains an appearance (`linked`) instead of a
- * duplicate identity. The difference is entirely in the `existing` set handed
- * to the planner — there is no second code path to keep in step.
+ * The import engine: one planner and one writer behind both CSV importers. The
+ * roster matches within one event, the directory across the organization, and
+ * that difference is entirely the `existing` set handed to the planner — a
+ * person the directory knows gains an appearance, not a duplicate identity.
  */
 
 type Contact = typeof contacts.$inferSelect;
@@ -194,7 +191,7 @@ export function planContactImport(input: {
 		seen.set(email, rowNum);
 
 		const statusRaw = cell(row, "status").toLowerCase();
-		const status = isContactStatus(statusRaw) ? statusRaw : null;
+		const status = contactStatus.safeParse(statusRaw).data ?? null;
 		const statusNote =
 			statusRaw && !status ? ` (unknown status "${statusRaw}" ignored)` : "";
 
@@ -337,9 +334,8 @@ const CHUNK = 50;
 /**
  * Write the plan in bounded batches. A batch is a transaction, so a failure
  * loses that batch and everything after it — those rows are rewritten as
- * skipped so the summary never claims a row landed when it didn't.
- *
- * Returns the underlying error message (for tracking) or null on success.
+ * skipped so the summary never claims a row landed when it didn't. Returns the
+ * underlying error message for tracking, or null on success.
  */
 export async function executeImportWrites(
 	db: Db,

@@ -17,6 +17,7 @@ import { createSession, hashPassword } from "../app/lib/auth";
 import { utcToZonedInputs, zonedTimeToUtc } from "../app/lib/forms";
 import { sanitizeRichText } from "../app/lib/forms.server";
 import { action, loader } from "../app/routes/admin.forms.$formId";
+import { unwrap as unwrapData } from "./route-data";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
@@ -115,12 +116,7 @@ type ActionResult = {
 
 // Non-redirect action results come wrapped by `data()` (Server-Timing rides
 // on the wrapper) — unwrap to the payload the UI sees.
-function unwrap(result: unknown): ActionResult {
-	if (result && typeof result === "object" && "data" in result) {
-		return (result as { data: ActionResult }).data;
-	}
-	return result as ActionResult;
-}
+const unwrap = (result: unknown) => unwrapData<ActionResult>(result);
 
 async function runAction(
 	formId: string,
@@ -442,6 +438,55 @@ describe("save-form", () => {
 		expect(form?.config).toEqual({
 			notify: { newSubmission: ["u_admin"], updatedSubmission: ["u_admin"] },
 		});
+	});
+
+	it("saves when the UI omits the panels it never rendered", async () => {
+		// A hidden panel posts nothing at all, so an absent key must land exactly
+		// like a blank one — otherwise saving from a collapsed section fails.
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		const body = saveFormBody({
+			allowChairperson: "false",
+			allowModerator: "false",
+		});
+		for (const key of [
+			"roleChairpersonMax",
+			"roleModeratorMax",
+			"submissionLimit",
+			"closeDate",
+			"closeTime",
+		]) {
+			body.delete(key);
+		}
+		expect(unwrap(await action(actionArgs(formId, body, cookie))).ok).toBe(
+			"save-form",
+		);
+		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
+		expect(form?.closeAt).toBeNull();
+		expect(form?.submissionLimit).toBeNull();
+	});
+
+	it("treats a whitespace-only optional value as cleared, not as invalid", async () => {
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		const result = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({
+						closeDate: "   ",
+						closeTime: " ",
+						submissionLimit: "  ",
+					}),
+					cookie,
+				),
+			),
+		);
+		expect(result.fieldErrors).toBeUndefined();
+		expect(result.ok).toBe("save-form");
+		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
+		expect(form?.closeAt).toBeNull();
+		expect(form?.submissionLimit).toBeNull();
 	});
 
 	it("round-trips the existing-contact participant notification policy when disabled", async () => {

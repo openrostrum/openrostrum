@@ -39,12 +39,10 @@ import {
 } from "./pagination";
 
 /**
- * Event Settings lookups, mirroring the spec's dual shape per catalog: GET
- * returns the bare array in the catalog's own order; POST (search) returns
- * the paginated `results` envelope honoring the RecordSearchBody —
- * createdAt filter, sort (updatedAt sorts fall back to creation order, these
- * tables track no updates), and body page/pageSize. A status filter is
- * accepted and ignored, as the spec scopes it to session searches.
+ * Event Settings lookups mirror the spec's dual shape per catalog: GET returns
+ * the bare array in catalog order, POST (search) the paginated `results`
+ * envelope honoring RecordSearchBody. `updatedAt` sorts fall back to creation
+ * order (no update tracking); a status filter is accepted and ignored.
  */
 type LookupSearchSpec<Row> = {
 	path: string;

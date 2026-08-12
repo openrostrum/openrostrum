@@ -1,11 +1,8 @@
 /**
  * The CSV importer's shared vocabulary — field list, header guessing, mapping
- * validation, and the step machine both import screens render.
- *
- * Client-safe on purpose (the wizard component imports it): every query lives
- * in ~/domain/contact-import. One definition of "what a contact CSV column
- * means" serves the event roster and the organization directory — a second
- * spelling would let the two importers disagree about the same file.
+ * validation, and the step machine both import screens render. Client-safe on
+ * purpose (the wizard imports it): every query lives in ~/domain/contact-import,
+ * so the two importers cannot disagree about what a CSV column means.
  */
 
 import { parseCsv } from "~/lib/csv";

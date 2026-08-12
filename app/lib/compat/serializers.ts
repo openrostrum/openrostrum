@@ -17,12 +17,10 @@ import type {
 import { maskEmail, maskPhone } from "./pii";
 
 /**
- * Sessionboard-shape serializers (field names/nesting per the vendored
- * OpenAPI spec; field SET per the data-exposure matrix's API column). Hide-PII
- * is hardcoded ON — every email/phone passes the masks, no unmasked variant
- * exists. The public JSON feeds are expected to build on these and TIGHTEN
- * the projection (drop emails/phones, filter is_public) — hence app/lib, not
- * a route-feature directory.
+ * Sessionboard-shape serializers (field names/nesting per the vendored OpenAPI
+ * spec; field SET per the data-exposure matrix's API column). Hide-PII is
+ * hardcoded ON — every email/phone passes the masks, no unmasked variant exists.
+ * Public JSON feeds build on these and TIGHTEN them, hence app/lib not a route.
  */
 
 type EventRow = typeof events.$inferSelect;

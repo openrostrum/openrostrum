@@ -720,11 +720,9 @@ export async function action({ context, request }: Route.ActionArgs) {
 }
 
 /**
- * One keyed fetcher for all drag/unschedule posts, with a queue: a quick
- * second drag must never abort an in-flight write (resubmitting a busy
- * fetcher cancels its request), and a keyed fetcher's `data` persists so a
- * rejected drop surfaces as an inline error instead of a silent snap-back.
- * The next successful mutation clears it.
+ * One keyed fetcher for all drag/unschedule posts, with a queue: a quick second
+ * drag must never abort an in-flight write (resubmitting a busy fetcher cancels
+ * its request).
  */
 function useMutationQueue() {
 	const fetcher = useFetcher<ActionResult>({ key: "agenda-dnd" });
@@ -740,6 +738,8 @@ function useMutationQueue() {
 		if (fetcher.state === "idle") void fetcher.submit(fd, { method: "post" });
 		else queueRef.current.push(fd);
 	};
+	// A keyed fetcher's `data` persists, so a rejected drop surfaces as an inline
+	// error instead of a silent snap-back; the next success clears it.
 	return { submitMutation, mutationError: fetcher.data?.formError ?? null };
 }
 

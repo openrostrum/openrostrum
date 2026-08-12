@@ -1,11 +1,11 @@
 /**
  * Thin record I/O against one Airtable base — the transport under the sync
  * engine (docs/airtable-sync-design.md). The port carries NO sync logic: field
- * classes, three-way reconciliation, and tenancy filtering live in
- * app/sync/* + app/lib/airtable-map.ts. All Airtable I/O is background-only,
- * never in the request path: the API caps at 5 req/s per base, so D1 stays
- * the serving layer.
+ * classes, reconciliation, and tenancy live in app/sync/* + lib/airtable-map.ts.
+ * Background-only: the API caps at 5 req/s per base, so D1 stays the server.
  */
+
+import { z } from "zod";
 
 export type AirtableFieldValue = string | number | boolean | null;
 export type AirtableFields = Record<string, AirtableFieldValue>;
@@ -19,6 +19,17 @@ export interface AirtableRecord {
 // (friendly_id semantics): re-syncing a record updates its row instead of
 // duplicating it, and the team can reorder/regroup rows freely around it.
 export const MERGE_FIELD = "Record ID";
+
+const MergeKey = z.string().min(1);
+
+/**
+ * A record's merge key, or null when it has none the mirror can use — the
+ * team cleared the cell, retyped the column, or created the row themselves.
+ * Every caller of MERGE_FIELD asks through here so "usable key" is one answer.
+ */
+export function recordKey(record: { fields: AirtableFields }): string | null {
+	return MergeKey.safeParse(record.fields[MERGE_FIELD]).data ?? null;
+}
 
 export interface AirtableBase {
 	/**
@@ -126,8 +137,8 @@ export function createFakeAirtableBase(): FakeAirtableBase {
 			const store = tableStore(table);
 			const results: AirtableRecord[] = [];
 			for (const record of records) {
-				const mergeValue = record.fields[MERGE_FIELD];
-				if (typeof mergeValue !== "string" || mergeValue === "") {
+				const mergeValue = recordKey(record);
+				if (mergeValue === null) {
 					throw new Error(`Upsert record is missing "${MERGE_FIELD}"`);
 				}
 				const existing = [...store].find(

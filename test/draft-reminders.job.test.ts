@@ -21,10 +21,8 @@ import type { EmailSender } from "../app/ports/email";
 
 // Contract under test: reminders fire five days and one day before the form's
 // close date, counted in CALENDAR DAYS IN THE EVENT'S TIMEZONE (close
-// 2026-09-15 23:59 PDT = 2026-09-16 06:59Z, and the 5-day occurrence is
-// Sep 10 — naive UTC day-diff says 6 and skips it). Only draft holders are
-// reminded, once per (form, holder, occurrence); replays add nothing; the
-// toggle and the form status gate everything.
+// 2026-09-15 23:59 PDT = 2026-09-16 06:59Z, so the 5-day occurrence is Sep 10 —
+// naive UTC day-diff says 6 and skips it).
 
 /** 2026-09-15 23:59 America/Los_Angeles (PDT = UTC-7). */
 const CLOSE_AT = new Date("2026-09-16T06:59:00Z");

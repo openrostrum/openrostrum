@@ -33,13 +33,10 @@ import {
 import type { Route } from "./+types/admin.crm.directory_.import";
 
 /**
- * Import people into the organization directory. Same engine as the event
- * roster importer (~/domain/contact-import) with the organization as the
- * matching scope: someone the directory already knows gains an appearance on
- * the chosen event instead of becoming a second person with the same email.
- *
- * A contact always belongs to an event, so the importer asks which one — the
- * same requirement the directory's "Add person" form makes.
+ * Import people into the organization directory: the roster importer's engine
+ * (~/domain/contact-import) with the organization as the matching scope, so
+ * someone the directory knows gains an appearance rather than a second
+ * identity. A contact always belongs to an event, so the importer asks which.
  */
 type ActionResult = ImportStep & { targetEventId: string | null };
 

@@ -7,13 +7,18 @@ import {
 	taskAssignments,
 	tasks,
 } from "../app/db/schema";
-import { action, loader } from "../app/routes/admin.tasks_.$assignmentId";
+import {
+	action,
+	answerText,
+	loader,
+} from "../app/routes/admin.tasks_.$assignmentId";
 import {
 	authedRequest,
 	CONTEXT,
 	DAY_MS,
 	postForm,
 	seedTasksBaseline,
+	unwrap,
 } from "./tasks-fixtures";
 
 // Contracts under test: the admin reads the submitted answers verbatim on
@@ -45,12 +50,7 @@ type UnwrappedAction = {
 };
 
 /** Actions may return `data(result, { headers })` — read through the wrapper. */
-function unwrapAction(result: unknown): UnwrappedAction {
-	const maybe = result as { data?: UnwrappedAction };
-	return maybe && typeof maybe === "object" && "data" in maybe && maybe.data
-		? maybe.data
-		: (result as UnwrappedAction);
-}
+const unwrapAction = (result: unknown) => unwrap<UnwrappedAction>(result);
 
 async function callAction(
 	assignmentId: string,
@@ -269,5 +269,26 @@ describe("file-request review (approve/deny)", () => {
 			.from(taskAssignments)
 			.where(eq(taskAssignments.id, "ta_bob_slides"));
 		expect(bob?.status).toBe("incomplete");
+	});
+});
+
+describe("answerText", () => {
+	it("renders every answer shape a stored response can hold", () => {
+		// The response column is free-form JSON: a form retyped after the
+		// speaker answered leaves older rows in the shape they were saved in.
+		expect(answerText("Handheld")).toBe("Handheld");
+		expect(answerText(3)).toBe("3");
+		expect(answerText(0)).toBe("0");
+		expect(answerText(false)).toBe("false");
+		expect(answerText(["a", "b"])).toBe('["a","b"]');
+		expect(answerText({ key: "u/1", name: "deck.pdf" })).toBe(
+			'{"key":"u/1","name":"deck.pdf"}',
+		);
+	});
+
+	it("shows a dash for an answer that was never given", () => {
+		expect(answerText(null)).toBe("—");
+		expect(answerText(undefined)).toBe("—");
+		expect(answerText("")).toBe("—");
 	});
 });
