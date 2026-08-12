@@ -1031,12 +1031,13 @@ test("a reviewer that submits through the close allowance is left only the close
 		},
 	};
 
+	const INVESTIGATION = 2;
 	const result = await runRuleReviewer({
 		agent: ENGINEERING,
 		system: "SYSTEM RULE",
 		repository: repository(THREE_FILES),
 		runtime: watched,
-		limits: { maxTurns: 2 },
+		limits: { maxTurns: INVESTIGATION },
 	});
 
 	assert.equal(result.status, "complete", result.reason);
@@ -1046,19 +1047,61 @@ test("a reviewer that submits through the close allowance is left only the close
 		["finish_review"],
 		"the session ended still offering something to do other than close",
 	);
-	// It submitted on every turn it was given, investigation and allowance alike,
-	// so the run only ends where submitting stops being possible. Without a floor
-	// here the two assertions above would also hold for a reviewer that closed on
-	// its first turn and proved nothing.
+	// The oracle is the investigation budget it was given, not this fixture's
+	// length: submitting past that budget is the close allowance being spent, and
+	// without it the assertions above would also hold for a reviewer that closed
+	// on its first turn having proved nothing.
 	assert.ok(
-		result.findings.length > 8,
-		`expected submissions through the whole allowance, got ${result.findings.length}`,
+		result.findings.length > INVESTIGATION,
+		`expected submissions past the investigation budget, got ${result.findings.length}`,
 	);
 	// Every finding it managed to submit is still banked: the close is forced to
 	// end the session, not to cut the review short of what it proved.
 	assert.equal(result.findings.length, offered.length - 1);
 	assert.match(asks.at(-1), /only call/i);
 	assert.match(asks.at(-1), new RegExp(`${result.findings.length} finding`));
+});
+
+// Closing on the last turn of the allowance is a volunteered close, and the
+// session has to be read that way: the turn budget and the close land in the
+// same response, so a loop that reads the budget first drags a reviewer that did
+// exactly what it was asked into the forced stage and re-asks for a close it has
+// already made.
+test("a close that lands on the last allowed turn is taken, not overridden", async () => {
+	const CLOSING = 10;
+	let requests = 0;
+	const { runtime } = fauxRuntime(
+		Array.from({ length: CLOSING + 4 }, (_, index) => () => {
+			requests++;
+			const finding = violation(index);
+			// The last turn the allowance permits: submit and close together.
+			return requests < CLOSING
+				? submits([finding], `s${index}`)
+				: fauxAssistantMessage(
+						[
+							submit(finding, `s${index}`),
+							fauxToolCall("finish_review", { submitted: requests }),
+						],
+						{ stopReason: "toolUse" },
+					);
+		}),
+	);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+		limits: { maxTurns: 2 },
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(
+		result.forced,
+		false,
+		"a reviewer that closed when asked was reported as having been forced",
+	);
+	assert.equal(result.findings.length, CLOSING);
 });
 
 // A forced close is a weaker claim than a volunteered one — the reviewer never
@@ -1073,5 +1116,16 @@ test("the run summary says when the close had to be forced", () => {
 		findings: [violation(0)],
 	};
 	assert.doesNotMatch(summaryLine(session), /forced/);
-	assert.match(summaryLine({ ...session, forced: true }), /forced/);
+	// Position, not presence: the numbers have to stay readable, so `forced` sits
+	// with the other markers ahead of the free-text reason rather than after it.
+	assert.match(
+		summaryLine({
+			...session,
+			status: "incomplete",
+			reasked: 1,
+			forced: true,
+			reason: "terminated",
+		}),
+		/reasked=1; forced; reason=terminated$/,
+	);
 });

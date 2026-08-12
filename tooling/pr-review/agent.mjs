@@ -172,7 +172,10 @@ const CLOSE_TURNS = 8;
 // submitting, so reviews that had done the work were reported incomplete. The
 // allowance therefore ends in turns where the toolset holds nothing but the
 // close, which makes closing the only move left rather than the requested one.
-const FINAL_TURNS = 2;
+// Three turns, because two of them can be spent failing in ways that are not the
+// reviewer refusing to close: a response that ignores forced tool choice, and a
+// malformed close that earns its one re-ask.
+const FINAL_TURNS = 3;
 
 function closePrompt(banked, perResponse) {
 	return `Investigation is over — this review has reached its turn budget. Read nothing further.
@@ -389,6 +392,13 @@ export async function runRuleReviewer({
 					spent(),
 				);
 			}
+
+			// A close and the turn budget land in the same response when a reviewer
+			// closes on the last turn it was given. That is the answer the contract
+			// asks for, so it wins: reading the budget first would escalate a
+			// reviewer that did exactly what it was asked and re-ask for a close it
+			// had already made.
+			if (closed && limitReason === TURN_BUDGET) limitReason = undefined;
 
 			// The budget is spent on investigation, so reaching it is the moment to
 			// ask for the close rather than the moment to give up on it — and then,
