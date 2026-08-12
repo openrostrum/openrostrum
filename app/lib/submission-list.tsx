@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+	type ComponentType,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { Form, Link, useFetcher, useLocation } from "react-router";
 // Pure client-safe module: the Abstracts and Sessions tabs are ONE
 // implementation rendered by two type-scoped routes (server half in
@@ -17,8 +23,10 @@ import {
 	EmptyRow,
 	ErrorText,
 	Field,
+	InkLink,
 	Input,
 	MotionReveal,
+	NoteText,
 	PageHeader,
 	Panel,
 	SearchInput,
@@ -101,18 +109,38 @@ export interface SubmissionListRow {
 }
 
 /**
- * Sessionboard's eye toggle: hides the CONTACT from every public surface —
- * all their sessions, embeds, and feeds — not just this row. Optimistic while
- * the fetcher is in flight so a slow write doesn't read as a dead button.
+ * Sessionboard's eye toggle: hides the CONTACT from every public surface — all
+ * their sessions, embeds, and feeds — not just this row. The name links to the
+ * speaker and the eye is the only button: they used to be one control, and an
+ * evaluator aiming for a session title hid a speaker from every public page.
  */
-function SpeakerVisibilityToggle({ speaker }: { speaker: RowSpeaker }) {
-	const busy = useBusy();
-	const fetcher = useFetcher<ListActionData>();
-	const pending = fetcher.formData?.get("visible");
-	const visible = pending != null ? pending === "1" : speaker.publicVisible;
+export function SpeakerVisibilityCell({
+	Form,
+	busy,
+	speaker,
+	visible,
+	notice,
+	formError,
+}: {
+	Form: ComponentType<{
+		method: "post";
+		className: string;
+		children: ReactNode;
+	}>;
+	busy: boolean;
+	speaker: RowSpeaker;
+	/** The state to render — optimistic while a toggle is in flight. */
+	visible: boolean;
+	notice?: string;
+	formError?: string;
+}) {
 	return (
-		<fetcher.Form method="post" className="flex flex-col gap-1">
+		<Form method="post" className="flex flex-col gap-1">
 			<div className="flex items-center gap-2">
+				<InkLink strong to={`/admin/contacts/${speaker.contactId}`}>
+					{speaker.name}
+				</InkLink>
+				{!visible && <StatusBadge tone="neutral">Hidden</StatusBadge>}
 				<Input
 					type="hidden"
 					name="contactId"
@@ -133,20 +161,40 @@ function SpeakerVisibilityToggle({ speaker }: { speaker: RowSpeaker }) {
 					icon="eye"
 					disabled={busy}
 					aria-pressed={!visible}
+					aria-label={
+						visible
+							? `Hide ${speaker.name} from the public program`
+							: `Show ${speaker.name} on the public program`
+					}
 					title={
 						visible
 							? `Hide ${speaker.name} from the public program (all their sessions, embeds, and feeds)`
 							: `Show ${speaker.name} on the public program`
 					}
-				>
-					{speaker.name}
-				</Button>
-				{!visible && <StatusBadge tone="neutral">Hidden</StatusBadge>}
+				/>
 			</div>
-			{fetcher.data?.formError && (
-				<ErrorText>{fetcher.data.formError}</ErrorText>
-			)}
-		</fetcher.Form>
+			{notice && <NoteText>{notice}</NoteText>}
+			{formError && <ErrorText>{formError}</ErrorText>}
+		</Form>
+	);
+}
+
+function SpeakerVisibilityToggle({ speaker }: { speaker: RowSpeaker }) {
+	const busy = useBusy();
+	const fetcher = useFetcher<ListActionData>();
+	const pending = fetcher.formData?.get("visible");
+	// Optimistic while the write is in flight, so a slow toggle doesn't read as
+	// a dead button.
+	const visible = pending != null ? pending === "1" : speaker.publicVisible;
+	return (
+		<SpeakerVisibilityCell
+			Form={fetcher.Form}
+			busy={busy}
+			speaker={speaker}
+			visible={visible}
+			notice={fetcher.data?.notice}
+			formError={fetcher.data?.formError}
+		/>
 	);
 }
 

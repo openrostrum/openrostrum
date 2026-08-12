@@ -17,6 +17,7 @@ export {
 	MotionReveal,
 	PopoverSurface,
 } from "./motion";
+export { NoteText } from "./note-text";
 export { PageHeader } from "./page-header";
 export { Panel } from "./panel";
 // RichText deliberately NOT re-exported here: the barrel is imported by every
