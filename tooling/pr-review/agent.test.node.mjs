@@ -7,7 +7,11 @@ import {
 	fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { runRuleReviewer, runRuleReviewers, summaryLine } from "./agent.mjs";
-import { FINDING_LIMITS, loadSystems } from "./core.mjs";
+import {
+	FINDING_LIMITS,
+	loadSystems,
+	SUBMISSIONS_PER_RESPONSE,
+} from "./core.mjs";
 import { anchorFinding } from "./inline.mjs";
 
 const stop = (value) => fauxAssistantMessage(JSON.stringify(value));
@@ -938,6 +942,11 @@ test("a reviewer still reading at its budget is asked to close, and does", async
 	assert.match(close, /investigation is over/i);
 	assert.match(close, /read nothing further/i);
 	assert.match(close, /1 finding\(s\) are recorded/);
+	// Production reviewers submitted one finding per closing turn and ran out of
+	// turns with findings still unsent — every failing session banked exactly as
+	// many findings as it had closing turns. The ask has to carry the allowance,
+	// or the drip rate decides how much of the review survives.
+	assert.match(close, new RegExp(`${SUBMISSIONS_PER_RESPONSE} `));
 });
 
 // Telling a reviewer to stop reading was not enough in production — four of five

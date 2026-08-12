@@ -98,6 +98,12 @@ is therefore treated as the moment to ask for the close, not the moment to give 
 on it: the session gets one explicit "investigation is over" ask with a small extra
 turn allowance, told what is already banked so it does not resubmit.
 
+The close ask also names the per-response allowance, because the failing sessions
+submitted one finding per turn: each banked exactly as many findings as it had
+closing turns. At one per response the drip rate, not the review, decides how much
+survives, so the ask says how many `submit_finding` calls one response may carry
+and that anything unsent when the allowance ends is lost.
+
 Asking is not enough on its own. On a 25-file pull request four of five sessions
 spent that whole allowance submitting more findings and never closed, so reviews
 that had already done the work were reported incomplete — asking loses to a

@@ -174,10 +174,12 @@ const CLOSE_TURNS = 8;
 // close, which makes closing the only move left rather than the requested one.
 const FINAL_TURNS = 2;
 
-function closePrompt(banked) {
+function closePrompt(banked, perResponse) {
 	return `Investigation is over — this review has reached its turn budget. Read nothing further.
 
-Submit with a ${SUBMIT_TOOL} call anything you have already proved but not yet submitted, then call ${FINISH_TOOL} with the running total. ${banked} finding(s) are recorded; do not submit them again.`;
+Submit with a ${SUBMIT_TOOL} call anything you have already proved but not yet submitted, then call ${FINISH_TOOL} with the running total. ${banked} finding(s) are recorded; do not submit them again.
+
+Turns are almost gone, so do not send them one at a time: put up to ${perResponse} ${SUBMIT_TOOL} calls in this one response. Anything still unsent when the allowance runs out is lost from the review.`;
 }
 
 function finalPrompt(banked) {
@@ -401,7 +403,13 @@ export async function runRuleReviewer({
 					// repository tools away leaves submitting and closing as the only
 					// calls it can make, and tool choice is already forced.
 					reviewer.state.tools = [sink.tool, terminal.tool];
-					ask = closePrompt(sink.findings.length);
+					// Every failing production session banked exactly as many findings as
+					// it had closing turns — one submission per response, then the
+					// allowance ran out. The allowance is per response, so say so.
+					ask = closePrompt(
+						sink.findings.length,
+						limits.maxSubmissionsPerResponse,
+					);
 				} else {
 					stage = "finalizing";
 					turnCeiling = turns + FINAL_TURNS;
