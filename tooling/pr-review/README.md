@@ -52,7 +52,10 @@ anchoring tests whether the cited changed line contains it; `rule` and `why` onl
 render as prose and are elided. A truncated answer (`stopReason: "length"`) stays
 incomplete and additionally reports the output tokens the provider says it produced,
 how many were reasoning, and the ceiling the request asked for — enough to tell an
-oversized answer from a provider ceiling below the one we sent.
+oversized answer from a provider ceiling below the one we sent. A session that stops
+normally without the contracted JSON object reports the block types, text length, and
+opening of what did arrive, which separates narrating instead of answering from
+answering with reasoning only or with nothing.
 
 Incomplete runs are named in the summary and fail the required AI-review check.
 Findings from completed sessions still post, but zero findings cannot render as “no
@@ -92,8 +95,9 @@ node --test tooling/pr-review/*.test.node.mjs
 
 They cover dynamic one-session-per-rule launch over a 240-file index, multi-turn
 changed and unchanged reads, Git-backed repository access and path safety,
-provider/tool/budget failure states, truncation diagnostics, a stated finding
-budget that matches the enforced one, a trimmed quote that still anchors,
+provider/tool/budget failure states, truncation and unparseable-answer
+diagnostics, a stated finding budget that matches the enforced one, a trimmed
+quote that still anchors,
 anchoring, fingerprints, dedupe, reconciliation, stale deferral, and posting
 payloads. CI runs this complete set in its unconditional quality job.
 

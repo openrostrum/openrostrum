@@ -198,6 +198,40 @@ test("a malformed terminal response is incomplete, not a clean review", async ()
 	assert.deepEqual(result.findings, []);
 });
 
+// Narrating instead of answering, answering with reasoning only, and answering
+// with nothing all reach the boundary as the same schema error. Production has
+// hit this on four separate runs, and the reason has to say which one it was.
+test("an unparseable terminal answer names what the model emitted", async () => {
+	const narration = "I checked every changed file and found no violations.";
+	const { runtime } = fauxRuntime([fauxAssistantMessage(narration)]);
+
+	const narrated = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository([{ status: "M", path: "app/x.ts" }]),
+		runtime,
+	});
+
+	assert.equal(narrated.status, "incomplete");
+	assert.match(narrated.reason, /must be object/);
+	assert.match(narrated.reason, /blocks text/);
+	assert.match(
+		narrated.reason,
+		new RegExp(`${narration.length} chars of text`),
+	);
+	assert.match(narrated.reason, /starting "I checked every changed file/);
+
+	const silent = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository([{ status: "M", path: "app/x.ts" }]),
+		runtime: fauxRuntime([fauxAssistantMessage("")]).runtime,
+	});
+
+	assert.equal(silent.status, "incomplete");
+	assert.match(silent.reason, /0 chars of text, no text emitted/);
+});
+
 test("a finding outside the pull request is incomplete", async () => {
 	const { runtime } = fauxRuntime([
 		stop({

@@ -84,11 +84,11 @@ function clamp(text, limit, { ellipsis = false } = {}) {
 	return `${whole || cut.slice(0, limit - 1)}…`;
 }
 
-function validateFindings(value, changedPaths, agent) {
+function validateFindings(value, changedPaths, agent, answer) {
 	if (!Value.Check(TERMINAL_RESPONSE, value)) {
 		const [first] = [...Value.Errors(TERMINAL_RESPONSE, value)];
 		throw new Error(
-			`terminal response is not a complete review: ${first?.path || "/"} ${first?.message ?? "invalid shape"}`,
+			`terminal response is not a complete review: ${first?.path || "/"} ${first?.message ?? "invalid shape"} (${answer})`,
 		);
 	}
 	return value.findings.map((finding, index) => {
@@ -129,6 +129,20 @@ function assistantText(message) {
 		.filter((block) => block.type === "text")
 		.map((block) => block.text)
 		.join("");
+}
+
+// A session that stops normally without the contracted JSON object fails with
+// the same schema error whether the model narrated instead of answering, emitted
+// only reasoning, or said nothing at all — and that error names no cause anyone
+// can act on. Report the shape of what actually arrived, bounded so a runaway
+// answer cannot flood the CI summary with the review it failed to deliver.
+const ANSWER_EXCERPT = 200;
+
+function answerDetail(message) {
+	const blocks = message.content.map((block) => block.type);
+	const text = assistantText(message);
+	const opening = text.replace(/\s+/g, " ").trim().slice(0, ANSWER_EXCERPT);
+	return `blocks ${blocks.join("+") || "none"}, ${text.length} chars of text, ${opening ? `starting "${opening}"` : "no text emitted"}`;
 }
 
 export async function runRuleReviewer({
@@ -209,6 +223,7 @@ export async function runRuleReviewer({
 			extractJson(assistantText(terminal)),
 			changedPaths,
 			agent,
+			answerDetail(terminal),
 		);
 		return {
 			agent: agent.id,
