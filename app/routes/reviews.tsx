@@ -5,7 +5,6 @@ import {
 	desc,
 	eq,
 	inArray,
-	like,
 	notInArray,
 } from "drizzle-orm";
 import { Form, Outlet, data } from "react-router";
@@ -30,6 +29,7 @@ import {
 	REVIEWABLE_EXCLUDED,
 	roundWritable,
 } from "~/lib/evaluation";
+import { likeContains } from "~/lib/like";
 import { Pager } from "~/lib/pager";
 import { createTimings } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -184,7 +184,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		const where = and(
 			eq(evaluations.evaluatorId, user.id),
 			roundFilter ? eq(evaluations.roundId, roundFilter) : undefined,
-			q ? like(submissions.title, `%${q}%`) : undefined,
+			q ? likeContains(submissions.title, q) : undefined,
 		);
 		const [totalRows, rows] = await timings.time("db-assigned", () =>
 			Promise.all([
@@ -240,7 +240,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			eq(reviewerTracks.userId, user.id),
 			eq(tracks.eventId, submissions.eventId),
 			notInArray(submissions.status, [...REVIEWABLE_EXCLUDED]),
-			q ? like(submissions.title, `%${q}%`) : undefined,
+			q ? likeContains(submissions.title, q) : undefined,
 		);
 		const [totalRows, rows] = await timings.time("db-tracks", () =>
 			Promise.all([

@@ -7,7 +7,7 @@ import {
 	toProgramEvent,
 } from "~/lib/program";
 import { createTimings } from "~/lib/track";
-import { GallerySurface, ProgramErrorScreen, ProgramShell } from "~/widgets";
+import { ProgramErrorScreen, ProgramShell, SpeakerDirectory } from "~/widgets";
 import type { Route } from "./+types/gallery.$eventSlug";
 
 // @public — anonymous speaker photo gallery, same projection as the
@@ -49,7 +49,8 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 export default function PublicGallery({ loaderData }: Route.ComponentProps) {
 	return (
 		<ProgramShell event={loaderData.event} active="gallery">
-			<GallerySurface
+			<SpeakerDirectory
+				layout="gallery"
 				data={loaderData.surface}
 				base={`/gallery/${loaderData.event.slug}`}
 				sessionsBase={`/sessions/${loaderData.event.slug}`}

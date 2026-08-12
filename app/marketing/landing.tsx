@@ -1,7 +1,7 @@
 import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { Icon, Wordmark } from "~/ui";
+import { Caps, Icon, Wordmark } from "~/ui";
 import { cn } from "~/ui/cn";
 import {
 	COMPARE,
@@ -429,9 +429,7 @@ function FooterCol({
 }) {
 	return (
 		<div className="flex flex-col gap-3">
-			<span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-faint">
-				{title}
-			</span>
+			<Caps tone="faint">{title}</Caps>
 			{links.map((link) =>
 				link.to ? (
 					<Link key={link.label} to={link.to} className={NAV_LINK}>

@@ -747,7 +747,7 @@ export async function listSessionOptions(
 	const where = query
 		? and(
 				eq(submissions.eventId, eventId),
-				sql`${submissions.title} like ${likeContains(query)} escape '\\'`,
+				likeContains(submissions.title, query),
 			)
 		: eq(submissions.eventId, eventId);
 	const matched = await db
@@ -812,11 +812,10 @@ export async function listFileGroups(
 		conditions.push(sql`r.submission_id = ${filters.submissionId}`);
 	}
 	if (filters.q) {
-		const like = likeContains(filters.q);
 		conditions.push(
-			sql`(r.file_name like ${like} escape '\\'
-				or s.title like ${like} escape '\\'
-				or (c.first_name || ' ' || c.last_name) like ${like} escape '\\')`,
+			sql`(${likeContains(sql`r.file_name`, filters.q)}
+				or ${likeContains(sql`s.title`, filters.q)}
+				or ${likeContains(sql`(c.first_name || ' ' || c.last_name)`, filters.q)})`,
 		);
 	}
 	const where = sql.join(conditions, sql` and `);

@@ -7,7 +7,7 @@ import {
 	toProgramEvent,
 } from "~/lib/program";
 import { createTimings } from "~/lib/track";
-import { ProgramErrorScreen, ProgramShell, SpeakersSurface } from "~/widgets";
+import { ProgramErrorScreen, ProgramShell, SpeakerDirectory } from "~/widgets";
 import type { Route } from "./+types/speakers.$eventSlug";
 
 // @public — anonymous speaker directory, derived from the same projection as
@@ -48,7 +48,8 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 export default function PublicSpeakers({ loaderData }: Route.ComponentProps) {
 	return (
 		<ProgramShell event={loaderData.event} active="speakers">
-			<SpeakersSurface
+			<SpeakerDirectory
+				layout="list"
 				data={loaderData.surface}
 				base={`/speakers/${loaderData.event.slug}`}
 				sessionsBase={`/sessions/${loaderData.event.slug}`}

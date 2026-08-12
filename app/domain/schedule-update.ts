@@ -22,7 +22,7 @@ import {
 import { sha256Hex } from "~/lib/api-token";
 import { normalizeEmail } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatScheduleRange } from "~/lib/format-date";
+import { formatScheduleRange } from "~/lib/dates";
 import { escapeHtml } from "~/lib/html";
 import { type ParsedIcsEvent, parseIcsAttachment } from "~/lib/ics";
 import { track } from "~/lib/track";

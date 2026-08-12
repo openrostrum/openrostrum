@@ -1,7 +1,7 @@
 import type { SwitcherEvent } from "~/components/event-switcher";
 import type { events } from "~/db/schema";
 import { resolveTimezone } from "~/lib/event-time";
-import { formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
 
 type EventRow = typeof events.$inferSelect;
 
@@ -9,8 +9,10 @@ type EventRow = typeof events.$inferSelect;
  * dashboard's convention) — any other zone could shift the calendar date. */
 function eventDatesLabel(row: EventRow): string | null {
 	const tz = resolveTimezone(row.timezone);
-	const start = row.startsAt ? formatInTz(row.startsAt, tz, "date") : null;
-	const end = row.endsAt ? formatInTz(row.endsAt, tz, "date") : null;
+	const start = row.startsAt
+		? formatInTimeZone(row.startsAt, tz, "date")
+		: null;
+	const end = row.endsAt ? formatInTimeZone(row.endsAt, tz, "date") : null;
 	if (start && end && start !== end) return `${start} – ${end}`;
 	return start ?? end;
 }

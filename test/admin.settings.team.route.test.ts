@@ -1,5 +1,8 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
+import { createElement, type ElementType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -12,7 +15,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { action, loader } from "../app/routes/admin.settings.team";
+import Team, { action, loader } from "../app/routes/admin.settings.team";
 
 // Invites mint org-intent tokens (organizationId set at mint time, never a
 // membership), the last member can never be removed, and a member of org A
@@ -92,11 +95,66 @@ async function runLoader(request: Request) {
 	} as unknown as Parameters<typeof loader>[0])) as unknown as {
 		data: {
 			org: { id: string; name: string } | null;
-			members: Array<{ membershipId: string; email: string; userId: string }>;
+			members: Array<{
+				membershipId: string;
+				email: string;
+				userId: string;
+				joinedLabel: string;
+			}>;
 			invites: Array<{ id: string; email: string; link: string }>;
 		};
 	};
 }
+
+describe("team joined dates", () => {
+	// Late evening in the event's zone (America/Los_Angeles) is already the
+	// next calendar day in UTC — so the server's zone must never decide this.
+	const JOINED_AT = new Date("2026-10-13T02:00:00.000Z");
+	const JOINED_LABEL = "Oct 12, 2026";
+
+	async function seedLateJoiner() {
+		const db = await seedOrgA();
+		await db.insert(users).values({
+			id: "u_late",
+			email: "late@test.co",
+			passwordHash: await hashPassword("pw"),
+			name: "Cy Late",
+			role: "admin",
+		});
+		await db.insert(organizationMembers).values({
+			id: "omLate",
+			organizationId: "orgA",
+			userId: "u_late",
+			createdAt: JOINED_AT,
+		});
+	}
+
+	it("dates a membership by the event's calendar, not the server's", async () => {
+		await seedLateJoiner();
+		const result = await runLoader(await authedRequest());
+		const late = result.data.members.find((m) => m.membershipId === "omLate");
+		expect(late?.joinedLabel).toBe(JOINED_LABEL);
+	});
+
+	it("renders the server-formatted date, so hydration cannot shift it", async () => {
+		await seedLateJoiner();
+		const result = await runLoader(await authedRequest());
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/",
+				Component: () =>
+					createElement(Team as ElementType, {
+						loaderData: result.data,
+						actionData: undefined,
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+		expect(html).toContain(JOINED_LABEL);
+	});
+});
 
 describe("team invites", () => {
 	it("mints a sentinel admin user with an org-intent token, shows the link, and emails it", async () => {

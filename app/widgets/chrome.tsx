@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
-import { isRouteErrorResponse, Link } from "react-router";
+import { isRouteErrorResponse } from "react-router";
 import { ThemeToggle } from "~/components/theme-toggle";
-import { ButtonLink, EmptyState, Mark, Tab, Tabs } from "~/ui";
+import { ButtonLink, EmptyState, InkLink, Mark, Tab, Tabs } from "~/ui";
 import type { ProgramEvent } from "~/lib/program-types";
 
 /**
@@ -166,12 +166,9 @@ function ProgramFooter() {
 				<Mark size={15} />
 				<span>
 					Powered by{" "}
-					<Link
-						to="/"
-						className="rounded-[3px] font-medium text-fg underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-					>
+					<InkLink to="/" strong>
 						OpenRostrum
-					</Link>
+					</InkLink>
 				</span>
 			</div>
 		</footer>

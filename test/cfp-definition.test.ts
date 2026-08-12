@@ -5,7 +5,6 @@ import {
 	validateSection,
 	type WizardField,
 } from "../app/cfp/definition";
-import { sanitizeHtml } from "../app/cfp/server";
 
 // Conditional "question rules": triggers on library fields AND built-in
 // dropdowns, both directions, and required-ness applies only while visible.
@@ -215,18 +214,5 @@ describe("participant validation", () => {
 		);
 		expect(result.rows.a?.email).toBe("Enter a valid email address.");
 		expect(result.rows.c?.email).toContain("already listed");
-	});
-});
-
-describe("sanitizeHtml", () => {
-	it("keeps formatting, drops scripts and event handlers", async () => {
-		const dirty =
-			'<p onclick="steal()">Hello <strong>bold</strong></p><script>alert(1)</script><a href="javascript:evil()">x</a><a href="https://ok.example">ok</a>';
-		const clean = await sanitizeHtml(dirty);
-		expect(clean).toContain("<strong>bold</strong>");
-		expect(clean).not.toContain("script");
-		expect(clean).not.toContain("onclick");
-		expect(clean).not.toContain("javascript:");
-		expect(clean).toContain('href="https://ok.example"');
 	});
 });

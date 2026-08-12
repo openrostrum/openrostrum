@@ -1,7 +1,7 @@
 import { Form } from "react-router";
-import { formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
 import { useBusy } from "~/lib/use-busy";
-import { Button, Field, Panel, Textarea } from "~/ui";
+import { Button, Caps, EmptyLine, Field, Panel, Textarea } from "~/ui";
 import { SectionHeading } from "./section-heading";
 
 interface Note {
@@ -12,17 +12,20 @@ interface Note {
 }
 
 /**
- * The person-level internal-note thread — one surface shared by the directory
- * profile and the pipeline card detail. Posts `intent=add-note` with `body`
- * to the hosting route's action.
+ * The person-level internal-note thread, shared by the directory profile and
+ * the pipeline card. Posts `intent=add-note` to the hosting route's action.
+ * `timeZone` is the event's and comes from the loader, so "called them Tuesday
+ * evening" still reads as Tuesday evening and hydration cannot move it.
  */
 export function CrmNotesPanel({
 	notes,
 	total,
+	timeZone,
 	error,
 }: {
 	notes: Note[];
 	total: number;
+	timeZone: string;
 	error?: string;
 }) {
 	const busy = useBusy();
@@ -50,17 +53,18 @@ export function CrmNotesPanel({
 					</div>
 				</Form>
 				{notes.length === 0 ? (
-					<p className="text-[12.5px] text-fg-faint">
+					<EmptyLine>
 						No notes yet — add the first one above; scouting context and call
 						outcomes live here, never visible to the contact.
-					</p>
+					</EmptyLine>
 				) : (
 					<ul className="flex flex-col gap-3">
 						{notes.map((n) => (
 							<li key={n.id} className="flex flex-col gap-1">
-								<span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-faint">
-									{n.authorName} · {formatInTz(n.createdAt, "UTC", "datetime")}
-								</span>
+								<Caps tone="faint">
+									{n.authorName} ·{" "}
+									{formatInTimeZone(n.createdAt, timeZone, "datetime-zone")}
+								</Caps>
 								<p className="whitespace-pre-wrap text-[13px] text-fg">
 									{n.body}
 								</p>

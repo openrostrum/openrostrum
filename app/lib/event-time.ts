@@ -11,7 +11,7 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
  * `events.timezone` can be written by future non-form paths (CSV import,
  * Airtable team edits); an unknown zone must degrade to UTC once at the
  * loader boundary, not crash every date on the page. Callers pass the
- * resolved zone to everything below and to `formatInTz`.
+ * resolved zone to everything below and to `formatInTimeZone`.
  */
 export function resolveTimezone(timeZone: string): string {
 	try {

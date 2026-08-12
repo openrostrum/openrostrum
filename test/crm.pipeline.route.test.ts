@@ -1,5 +1,8 @@
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
+import { createElement, type ElementType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -11,7 +14,7 @@ import {
 	action as boardAction,
 	loader as boardLoader,
 } from "../app/routes/admin.crm.pipeline";
-import {
+import CardDetail, {
 	action as cardAction,
 	loader as cardLoader,
 } from "../app/routes/admin.crm.pipeline_.$cardId";
@@ -67,6 +70,62 @@ async function enrollMarcus(userId = "u_admin1"): Promise<string> {
 	if (!card) throw new Error("enroll did not create a card");
 	return card.id;
 }
+
+describe("CRM card timestamps", () => {
+	// 7pm in the event's zone (America/Los_Angeles, the schema default) is
+	// already tomorrow in UTC — so a stamp read as UTC names the wrong day AND
+	// the wrong hour to the organizer who wrote it.
+	const EVENING = new Date("2026-10-13T02:00:00.000Z");
+	const EVENT_LABEL = "Oct 12, 2026, 7:00 PM PDT";
+	const UTC_LABEL = "Oct 13, 2026, 2:00 AM UTC";
+
+	async function renderCardWithStampsAt(cardId: string) {
+		const db = getDb(env);
+		await db.update(pipelineStageChanges).set({ createdAt: EVENING });
+		await db.update(crmNotes).set({ createdAt: EVENING });
+		const request = await requestAs(
+			"u_admin1",
+			`http://localhost/admin/crm/pipeline/${cardId}`,
+		);
+		const result = (await cardLoader({
+			context: CONTEXT,
+			request,
+			params: { cardId },
+		} as unknown as Parameters<typeof cardLoader>[0])) as unknown as {
+			data: unknown;
+		};
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/",
+				Component: () =>
+					createElement(CardDetail as ElementType, {
+						loaderData: result.data,
+						actionData: undefined,
+					}),
+			},
+		]);
+		return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
+	}
+
+	it("stamps stage history and notes in the event's zone, not the worker's", async () => {
+		await seedCrmBaseline();
+		const cardId = await enrollMarcus();
+		await runCardAction(
+			"u_admin1",
+			cardId,
+			new URLSearchParams({
+				intent: "add-note",
+				body: "Called after the evening keynote.",
+			}),
+		);
+
+		const html = await renderCardWithStampsAt(cardId);
+		expect(html).toContain(EVENT_LABEL);
+		expect(html).not.toContain(UTC_LABEL);
+		// Both surfaces on this page, not just the one that happens to be first.
+		expect(html.split(EVENT_LABEL)).toHaveLength(3);
+	});
+});
 
 describe("CRM pipeline", () => {
 	it("enrolls a directory contact with an identity snapshot and an enrollment history row", async () => {

@@ -1,4 +1,5 @@
 import { PARTICIPANT_ROLE_LABELS } from "~/db/constants";
+import { Caps } from "~/ui";
 import {
 	isFieldVisible,
 	isInputField,
@@ -56,9 +57,7 @@ export function AnswersSummary({
 				if (!isFieldVisible(field, values, fields)) return null;
 				return (
 					<div key={field.key} className="flex flex-col gap-[3px]">
-						<dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-							{field.label}
-						</dt>
+						<Caps as="dt">{field.label}</Caps>
 						<dd>
 							<DisplayValue field={field} value={values[field.key] ?? ""} />
 						</dd>

@@ -21,9 +21,15 @@ import {
 	queryPerson,
 } from "~/domain/crm";
 import { queryContactMergeHistory } from "~/domain/contact-merge";
-import { normalizeEmail, requireAdmin, resolveActiveOrg } from "~/lib/auth";
+import {
+	getActiveEvent,
+	normalizeEmail,
+	requireAdmin,
+	resolveActiveOrg,
+} from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatDateUTC } from "~/lib/format";
+import { resolveTimezone } from "~/lib/event-time";
+import { formatDateUTC, formatRole } from "~/lib/format";
 import { PIPELINE_STAGE_LABEL, PIPELINE_STAGE_TONE } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -67,6 +73,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const org = await timings.time("org", () => resolveActiveOrg(env, user));
 	if (!org) throw redirect("/admin/crm");
 	const email = normalizeEmail(params.email);
+	// Notes are written against the event's working day, not the worker's UTC.
+	const activeEvent = await getActiveEvent(env, user);
 	const [person, customFields, noteThread, card, orgEvents, mergeHistory] =
 		await timings.time("db", () =>
 			Promise.all([
@@ -113,6 +121,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			mergeHistory,
 			justMerged: new URL(request.url).searchParams.get("merged") === "1",
 			addableEvents: orgEvents.filter((e) => !appearedEventIds.has(e.id)),
+			timeZone: activeEvent ? resolveTimezone(activeEvent.timezone) : "UTC",
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -284,6 +293,7 @@ export default function CrmPerson({
 		mergeHistory,
 		justMerged,
 		addableEvents,
+		timeZone,
 	} = loaderData;
 	const name = `${person.firstName} ${person.lastName}`.trim();
 	const busy = useBusy();
@@ -349,10 +359,7 @@ export default function CrmPerson({
 					heading="Profile"
 					name={name}
 					email={email}
-					lines={[
-						[person.jobTitle, person.companyName].filter(Boolean).join(" · ") ||
-							"No title or company on record",
-					]}
+					lines={[formatRole(person) || "No title or company on record"]}
 				>
 					{person.bio && <RichHtml html={person.bio} />}
 				</IdentityPanel>
@@ -556,7 +563,12 @@ export default function CrmPerson({
 				)}
 			</div>
 
-			<CrmNotesPanel notes={notes} total={noteCount} error={noteError} />
+			<CrmNotesPanel
+				notes={notes}
+				total={noteCount}
+				timeZone={timeZone}
+				error={noteError}
+			/>
 		</div>
 	);
 }

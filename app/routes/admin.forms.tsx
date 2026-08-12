@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { data, Form, useOutlet } from "react-router";
-import { and, desc, eq, gt, isNull, like, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { getDb } from "~/db";
 import { forms, submissions } from "~/db/schema";
 import { adminFormPath } from "~/domain/forms";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { effectiveFormStatus, FORM_STATUS_TONE } from "~/lib/forms";
+import { likeContains } from "~/lib/like";
 import { createTimings } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
@@ -15,6 +16,7 @@ import {
 	EmptyState,
 	Icon,
 	Input,
+	MenuItem,
 	PageHeader,
 	Panel,
 	PopoverSurface,
@@ -77,8 +79,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		eq(forms.eventId, event.id),
 		q
 			? or(
-					like(forms.internalName, `%${q}%`),
-					like(forms.externalTitle, `%${q}%`),
+					likeContains(forms.internalName, q),
+					likeContains(forms.externalTitle, q),
 				)
 			: undefined,
 	);
@@ -247,46 +249,31 @@ function FormActionsMenu({
 			>
 				<Icon name="dots" />
 			</summary>
-			<PopoverSurface side="bottom" align="end" width="md">
-				<div className="flex flex-col items-stretch gap-1 p-1">
-					<ButtonLink variant="ghost" to={adminFormPath(form.id)}>
-						Edit
-					</ButtonLink>
-					{form.rawStatus !== "open" && (
-						<Form method="post" action={adminFormPath(form.id)}>
-							<Input type="hidden" name="intent" value="publish" readOnly />
-							<Button variant="ghost" type="submit" disabled={busy}>
-								Open form
-							</Button>
-						</Form>
-					)}
-					<ButtonLink
-						variant="ghost"
-						to={`${adminFormPath(form.id)}?view=results`}
-					>
-						View results
-					</ButtonLink>
-					<ButtonLink
-						variant="ghost"
-						to={`${adminFormPath(form.id)}?view=drafts`}
-					>
-						View draft submissions
-					</ButtonLink>
+			<PopoverSurface side="bottom" align="end" width="md" padding="menu">
+				<MenuItem to={adminFormPath(form.id)}>Edit</MenuItem>
+				{form.rawStatus !== "open" && (
 					<Form method="post" action={adminFormPath(form.id)}>
-						<Input type="hidden" name="intent" value="duplicate" readOnly />
-						<Button variant="ghost" type="submit" disabled={busy}>
-							Duplicate
-						</Button>
+						<Input type="hidden" name="intent" value="publish" readOnly />
+						<MenuItem type="submit" disabled={busy}>
+							Open form
+						</MenuItem>
 					</Form>
-					<Button
-						variant="ghost"
-						type="button"
-						disabled={busy}
-						onClick={onDelete}
-					>
-						Delete
-					</Button>
-				</div>
+				)}
+				<MenuItem to={`${adminFormPath(form.id)}?view=results`}>
+					View results
+				</MenuItem>
+				<MenuItem to={`${adminFormPath(form.id)}?view=drafts`}>
+					View draft submissions
+				</MenuItem>
+				<Form method="post" action={adminFormPath(form.id)}>
+					<Input type="hidden" name="intent" value="duplicate" readOnly />
+					<MenuItem type="submit" disabled={busy}>
+						Duplicate
+					</MenuItem>
+				</Form>
+				<MenuItem type="button" disabled={busy} onClick={onDelete}>
+					Delete
+				</MenuItem>
 			</PopoverSurface>
 		</details>
 	);
