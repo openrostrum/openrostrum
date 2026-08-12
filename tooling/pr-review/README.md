@@ -48,14 +48,20 @@ parallelism and safety limits.
 A reviewer reports each violation with a `submit_finding` call the moment it is
 sure of it, one finding per call, and closes the session with a `finish_review`
 call carrying only the running total. No response therefore grows with the size of
-the review. This exists because DeepSeek caps a single completion at 8192 output
-tokens whatever ceiling is requested: under the original contract, where one
-terminal JSON had to carry every finding, a reviewer with a lot to say about a
-large diff was cut off mid-answer and its entire review was discarded.
+the review. It exists because the original contract made one terminal JSON carry
+every finding, so a reviewer with a lot to say about a large diff was cut off
+mid-answer and its whole review was discarded.
+
+The truncation that forced this was our own bug, not a provider limit. pi-ai sends
+`max_completion_tokens` for OpenAI-compatible providers outside its allow-list,
+DeepSeek is outside it, and DeepSeek's API reads only `max_tokens` — so every
+ceiling we sent was dropped and DeepSeek's 8192 default stood in for it.
+Requesting 6214 and still stopping at 8192 is what exposed it. The runtime now
+names the field DeepSeek reads and asks for the catalog's own ceiling.
 
 Every request sets `toolChoice: "required"`, so a response can only be tool calls.
 Incremental submission alone did not fix the overflow — reviewers still spent whole
-8192-token responses on commentary, one of them reaching its cap by the fifth turn
+whole responses on commentary, one of them reaching the cap by its fifth turn
 without ever submitting a finding. Prose was never read by anything; now there is
 no channel for it, which is enforcement rather than instruction.
 
@@ -90,8 +96,30 @@ Because a response can only be tool calls, a reviewer cannot stop by saying it i
 done — it stops by calling `finish_review` or not at all. Reaching the turn budget
 is therefore treated as the moment to ask for the close, not the moment to give up
 on it: the session gets one explicit "investigation is over" ask with a small extra
-turn allowance, told what is already banked so it does not resubmit. A reviewer that
-ignores that ask too is incomplete, with its banked findings posted.
+turn allowance, told what is already banked so it does not resubmit.
+
+The close ask also names the per-response allowance, because the failing sessions
+submitted one finding per turn: each banked exactly as many findings as it had
+closing turns. At one per response the drip rate, not the review, decides how much
+survives, so the ask says how many `submit_finding` calls one response may carry
+and that anything unsent when the allowance ends is lost.
+
+Asking is not enough on its own. On a 25-file pull request four of five sessions
+spent that whole allowance submitting more findings and never closed, so reviews
+that had already done the work were reported incomplete — asking loses to a
+reviewer that always has one more finding. So the allowance ends in turns whose
+toolset holds nothing but `finish_review`. Forced tool choice over a one-tool set
+leaves the close as the only call a response can make, which is enforcement rather
+than instruction, and it costs the review nothing: every finding submitted up to
+that point is already banked.
+
+A close reached that way is a weaker claim than a volunteered one — the reviewer
+never said it was finished, it ran out of anything else to do — so the run log
+marks it `forced` and a session that closed on its own stays silent about it.
+What the forced close still asserts is the count: the reviewer has to state a
+total that matches the bank, and a reviewer that has lost track of its own review
+cannot. A session that will not close even then is incomplete, with its banked
+findings posted.
 
 A response that does not close the review earns **exactly one re-ask** before the
 session is called incomplete. The re-ask names the closing call and tells the
@@ -163,7 +191,9 @@ submission, a submission citing an unchanged file, a submission that fails the
 schema, a terminal count that disagrees with the bank, the per-response cap and
 its re-issue, a reviewer that ends in prose being re-asked once and recovering, a
 reviewer that misses the signal twice staying incomplete, findings surviving a
-re-ask, a run summary that reports the extra ask only when there was one,
+re-ask, a reviewer that submits through the whole close allowance still ending
+complete because the close is all it is left, a run summary that reports the extra
+ask and a forced close only when each happened,
 anchoring, fingerprints, dedupe, reconciliation, stale deferral, and posting
 payloads. CI runs this complete set in its unconditional quality job.
 
