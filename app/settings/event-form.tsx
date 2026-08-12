@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
+import { TimezoneSelect } from "~/components/timezone-select";
 import type { fields } from "~/db/schema";
 import { Field, Input, Select } from "~/ui";
 
@@ -106,8 +107,6 @@ export function slugify(value: string): string {
 		.replace(/^-+|-+$/g, "");
 }
 
-const FALLBACK_TIMEZONE = "America/Los_Angeles";
-
 export function EventDetailsFields({
 	values,
 	errors,
@@ -117,25 +116,8 @@ export function EventDetailsFields({
 	errors?: EventDetailsErrors;
 	autoSlug?: boolean;
 }) {
-	const timeZones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);
 	const [slug, setSlug] = useState(values?.slug ?? "");
 	const [slugEdited, setSlugEdited] = useState(false);
-
-	// Preselect the visitor's own timezone on a blank form — a client-only
-	// signal, applied to the uncontrolled select after hydration and only
-	// while it's untouched (mirrors /onboarding).
-	useEffect(() => {
-		if (values) return;
-		const guess = Intl.DateTimeFormat().resolvedOptions().timeZone;
-		if (!guess || !timeZones.includes(guess)) return;
-		const select = document.querySelector('select[name="timezone"]');
-		if (
-			select instanceof HTMLSelectElement &&
-			select.value === FALLBACK_TIMEZONE
-		) {
-			select.value = guess;
-		}
-	}, [values, timeZones]);
 
 	const typeOptions: string[] = [...EVENT_TYPES];
 	if (values?.type && !typeOptions.includes(values.type)) {
@@ -216,19 +198,10 @@ export function EventDetailsFields({
 						invalid={Boolean(err("location"))}
 					/>
 				</Field>
-				<Field label="Timezone" error={err("timezone")}>
-					<Select
-						name="timezone"
-						required
-						defaultValue={values?.timezone ?? FALLBACK_TIMEZONE}
-					>
-						{timeZones.map((tz) => (
-							<option key={tz} value={tz}>
-								{tz.replaceAll("_", " ")}
-							</option>
-						))}
-					</Select>
-				</Field>
+				<TimezoneSelect
+					value={values?.timezone ?? null}
+					error={err("timezone")}
+				/>
 			</div>
 			<div className="flex flex-wrap gap-3 [&>label]:min-w-[220px] [&>label]:flex-1">
 				<Field label="Starts at" error={err("startsAt")}>

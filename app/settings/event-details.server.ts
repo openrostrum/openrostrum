@@ -12,7 +12,7 @@ import type { EventDetailsErrors, EventDetailsValues } from "./event-form";
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
-function isValidTimeZone(tz: string): boolean {
+export function isValidTimeZone(tz: string): boolean {
 	try {
 		new Intl.DateTimeFormat("en-US", { timeZone: tz });
 		return true;
