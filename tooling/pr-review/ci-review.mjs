@@ -1,13 +1,12 @@
-// Production PR reviewer. Runs in CI on pull_request: diffs the PR, runs each
-// changed file past every rule-doc agent (the SAME prompt+client the eval
-// harness validates, from core.mjs), and posts the findings as ONE advisory
-// review (event always COMMENT — informs, never gates) with inline comments
-// per finding. Posting model, fallback chain, and reconcile semantics:
-// README "How findings are posted"; the pure logic lives in inline.mjs.
+// Production PR reviewer. Runs one autonomous whole-PR DeepSeek session per
+// dynamically discovered rule document, then deterministically posts one
+// advisory review (event always COMMENT — informs, never gates). Repository
+// context is read on demand through bounded, read-only tools. Posting fallback
+// and reconciliation semantics live in inline.mjs and are documented in README.
 // Env (set by .github/workflows/ci.yml): DEEPSEEK_API_KEY, GH_TOKEN, REPO
 // (owner/repo), PR_NUMBER, BASE_SHA, HEAD_SHA.
-import { execFileSync } from "node:child_process";
-import { loadSystems, makeClient, pool } from "./core.mjs";
+import { runRuleReviewers } from "./agent.mjs";
+import { loadSystems, makeRuntime } from "./core.mjs";
 import {
 	anchorFinding,
 	buildReviewPayload,
@@ -17,22 +16,19 @@ import {
 	mergeFile,
 	parseDiff,
 	parseFindingMarkers,
+	partitionStaleThreads,
 	reconcile,
 	resolvedReplyBody,
 	RESOLVED_MARKER,
 	SUMMARY_MARKER,
 } from "./inline.mjs";
+import { createGitRepository } from "./repository.mjs";
 
 const KEY = process.env.DEEPSEEK_API_KEY;
 const BASE = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
 const MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 const TEMPERATURE = Number(process.env.TEMPERATURE ?? 0);
 const CONC = Number(process.env.CONC ?? 6);
-const MAX_FILES = Number(process.env.MAX_FILES ?? 60);
-// Self-consistency vote: a finding must recur in a majority of samples to post,
-// which filters the model's flaky one-off false positives. See core.mjs.
-const SAMPLES = Number(process.env.SAMPLES ?? 3);
-const THRESHOLD = Number(process.env.THRESHOLD ?? 2);
 
 const GH_TOKEN = process.env.GH_TOKEN;
 const REPO = process.env.REPO;
@@ -45,11 +41,6 @@ const HEAD_SHA = process.env.HEAD_SHA;
 // also set, the dry run previews the reconcile plan with READ-ONLY calls; it
 // never writes.
 const DRY = process.env.DRY_RUN === "1" || process.argv.includes("--dry-run");
-// Source files the rule docs actually govern. Docs, lockfiles, and generated
-// artifacts are out — reviewing them is pure noise.
-const REVIEWABLE = /\.(ts|tsx|js|jsx|mjs|cjs|css|sql)$/;
-const SKIP =
-	/(^|\/)(node_modules|\.react-router|dist|build)\/|worker-configuration\.d\.ts$|\.gen\.ts$|\.snap$/;
 
 const required = DRY
 	? { DEEPSEEK_API_KEY: KEY, BASE_SHA, HEAD_SHA }
@@ -68,13 +59,6 @@ for (const [k, v] of Object.entries(required)) {
 	}
 }
 const CAN_READ_GH = Boolean(GH_TOKEN && REPO && PR);
-
-function git(...args) {
-	return execFileSync("git", args, {
-		encoding: "utf8",
-		maxBuffer: 128 * 1024 * 1024,
-	});
-}
 
 // ---------------------------------------------------------------------------
 // GitHub I/O
@@ -243,81 +227,58 @@ async function closeStaleThreads(toResolve) {
 // Review the diff
 // ---------------------------------------------------------------------------
 
-const mergeBase = git("merge-base", BASE_SHA, HEAD_SHA).trim();
-const changed = git(
-	"diff",
-	"--name-only",
-	"--diff-filter=d",
-	mergeBase,
-	HEAD_SHA,
-)
-	.split("\n")
-	.filter(Boolean);
-const candidates = changed.filter((f) => REVIEWABLE.test(f) && !SKIP.test(f));
-
-const dropped = Math.max(0, candidates.length - MAX_FILES);
-const files = candidates.slice(0, MAX_FILES);
-
+const repository = createGitRepository({
+	repoRoot: process.cwd(),
+	baseSha: BASE_SHA,
+	headSha: HEAD_SHA,
+});
 const { agents, systems } = await loadSystems();
-const client = makeClient({
+const runtime = makeRuntime({
 	key: KEY,
 	base: BASE,
 	model: MODEL,
 	temperature: TEMPERATURE,
 });
 
-// Per file: the model snippet (eval-validated format) plus the anchor data
-// (snippet-line map + the diff's new-side lines), from one diff parse.
-const diffByFile = new Map();
-const items = [];
-for (const file of files) {
-	const { code, map, newLines } = parseDiff(
-		git("diff", mergeBase, HEAD_SHA, "--", file),
+console.log(
+	`starting ${agents.length} whole-PR reviewer session(s) for ${repository.changes.length} changed file(s)`,
+);
+const results = await runRuleReviewers({
+	agents,
+	systems,
+	repository,
+	runtime,
+	concurrency: CONC,
+});
+const incomplete = results.filter((result) => result.status !== "complete");
+const reviewComplete = incomplete.length === 0;
+for (const result of results) {
+	console.log(
+		`${result.agent}: ${result.status}; turns=${result.turns}; tools=${result.toolCalls}` +
+			(result.reason ? `; reason=${result.reason}` : ""),
 	);
-	if (!code) continue;
-	diffByFile.set(file, { map, newLines });
-	for (const a of agents) items.push({ file, agent: a.id, code });
 }
 
-console.log(
-	`reviewing ${files.length} file(s) × ${agents.length} agent(s) = ${items.length} checks (candidates=${candidates.length}, dropped=${dropped})`,
-);
-
-const results = await pool(items, CONC, async (it) => {
-	try {
-		const { findings } = await client.reviewVoted(
-			systems.get(it.agent),
-			it.file,
-			it.code,
-			{ samples: SAMPLES, threshold: THRESHOLD },
-		);
-		return { ...it, findings };
-	} catch (e) {
-		return { ...it, findings: [], error: String(e) };
-	}
-});
-
-const errored = results.filter((r) => r.error).length;
-
 const byFile = new Map();
-for (const r of results) {
-	for (const f of r.findings) {
-		if (!byFile.has(r.file)) byFile.set(r.file, []);
-		byFile.get(r.file).push({ agent: r.agent, ...f });
+for (const result of results) {
+	for (const finding of result.findings) {
+		if (!byFile.has(finding.file)) byFile.set(finding.file, []);
+		byFile.get(finding.file).push(finding);
 	}
 }
 
 // Merge near-identical findings within a file, then anchor + fingerprint each
-// group. `line` null = unanchorable → file-level fallback.
+// group. Direct absolute lines are accepted only when their exact quote matches
+// an added diff line; otherwise the existing deterministic fallbacks apply.
 const groups = [];
-for (const [file, fs] of byFile) {
-	const { map, newLines } = diffByFile.get(file);
-	for (const g of mergeFile(fs)) {
+for (const [file, findings] of byFile) {
+	const { map, newLines } = parseDiff(repository.getRawDiff(file));
+	for (const group of mergeFile(findings)) {
 		groups.push({
-			...g,
+			...group,
 			file,
-			fp: fingerprint(file, g.concept),
-			line: anchorFinding(g, newLines, map),
+			fp: fingerprint(file, group.concept),
+			line: anchorFinding(group, newLines, map),
 		});
 	}
 }
@@ -351,15 +312,11 @@ const { toPost, skipped, toResolve } = reconcile(
 const anchored = toPost.filter((g) => g.line != null);
 const fileLevel = toPost.filter((g) => g.line == null);
 
-// Close a thread only when its file was re-reviewed cleanly this run (or left
-// the diff): a finding that "vanished" behind an errored check or the file cap
-// is unknown, not resolved — defer it (README "Reconcile").
-const erroredFiles = new Set(results.filter((r) => r.error).map((r) => r.file));
-const droppedFiles = new Set(candidates.slice(MAX_FILES));
-const resolvable = toResolve.filter(
-	(t) => !erroredFiles.has(t.path) && !droppedFiles.has(t.path),
-);
-const deferred = toResolve.length - resolvable.length;
+// Never transition stale threads from an incomplete review: a missing finding is
+// unknown rather than resolved when any rule owner failed to finish.
+const stale = partitionStaleThreads(toResolve, reviewComplete);
+const resolvable = stale.resolvable;
+const deferred = stale.deferred.length;
 
 const headerLines = [
 	`### 🤖 DeepSeek review — ${total} finding(s) across ${byFile.size} file(s)`,
@@ -370,14 +327,15 @@ if (skipped.length)
 		`_${skipped.length} of ${total} already posted on an earlier run — see the existing threads._`,
 	);
 const notes = [];
-if (dropped)
+if (incomplete.length)
 	notes.push(
-		`${dropped} additional changed file(s) not reviewed (cap ${MAX_FILES})`,
+		`${incomplete.length} rule reviewer(s) incomplete: ${incomplete
+			.map((result) => result.agent)
+			.join(", ")}; this is not a clean review`,
 	);
-if (errored) notes.push(`${errored} check(s) errored and were skipped`);
 const footer =
 	(notes.length ? `\n> ⚠️ ${notes.join("; ")}.\n` : "") +
-	`\n<sub>model: ${MODEL} · agents: ${agents.map((a) => a.id).join(", ")}</sub>`;
+	`\n<sub>model: ${MODEL} · whole-PR sessions: ${agents.map((a) => a.id).join(", ")}</sub>`;
 
 const fileLevelPayloads = fileLevel.map((g) => ({
 	path: `/repos/${REPO ?? "<repo>"}/pulls/${PR ?? "<pr>"}/comments`,
@@ -407,6 +365,14 @@ if (DRY) {
 		rule: g.rule,
 	});
 	const plan = {
+		reviewStatus: reviewComplete ? "complete" : "incomplete",
+		reviewerSessions: results.map((result) => ({
+			agent: result.agent,
+			status: result.status,
+			reason: result.reason,
+			turns: result.turns,
+			toolCalls: result.toolCalls,
+		})),
 		findings: total,
 		anchored: anchored.map(show),
 		fileLevel: fileLevel.map(show),
@@ -420,13 +386,11 @@ if (DRY) {
 			topCommentId: t.topCommentId,
 			canResolveThread: Boolean(t.threadNodeId),
 		})),
-		deferredResolves: toResolve
-			.filter((t) => !resolvable.includes(t))
-			.map((t) => ({
-				path: t.path,
-				fp: t.fp,
-				reason: erroredFiles.has(t.path) ? "check errored" : "file dropped",
-			})),
+		deferredResolves: stale.deferred.map((thread) => ({
+			path: thread.path,
+			fp: thread.fp,
+			reason: "review incomplete",
+		})),
 		reviewPayload: toPost.length ? makeReview(anchored, []) : null,
 		fileLevelComments: fileLevelPayloads,
 	};
@@ -436,15 +400,16 @@ if (DRY) {
 }
 
 if (total === 0) {
-	// No findings → the single summary comment, as before. Never an empty
-	// review. Stale threads from earlier runs still get closed below.
+	const title = reviewComplete
+		? "### 🤖 DeepSeek review — no issues found"
+		: "### 🤖 DeepSeek review — incomplete";
+	const detail = reviewComplete
+		? `_Reviewed all ${repository.changes.length} changed file(s) against \`docs/rules/\` with one whole-PR session per rule document. Advisory (comment-only)._`
+		: `_No clean result: ${incomplete
+				.map((result) => `\`${result.agent}\` (${result.reason})`)
+				.join(", ")}. Existing review threads were left unchanged._`;
 	await upsertSummaryComment(
-		[
-			SUMMARY_MARKER,
-			"### 🤖 DeepSeek review — no issues found",
-			`_Reviewed ${files.length} changed file(s) against \`docs/rules/\`. Advisory (comment-only)._`,
-			footer,
-		].join("\n"),
+		[SUMMARY_MARKER, title, detail, footer].join("\n"),
 	);
 } else if (toPost.length === 0) {
 	console.log(
@@ -518,5 +483,6 @@ const resolvedCount = await closeStaleThreads(resolvable);
 console.log(
 	`posted: ${toPost.length} new finding(s) (${anchored.length} inline, ${fileLevel.length} file-level), ` +
 		`${skipped.length} already-posted skipped, ${resolvable.length} stale thread(s) replied (${resolvedCount} resolved, ${deferred} deferred), ` +
-		`${errored} error(s), ${dropped} dropped`,
+		`${incomplete.length} incomplete reviewer(s)`,
 );
+if (!reviewComplete) process.exitCode = 1;

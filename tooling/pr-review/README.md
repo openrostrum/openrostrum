@@ -1,130 +1,110 @@
-# PR review — full-coverage, doc-sourced
+# PR review — autonomous rule owners
 
-The DeepSeek-backed PR reviewer and the harness that validates it. The prompt and
-client live in **`core.mjs`** — the eval (`review.mjs`) and the production CI
-reviewer (`ci-review.mjs`) both import it, so the thing measured is the thing that
-ships.
+The production reviewer runs one independent DeepSeek session per dynamically
+discovered `docs/rules/*.md` document. Each session owns the entire pull request
+under its assigned rule document and decides what repository evidence to inspect.
 
-## How coverage works
+## Architecture
 
-One reviewer **agent per rule doc in `docs/rules/`** (`agents.mjs` discovers them
-by globbing — no hand-maintained list). Each agent loads its doc **verbatim** at
-review time as the source of truth, so the rules can never drift from the md
-files and coverage is provably the union of `docs/rules/`. Add a rule doc → it
-gets reviewed. The split keeps each agent's context to one doc (better precision)
-while together they cover the whole rule surface.
+- `agents.mjs` discovers and sorts every rule document; there is no maintained
+  reviewer list.
+- `core.mjs` loads each document verbatim and configures Pi's native DeepSeek
+  provider for `deepseek-v4-flash`.
+- `agent.mjs` gives each rule owner its own `@earendil-works/pi-agent-core`
+  `Agent`. Its initial context is a compact changed-file index (status, path,
+  rename, and line counts), never concatenated diffs. Pi owns the persistent
+  conversation, provider streaming, validated tool execution, and continuation;
+  the model controls investigation order and breadth.
+- `repository.mjs` exposes read-only, paginated tools for changed-file diffs,
+  changed or unchanged file contents at base/head, literal repository search,
+  and tracked-path listing. Git is invoked with argument arrays and paths must be
+  repository-relative.
+- `ci-review.mjs` launches the rule-owner sessions in parallel and passes their
+  findings into the existing deterministic posting pipeline in `inline.mjs`.
 
-Purely-procedural rules (git append-only, squash-merge, verify-before-commit)
-aren't checkable from a PR diff and stay hook/CI-enforced — they aren't agents.
+With the five current rule documents, the old production shape was up to
+`60 files × 5 rules × 3 samples = 900` stateless model requests. The new shape is
+exactly **five top-level whole-PR sessions**. A session can make model-directed
+continuations after tool calls, bounded by turn, tool-call, request, and wall-time
+limits; production never creates a model review per changed file.
 
-## Voting (why the reviewer is quiet)
+The launcher does not rank files, create clusters, prescribe traversal order, or
+encode a delegation workflow. Its only orchestration is independent rule-owner
+parallelism and safety limits.
 
-DeepSeek isn't deterministic even at temp 0: a single-shot review posts a flaky
-false positive ~1-in-5 times per problematic check. On a merge-gating comment
-that noise is what trains people to ignore the bot. So `reviewVoted` draws
-`SAMPLES` independent reviews per (file, agent) and only reports a finding that
-recurs in at least `THRESHOLD` of them. The samples fire concurrently
-(`Promise.all`) — 3× the API calls, one round-trip of latency. Default is
-**majority-of-3** (`SAMPLES=3 THRESHOLD=2`).
+## Completion semantics
 
-Measured on the held-out set (5 passes, single-shot vs voting), same prompt:
+A session is complete only after DeepSeek returns `finish_reason: stop` with the
+validated terminal JSON shape. Provider errors, timeouts, malformed tool calls,
+non-terminal finish reasons, invalid findings, and exhausted budgets are
+**incomplete**, never clean.
 
-| | single-shot | vote 2/3 |
-|---|---|---|
-| F1 | 95.0% | **99.0%** |
-| precision | 90.4% | 98.1% |
-| recall | 100% | 100% |
-| worst pass (precision) | 70.8% | 94.4% |
+Incomplete runs are named in the summary and fail the required AI-review check.
+Findings from completed sessions still post, but zero findings cannot render as “no
+issues found” and all stale-thread resolution is deferred until every rule owner
+completes.
 
-Recall is untouched; voting collapses the false-positive tail.
+## Deterministic posting
 
-## Run the eval
+Findings land as one advisory GitHub review (`event: COMMENT`), with one thread per
+anchored finding.
+
+- **Anchoring:** the agent supplies an absolute new-file line and exact quote.
+  The line is accepted only when that quote matches an added diff line. Existing
+  quote and snippet-map fallbacks remain for compatibility; unanchorable findings
+  become file-level comments.
+- **Fallbacks:** file-level failure demotes to the review body; rejected inline
+  reviews retry with body findings; a second review failure falls back to the
+  summary comment. Findings are not silently dropped.
+- **Identity and dedupe:** stable markers fingerprint file plus normalized rule
+  concept, excluding line and reviewer identity. Exact or conservative fuzzy
+  matches suppress repeat posts, including human-resolved threads.
+- **Reconciliation:** a vanished finding gets one resolved reply and a
+  best-effort GraphQL thread resolution only after a complete review. Bot-resolved
+  findings that reappear post fresh.
+
+The GitHub Actions job uses `pull_request`, not `pull_request_target`. Fork PRs do
+not receive the DeepSeek secret or a write token. The job installs the pinned Pi
+runtime with lifecycle scripts disabled before launching the reviewers.
+
+## Verification
+
+All local reviewer tests are network-free:
 
 ```bash
-DEEPSEEK_API_KEY=... DEEPSEEK_MODEL=deepseek-v4-flash \
-  RUNS=5 node tooling/pr-review/review.mjs holdout            # single-shot, averaged
-DEEPSEEK_API_KEY=... DEEPSEEK_MODEL=deepseek-v4-flash \
-  RUNS=5 SAMPLES=3 THRESHOLD=2 node tooling/pr-review/review.mjs holdout   # voting
-DEEPSEEK_API_KEY=... node tooling/pr-review/review.mjs dev    # synthetic dev set
+node --test tooling/pr-review/*.test.node.mjs
 ```
 
-## How findings are posted (inline reviews)
+They cover dynamic one-session-per-rule launch over a 240-file index, multi-turn
+changed and unchanged reads, Git-backed repository access and path safety,
+provider/tool/budget failure states, anchoring, fingerprints, dedupe,
+reconciliation, stale deferral, and posting payloads. CI runs this complete set in
+its unconditional quality job.
 
-Findings land as **one GitHub review (event `COMMENT` — always advisory, never
-`REQUEST_CHANGES`)** whose inline comments anchor each finding to its diff line,
-so every finding can be resolved, dismissed, or answered individually. The pure
-logic lives in `inline.mjs` (unit-tested, no network); `ci-review.mjs` only
-orchestrates.
-
-- **Anchoring** — a finding is pinned to a new-side diff line by (1) matching a
-  code quote from its `location`/`why` (backticked spans first, `...` elisions
-  handled) against the diff's added+context lines, added lines preferred; else
-  (2) reading `location`'s `:N` as a *snippet* line (the model only ever saw the
-  snippet) and mapping it back to the file line via `parseDiff().map`. The
-  snippet is byte-identical to the pre-inline format the eval validated, with
-  one disclosed, tested exception: added lines whose content starts with `++`
-  are now kept (the old parser dropped them by accident).
-- **Fallback chain, nothing dropped** — can't anchor → file-level review
-  comment (`subject_type: "file"`); that POST fails → an "Unanchored findings"
-  section in the review body. A rejected review (422) retries once with every
-  comment demoted to the body; if that also fails, the findings land in the
-  legacy summary comment.
-- **Re-run dedupe** — every posted finding embeds
-  `<!-- deepseek-finding fp=<sha256-16> file=<path> words=<concept words> -->`.
-  The fingerprint hashes file + sorted concept words (rule + why, normalized) —
-  line numbers and agent ids are excluded, so it survives pushes and messenger
-  wobble. A re-run skips findings whose fingerprint (or fuzzy word overlap, same
-  file, capped to the marker's 24 words on both sides) already has a thread —
-  including human-resolved ones: a human closed it, the bot doesn't nag. The
-  exception is a thread the BOT itself declared resolved: a finding reappearing
-  after that posts fresh — never deduped into silence by the bot's own claim.
-- **Reconcile** — threads whose finding no longer appears get ONE reply
-  ("resolved in `<sha>` — finding no longer present") and a best-effort GraphQL
-  `resolveReviewThread`; if the token can't run the mutation the reply stands.
-  A thread is only closed when its file was re-reviewed cleanly this run (or
-  left the diff entirely) — a finding that "vanished" because its file fell
-  past `MAX_FILES` or a check errored defers to a run with full signal.
-- **No findings** → the single `<!-- deepseek-review -->` summary comment, as
-  before. Never an empty review.
-
-## Run the production reviewer locally
+A local production dry run performs real DeepSeek sessions but no GitHub writes:
 
 ```bash
 DEEPSEEK_API_KEY=... DRY_RUN=1 \
   BASE_SHA=<base> HEAD_SHA=<head> node tooling/pr-review/ci-review.mjs
 ```
 
-`DRY_RUN=1` (or `--dry-run`) prints the review payload and reconcile plan
-instead of posting; add `GH_TOKEN`/`REPO`/`PR_NUMBER` to preview reconciliation
-against a real PR's existing threads (read-only — a dry run never writes). In CI
-the `ai-review` job (`.github/workflows/ci.yml`) supplies those and posts for
-real. It is **comment-only** — it never fails the check. It reviews the PR diff
-only (the new side of each changed source file), never pre-existing code. The
-job's security boundary is the fork guard — fork PRs never receive the secret
-or a write token; within it the job runs only this repo's review scripts (no
-dependency install, no build).
+Supplying `GH_TOKEN`, `REPO`, and `PR_NUMBER` additionally previews reconciliation
+against existing comments using read-only GitHub calls.
 
-Unit tests for the pure posting logic (CI runs them unconditionally in the
-`quality` job — no secret needed; they stay out of the `ai-review` job, which
-runs only the review scripts):
+## Evaluation
+
+`review.mjs` now evaluates the production autonomous-agent boundary. Each fixture
+is exposed as a one-file pull request with the same repository tools, every rule
+owner gets its own session, and any incomplete session aborts the run rather than
+being scored as a clean prediction.
 
 ```bash
-node --test tooling/pr-review/inline.test.node.mjs
+DEEPSEEK_API_KEY=... DEEPSEEK_MODEL=deepseek-v4-flash \
+  RUNS=5 node tooling/pr-review/review.mjs holdout
+DEEPSEEK_API_KEY=... node tooling/pr-review/review.mjs dev
 ```
 
-## Scoring
-
-Every case runs through **every** agent. Scoring is at the (case × agent) level:
-a case is labeled with the agent id(s) whose rules it violates (empty = clean),
-so the harness measures both **coverage** (did the right agent catch it) and
-**cross-agent noise** (did the other agents stay silent). It averages over `RUNS`
-passes because the model isn't deterministic even at temp 0.
-
-## Protocol (why the number is honest)
-
-- **`cases.holdout.mjs`** is mostly verbatim snippets from this repo (real legit
-  comments, tests, sanctioned patterns) — the real false-positive test,
-  out-of-distribution from the synthetic `cases.mjs` dev set.
-- The doctrine is never tuned to a held-out case: agents source the real docs,
-  and prompt changes are general, never per-case patches. Fixes go to *labels*
-  when a "miss" turns out to be mislabeled — never to the prompt.
+The former 99.0% F1 / 98.1% precision / 100% recall numbers measured the removed
+per-file majority-of-three architecture. They are historical and are not claimed
+for the autonomous reviewer. The fixture corpus remains available, but the new
+architecture must establish its own baseline through the agentic harness above.

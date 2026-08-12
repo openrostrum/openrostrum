@@ -64,6 +64,8 @@
 		"@cloudflare/vitest-pool-workers": "^0.20.3",
 		"@commitlint/cli": "^21.2.1",
 		"@commitlint/config-conventional": "^21.2.0",
+		"@earendil-works/pi-agent-core": "0.84.1",
+		"@earendil-works/pi-ai": "0.84.1",
 		"@eslint/js": "^9.39.5",
 		"@react-router/dev": "7.9.6",
 		"@react-router/fs-routes": "7.9.6",
