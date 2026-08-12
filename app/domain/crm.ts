@@ -22,6 +22,7 @@ import {
 import { normalizeEmail } from "~/lib/auth";
 import type { CrmContactStatus, DirectoryFilters } from "~/lib/crm-filters";
 import { isUniqueViolation } from "~/lib/errors";
+import { headshotUrl } from "~/lib/headshot";
 import type { PipelineStage } from "~/lib/pipeline";
 
 /* -------------------------------------------------------------- directory --- */
@@ -107,6 +108,9 @@ export interface DirectoryPerson {
 	lastName: string;
 	jobTitle: string | null;
 	companyName: string | null;
+	/** Served from whichever appearance carries the photo — one person, one
+	 * face, regardless of which event's contact row it was uploaded against. */
+	headshotUrl: string | null;
 	appearances: DirectoryAppearance[];
 	possibleDuplicate: boolean;
 }
@@ -121,6 +125,7 @@ type AppearanceRow = {
 	status: CrmContactStatus;
 	eventId: string;
 	eventName: string;
+	headshotKey: string | null;
 };
 
 /** Every appearance for the given person emails, newest contact row first —
@@ -140,6 +145,7 @@ function appearancesFor(db: Db, orgId: string, emails: string[]) {
 			status: contacts.status,
 			eventId: contacts.eventId,
 			eventName: events.name,
+			headshotKey: contacts.headshotKey,
 		})
 		.from(contacts)
 		.innerJoin(events, eq(events.id, contacts.eventId))
@@ -162,6 +168,7 @@ function composePeople(
 				lastName: row.lastName,
 				jobTitle: row.jobTitle,
 				companyName: row.companyName,
+				headshotUrl: null,
 				appearances: [],
 				possibleDuplicate: duplicateNames.has(
 					normalizedPersonName(row.firstName, row.lastName),
@@ -169,6 +176,10 @@ function composePeople(
 			};
 			byEmail.set(row.email, person);
 		}
+		person.headshotUrl ??= headshotUrl(
+			`/admin/contacts/${row.contactId}/headshot`,
+			row.headshotKey,
+		);
 		person.appearances.push({
 			contactId: row.contactId,
 			eventId: row.eventId,
