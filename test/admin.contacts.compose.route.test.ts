@@ -273,6 +273,82 @@ describe("compose bulk email", () => {
 		]);
 	});
 
+	// One checkbox per recipient, so unchecking omits the field rather than
+	// sending a marker. The organizer trims the list on the compose screen and the
+	// send goes to exactly what is still checked.
+	it("sends only to the recipients left checked", async () => {
+		const body = sendBody({ status: "", scoped: "1" });
+		body.delete("ids");
+		body.append("ids", "c_alice");
+		body.append("ids", "c_carol");
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/compose",
+			{ method: "POST", body },
+		);
+		await seedRoster();
+
+		const result = (await run(request)) as {
+			step: string;
+			sent: number;
+			outcomes: Array<{ email: string }>;
+		};
+
+		expect(result.step).toBe("sent");
+		expect(result.outcomes.map((o) => o.email).sort()).toEqual([
+			"alice@example.com",
+			"carol@example.com",
+		]);
+	});
+
+	// An unchecked-everything post must not fall back to the whole roster: the
+	// empty `ids` field is absent, which is what a bare filter looks like.
+	it("refuses a send with every recipient unchecked", async () => {
+		const body = sendBody({ status: "", scoped: "1" });
+		body.delete("ids");
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/compose",
+			{ method: "POST", body },
+		);
+		await seedRoster();
+
+		const result = (await run(request)) as { step: string; formError?: string };
+		expect(result.step).toBe("form");
+		expect(result.formError).toMatch(/no recipients/i);
+	});
+
+	// A roster legitimately holds one address twice — added by two organizers, or
+	// a CSV re-imported under a new name. Both rows are real contacts; one
+	// announcement arriving twice is not.
+	it("emails one address once even when two contacts share it", async () => {
+		const db = getDb(env);
+		const request = await adminRequest(
+			"http://localhost/admin/contacts/compose",
+			{ method: "POST", body: sendBody() },
+		);
+		await seedRoster();
+		await db.insert(contacts).values({
+			id: "c_alice_dupe",
+			eventId: "e1",
+			email: "Alice@Example.com",
+			firstName: "Alice",
+			lastName: "Anders-Duplicate",
+			status: "confirmed",
+		});
+
+		const result = (await run(request)) as {
+			step: string;
+			sent: number;
+			outcomes: Array<{ email: string }>;
+		};
+
+		expect(result.step).toBe("sent");
+		expect(
+			result.outcomes.filter(
+				(o) => o.email.toLowerCase() === "alice@example.com",
+			),
+		).toHaveLength(1);
+	});
+
 	it("resolves recipients from the roster filter, personalizes per recipient, and skips the unsubscribed", async () => {
 		const db = getDb(env);
 		const request = await adminRequest(

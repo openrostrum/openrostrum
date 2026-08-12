@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { data, Form } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
@@ -34,6 +35,7 @@ import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
+	Checkbox,
 	EmptyState,
 	ErrorText,
 	Field,
@@ -153,7 +155,23 @@ async function resolveComposerRecipients(
 			? resolveDirectoryRecipients(db, orgId, selection.directoryEmails)
 			: [];
 	}
-	return resolveRecipients(db, eventId, selection);
+	return oncePerAddress(await resolveRecipients(db, eventId, selection));
+}
+
+// A roster can hold the same address twice — the same person added by two
+// organizers, or a CSV re-imported under a new name. Each row is a real contact
+// and both belong on the roster, but one announcement must not arrive twice, so
+// the blast targets addresses rather than rows. First in roster order wins.
+function oncePerAddress(
+	recipients: DirectoryRecipient[],
+): DirectoryRecipient[] {
+	const seen = new Set<string>();
+	return recipients.filter((recipient) => {
+		const address = normalizeEmail(recipient.email);
+		if (seen.has(address)) return false;
+		seen.add(address);
+		return true;
+	});
 }
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
@@ -223,13 +241,20 @@ export async function action({ context, request }: Route.ActionArgs) {
 	const db = getDb(env);
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "send");
+	// Unchecking every box omits the field entirely, which is indistinguishable
+	// from a bare roster filter — so without this marker, clearing the list would
+	// send to the whole roster. The compose form always posts it; the roster's
+	// own links do not, and they still mean "resolve this filter".
+	const scoped = form.has("scoped");
+	// One checkbox per recipient posts a repeated field, so read them all. A
+	// single comma-joined value still arrives intact through the same join.
 	const selection = selectionFromParams(
 		new URLSearchParams({
-			ids: String(form.get("ids") ?? ""),
+			ids: form.getAll("ids").join(","),
 			q: String(form.get("q") ?? ""),
 			status: String(form.get("status") ?? ""),
 			...(form.has("directoryEmails")
-				? { directoryEmails: String(form.get("directoryEmails") ?? "") }
+				? { directoryEmails: form.getAll("directoryEmails").join(",") }
 				: {}),
 		}),
 	);
@@ -237,12 +262,14 @@ export async function action({ context, request }: Route.ActionArgs) {
 		selection.directoryEmails !== undefined
 			? await resolveActiveOrg(env, user)
 			: null;
-	const recipients = await resolveComposerRecipients(
-		db,
-		event.id,
-		org?.id ?? null,
-		selection,
-	);
+	const clearedEveryone =
+		scoped &&
+		selection.ids === undefined &&
+		(selection.directoryEmails === undefined ||
+			selection.directoryEmails.length === 0);
+	const recipients = clearedEveryone
+		? []
+		: await resolveComposerRecipients(db, event.id, org?.id ?? null, selection);
 	const echo = {
 		subject: String(form.get("subject") ?? ""),
 		body: String(form.get("body") ?? ""),
@@ -433,17 +460,20 @@ export default function ComposeBulkEmail({
 	const fromDirectory = selection.directoryEmails !== undefined;
 	const backTo = fromDirectory ? "/admin/crm/directory" : "/admin/contacts";
 	const backLabel = fromDirectory ? "Back to directory" : "Back to speakers";
-	const recipientNoun = fromDirectory
-		? recipients.length === 1
-			? "person"
-			: "people"
-		: recipients.length === 1
-			? "speaker"
-			: "speakers";
+	const recipientSingular = fromDirectory ? "person" : "speaker";
+	const recipientPlural = fromDirectory ? "people" : "speakers";
 	const state = actionData;
 	// A re-render after preview/validation/partial-failure keeps the POSTed
 	// sendKey (retry stays idempotent); a fresh visit mints a fresh one.
 	const sendKey = state?.step === "form" ? state.sendKey : loaderData.sendKey;
+	const recipientValue = (recipient: { id: string; email: string }) =>
+		fromDirectory ? normalizeEmail(recipient.email) : recipient.id;
+	// Everyone the selection resolved to, until the organizer says otherwise. The
+	// send button counts this rather than the resolved set, so trimming the list
+	// cannot leave the button promising a number it will not send to.
+	const [chosen, setChosen] = useState(
+		() => new Set(recipients.map(recipientValue)),
+	);
 
 	if (state?.step === "sent") {
 		return (
@@ -537,44 +567,60 @@ export default function ComposeBulkEmail({
 			) : (
 				<>
 					<Panel>
-						<div className="flex flex-col gap-2">
-							<strong>Recipients</strong>
-							<p>
-								{recipients
-									.slice(0, 12)
-									.map((r) => r.name)
-									.join(", ")}
-								{recipients.length > 12 &&
-									` and ${recipients.length - 12} more`}
-							</p>
+						<Form method="post" className="flex flex-col gap-[13px]">
+							{/* Says the boxes below are the whole story, so clearing them all
+							    means nobody rather than an unfiltered roster. */}
+							<Input type="hidden" name="scoped" value="1" readOnly />
+							{/* One checkbox per resolved recipient, named after the selection
+							    field: unchecking omits it, so the action re-resolves exactly
+							    who is still checked, scoped to this event. Still a snapshot —
+							    a roster edit mid-compose cannot change who this send targets. */}
+							<fieldset className="flex flex-col gap-2">
+								<legend className="flex flex-wrap items-baseline gap-3">
+									<strong>
+										Sending to {chosen.size} of {recipients.length}
+									</strong>
+									<Button
+										type="button"
+										variant="ghost"
+										onClick={() =>
+											setChosen(
+												chosen.size === recipients.length
+													? new Set()
+													: new Set(recipients.map(recipientValue)),
+											)
+										}
+									>
+										{chosen.size === recipients.length
+											? "Clear all"
+											: "Select all"}
+									</Button>
+								</legend>
+								<div className="flex max-h-[280px] flex-col gap-2 overflow-y-auto">
+									{recipients.map((recipient) => {
+										const value = recipientValue(recipient);
+										return (
+											<Checkbox
+												key={recipient.id}
+												name={fromDirectory ? "directoryEmails" : "ids"}
+												value={value}
+												checked={chosen.has(value)}
+												onChange={(event) => {
+													const next = new Set(chosen);
+													if (event.currentTarget.checked) next.add(value);
+													else next.delete(value);
+													setChosen(next);
+												}}
+												label={`${recipient.name} — ${recipient.email}`}
+											/>
+										);
+									})}
+								</div>
+							</fieldset>
 							<p>
 								Unsubscribed contacts are skipped automatically — announcements
 								never override an unsubscribe.
 							</p>
-						</div>
-					</Panel>
-
-					<Panel>
-						<Form method="post" className="flex flex-col gap-[13px]">
-							{/* Snapshot the RESOLVED set: "Send to N speakers" targets exactly
-							    the names listed above, even if the roster changes mid-compose. */}
-							{selection.directoryEmails !== undefined ? (
-								<Input
-									type="hidden"
-									name="directoryEmails"
-									value={recipients
-										.map((recipient) => normalizeEmail(recipient.email))
-										.join(",")}
-									readOnly
-								/>
-							) : (
-								<Input
-									type="hidden"
-									name="ids"
-									value={recipients.map((recipient) => recipient.id).join(",")}
-									readOnly
-								/>
-							)}
 							<Input type="hidden" name="sendKey" value={sendKey} readOnly />
 							<Field label="Subject" error={state?.fieldErrors?.subject?.[0]}>
 								<Input
@@ -643,9 +689,10 @@ export default function ComposeBulkEmail({
 									name="intent"
 									value="send"
 									icon="mail"
-									disabled={busy || !sendKey}
+									disabled={busy || !sendKey || chosen.size === 0}
 								>
-									Send to {recipients.length} {recipientNoun}
+									Send to {chosen.size}{" "}
+									{chosen.size === 1 ? recipientSingular : recipientPlural}
 								</Button>
 								{state?.formError && <ErrorText>{state.formError}</ErrorText>}
 							</div>
