@@ -86,6 +86,13 @@ with the bank are **incomplete**, never clean. The close is read off the tool ca
 and ends the session there, so closing never depends on when a tool result is
 appended relative to the turn hook.
 
+Because a response can only be tool calls, a reviewer cannot stop by saying it is
+done — it stops by calling `finish_review` or not at all. Reaching the turn budget
+is therefore treated as the moment to ask for the close, not the moment to give up
+on it: the session gets one explicit "investigation is over" ask with a small extra
+turn allowance, told what is already banked so it does not resubmit. A reviewer that
+ignores that ask too is incomplete, with its banked findings posted.
+
 A response that does not close the review earns **exactly one re-ask** before the
 session is called incomplete. The re-ask names the closing call and tells the
 reviewer its banked findings are already recorded, so it must not send them

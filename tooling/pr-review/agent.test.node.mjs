@@ -488,20 +488,16 @@ test("provider failure and turn exhaustion are incomplete", async () => {
 	assert.equal(failed.status, "incomplete");
 	assert.match(failed.reason, /provider unavailable/);
 
-	const { runtime } = fauxRuntime([
-		fauxAssistantMessage(
-			fauxToolCall("list_repository", {}, { id: "call-1" }),
-			{
-				stopReason: "toolUse",
-			},
+	// Enough responses to outlast the close allowance too: a reviewer that ignores
+	// the ask to close is the case that still has to fail.
+	const { runtime } = fauxRuntime(
+		Array.from({ length: 16 }, (_, index) =>
+			fauxAssistantMessage(
+				fauxToolCall("list_repository", {}, { id: `call-${index}` }),
+				{ stopReason: "toolUse" },
+			),
 		),
-		fauxAssistantMessage(
-			fauxToolCall("list_repository", {}, { id: "call-2" }),
-			{
-				stopReason: "toolUse",
-			},
-		),
-	]);
+	);
 	const exhausted = await runRuleReviewer({
 		agent: { id: "engineering", doc: "docs/rules/engineering.md" },
 		system: "SYSTEM RULE",
@@ -513,6 +509,7 @@ test("provider failure and turn exhaustion are incomplete", async () => {
 	});
 	assert.equal(exhausted.status, "incomplete");
 	assert.match(exhausted.reason, /turn budget/i);
+	assert.equal(exhausted.closing, true, "the close was never asked for");
 });
 
 // ---------------------------------------------------------------------------
@@ -596,6 +593,10 @@ test("a session that never reaches the terminal signal is incomplete with its fi
 	const { runtime } = fauxRuntime([
 		submits([violation(0)], "a"),
 		submits([violation(1)], "b"),
+		// Keeps submitting through the close ask instead of calling finish_review.
+		...Array.from({ length: 14 }, (_, index) =>
+			submits([violation(index + 2)], `more-${index}`),
+		),
 	]);
 
 	const result = await runRuleReviewer({
@@ -603,12 +604,15 @@ test("a session that never reaches the terminal signal is incomplete with its fi
 		system: "SYSTEM RULE",
 		repository: repository(THREE_FILES),
 		runtime,
-		limits: { maxTurns: 2, maxToolCalls: 10, timeoutMs: 10_000 },
+		limits: { maxTurns: 2, maxToolCalls: 40, timeoutMs: 10_000 },
 	});
 
 	assert.equal(result.status, "incomplete");
 	assert.match(result.reason, /turn budget/i);
-	assert.equal(result.findings.length, 2);
+	assert.ok(
+		result.findings.length >= 2,
+		"findings banked before and during the close must survive",
+	);
 });
 
 // Retries and re-reports are normal agent behaviour. The exact-duplicate guard
@@ -889,4 +893,52 @@ test("the run summary reports a re-ask only when there was one", () => {
 		reason: "terminated",
 	});
 	assert.match(failed, /reasked=1;.*reason=terminated$/);
+});
+
+// Forcing tool calls removed the model's way of saying "done", so a reviewer that
+// keeps reading spends its whole budget and the review is lost. The budget is
+// spent on investigation, so reaching it asks for the close instead of failing.
+test("a reviewer still reading at its budget is asked to close, and does", async () => {
+	const reading = () =>
+		fauxAssistantMessage(
+			[
+				fauxToolCall("read_file", {
+					path: "app/f0.ts",
+					start_line: 1,
+					end_line: 5,
+				}),
+			],
+			{ stopReason: "toolUse" },
+		);
+	const contexts = [];
+	const { runtime } = fauxRuntime([
+		submits([violation(0)], "found"),
+		reading(),
+		reading(),
+		reading(),
+		(context) => {
+			contexts.push(structuredClone(context.messages));
+			return done(1);
+		},
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES, {
+			read_file: () => ({ ok: true, content: "1: export const value = 1;" }),
+		}),
+		runtime,
+		limits: { maxTurns: 4 },
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.findings.length, 1);
+	assert.equal(result.closing, true, "the close was never asked for");
+	// The ask has to end the investigation, not merely repeat the contract, and it
+	// must tell the reviewer what is already banked so it does not resubmit.
+	const close = userTexts(contexts[0]).at(-1);
+	assert.match(close, /investigation is over/i);
+	assert.match(close, /read nothing further/i);
+	assert.match(close, /1 finding\(s\) are recorded/);
 });

@@ -160,6 +160,19 @@ function createFindingSink(agent, changedPaths) {
 // the signal or the same failure — never a second chance at the contract.
 const TERMINAL_RETRIES = 1;
 
+// Forced tool choice takes away the model's way of stopping by saying so: the
+// session ends when it calls finish_review or not at all. A reviewer still
+// reading at its budget has not failed the contract — nothing told it that
+// investigation was over. So the budget buys one explicit close.
+const TURN_BUDGET = "turn budget exhausted";
+const CLOSE_TURNS = 8;
+
+function closePrompt(banked) {
+	return `Investigation is over — this review has reached its turn budget. Read nothing further.
+
+Submit with a ${SUBMIT_TOOL} call anything you have already proved but not yet submitted, then call ${FINISH_TOOL} with the running total. ${banked} finding(s) are recorded; do not submit them again.`;
+}
+
 function retryPrompt(failure) {
 	return `That did not close the review. ${failure}
 
@@ -273,6 +286,8 @@ export async function runRuleReviewer({
 	// before executing them, so which submissions land past the cap is settled.
 	const submissionsPerResponse = new WeakMap();
 	let turns = 0;
+	let turnCeiling = limits.maxTurns;
+	let closing = false;
 	let toolCalls = 0;
 	let limitReason;
 
@@ -318,8 +333,8 @@ export async function runRuleReviewer({
 			const requestedTools = message.content.some(
 				(block) => block.type === "toolCall",
 			);
-			if (requestedTools && turns >= limits.maxTurns) {
-				limitReason = "turn budget exhausted";
+			if (requestedTools && turns >= turnCeiling) {
+				limitReason = TURN_BUDGET;
 				return true;
 			}
 			return Boolean(limitReason);
@@ -337,7 +352,7 @@ export async function runRuleReviewer({
 	}, limits.timeoutMs);
 	let ask = userPrompt(repository, agent, limits);
 	let reasked = 0;
-	const spent = () => ({ turns, toolCalls, reasked });
+	const spent = () => ({ turns, toolCalls, reasked, closing });
 	try {
 		while (true) {
 			closed = undefined;
@@ -352,6 +367,15 @@ export async function runRuleReviewer({
 				);
 			}
 
+			// The budget is spent on investigation, so reaching it is the moment to
+			// ask for the close rather than the moment to give up on it.
+			if (limitReason === TURN_BUDGET && !closing) {
+				closing = true;
+				limitReason = undefined;
+				turnCeiling = turns + CLOSE_TURNS;
+				ask = closePrompt(sink.findings.length);
+				continue;
+			}
 			if (limitReason)
 				return incomplete(agent, limitReason, sink.findings, spent());
 			if (reviewer.state.errorMessage)
