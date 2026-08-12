@@ -180,9 +180,11 @@ const FINAL_TURNS = 3;
 function closePrompt(banked, perResponse) {
 	return `Investigation is over — this review has reached its turn budget. Read nothing further.
 
-Submit with a ${SUBMIT_TOOL} call anything you have already proved but not yet submitted, then call ${FINISH_TOOL} with the running total. ${banked} finding(s) are recorded; do not submit them again.
+Submit every violation you have proved and not yet submitted, then call ${FINISH_TOOL} with the running total. ${banked} finding(s) are recorded; do not submit them again.
 
-Turns are almost gone, so do not send them one at a time: put up to ${perResponse} ${SUBMIT_TOOL} calls in this one response. Anything still unsent when the allowance runs out is lost from the review.`;
+A rule you checked and found satisfied is not a violation. Never submit one: a file you cleared is not part of this review, and a ${SUBMIT_TOOL} call that reports compliance posts a comment on the pull request saying nothing was wrong.
+
+Turns are almost gone, so do not send your violations one at a time: put up to ${perResponse} ${SUBMIT_TOOL} calls in this one response. Any violation still unsent when the allowance runs out is lost from the review.`;
 }
 
 function finalPrompt(banked) {
