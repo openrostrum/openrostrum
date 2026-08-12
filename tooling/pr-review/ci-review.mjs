@@ -5,7 +5,7 @@
 // and reconciliation semantics live in inline.mjs and are documented in README.
 // Env (set by .github/workflows/ci.yml): DEEPSEEK_API_KEY, GH_TOKEN, REPO
 // (owner/repo), PR_NUMBER, BASE_SHA, HEAD_SHA.
-import { runRuleReviewers } from "./agent.mjs";
+import { runRuleReviewers, summaryLine } from "./agent.mjs";
 import { loadSystems, makeRuntime } from "./core.mjs";
 import {
 	anchorFinding,
@@ -252,12 +252,7 @@ const results = await runRuleReviewers({
 });
 const incomplete = results.filter((result) => result.status !== "complete");
 const reviewComplete = incomplete.length === 0;
-for (const result of results) {
-	console.log(
-		`${result.agent}: ${result.status}; turns=${result.turns}; tools=${result.toolCalls}; findings=${result.findings.length}` +
-			(result.reason ? `; reason=${result.reason}` : ""),
-	);
-}
+for (const result of results) console.log(summaryLine(result));
 
 const byFile = new Map();
 for (const result of results) {

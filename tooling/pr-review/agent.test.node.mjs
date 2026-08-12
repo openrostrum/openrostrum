@@ -6,7 +6,7 @@ import {
 	fauxProvider,
 	fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { runRuleReviewer, runRuleReviewers } from "./agent.mjs";
+import { runRuleReviewer, runRuleReviewers, summaryLine } from "./agent.mjs";
 import { FINDING_LIMITS, loadSystems, RESPONSE_CEILING } from "./core.mjs";
 import { anchorFinding } from "./inline.mjs";
 
@@ -730,6 +730,30 @@ test("a reviewer that ends in prose is asked once more for the signal", async ()
 	assert.match(reask, /"status":"complete"/);
 });
 
+// A recovery nobody can see is a recovery nobody can trust: "complete" alone
+// cannot say whether a session got there first time or needed the extra ask, and
+// an unexercised recovery must not be reported as a working one.
+test("a session reports whether it needed the extra ask", async () => {
+	const session = (responses) =>
+		runRuleReviewer({
+			agent: ENGINEERING,
+			system: "SYSTEM RULE",
+			repository: repository(THREE_FILES),
+			runtime: fauxRuntime(responses).runtime,
+		});
+
+	const direct = await session([done(0)]);
+	assert.equal(direct.status, "complete", direct.reason);
+	assert.equal(direct.reasked, 0);
+
+	const recovered = await session([
+		fauxAssistantMessage("An essay where the signal belongs."),
+		done(0),
+	]);
+	assert.equal(recovered.status, "complete", recovered.reason);
+	assert.equal(recovered.reasked, 1);
+});
+
 // One chance to say which it was, not an escape from the contract.
 test("a reviewer that misses the signal twice is incomplete", async () => {
 	const { runtime, faux } = fauxRuntime([
@@ -771,4 +795,30 @@ test("findings banked before a missed signal survive the re-ask", async () => {
 	assert.equal(faux.state.callCount, 3);
 	assert.equal(result.findings.length, 2);
 	assert.match(result.reason, /that summary again/);
+});
+
+// A counter nobody can read answers nothing. The run log is the only place the
+// recovery is observable, and a reason that swallows the rest of the line is how
+// a run stops reporting the numbers before it.
+test("the run summary reports a re-ask only when there was one", () => {
+	const session = {
+		agent: "engineering",
+		findings: [violation(0)],
+		turns: 4,
+		toolCalls: 7,
+	};
+
+	const direct = summaryLine({ ...session, status: "complete", reasked: 0 });
+	assert.doesNotMatch(direct, /reasked/);
+
+	const recovered = summaryLine({ ...session, status: "complete", reasked: 1 });
+	assert.match(recovered, /reasked=1/);
+
+	const failed = summaryLine({
+		...session,
+		status: "incomplete",
+		reasked: 1,
+		reason: "terminated",
+	});
+	assert.match(failed, /reasked=1;.*reason=terminated$/);
 });

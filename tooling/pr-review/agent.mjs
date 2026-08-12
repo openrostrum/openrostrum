@@ -309,7 +309,8 @@ export async function runRuleReviewer({
 		reviewer.abort();
 	}, limits.timeoutMs);
 	let ask = userPrompt(repository, agent, limits);
-	let asked = 0;
+	let reasked = 0;
+	const spent = () => ({ turns, toolCalls, reasked });
 	try {
 		while (true) {
 			try {
@@ -319,20 +320,19 @@ export async function runRuleReviewer({
 					agent,
 					String(error?.message ?? error),
 					sink.findings,
-					{ turns, toolCalls },
+					spent(),
 				);
 			}
 
 			if (limitReason)
-				return incomplete(agent, limitReason, sink.findings, {
-					turns,
-					toolCalls,
-				});
+				return incomplete(agent, limitReason, sink.findings, spent());
 			if (reviewer.state.errorMessage)
-				return incomplete(agent, reviewer.state.errorMessage, sink.findings, {
-					turns,
-					toolCalls,
-				});
+				return incomplete(
+					agent,
+					reviewer.state.errorMessage,
+					sink.findings,
+					spent(),
+				);
 
 			const failure = terminalFailure(
 				reviewer.state.messages.findLast(
@@ -347,16 +347,27 @@ export async function runRuleReviewer({
 					doc: agent.doc,
 					status: "complete",
 					findings: sink.findings,
-					turns,
-					toolCalls,
+					...spent(),
 				};
-			if (asked++ >= TERMINAL_RETRIES)
-				return incomplete(agent, failure, sink.findings, { turns, toolCalls });
+			if (reasked++ >= TERMINAL_RETRIES)
+				return incomplete(agent, failure, sink.findings, spent());
 			ask = retryPrompt(failure);
 		}
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+// One session, one line of the run log. `reasked` appears only when the extra
+// ask happened, so a clean run stays quiet about a recovery nobody needed and a
+// "complete" that took two asks cannot read as a direct one. The reason goes
+// last because it is free text and would otherwise swallow the numbers.
+export function summaryLine(result) {
+	return (
+		`${result.agent}: ${result.status}; turns=${result.turns}; tools=${result.toolCalls}; findings=${result.findings.length}` +
+		(result.reasked ? `; reasked=${result.reasked}` : "") +
+		(result.reason ? `; reason=${result.reason}` : "")
+	);
 }
 
 async function pool(items, size, fn) {

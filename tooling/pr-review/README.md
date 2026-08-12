@@ -85,9 +85,11 @@ its banked findings are already recorded, so it must not send them again. This i
 recovery, not a second chance at the contract: the turn, tool-call, and wall-time
 budgets are shared with the first ask, a reviewer that misses twice is incomplete,
 and the reason reported is the second failure. It exists because a reviewer that
-ends in reasoning has said neither “I finished” nor “I stopped” — production has
-seen a session close with 8995 characters of argument about a violation it never
-submitted, and one extra turn recovers that review instead of discarding it.
+ends in reasoning has said neither “I finished” nor “I stopped”, and one extra
+turn recovers that review instead of discarding it. A session that needed the
+extra ask says so in the run log as `reasked=N`, and a session that did not stays
+silent about it — otherwise there is no way to tell whether the recovery ever
+fires against a real reviewer or is only exercised by its tests.
 
 A truncated answer (`stopReason: "length"`) stays incomplete and additionally
 reports the output tokens the provider says it produced, how many were reasoning,
@@ -146,8 +148,9 @@ submission, a submission citing an unchanged file, a submission that fails the
 schema, a terminal count that disagrees with the bank, the per-response cap and
 its re-issue, a reviewer that ends in prose being re-asked once and recovering, a
 reviewer that misses the signal twice staying incomplete, findings surviving a
-re-ask, anchoring, fingerprints, dedupe, reconciliation, stale deferral, and
-posting payloads. CI runs this complete set in its unconditional quality job.
+re-ask, a run summary that reports the extra ask only when there was one,
+anchoring, fingerprints, dedupe, reconciliation, stale deferral, and posting
+payloads. CI runs this complete set in its unconditional quality job.
 
 A local production dry run performs real DeepSeek sessions but no GitHub writes:
 
