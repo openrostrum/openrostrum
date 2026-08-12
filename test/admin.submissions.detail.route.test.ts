@@ -5,8 +5,12 @@ import { renderToString } from "react-dom/server";
 import { createRoutesStub } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../app/db";
-import { PARTICIPANT_ROLE as CLIENT_PARTICIPANT_ROLE } from "../app/db/constants";
 import {
+	CONTENT_STATUS as CLIENT_CONTENT_STATUS,
+	PARTICIPANT_ROLE as CLIENT_PARTICIPANT_ROLE,
+} from "../app/db/constants";
+import {
+	CONTENT_STATUS as SCHEMA_CONTENT_STATUS,
 	PARTICIPANT_ROLE as SCHEMA_PARTICIPANT_ROLE,
 	contacts,
 	emailOutbox,
@@ -1432,7 +1436,15 @@ describe("participant management", () => {
 	});
 });
 
-describe("PARTICIPANT_ROLE lockstep", () => {
+describe("enum lockstep", () => {
+	// `satisfies` only checks the client tuple is assignable to the column type,
+	// so widening the schema — the direction that happens, since schema.ts is
+	// integration-owned — passes silently. A status added there but missing here
+	// drops out of the organizer's dropdown and renders an untoned badge.
+	it("keeps the client CONTENT_STATUS tuple in lockstep with the schema", () => {
+		expect(CLIENT_CONTENT_STATUS).toEqual(SCHEMA_CONTENT_STATUS);
+	});
+
 	// The client-safe tuple (route components must not import schema.ts) and
 	// the integration-owned schema enum must never diverge.
 	it("keeps the client PARTICIPANT_ROLE tuple in lockstep with the schema", () => {
