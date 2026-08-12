@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { data, Form, useOutlet } from "react-router";
 import { and, desc, eq, gt, isNull, like, lte, or, sql } from "drizzle-orm";
 import { getDb } from "~/db";
@@ -11,11 +11,13 @@ import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	ButtonLink,
+	DialogSurface,
 	EmptyState,
 	Icon,
 	Input,
 	PageHeader,
 	Panel,
+	PopoverSurface,
 	SearchInput,
 	StatusBadge,
 	Tab,
@@ -245,49 +247,47 @@ function FormActionsMenu({
 			>
 				<Icon name="dots" />
 			</summary>
-			<div className="absolute right-0 top-full z-30 mt-1 w-64">
-				<Panel>
-					<div className="flex flex-col items-stretch gap-1">
-						<ButtonLink variant="ghost" to={adminFormPath(form.id)}>
-							Edit
-						</ButtonLink>
-						{form.rawStatus !== "open" && (
-							<Form method="post" action={adminFormPath(form.id)}>
-								<Input type="hidden" name="intent" value="publish" readOnly />
-								<Button variant="ghost" type="submit" disabled={busy}>
-									Open form
-								</Button>
-							</Form>
-						)}
-						<ButtonLink
-							variant="ghost"
-							to={`${adminFormPath(form.id)}?view=results`}
-						>
-							View results
-						</ButtonLink>
-						<ButtonLink
-							variant="ghost"
-							to={`${adminFormPath(form.id)}?view=drafts`}
-						>
-							View draft submissions
-						</ButtonLink>
+			<PopoverSurface side="bottom" align="end" width="md">
+				<div className="flex flex-col items-stretch gap-1 p-1">
+					<ButtonLink variant="ghost" to={adminFormPath(form.id)}>
+						Edit
+					</ButtonLink>
+					{form.rawStatus !== "open" && (
 						<Form method="post" action={adminFormPath(form.id)}>
-							<Input type="hidden" name="intent" value="duplicate" readOnly />
+							<Input type="hidden" name="intent" value="publish" readOnly />
 							<Button variant="ghost" type="submit" disabled={busy}>
-								Duplicate
+								Open form
 							</Button>
 						</Form>
-						<Button
-							variant="ghost"
-							type="button"
-							disabled={busy}
-							onClick={onDelete}
-						>
-							Delete
+					)}
+					<ButtonLink
+						variant="ghost"
+						to={`${adminFormPath(form.id)}?view=results`}
+					>
+						View results
+					</ButtonLink>
+					<ButtonLink
+						variant="ghost"
+						to={`${adminFormPath(form.id)}?view=drafts`}
+					>
+						View draft submissions
+					</ButtonLink>
+					<Form method="post" action={adminFormPath(form.id)}>
+						<Input type="hidden" name="intent" value="duplicate" readOnly />
+						<Button variant="ghost" type="submit" disabled={busy}>
+							Duplicate
 						</Button>
-					</div>
-				</Panel>
-			</div>
+					</Form>
+					<Button
+						variant="ghost"
+						type="button"
+						disabled={busy}
+						onClick={onDelete}
+					>
+						Delete
+					</Button>
+				</div>
+			</PopoverSurface>
 		</details>
 	);
 }
@@ -300,44 +300,33 @@ function DeleteFormDialog({
 	onCancel: () => void;
 }) {
 	const busy = useBusy();
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onCancel();
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [onCancel]);
 	return (
-		<div
-			role="dialog"
-			aria-modal="true"
-			aria-label={`Delete ${form.internalName}`}
-			className="fixed inset-0 z-50 flex items-center justify-center p-6"
+		<DialogSurface
+			role="alertdialog"
+			size="sm"
+			ariaLabel={`Delete ${form.internalName}`}
+			onDismiss={onCancel}
 		>
-			<div className="w-full max-w-md">
-				<Panel>
-					<div className="flex flex-col gap-3">
-						<strong>Delete “{form.internalName}”?</strong>
-						<p>
-							The form and its questions are removed permanently and its public
-							link stops working. Submissions already received are kept — they
-							just lose their link to this form.
-						</p>
-						<div className="flex justify-end gap-2">
-							<Button variant="ghost" type="button" onClick={onCancel}>
-								Cancel
-							</Button>
-							<Form method="post" action={adminFormPath(form.id)}>
-								<Input type="hidden" name="intent" value="delete" readOnly />
-								<Button type="submit" disabled={busy}>
-									Delete form
-								</Button>
-							</Form>
-						</div>
-					</div>
-				</Panel>
+			<div className="flex flex-col gap-3">
+				<strong>Delete “{form.internalName}”?</strong>
+				<p>
+					The form and its questions are removed permanently and its public link
+					stops working. Submissions already received are kept — they just lose
+					their link to this form.
+				</p>
+				<div className="flex justify-end gap-2">
+					<Button variant="ghost" type="button" onClick={onCancel}>
+						Cancel
+					</Button>
+					<Form method="post" action={adminFormPath(form.id)}>
+						<Input type="hidden" name="intent" value="delete" readOnly />
+						<Button type="submit" disabled={busy}>
+							Delete form
+						</Button>
+					</Form>
+				</div>
 			</div>
-		</div>
+		</DialogSurface>
 	);
 }
 

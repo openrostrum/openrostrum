@@ -1,5 +1,6 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import {
-	type ElementType,
+	type ComponentType,
 	type FormEventHandler,
 	useRef,
 	useState,
@@ -12,7 +13,7 @@ import {
 import { parseTheme, THEMES, type Theme } from "~/lib/theme";
 import { useBusy } from "~/lib/use-busy";
 import { useDismiss } from "~/lib/use-dismiss";
-import { Icon, type IconName } from "~/ui";
+import { Icon, PopoverSurface, type IconName } from "~/ui";
 import { cn } from "~/ui/cn";
 import type { loader as rootLoader } from "~/root";
 
@@ -37,7 +38,7 @@ const ICONS: Record<Theme, IconName> = {
 };
 
 type ThemeMenuFormProps = {
-	Form: ElementType<FetcherFormProps>;
+	Form: "form" | ComponentType<FetcherFormProps>;
 	busy: boolean;
 	theme: Theme;
 	placement?: "above" | "below";
@@ -52,14 +53,15 @@ export function ThemeMenuForm({
 	onSubmit,
 }: ThemeMenuFormProps) {
 	return (
-		<Form
+		<PopoverSurface
+			as={Form}
 			method="post"
 			action="/theme"
 			onSubmit={onSubmit}
-			className={cn(
-				"absolute right-0 z-20 flex w-[168px] flex-col overflow-hidden rounded-card bg-surface py-1 shadow-card",
-				placement === "below" ? "top-full mt-[6px]" : "bottom-full mb-[6px]",
-			)}
+			side={placement === "below" ? "bottom" : "top"}
+			align="end"
+			width="sm"
+			padding="menu"
 		>
 			{THEMES.map((option) => (
 				<button
@@ -71,7 +73,7 @@ export function ThemeMenuForm({
 					aria-current={option === theme || undefined}
 					className={cn(
 						"flex h-[34px] w-full items-center gap-[10px] px-[12px] text-left text-[13px] font-medium text-fg-muted",
-						"transition-colors duration-150 hover:bg-row-hover hover:text-fg",
+						`transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover hover:text-fg`,
 						"focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol",
 						option === theme &&
 							"bg-row-selected text-fg shadow-[inset_2px_0_0_var(--color-petrol)]",
@@ -88,7 +90,7 @@ export function ThemeMenuForm({
 					{LABELS[option]}
 				</button>
 			))}
-		</Form>
+		</PopoverSurface>
 	);
 }
 
@@ -116,7 +118,7 @@ export function ThemeToggle({
 				aria-expanded={open}
 				aria-haspopup="true"
 				onClick={() => setOpen((o) => !o)}
-				className="flex h-7 w-7 items-center justify-center rounded-control text-fg-faint transition-colors duration-150 hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+				className={`flex h-7 w-7 items-center justify-center rounded-control text-fg-faint transition-colors ${MOTION_FEEDBACK} hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol`}
 			>
 				<Icon name={ICONS[theme]} size={15} />
 			</button>

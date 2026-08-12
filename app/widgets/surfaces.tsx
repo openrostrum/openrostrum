@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import { useState } from "react";
 import { Link } from "react-router";
 import type {
@@ -14,6 +15,7 @@ import {
 	ButtonLink,
 	Chip,
 	EmptyState,
+	MotionReveal,
 	Tab,
 	Tabs,
 	TextLink,
@@ -256,7 +258,7 @@ export function SpeakersSurface({
 									q: data.q,
 									page: data.page,
 								})}
-								className="flex items-center gap-3.5 border-t border-hair px-4 py-3 first:border-t-0 hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol"
+								className={`flex items-center gap-3.5 border-t border-hair px-4 py-3 first:border-t-0 transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
 							>
 								<SpeakerPhoto
 									name={speaker.name}
@@ -538,7 +540,7 @@ export function AgendaSurface({
 												session: block.sessionId,
 											})}
 											title={block.title}
-											className="absolute flex flex-col gap-0.5 overflow-hidden rounded-[6px] bg-canvas p-1.5 shadow-control hover:bg-chip focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol"
+											className={`absolute flex flex-col gap-0.5 overflow-hidden rounded-[6px] bg-canvas p-1.5 shadow-control transition-colors ${MOTION_FEEDBACK} hover:bg-chip focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
 											style={{
 												top:
 													(block.startMin - data.windowStartMin) * PX_PER_MIN +
@@ -691,9 +693,11 @@ export function ItinerarySurface({
 							</ResultCount>
 							<div className="ml-auto flex items-center gap-3">
 								{exported && (
-									<span className="text-[12.5px] text-fg-muted">
-										Downloaded — import the .ics into your calendar.
-									</span>
+									<MotionReveal kind="feedback">
+										<span className="text-[12.5px] text-fg-muted">
+											Downloaded — import the .ics into your calendar.
+										</span>
+									</MotionReveal>
 								)}
 								<Button
 									type="button"

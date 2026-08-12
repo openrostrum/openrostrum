@@ -13,14 +13,14 @@ import {
 	useSensor,
 	useSensors,
 } from "@dnd-kit/core";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
 	Button,
 	Chip,
+	DialogSurface,
 	EmptyState,
 	ErrorText,
-	Panel,
 	Select,
 	StatusBadge,
 	SUBMISSION_STATUS_TONE,
@@ -149,141 +149,83 @@ export function PublishAgendaDialog({
 	onCancel: () => void;
 	onPublish: () => void;
 }) {
-	const dialogRef = useRef<HTMLDivElement>(null);
-	const submittingRef = useRef(submitting);
-	useEffect(() => {
-		submittingRef.current = submitting;
-	}, [submitting]);
-
-	useEffect(() => {
-		const previous =
-			document.activeElement instanceof HTMLElement
-				? document.activeElement
-				: null;
-		const focusable = () =>
-			Array.from(
-				dialogRef.current?.querySelectorAll<HTMLElement>(
-					'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-				) ?? [],
-			);
-		focusable()[0]?.focus();
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape" && !submittingRef.current) {
-				event.preventDefault();
-				onCancel();
-				return;
-			}
-			if (event.key !== "Tab") return;
-			const candidates = focusable();
-			if (candidates.length === 0) {
-				event.preventDefault();
-				return;
-			}
-			const first = candidates[0];
-			const last = candidates[candidates.length - 1];
-			const active = document.activeElement;
-			if (!dialogRef.current?.contains(active)) {
-				event.preventDefault();
-				first?.focus();
-			} else if (event.shiftKey && active === first) {
-				event.preventDefault();
-				last?.focus();
-			} else if (!event.shiftKey && active === last) {
-				event.preventDefault();
-				first?.focus();
-			}
-		};
-		document.addEventListener("keydown", onKey);
-		return () => {
-			document.removeEventListener("keydown", onKey);
-			previous?.focus();
-		};
-	}, [onCancel]);
-
 	const preview = conflicts.slice(0, PUBLISH_CONFLICT_PREVIEW_LIMIT);
 	const remaining = total - preview.length;
 	const hasConflicts = total > 0;
 	return (
-		<div
-			ref={dialogRef}
+		<DialogSurface
 			role="alertdialog"
-			aria-modal="true"
-			aria-labelledby="publish-agenda-title"
-			aria-describedby="publish-agenda-description"
-			className="fixed inset-0 z-50 flex items-center justify-center p-6"
+			size="md"
+			labelledBy="publish-agenda-title"
+			describedBy="publish-agenda-description"
+			onDismiss={submitting ? undefined : onCancel}
 		>
-			<div className="w-full max-w-2xl">
-				<Panel>
-					<div className="flex flex-col gap-4">
-						<div className="flex flex-col gap-2">
-							<Strong>
-								<span id="publish-agenda-title">
-									{hasConflicts
-										? `Publish with ${total} unresolved ${total === 1 ? "conflict" : "conflicts"}?`
-										: "Publish agenda?"}
-								</span>
-							</Strong>
-							<p id="publish-agenda-description">
-								{hasConflicts
-									? "Attendees will see these overlapping sessions. Publishing does not resolve them, but you can publish anyway and fix the schedule afterward."
-									: "The approved agenda becomes available on the public schedule immediately."}
-							</p>
-						</div>
-						{preview.length > 0 && (
+			<div className="flex flex-col gap-4">
+				<div className="flex flex-col gap-2">
+					<Strong>
+						<span id="publish-agenda-title">
+							{hasConflicts
+								? `Publish with ${total} unresolved ${total === 1 ? "conflict" : "conflicts"}?`
+								: "Publish agenda?"}
+						</span>
+					</Strong>
+					<p id="publish-agenda-description">
+						{hasConflicts
+							? "Attendees will see these overlapping sessions. Publishing does not resolve them, but you can publish anyway and fix the schedule afterward."
+							: "The approved agenda becomes available on the public schedule immediately."}
+					</p>
+				</div>
+				{preview.length > 0 && (
+					<div
+						role="list"
+						className="flex max-h-72 flex-col gap-3 overflow-y-auto"
+					>
+						{preview.map((conflict) => (
 							<div
-								role="list"
-								className="flex max-h-72 flex-col gap-3 overflow-y-auto"
+								key={`${conflict.aId}|${conflict.bId}`}
+								role="listitem"
+								className="flex flex-col gap-1"
 							>
-								{preview.map((conflict) => (
-									<div
-										key={`${conflict.aId}|${conflict.bId}`}
-										role="listitem"
-										className="flex flex-col gap-1"
-									>
-										<span>
-											<Strong>{conflict.aTitle}</Strong> ↔{" "}
-											<Strong>{conflict.bTitle}</Strong>
-										</span>
-										<span>
-											{conflict.reasons
-												.map((reason) =>
-													conflictSentence(
-														{ ...conflict, ...reason },
-														conflict.aId,
-														timezone,
-													),
-												)
-												.join(" ")}
-										</span>
-									</div>
-								))}
-								{remaining > 0 && (
-									<p>And {remaining} more in the Conflicts tab.</p>
-								)}
+								<span>
+									<Strong>{conflict.aTitle}</Strong> ↔{" "}
+									<Strong>{conflict.bTitle}</Strong>
+								</span>
+								<span>
+									{conflict.reasons
+										.map((reason) =>
+											conflictSentence(
+												{ ...conflict, ...reason },
+												conflict.aId,
+												timezone,
+											),
+										)
+										.join(" ")}
+								</span>
 							</div>
-						)}
-						{error && <ErrorText>{error}</ErrorText>}
-						<div className="flex justify-end gap-2">
-							<Button
-								type="button"
-								variant="ghost"
-								disabled={submitting}
-								onClick={onCancel}
-							>
-								Cancel
-							</Button>
-							<Button type="button" disabled={submitting} onClick={onPublish}>
-								{submitting
-									? "Publishing…"
-									: hasConflicts
-										? "Publish anyway"
-										: "Publish agenda"}
-							</Button>
-						</div>
+						))}
+						{remaining > 0 && <p>And {remaining} more in the Conflicts tab.</p>}
 					</div>
-				</Panel>
+				)}
+				{error && <ErrorText>{error}</ErrorText>}
+				<div className="flex justify-end gap-2">
+					<Button
+						type="button"
+						variant="ghost"
+						disabled={submitting}
+						onClick={onCancel}
+					>
+						Cancel
+					</Button>
+					<Button type="button" disabled={submitting} onClick={onPublish}>
+						{submitting
+							? "Publishing…"
+							: hasConflicts
+								? "Publish anyway"
+								: "Publish agenda"}
+					</Button>
+				</div>
 			</div>
-		</div>
+		</DialogSurface>
 	);
 }
 
@@ -308,7 +250,7 @@ export function SectionLabel({
 
 const CHIP_BTN = cn(
 	"inline-flex h-[28px] items-center gap-[6px] rounded-full px-[12px] text-[12.5px] font-medium",
-	"transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
+	"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol",
 );
 
 /** Chip-shaped toggle button — petrol marks “chosen”, per the design law. */

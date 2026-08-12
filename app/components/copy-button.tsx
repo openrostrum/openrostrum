@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import { Button } from "~/ui";
+import { Button, MotionReveal } from "~/ui";
 import type { IconName } from "~/ui/icon";
 
 export type CopyButtonProps = {
@@ -89,11 +89,13 @@ export function CopyButton({
 			icon={icon ?? undefined}
 			onClick={copy}
 		>
-			{state === "copied"
-				? copiedLabel
-				: state === "failed"
-					? failedLabel
-					: label}
+			{state === "idle" ? (
+				label
+			) : (
+				<MotionReveal key={state} kind="feedback">
+					{state === "copied" ? copiedLabel : failedLabel}
+				</MotionReveal>
+			)}
 		</Button>
 	);
 }

@@ -1,3 +1,4 @@
+import { MOTION_FEEDBACK } from "~/ui/motion-classes";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { ThemeToggle } from "~/components/theme-toggle";
@@ -92,7 +93,7 @@ export function AuthPage({
 					target="_blank"
 					rel="noreferrer"
 					className={cn(
-						"rounded text-fg-muted transition-colors duration-150 ease-out hover:text-fg",
+						`rounded text-fg-muted transition-colors ${MOTION_FEEDBACK} hover:text-fg`,
 						FOCUS_RING,
 					)}
 				>
