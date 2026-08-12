@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { useState } from "react";
 import {
 	Form,
@@ -21,6 +21,7 @@ import {
 	FILE_REVIEW_LABEL,
 	FILE_REVIEW_TONE,
 	getFileChain,
+	refileChain,
 	REVIEW_NOTE_MAX,
 	setFileReview,
 } from "~/domain/files";
@@ -40,6 +41,7 @@ import {
 	Input,
 	PageHeader,
 	Panel,
+	Select,
 	StatusBadge,
 	Table,
 	TBody,
@@ -117,6 +119,17 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				.where(eq(taskAssignments.id, canonicalTaskAssignmentId))
 				.limit(1)
 		: [];
+	// Only an admin-uploaded chain can be re-filed; a task upload belongs to its
+	// assignment and a headshot to its person, so they get no picker at all.
+	const refilable =
+		canonicalTaskAssignmentId === null && latest.kind !== "headshot";
+	const sessionOptions = refilable
+		? await db
+				.select({ id: submissions.id, title: submissions.title })
+				.from(submissions)
+				.where(eq(submissions.eventId, event.id))
+				.orderBy(asc(submissions.title))
+		: [];
 	const contactId = latest.contactId ?? assignment?.contactId ?? null;
 	const [contact] = contactId
 		? await db
@@ -177,6 +190,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				reviewStatus: v.reviewStatus,
 			})),
 			submission: submission ?? null,
+			sessionOptions,
+			refilable,
 			contact: contact ?? null,
 			assignment: assignment
 				? { id: assignment.id, taskName: assignment.taskName }
@@ -209,11 +224,15 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const env = context.cloudflare.env;
 	// Actions MUST self-authenticate — a POST does not re-run the layout loader.
 	const user = await requireAdmin(env, request);
-	const { event, db, latest, versions, members, reviewFile } = await loadChain(
-		env,
-		user,
-		params.id,
-	);
+	const {
+		event,
+		db,
+		latest,
+		versions,
+		members,
+		reviewFile,
+		canonicalTaskAssignmentId,
+	} = await loadChain(env, user, params.id);
 	const form = await request.formData();
 	const intent = String(form.get("intent") ?? "");
 	const submittedCommentKey = String(form.get("commentKey") ?? "");
@@ -303,6 +322,36 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				ok: true,
 				commentKey: crypto.randomUUID(),
 				commentFileId: latest.id,
+			});
+		}
+
+		if (intent === "assign-session") {
+			const target = String(form.get("submissionId") ?? "").trim() || null;
+			const result = await timings.time("db", () =>
+				refileChain(
+					db,
+					{
+						eventId: event.id,
+						fileName: latest.fileName,
+						submissionId: latest.submissionId,
+						kind: latest.kind,
+						taskAssignmentId: canonicalTaskAssignmentId,
+					},
+					target,
+				),
+			);
+			if (!result.ok) return withTimings({ intent, formError: result.error });
+			track("file.session_assigned", {
+				eventId: event.id,
+				fileId: latest.id,
+				submissionId: target,
+				versions: result.versionCount,
+			});
+			const moved = `${result.versionCount} version${result.versionCount === 1 ? "" : "s"}`;
+			return withTimings({
+				notice: result.submissionTitle
+					? `Filed under ${result.submissionTitle} — ${moved} kept together.`
+					: `Filed at event level — ${moved} kept together.`,
 			});
 		}
 
@@ -425,6 +474,8 @@ export default function FileDetail({
 		canonicalSharedToPortal,
 		versions,
 		submission,
+		sessionOptions,
+		refilable,
 		contact,
 		assignment,
 		comments,
@@ -485,6 +536,35 @@ export default function FileDetail({
 							</div>
 						</Td>
 					</Tr>
+					{refilable && (
+						<Tr>
+							<Td kind="strong">Session</Td>
+							<Td>
+								<Form method="post" className="flex flex-wrap items-end gap-3">
+									<Input type="hidden" name="intent" value="assign-session" />
+									<Field
+										label="File this deliverable under"
+										hint="Every version moves together and keeps its history."
+									>
+										<Select
+											name="submissionId"
+											defaultValue={submission?.id ?? ""}
+										>
+											<option value="">No session — event-level file</option>
+											{sessionOptions.map((s) => (
+												<option key={s.id} value={s.id}>
+													{s.title}
+												</option>
+											))}
+										</Select>
+									</Field>
+									<Button type="submit" variant="ghost" disabled={busy}>
+										Save session
+									</Button>
+								</Form>
+							</Td>
+						</Tr>
+					)}
 					{assignment && (
 						<Tr>
 							<Td kind="strong">Task</Td>

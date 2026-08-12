@@ -9,11 +9,14 @@ const CONTROL = cn(
 
 export function Field({
 	label,
+	hint,
 	error,
 	children,
 	composite = false,
 }: {
 	label: string;
+	/** What the control does to the data — shown under it, always, not only on error. */
+	hint?: ReactNode;
 	error?: string;
 	children: ReactNode;
 	/** Composite controls own their accessible names; wrapping toolbar buttons in a label activates the first button on editor clicks. */
@@ -23,6 +26,7 @@ export function Field({
 		<>
 			<span className="font-medium text-fg-muted">{label}</span>
 			{children}
+			{hint && <span className="text-fg-muted">{hint}</span>}
 			{error && <span className="text-[11.5px] text-danger">{error}</span>}
 		</>
 	);

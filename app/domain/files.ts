@@ -57,7 +57,13 @@ export async function uploadHeadshot(
 	const [prior] = await db
 		.select({ version: files.version })
 		.from(files)
-		.where(and(eq(files.contactId, contactId), eq(files.kind, "headshot")))
+		.where(
+			and(
+				eq(files.eventId, eventId),
+				eq(files.contactId, contactId),
+				eq(files.kind, "headshot"),
+			),
+		)
 		.orderBy(desc(files.version))
 		.limit(1);
 	await db.batch([
@@ -272,10 +278,13 @@ export function checkUpload(file: File): UploadCheck {
 	return { ok: true, kind };
 }
 
-/** Chain identity: one deliverable slot re-uploaded over time — task uploads
- * chain per assignment, everything else per target + lowercased filename.
+/** Chain identity: one deliverable slot re-uploaded over time — a person's
+ * headshot chains per (event, contact) because a contact has exactly one face
+ * whatever the file is called, task uploads chain per assignment, everything
+ * else per target + lowercased filename.
  * The ONLY encoding of the rule; TS callers resolve keys through SQL. */
 export const GROUP_KEY_SQL = sql<string>`case
+	when ${files.kind} = 'headshot' then 'h:' || ${files.eventId} || ':' || ${files.contactId}
 	when ${files.taskAssignmentId} is not null then 'a:' || ${files.taskAssignmentId}
 	when ${files.submissionId} is not null then 's:' || ${files.submissionId} || ':' || lower(${files.fileName})
 	when ${files.contactId} is not null then 'c:' || ${files.contactId} || ':' || lower(${files.fileName})
@@ -604,6 +613,123 @@ export async function setFileReview(
 			)
 			.where(eq(taskAssignments.id, file.taskAssignmentId)),
 	]);
+}
+
+export type RefileResult =
+	| { ok: true; submissionTitle: string | null; versionCount: number }
+	| { ok: false; error: string };
+
+/**
+ * Moves an admin-uploaded chain onto a session (or back to event level) and
+ * merges it with whatever history the destination already holds. Version
+ * numbers are re-issued 1..N over the merged set because two rows sharing a
+ * number collapse into ONE presented version — the renumber is part of the
+ * move, not housekeeping.
+ * A speaker's task upload and a headshot are not re-filable: their identity is
+ * the assignment and the person respectively, and re-filing would break the
+ * review loop or detach a face from its contact.
+ */
+export async function refileChain(
+	db: Db,
+	chain: {
+		eventId: string;
+		fileName: string;
+		submissionId: string | null;
+		kind: string;
+		taskAssignmentId: string | null;
+	},
+	targetSubmissionId: string | null,
+): Promise<RefileResult> {
+	if (chain.taskAssignmentId) {
+		return {
+			ok: false,
+			error:
+				"This is a speaker's task upload — it stays with its task. Re-file it by moving the task instead.",
+		};
+	}
+	if (chain.kind === "headshot") {
+		return {
+			ok: false,
+			error: "A headshot belongs to a person, not a session.",
+		};
+	}
+	let submissionTitle: string | null = null;
+	if (targetSubmissionId) {
+		const [target] = await db
+			.select({ title: submissions.title })
+			.from(submissions)
+			.where(
+				and(
+					eq(submissions.id, targetSubmissionId),
+					eq(submissions.eventId, chain.eventId),
+				),
+			)
+			.limit(1);
+		if (!target) {
+			return { ok: false, error: "That session isn't part of this event." };
+		}
+		submissionTitle = target.title;
+		// A task upload of the same name on the destination would absorb these
+		// rows into the speaker's review loop (see canonicalRowsSql) and take
+		// their version numbers with it. Refuse rather than silently merge.
+		const [clash] = await db
+			.select({ id: files.id })
+			.from(files)
+			.where(
+				and(
+					eq(files.eventId, chain.eventId),
+					eq(files.submissionId, targetSubmissionId),
+					isNotNull(files.taskAssignmentId),
+					sql`lower(${files.fileName}) = lower(${chain.fileName})`,
+				),
+			)
+			.limit(1);
+		if (clash) {
+			return {
+				ok: false,
+				error: `A speaker already uploaded ${chain.fileName} to that session through a task — that history stays with them.`,
+			};
+		}
+	}
+	const scope = (submissionId: string | null) =>
+		and(
+			eq(files.eventId, chain.eventId),
+			isNull(files.taskAssignmentId),
+			isNull(files.contactId),
+			submissionId
+				? eq(files.submissionId, submissionId)
+				: isNull(files.submissionId),
+			sql`lower(${files.fileName}) = lower(${chain.fileName})`,
+		) as SQL;
+	const merged = await db
+		.select({
+			id: files.id,
+			createdAt: files.createdAt,
+			sharedToPortal: files.sharedToPortal,
+		})
+		.from(files)
+		.where(or(scope(chain.submissionId), scope(targetSubmissionId)) as SQL);
+	merged.sort(
+		(a, b) =>
+			a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+	);
+	// One shared row per chain, as appendToChain maintains: a merge that left two
+	// flagged would expose an older version for portal download.
+	const shared = merged.some((row) => row.sharedToPortal);
+	const writes: BatchItem[] = merged.map((row, index) =>
+		db
+			.update(files)
+			.set({
+				submissionId: targetSubmissionId,
+				version: index + 1,
+				sharedToPortal: shared && index === merged.length - 1,
+			})
+			.where(eq(files.id, row.id)),
+	);
+	const [first, ...rest] = writes;
+	if (!first) return { ok: false, error: "That file is no longer here." };
+	await db.batch([first, ...rest]);
+	return { ok: true, submissionTitle, versionCount: merged.length };
 }
 
 export type FileLibraryRow = {
