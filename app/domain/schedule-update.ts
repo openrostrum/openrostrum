@@ -76,21 +76,27 @@ export type ScheduleChange = {
 	retryAfterBounceId: string | null;
 };
 
+/** A session withheld from this send because its speaker's history is unreadable. */
+export type BlockedScheduleSession = {
+	submissionId: string;
+	submissionTitle: string;
+};
+
 export type ScheduleChangeSet = {
 	changes: ScheduleChange[];
 	/** Distinct emailable recipients — the "N speakers" the agenda banner shows. */
 	speakers: number;
 	/** Durable normalization has more rows — a later request can resume it. */
 	truncated: boolean;
-	/** Sent history is invalid — operator diagnosis is required before delivery. */
-	blocked: boolean;
+	/** Withheld sessions — operator diagnosis is required before they can go out. */
+	blockedSessions: BlockedScheduleSession[];
 };
 
 const EMPTY: ScheduleChangeSet = {
 	changes: [],
 	speakers: 0,
 	truncated: false,
-	blocked: false,
+	blockedSessions: [],
 };
 
 const OUTBOX_NORMALIZE_PAGE = 200;
@@ -267,12 +273,20 @@ async function hasUnprocessedCalendarInviteHistory(
 	return row !== undefined;
 }
 
-async function hasUnsafeSentCalendarHistory(
+/**
+ * Addresses holding a delivered calendar entry we cannot read back. An invite
+ * we can't parse is a baseline we can't name, so anything we send that address
+ * next would carry a SEQUENCE we cannot prove is an advance — the one thing a
+ * client is entitled to discard. Quarantine is per ADDRESS, not per event:
+ * every send path groups an invite by recipient, so an unreadable delivery says
+ * nothing about the speaker in the next row.
+ */
+async function quarantinedInviteRecipients(
 	db: Db,
 	eventId: string,
-): Promise<boolean> {
-	const [row] = await db
-		.select({ id: emailOutbox.id })
+): Promise<Set<string>> {
+	const rows = await db
+		.select({ to: emailOutbox.to })
 		.from(emailOutbox)
 		.innerJoin(
 			calendarInviteProcessedOutbox,
@@ -285,8 +299,69 @@ async function hasUnsafeSentCalendarHistory(
 				eq(calendarInviteProcessedOutbox.invalid, true),
 			),
 		)
-		.limit(1);
-	return row !== undefined;
+		.groupBy(sql`lower(trim(${emailOutbox.to}))`);
+	return new Set(rows.map((row) => normalizeEmail(row.to)));
+}
+
+/** Accepted, already-notified, non-child — the sessions a schedule update can reach. */
+function updatableSubmissionFilter(eventId: string) {
+	return and(
+		eq(submissions.eventId, eventId),
+		eq(submissions.status, "accepted"),
+		isNotNull(submissions.notifiedAt),
+		isNull(submissions.parentId),
+	);
+}
+
+/**
+ * Sessions a quarantined address holds an invite for. Two ways in, because an
+ * unreadable delivery leaves no revision of its own to look up: a session the
+ * address was emailed about before, and a session addressed to it right now.
+ * Either one may be the session that unreadable entry described.
+ */
+async function quarantinedInviteSessions(
+	db: Db,
+	eventId: string,
+	addresses: readonly string[],
+): Promise<Map<string, string>> {
+	const quarantined = new Map<string, string>();
+	const currentRecipient = inviteRecipientEmailSql();
+	for (let offset = 0; offset < addresses.length; offset += D1_QUERY_CHUNK) {
+		const page = addresses.slice(offset, offset + D1_QUERY_CHUNK);
+		const [addressed, current] = await Promise.all([
+			db
+				.selectDistinct({ id: submissions.id, title: submissions.title })
+				.from(calendarInviteRevisions)
+				.innerJoin(
+					emailOutbox,
+					eq(emailOutbox.id, calendarInviteRevisions.outboxId),
+				)
+				.innerJoin(
+					submissions,
+					eq(submissions.id, calendarInviteRevisions.submissionId),
+				)
+				.where(
+					and(
+						eq(emailOutbox.eventId, eventId),
+						updatableSubmissionFilter(eventId),
+						inArray(sql`lower(trim(${emailOutbox.to}))`, page),
+					),
+				),
+			db
+				.select({ id: submissions.id, title: submissions.title })
+				.from(submissions)
+				.where(
+					and(
+						updatableSubmissionFilter(eventId),
+						inArray(sql`lower(trim(${currentRecipient}))`, page),
+					),
+				),
+		]);
+		for (const row of [...addressed, ...current]) {
+			quarantined.set(row.id, row.title);
+		}
+	}
+	return quarantined;
 }
 
 async function staleScheduleCandidates(db: Db, event: EventRow) {
@@ -513,12 +588,22 @@ export async function computeScheduleChanges(
 	if (await hasUnprocessedCalendarInviteHistory(db, event.id)) {
 		return { ...EMPTY, truncated: true };
 	}
-	if (await hasUnsafeSentCalendarHistory(db, event.id)) {
-		return { ...EMPTY, blocked: true };
-	}
+	const quarantinedAddresses = await quarantinedInviteRecipients(db, event.id);
+	const quarantined =
+		quarantinedAddresses.size === 0
+			? new Map<string, string>()
+			: await quarantinedInviteSessions(db, event.id, [
+					...quarantinedAddresses,
+				]);
+	const blockedSessions: BlockedScheduleSession[] = [...quarantined]
+		.map(([submissionId, submissionTitle]) => ({
+			submissionId,
+			submissionTitle,
+		}))
+		.sort((a, b) => a.submissionId.localeCompare(b.submissionId));
 
 	const candidates = await staleScheduleCandidates(db, event);
-	if (candidates.length === 0) return EMPTY;
+	if (candidates.length === 0) return { ...EMPTY, blockedSessions };
 
 	const candidateIds = candidates.map((candidate) => candidate.id);
 	const [latestBounce, recipientById] = await Promise.all([
@@ -528,6 +613,7 @@ export async function computeScheduleChanges(
 
 	const changes: ScheduleChange[] = [];
 	for (const row of candidates) {
+		if (quarantined.has(row.id)) continue;
 		const last =
 			row.lastSubmissionId !== null &&
 			row.lastSequence !== null &&
@@ -580,14 +666,14 @@ export async function computeScheduleChanges(
 			retryAfterBounceId: latestBounce.get(row.id) ?? null,
 		});
 	}
-	if (changes.length === 0) return EMPTY;
+	if (changes.length === 0) return { ...EMPTY, blockedSessions };
 
 	const speakers = new Set(
 		changes.flatMap((change) =>
 			change.to === null ? [] : [normalizeEmail(change.to)],
 		),
 	).size;
-	return { changes, speakers, truncated: false, blocked: false };
+	return { changes, speakers, truncated: false, blockedSessions };
 }
 
 export type ScheduleUpdateSendResult = {

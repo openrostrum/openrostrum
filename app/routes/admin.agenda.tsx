@@ -305,7 +305,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				hiddenFromPublic,
 				staleSpeakers: changeSet.speakers,
 				scheduleScanTruncated: changeSet.truncated,
-				scheduleScanBlocked: changeSet.blocked,
+				scheduleScanBlocked: changeSet.blockedSessions.length > 0,
+				scheduleBlockedSessions: changeSet.blockedSessions.map(
+					(session) => session.submissionTitle,
+				),
 			},
 			rooms: roomRows.map((r) => ({
 				id: r.id,
@@ -370,6 +373,8 @@ type ActionResult = {
 		processed: number;
 		remaining: boolean;
 	};
+	/** Sessions withheld from the send that just ran, pending operator review. */
+	blockedSessions?: number;
 };
 
 function ScheduleHistoryNormalizationOutcome({
@@ -398,10 +403,24 @@ function ScheduleHistoryNormalizationOutcome({
 	);
 }
 
+const NAMED_BLOCKED_SESSIONS = 3;
+
+/** Names the held-back sessions so an operator can go find them, without
+ *  turning a banner into a wall of text on a large event. */
+function formatSessionList(titles: readonly string[]): string {
+	const named = titles.slice(0, NAMED_BLOCKED_SESSIONS);
+	const rest = titles.length - named.length;
+	return rest > 0
+		? `${named.join(", ")} and ${rest} more`
+		: named.join(", ") || "none";
+}
+
 export function ScheduleUpdateDeliveryOutcome({
 	result,
+	blockedSessions = 0,
 }: {
 	result: NonNullable<ActionResult["updates"]>;
+	blockedSessions?: number;
 }) {
 	return (
 		<InfoBar>
@@ -429,6 +448,16 @@ export function ScheduleUpdateDeliveryOutcome({
 				<>
 					{" "}
 					— <Strong>{result.remaining}</Strong> more to send, click again
+				</>
+			)}
+			{blockedSessions > 0 && (
+				<>
+					{" "}
+					— <Strong>{blockedSessions}</Strong>{" "}
+					{blockedSessions === 1 ? "session was" : "sessions were"} held back
+					because the invite already delivered for{" "}
+					{blockedSessions === 1 ? "it" : "them"} can’t be read (
+					<TextLink to="/admin/emails/history">Email history</TextLink>)
 				</>
 			)}
 			.
@@ -664,18 +693,21 @@ export async function action({ context, request }: Route.ActionArgs) {
 			const changeSet = await timings.time("db", () =>
 				computeScheduleChanges(db, event),
 			);
-			if (changeSet.blocked) {
-				return data(
-					fail(
-						"Calendar invite history contains invalid sent records. Review Email history before sending schedule updates.",
-					),
-					{ headers: { "Server-Timing": timings.header() } },
-				);
-			}
 			if (changeSet.truncated) {
 				return data(
 					fail(
 						"Invite history could not be checked completely — no schedule updates were sent.",
+					),
+					{ headers: { "Server-Timing": timings.header() } },
+				);
+			}
+			const blockedSessions = changeSet.blockedSessions.length;
+			// Nothing left to send: report the review as an error rather than a
+			// cheerful "0 sent", which an operator reads as "everyone is up to date".
+			if (changeSet.changes.length === 0 && blockedSessions > 0) {
+				return data(
+					fail(
+						"Calendar invite history contains invalid sent records. Review Email history before sending schedule updates.",
 					),
 					{ headers: { "Server-Timing": timings.header() } },
 				);
@@ -690,6 +722,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 				failed: outcome.failed,
 				inFlight: outcome.inFlight,
 				remaining: outcome.remaining,
+				blockedSessions,
 			});
 			// Reported alongside the send it paid for: a first-run scan can add
 			// seconds to a click that normally returns at once, and an operator
@@ -697,6 +730,7 @@ export async function action({ context, request }: Route.ActionArgs) {
 			return data(
 				ok({
 					updates: outcome,
+					...(blockedSessions > 0 ? { blockedSessions } : {}),
 					...(normalization.processed > 0 ? { normalization } : {}),
 				}),
 				{ headers: { "Server-Timing": timings.header() } },
@@ -1128,30 +1162,32 @@ export default function Agenda({
 					</InfoBarActionRow>
 				</InfoBar>
 			)}
-			{event.staleSpeakers === 0 && event.scheduleScanBlocked && (
+			{event.scheduleScanBlocked && (
 				<InfoBar>
-					Invite history contains invalid sent records, so schedule updates are
-					blocked.{" "}
-					<TextLink to="/admin/emails/history">Review Email history</TextLink>
-					before retrying.
+					<Strong>{event.scheduleBlockedSessions.length}</Strong>{" "}
+					{event.scheduleBlockedSessions.length === 1 ? "session" : "sessions"}{" "}
+					can’t be updated — the invite already delivered for{" "}
+					{event.scheduleBlockedSessions.length === 1 ? "it" : "them"} can’t be
+					read, so we can’t tell what those speakers currently have in their
+					calendars: {formatSessionList(event.scheduleBlockedSessions)}.{" "}
+					<TextLink to="/admin/emails/history">Review Email history</TextLink>{" "}
+					before retrying. Every other session still sends normally.
 				</InfoBar>
 			)}
-			{event.staleSpeakers === 0 &&
-				!event.scheduleScanBlocked &&
-				event.scheduleScanTruncated && (
-					<InfoBar>
-						<InfoBarActionRow>
-							{/* The loader knows only that unchecked invite history exists —
+			{event.staleSpeakers === 0 && event.scheduleScanTruncated && (
+				<InfoBar>
+					<InfoBarActionRow>
+						{/* The loader knows only that unchecked invite history exists —
 							    never that a limit was exceeded. Naming a limit here would
 							    send the operator hunting for one that may not exist. */}
-							<span>
-								Some invite history has not been checked yet, so the
-								stale-speaker count is incomplete.
-							</span>
-							{scheduleUpdateForm("Check invite history", "Checking…")}
-						</InfoBarActionRow>
-					</InfoBar>
-				)}
+						<span>
+							Some invite history has not been checked yet, so the stale-speaker
+							count is incomplete.
+						</span>
+						{scheduleUpdateForm("Check invite history", "Checking…")}
+					</InfoBarActionRow>
+				</InfoBar>
+			)}
 			{updatesFetcher.data?.normalization &&
 				updatesFetcher.state === "idle" && (
 					<ScheduleHistoryNormalizationOutcome
@@ -1163,7 +1199,10 @@ export default function Agenda({
 					/>
 				)}
 			{updatesFetcher.data?.updates && updatesFetcher.state === "idle" && (
-				<ScheduleUpdateDeliveryOutcome result={updatesFetcher.data.updates} />
+				<ScheduleUpdateDeliveryOutcome
+					result={updatesFetcher.data.updates}
+					blockedSessions={updatesFetcher.data.blockedSessions}
+				/>
 			)}
 			{placeFetcher.data?.placed !== undefined &&
 				placeFetcher.state === "idle" && (

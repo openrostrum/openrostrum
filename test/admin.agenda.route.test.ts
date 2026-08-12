@@ -155,6 +155,7 @@ type ActionData = {
 		processed: number;
 		remaining: boolean;
 	};
+	blockedSessions?: number;
 };
 
 function unwrap<T>(result: unknown): T {
@@ -1234,6 +1235,114 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 		expect(result.formError).toMatch(/history/i);
 	});
 
+	it("holds back only the speaker whose invite history is unreadable", async () => {
+		const db = await invitedBaseline();
+		// A second speaker with her own clean delivered invite. Marco's history
+		// being unreadable says nothing about what Dana's calendar holds.
+		await db.insert(contacts).values({
+			id: "c_dana",
+			eventId: "e1",
+			email: "dana@test.co",
+			firstName: "Dana",
+			lastName: "Okafor",
+		});
+		await db.insert(submissions).values({
+			id: "s_panel",
+			eventId: "e1",
+			title: "Panel: Shipping Agents",
+			status: "accepted",
+			formatId: "fmt_talk",
+			notifiedAt: new Date(),
+		});
+		await db.insert(participants).values({
+			id: "p_panel",
+			submissionId: "s_panel",
+			contactId: "c_dana",
+		});
+		await db.insert(emailOutbox).values({
+			id: "accept-panel-initial",
+			eventId: "e1",
+			dedupeKey: "decision:accept:initial:s_panel",
+			to: "dana@test.co",
+			subject: "Your session was accepted",
+			html: "<p>you're in</p>",
+			icsAttachment: buildIcs({
+				calendarName: "AI.Engineer Sandbox Event",
+				method: "PUBLISH",
+				events: [
+					{
+						uid: "submission-s_panel@openrostrum",
+						start: utc(2026, 10, 12, 15),
+						end: utc(2026, 10, 15, 1),
+						title:
+							"AI.Engineer Sandbox Event (save the date): Panel: Shipping Agents",
+						sequence: 0,
+						status: "CONFIRMED",
+					},
+				],
+			}),
+			status: "sent",
+			createdAt: new Date("2026-08-10T20:00:00Z"),
+			sentAt: new Date("2026-08-10T20:01:00Z"),
+		});
+		// An ICS with a repeated DTSTART: a client could read a different slot
+		// than we do, so Marco's baseline is unusable and must not be trusted.
+		await db.insert(emailOutbox).values({
+			id: "update-keynote-ambiguous",
+			eventId: "e1",
+			dedupeKey: "schedule-update:keynote-ambiguous",
+			to: "marco@test.co",
+			subject: "Schedule update",
+			html: "<p>update</p>",
+			icsAttachment: [
+				"BEGIN:VCALENDAR",
+				"BEGIN:VEVENT",
+				"UID:submission-s_keynote@openrostrum",
+				"DTSTART:20261012T150000Z",
+				"DTSTART:20261012T180000Z",
+				"DTEND:20261012T160000Z",
+				"SUMMARY:Closing Keynote",
+				"SEQUENCE:1",
+				"END:VEVENT",
+				"END:VCALENDAR",
+			].join("\r\n"),
+			status: "sent",
+			sentAt: new Date(),
+		});
+		// Both sessions now move, so both are stale on content alone.
+		for (const submissionId of ["s_keynote", "s_panel"]) {
+			await callAction({
+				intent: "schedule",
+				submissionId,
+				roomId: submissionId === "s_keynote" ? "room_main" : "room_305",
+				day: "2026-10-12",
+				startMinutes: "570",
+			});
+		}
+
+		const result = await finishScheduleUpdateAction();
+		// Dana's update goes out; Marco's is held for review. One broken row
+		// must not take a 300-speaker conference offline.
+		expect(result).toMatchObject({ ok: true, blockedSessions: 1 });
+		expect(result.updates).toMatchObject({ sent: 1, failed: 0, inFlight: 0 });
+		const updates = (await db.select().from(emailOutbox)).filter((row) =>
+			row.dedupeKey?.startsWith("schedule-update:"),
+		);
+		expect(updates.map((row) => row.to).sort()).toEqual([
+			"dana@test.co",
+			"marco@test.co",
+		]);
+		expect(
+			updates.find((row) => row.id === "update-keynote-ambiguous"),
+		).toBeDefined();
+		const { row } = await latestUpdateInvite(db, "dana@test.co");
+		expect(row?.to).toBe("dana@test.co");
+		expect((await callLoader()).event).toMatchObject({
+			staleSpeakers: 0,
+			scheduleScanBlocked: true,
+		});
+	});
+
 	it("does not let an orphaned historical invite block active submissions", async () => {
 		const db = await invitedBaseline();
 		await db.insert(emailOutbox).values({
@@ -1299,6 +1408,26 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 			title: "Other event session",
 			status: "accepted",
 		});
+		// The unreadable record went to Priya. Whatever it really described, it is
+		// HER calendar holding it — so her session is the one we cannot claim a
+		// baseline for.
+		await db.insert(contacts).values({
+			id: "c_priya",
+			eventId: "e1",
+			email: "speaker@test.co",
+			firstName: "Priya",
+			lastName: "Raman",
+		});
+		await db.insert(participants).values({
+			id: "p_live",
+			submissionId: "s_live",
+			contactId: "c_priya",
+			isPrimary: true,
+		});
+		await db
+			.update(submissions)
+			.set({ notifiedAt: new Date() })
+			.where(eq(submissions.id, "s_live"));
 		await db.insert(emailOutbox).values({
 			id: "update-cross-event-submission",
 			eventId: "e1",
@@ -1336,9 +1465,13 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 					),
 				),
 		).toEqual([{ invalid: true }]);
+		// A UID from another event names nothing we can correct here, so the
+		// session it reached stays held back rather than being sent an update at a
+		// sequence we cannot prove is an advance.
 		expect((await callLoader()).event).toMatchObject({
 			scheduleScanTruncated: false,
 			scheduleScanBlocked: true,
+			scheduleBlockedSessions: ["Live Demo: Agent Swarms in Production"],
 		});
 		const result = await callAction({ intent: "schedule-updates" });
 		expect(result).toMatchObject({ ok: false });
@@ -1727,6 +1860,55 @@ describe("schedule-update emails (stale speaker calendars)", () => {
 				.from(calendarInviteRevisions)
 				.where(eq(calendarInviteRevisions.submissionId, "s_keynote")),
 		).toHaveLength(2);
+	});
+
+	it("treats an event timezone edit as re-labelling, not a calendar revision", async () => {
+		const db = await invitedBaseline();
+		await callAction({
+			intent: "schedule",
+			submissionId: "s_keynote",
+			roomId: "room_main",
+			day: "2026-10-12",
+			startMinutes: "570",
+		});
+		const [scheduled] = await db
+			.select()
+			.from(events)
+			.where(eq(events.id, "e1"));
+		if (!scheduled) throw new Error("event fixture missing");
+		const changeSet = await computeScheduleChanges(db, scheduled);
+		expect(changeSet.changes).toHaveLength(1);
+		expect(
+			await sendScheduleUpdates(db, env, scheduled, changeSet.changes),
+		).toMatchObject({ sent: 1, deduped: 0 });
+
+		// The organiser corrects the event's display timezone. DTSTART is a UTC
+		// instant, so not one speaker's calendar entry moved — 9:30 AM PDT and
+		// 12:30 PM EDT name the same moment.
+		await db
+			.update(events)
+			.set({ timezone: "America/New_York" })
+			.where(eq(events.id, "e1"));
+		const [relabelled] = await db
+			.select()
+			.from(events)
+			.where(eq(events.id, "e1"));
+		if (!relabelled) throw new Error("event fixture missing");
+		expect((await computeScheduleChanges(db, relabelled)).changes).toEqual([]);
+		expect((await callLoader()).event?.staleSpeakers).toBe(0);
+
+		// Replaying the same revision under the new label must land on the same
+		// outbox row. Timezone is deliberately absent from the send identity: a
+		// label edit between an attempt and its retry would otherwise mint a
+		// second email for a calendar entry that never changed.
+		expect(
+			await sendScheduleUpdates(db, env, relabelled, changeSet.changes),
+		).toMatchObject({ sent: 0, deduped: 1 });
+		expect(
+			(await db.select().from(emailOutbox)).filter((row) =>
+				row.dedupeKey?.startsWith("schedule-update:"),
+			),
+		).toHaveLength(1);
 	});
 
 	it("flags a recipient change and delivers the current invite at the next SEQUENCE", async () => {

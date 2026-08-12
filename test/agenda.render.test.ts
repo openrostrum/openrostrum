@@ -167,6 +167,7 @@ describe("agenda invite-history continuation", () => {
 				staleSpeakers: 0,
 				scheduleScanTruncated: true,
 				scheduleScanBlocked: false,
+				scheduleBlockedSessions: [],
 			},
 			rooms: [],
 			tracks: [],
@@ -180,7 +181,7 @@ describe("agenda invite-history continuation", () => {
 		expect(html).toContain('value="schedule-updates"');
 	});
 
-	it("links terminally invalid invite history to diagnosis without a retry form", () => {
+	it("names the sessions held back by unreadable invite history", () => {
 		const html = renderAgendaLoaderData({
 			event: {
 				id: "event-1",
@@ -196,6 +197,7 @@ describe("agenda invite-history continuation", () => {
 				staleSpeakers: 0,
 				scheduleScanTruncated: false,
 				scheduleScanBlocked: true,
+				scheduleBlockedSessions: ["Live Demo: Agent Swarms in Production"],
 			},
 			rooms: [],
 			tracks: [],
@@ -205,7 +207,44 @@ describe("agenda invite-history continuation", () => {
 		});
 
 		expect(html).toContain("/admin/emails/history");
+		expect(renderedText(html)).toContain(
+			"Live Demo: Agent Swarms in Production",
+		);
+		// Nothing else is stale here, so there is nothing left to send.
 		expect(html).not.toContain('value="schedule-updates"');
+	});
+
+	// One speaker's unreadable invite is not the event's problem: everybody else
+	// still gets their schedule update in the same click.
+	it("keeps the send available while some sessions are held back", () => {
+		const html = renderAgendaLoaderData({
+			event: {
+				id: "event-1",
+				name: "Scale Conference",
+				slug: "scale",
+				timezone: "UTC",
+				dayStartMin: 540,
+				dayEndMin: 1020,
+				schedulableStatuses: ["accepted"],
+				publishedAt: null,
+				days: ["2026-10-12"],
+				hiddenFromPublic: 0,
+				staleSpeakers: 2,
+				scheduleScanTruncated: false,
+				scheduleScanBlocked: true,
+				scheduleBlockedSessions: ["Live Demo: Agent Swarms in Production"],
+			},
+			rooms: [],
+			tracks: [],
+			formats: [],
+			sessions: [],
+			statusOptions: ["accepted"],
+		});
+
+		expect(html).toContain('value="schedule-updates"');
+		expect(renderedText(html)).toContain(
+			"Live Demo: Agent Swarms in Production",
+		);
 	});
 });
 
@@ -256,6 +295,8 @@ function renderAdminAgenda(entry = "/?view=list") {
 			hiddenFromPublic: 0,
 			staleSpeakers: 0,
 			scheduleScanTruncated: false,
+			scheduleScanBlocked: false,
+			scheduleBlockedSessions: [],
 		},
 		rooms: [],
 		tracks: [],
