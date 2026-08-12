@@ -27,7 +27,12 @@ import { formatScheduleRange } from "~/lib/format-date";
 import { buildIcs } from "~/lib/ics";
 import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";
-import { type EmailResult, getEmailSender } from "~/ports/email";
+import {
+	EmailDeliveryError,
+	type EmailResult,
+	EmailSendInFlightError,
+	getEmailSender,
+} from "~/ports/email";
 
 /** One per-request send cap for every speaker-facing batch (decision emails
  * here, schedule updates in schedule-update.ts). */
@@ -833,6 +838,30 @@ export async function sendDecisionEmails(
 	const results: DecisionSendResult[] = [];
 	const newlySent: string[] = [];
 	const dedupedIds: string[] = [];
+	// Stamping is its own step because it also has to run on the way out of an
+	// unexpected failure: a speaker who already received their decision must stay
+	// marked notified, or a null stamp silently drops their session from every
+	// future schedule update.
+	const finalizeNotified = async () => {
+		const now = new Date();
+		if (newlySent.length) {
+			await db
+				.update(submissions)
+				.set({ notifiedAt: now })
+				.where(inArray(submissions.id, newlySent));
+		}
+		if (dedupedIds.length) {
+			await db
+				.update(submissions)
+				.set({ notifiedAt: now })
+				.where(
+					and(
+						inArray(submissions.id, dedupedIds),
+						isNull(submissions.notifiedAt),
+					),
+				);
+		}
+	};
 	for (const item of plan.items) {
 		const { row, to, subject, html, ics, reason } = item;
 		if (reason || !to || subject === undefined || html === undefined) {
@@ -859,6 +888,30 @@ export async function sendDecisionEmails(
 				kind: "transactional",
 			});
 		} catch (error) {
+			if (error instanceof EmailSendInFlightError) {
+				// A concurrent request holds this recipient's send claim — the email
+				// is going out right now. Calling that a failure would send the admin
+				// chasing a delivery that already happened.
+				track("email.decision_send_in_flight", {
+					submissionId: row.id,
+					eventId: event.id,
+					decision,
+				});
+				results.push({
+					submissionId: row.id,
+					ok: false,
+					to,
+					reason: `${to} is already being sent this decision — no action needed.`,
+				});
+				continue;
+			}
+			if (!(error instanceof EmailDeliveryError)) {
+				// A database or runtime fault is not this recipient's problem. Naming
+				// them would hide a fault that repeats on every retry — but the
+				// speakers already sent must keep their stamp before it propagates.
+				await finalizeNotified();
+				throw error;
+			}
 			// One undeliverable recipient must not sink the batch: the rest still
 			// send and finalize, this row stays un-finalized and is reported
 			// per-row (provider detail stays in Email history, not the UI).
@@ -890,30 +943,21 @@ export async function sendDecisionEmails(
 			deduped: result.deduped,
 		});
 	}
-	const now = new Date();
-	if (newlySent.length) {
-		await db
-			.update(submissions)
-			.set({ notifiedAt: now })
-			.where(inArray(submissions.id, newlySent));
-	}
-	if (dedupedIds.length) {
-		await db
-			.update(submissions)
-			.set({ notifiedAt: now })
-			.where(
-				and(
-					inArray(submissions.id, dedupedIds),
-					isNull(submissions.notifiedAt),
-				),
-			);
-	}
+	await finalizeNotified();
 	return results;
 }
 
-/** Stable calendar identity per submission — schedule updates reuse it and bump SEQUENCE so clients revise the entry instead of duplicating it. */
+/** Stable identity shared by acceptance and schedule-update calendar revisions. */
 export function icsUidForSubmission(submissionId: string): string {
 	return `submission-${submissionId}@openrostrum`;
+}
+
+export function submissionIdFromIcsUid(uid: string): string | null {
+	const prefix = "submission-";
+	const suffix = "@openrostrum";
+	if (!uid.startsWith(prefix) || !uid.endsWith(suffix)) return null;
+	const submissionId = uid.slice(prefix.length, -suffix.length);
+	return submissionId.length > 0 ? submissionId : null;
 }
 
 const INVITE_RECIPIENT_QUERY_CHUNK = 80;

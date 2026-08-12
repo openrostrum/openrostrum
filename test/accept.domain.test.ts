@@ -27,6 +27,7 @@ import {
 	transitionSubmissions,
 	withdrawSubmission,
 } from "../app/domain/accept";
+import { EmailDeliveryError } from "../app/ports/email";
 
 const db = () => getDb(env);
 
@@ -1252,6 +1253,118 @@ describe("send decisions", () => {
 		expect(failed?.ok).toBe(false);
 		expect(failed?.reason).toMatch(/no speaker or submitter/i);
 		expect(await d.select().from(emailOutbox)).toHaveLength(1);
+	});
+
+	it("reports a concurrent identical send as in flight, not as a delivery failure", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const row = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(row.id, "c_x", "x@example.com");
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+		let releaseProvider: (() => void) | undefined;
+		let providerStarted: (() => void) | undefined;
+		const started = new Promise<void>((resolve) => {
+			providerStarted = resolve;
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				() =>
+					new Promise<Response>((resolve) => {
+						releaseProvider = () =>
+							resolve(
+								new Response(JSON.stringify({ id: "resend-decision" }), {
+									status: 200,
+								}),
+							);
+						providerStarted?.();
+					}),
+			),
+		);
+		const resendEnv = {
+			...env,
+			RESEND_API_KEY: "re_test",
+			EMAIL_FROM: "OpenRostrum <noreply@test.example>",
+			APP_ORIGIN: "https://test.example",
+		} as unknown as Env;
+		try {
+			const first = sendPreviewedDecisionEmails(d, resendEnv, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "key-1",
+			});
+			await started;
+			const second = await sendPreviewedDecisionEmails(d, resendEnv, {
+				event,
+				rows: [row],
+				decision: "accept",
+				idempotencyKey: "key-1",
+			});
+
+			// A double-clicked "Send decisions" must not tell the admin the speaker
+			// could not be reached — the email is on its way out right now, and
+			// "retry" copy would send them chasing a delivery that already happened.
+			expect(second[0]?.reason).toMatch(/already (being sent|in flight)/i);
+			expect(second[0]?.reason).not.toMatch(/failed/i);
+			releaseProvider?.();
+			await expect(first).resolves.toMatchObject([{ ok: true }]);
+		} finally {
+			releaseProvider?.();
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("propagates an unexpected D1 failure after finalizing what already sent", async () => {
+		const d = await seedBase();
+		await seedDecisionTemplates();
+		const delivered = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(delivered.id, "c_a", "a@example.com");
+		const broken = await insertSubmission({ status: "accept_queue" });
+		await addSpeaker(broken.id, "c_b", "b@example.com");
+		const [event] = await d.select().from(events).where(eq(events.id, "e1"));
+		if (!event) throw new Error("missing fixture");
+		await env.DB.prepare(`
+			CREATE TRIGGER fail_second_decision_insert
+			BEFORE INSERT ON email_outbox
+			WHEN NEW."to" = 'b@example.com'
+			BEGIN
+				SELECT RAISE(ABORT, 'forced D1 failure');
+			END
+		`).run();
+
+		let failure: unknown;
+		try {
+			// A database fault is not a recipient problem: reporting it per row would
+			// tell the admin to retry one speaker while the real fault repeats. It
+			// has to reach the batch-level handler, which says the send stopped
+			// partway and that a retry will not double-send.
+			failure = await sendPreviewedDecisionEmails(d, env, {
+				event,
+				rows: [delivered, broken],
+				decision: "accept",
+				idempotencyKey: "key-1",
+			}).then(
+				(results) => {
+					throw new Error(
+						`Expected the database fault to propagate, got ${JSON.stringify(results)}`,
+					);
+				},
+				(error) => error,
+			);
+		} finally {
+			await env.DB.prepare("DROP TRIGGER fail_second_decision_insert").run();
+		}
+		expect(failure).toBeInstanceOf(Error);
+		expect(failure).not.toBeInstanceOf(EmailDeliveryError);
+		// The speaker who DID receive the decision stays marked notified, so a
+		// later schedule change still reaches their calendar.
+		const [row] = await d
+			.select()
+			.from(submissions)
+			.where(eq(submissions.id, delivered.id));
+		expect(row?.notifiedAt).not.toBeNull();
 	});
 
 	it("refuses loudly when the event has no matching template", async () => {
