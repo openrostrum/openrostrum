@@ -7,21 +7,18 @@ import {
 	rankedChainsSql,
 	sanitizeFileName,
 } from "~/domain/files";
+import { parseZipGrouping, preflightZipExport } from "~/domain/zip-export";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { track } from "~/lib/track";
 import { zipStream } from "~/lib/zip";
 import type { Route } from "./+types/admin.files.export[.zip]";
 
-// No zip64 in the writer, and CRC-32 is per-byte JS CPU — cap at what the
-// 30 s Worker CPU budget comfortably survives, not at the format's 4 GB edge.
-const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
-const MAX_ENTRIES = 10_000;
-
 /**
- * Bulk download: LATEST version of each selected chain, one folder per
- * session. Any version's id selects its whole chain; `all=1` exports every
- * chain. The archive streams — download starts immediately, no email hop.
+ * Bulk download: LATEST version of each selected chain. Default grouping is
+ * one folder per session/speaker; `group=flat` puts everything in one folder.
+ * Any version's id selects its whole chain; `all=1` exports every chain.
+ * `preflight=1` returns the count/limit result without streaming bytes.
  */
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
@@ -32,8 +29,14 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const url = new URL(request.url);
 	const fileIds = url.searchParams.getAll("fileIds").filter(Boolean);
 	const all = url.searchParams.get("all") === "1";
+	const preflight = url.searchParams.get("preflight") === "1";
+	const grouping = parseZipGrouping(url.searchParams.get("group"));
 	if (!all && fileIds.length === 0) {
-		throw data("Select at least one file to export.", { status: 400 });
+		const message = "Select at least one file to export.";
+		if (preflight) {
+			return Response.json({ error: message }, { status: 400 });
+		}
+		throw data(message, { status: 400 });
 	}
 
 	const ranked = rankedChainsSql(event.id);
@@ -50,46 +53,49 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const selection = all
 		? sql``
 		: sql`and r.grp in (
-			select distinct c.grp from ${canonical} c
-			where c.id in (
-				select value from json_each(${JSON.stringify(fileIds)})
-			)
-		)`;
+				select distinct c.grp from ${canonical} c
+				where c.id in (
+					select value from json_each(${JSON.stringify(fileIds)})
+				)
+			)`;
 	const latest = await db.all<LatestRow>(sql`
-		select id, r2_key, file_name, size_bytes, submission_id, contact_id
-		from ${ranked} r
-		where r.rn = 1 ${selection}`);
+			select id, r2_key, file_name, size_bytes, submission_id, contact_id
+			from ${ranked} r
+			where r.rn = 1 ${selection}`);
 	latest.sort(
 		(a, b) =>
 			(a.submission_id ?? "").localeCompare(b.submission_id ?? "") ||
 			a.file_name.localeCompare(b.file_name),
 	);
-	if (latest.length === 0) {
-		throw data("Nothing to export yet — no files match.", { status: 404 });
+	const check = preflightZipExport(
+		latest.map((file) => ({ sizeBytes: file.size_bytes })),
+	);
+	if (!check.ok) {
+		if (preflight) {
+			return Response.json({ error: check.message }, { status: check.status });
+		}
+		throw data(check.message, { status: check.status });
 	}
-	if (latest.length > MAX_ENTRIES) {
-		throw data("Too many files for one archive — narrow the selection.", {
-			status: 400,
+	if (preflight) {
+		return Response.json({
+			files: check.files,
+			totalBytes: check.totalBytes,
 		});
 	}
-	const totalBytes = latest.reduce((sum, f) => sum + (f.size_bytes ?? 0), 0);
-	if (totalBytes > MAX_TOTAL_BYTES) {
-		throw data(
-			"This selection exceeds the 1 GB archive limit — narrow the selection.",
-			{ status: 400 },
-		);
-	}
 
-	const folders = await folderNames(db, event.id, latest);
+	const folders =
+		grouping === "flat" ? null : await folderNames(db, event.id, latest);
 	const usedPaths = new Set<string>();
 	const entries = latest.map((f) => ({
 		fileId: f.id,
 		r2Key: f.r2_key,
 		path: uniquePath(
 			usedPaths,
-			folders.get(
-				f.submission_id ?? (f.contact_id ? `c:${f.contact_id}` : ""),
-			) ?? "Unassigned",
+			grouping === "flat"
+				? "Files"
+				: (folders?.get(
+						f.submission_id ?? (f.contact_id ? `c:${f.contact_id}` : ""),
+					) ?? "Unassigned"),
 			sanitizeFileName(f.file_name),
 		),
 	}));
@@ -98,8 +104,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	track("file.zip_export", {
 		eventId,
 		files: entries.length,
-		totalBytes,
+		totalBytes: check.totalBytes,
 		scope: all ? "all" : "selection",
+		grouping,
 	});
 
 	async function* sources() {

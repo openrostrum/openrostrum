@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { useState } from "react";
-import { Form, data } from "react-router";
+import { data, Form } from "react-router";
 import { FilePicker } from "~/components/file-picker";
+import { ZipExportControls } from "~/components/zip-export";
 import { getDb } from "~/db";
 import { submissions } from "~/db/schema";
 import {
@@ -15,8 +16,8 @@ import {
 	type UploadErrorCode,
 } from "~/domain/files";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
-import { resolveTimezone } from "~/lib/event-time";
 import { formatInTimeZone } from "~/lib/dates";
+import { resolveTimezone } from "~/lib/event-time";
 import { formatBytes } from "~/lib/format";
 import { createTimings } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -36,8 +37,8 @@ import {
 	TBody,
 	Td,
 	TextLink,
-	Th,
 	THead,
+	Th,
 	Tr,
 } from "~/ui";
 import type { Route } from "./+types/admin.files";
@@ -302,39 +303,12 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 				)}
 			</Form>
 
-			{/* reloadDocument or the click is swallowed by the client router and
-			    lands on an empty page instead of saving a file */}
-			<Form
-				method="get"
-				action="/admin/files/export.zip"
-				id="zip-export"
-				reloadDocument
-			>
-				{/* selections made on OTHER pages have no checkbox in the DOM —
-				    without these the export silently drops them */}
-				{[...selected]
-					.filter((id) => !rows.some((r) => r.id === id))
-					.map((id) => (
-						<Input key={id} type="hidden" name="fileIds" value={id} />
-					))}
-				<div className="flex flex-wrap items-center gap-3">
-					<Button type="submit" icon="export" disabled={selected.size === 0}>
-						Download ZIP ({selected.size} selected)
-					</Button>
-					<Button
-						type="submit"
-						variant="ghost"
-						icon="export"
-						name="all"
-						value="1"
-					>
-						Download ZIP (everything)
-					</Button>
-					<span>
-						Latest version of each file, grouped in one folder per session.
-					</span>
-				</div>
-			</Form>
+			<ZipExportControls
+				selectedIds={[...selected]}
+				hiddenSelectedIds={[...selected].filter(
+					(id) => !rows.some((r) => r.id === id),
+				)}
+			/>
 
 			<Table>
 				<THead>
@@ -355,7 +329,6 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 									type="checkbox"
 									name="fileIds"
 									value={f.id}
-									form="zip-export"
 									aria-label={`Select ${f.fileName}`}
 									checked={selected.has(f.id)}
 									onChange={(e) =>
