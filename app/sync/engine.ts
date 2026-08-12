@@ -4,7 +4,7 @@ import type {
 	AirtableFieldValue,
 	AirtableRecord,
 } from "~/ports/airtable";
-import { MERGE_FIELD } from "~/ports/airtable";
+import { recordKey } from "~/ports/airtable";
 
 /**
  * Snapshot three-way reconciliation, pure: the caller loads/filters rows
@@ -73,10 +73,9 @@ export function planTableSync(
 	const remoteByRecordId = new Map<string, AirtableRecord>();
 	let orphanCount = 0;
 	for (const remote of remotes) {
-		const mergeValue = remote.fields[MERGE_FIELD];
+		const mergeValue = recordKey(remote);
 		if (
-			typeof mergeValue !== "string" ||
-			mergeValue === "" ||
+			mergeValue === null ||
 			remoteByRecordId.has(mergeValue) ||
 			(!localById.has(mergeValue) && !linkById.has(mergeValue))
 		) {

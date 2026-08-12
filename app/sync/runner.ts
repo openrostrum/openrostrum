@@ -1,5 +1,6 @@
 import { and, eq, inArray, lt } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { z } from "zod";
 import { type Db, getDb } from "~/db";
 import { DECISION_STATUS } from "~/db/constants";
 import {
@@ -31,6 +32,7 @@ import {
 	type AirtableFields,
 	getAirtableBase,
 	MERGE_FIELD,
+	recordKey,
 } from "~/ports/airtable";
 import {
 	diffFields,
@@ -121,6 +123,10 @@ export interface SyncState {
 
 const MAX_RECENT_CONFLICTS = 50;
 
+/** The webhook state row's snapshot is stored JSON, so reading it is a parse:
+ * anything but a recorded timestamp means "no ping seen yet". */
+const WebhookState = z.object({ lastWebhookAt: z.string() });
+
 export async function readSyncState(db: Db): Promise<SyncState> {
 	const [row] = await db
 		.select({ snapshot: airtableLinks.baseSnapshot })
@@ -170,9 +176,7 @@ export async function readLastWebhookPing(db: Db): Promise<string | null> {
 			),
 		)
 		.limit(1);
-	const at = (row?.snapshot as { lastWebhookAt?: string } | null)
-		?.lastWebhookAt;
-	return typeof at === "string" ? at : null;
+	return WebhookState.safeParse(row?.snapshot).data?.lastWebhookAt ?? null;
 }
 
 /**
@@ -514,11 +518,13 @@ async function reconcileAll(
 			// re-count the same deletion against the breaker.
 			return loaded.submissionRows.get(a.recordId)?.status !== "withdrawn";
 		});
-		const remoteRecordIds = new Set(
-			remotes
-				.map((r) => r.fields[MERGE_FIELD])
-				.filter((v): v is string => typeof v === "string"),
-		);
+		// One keyed view of the remotes — a record with no usable merge key is
+		// not something this mirror tracks, for either reader below.
+		const keyed = remotes.flatMap((r) => {
+			const key = recordKey(r);
+			return key === null ? [] : [[key, r.fields] as const];
+		});
+		const remoteRecordIds = new Set(keyed.map(([key]) => key));
 		const resurfaced = usable
 			.filter(
 				(l) =>
@@ -532,11 +538,7 @@ async function reconcileAll(
 			map,
 			plan,
 			loaded,
-			remoteFieldsById: new Map(
-				remotes
-					.filter((r) => typeof r.fields[MERGE_FIELD] === "string")
-					.map((r) => [r.fields[MERGE_FIELD] as string, r.fields]),
-			),
+			remoteFieldsById: new Map(keyed),
 			newArchives,
 			resurfaced,
 			refused,
@@ -836,8 +838,8 @@ async function applyTable(
 			})),
 		);
 		for (const record of created) {
-			const key = record.fields[MERGE_FIELD];
-			if (typeof key === "string") createdIds.set(key, record.airtableId);
+			const key = recordKey(record);
+			if (key) createdIds.set(key, record.airtableId);
 		}
 		stats.created = plan.creates.length;
 	}
