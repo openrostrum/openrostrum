@@ -4,6 +4,8 @@ import { getDb } from "~/db";
 import { airtableLinks } from "~/db/schema";
 import { SYNCED_TABLES, TABLE_MAPS } from "~/lib/airtable-map";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
+import { formatInTimeZone } from "~/lib/dates";
+import { resolveTimezone } from "~/lib/event-time";
 import { createTimings } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
@@ -72,6 +74,16 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		}),
 	);
 	const countByTable = new Map(linkCounts.map((c) => [c.tableName, c.linked]));
+	// Sync state stores ISO strings; the team reads them against the event's
+	// clock, so the label is built here — a client-side format would render the
+	// viewer's zone and shift the stamp at hydration.
+	const timeZone = resolveTimezone(event.timezone);
+	const stamp = (iso: string): string => {
+		const parsed = new Date(iso);
+		return Number.isNaN(parsed.getTime())
+			? iso
+			: formatInTimeZone(parsed, timeZone, "datetime-zone");
+	};
 	return data(
 		{
 			state: "ready" as const,
@@ -81,14 +93,23 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				refreshConfigured: Boolean(env.AIRTABLE_WEBHOOK_ID),
 				// Liveness evidence — a received ping, never inferred from config.
 				lastPingAt,
+				lastPingLabel: lastPingAt ? stamp(lastPingAt) : null,
 			},
-			recentConflicts: syncState.recentConflicts ?? [],
+			recentConflicts: (syncState.recentConflicts ?? []).map((c) => ({
+				...c,
+				atLabel: stamp(c.at),
+			})),
 			paused: syncState.pausedAt
-				? { at: syncState.pausedAt, reason: syncState.pausedReason ?? "" }
+				? {
+						at: syncState.pausedAt,
+						atLabel: stamp(syncState.pausedAt),
+						reason: syncState.pausedReason ?? "",
+					}
 				: null,
 			lastRun: syncState.lastRunAt
 				? {
 						at: syncState.lastRunAt,
+						atLabel: stamp(syncState.lastRunAt),
 						trigger: syncState.lastRunTrigger ?? "unknown",
 						status: syncState.lastRunStatus ?? "ok",
 						tables: syncState.lastRunTables ?? null,
@@ -135,19 +156,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 	return redirect(
 		`/admin/settings/airtable?sync=${intent === "resume" ? "resumed" : "started"}`,
 	);
-}
-
-const timeFormat = new Intl.DateTimeFormat("en-US", {
-	month: "short",
-	day: "numeric",
-	hour: "numeric",
-	minute: "2-digit",
-	timeZoneName: "short",
-});
-
-function formatTime(iso: string): string {
-	const parsed = new Date(iso);
-	return Number.isNaN(parsed.getTime()) ? iso : timeFormat.format(parsed);
 }
 
 const RUN_STATUS_TONE = {
@@ -258,7 +266,7 @@ export default function AirtableSync({
 					<div className="flex flex-col gap-3">
 						<div className="flex items-center gap-2">
 							<StatusBadge tone="danger">Sync paused</StatusBadge>
-							<span>since {formatTime(paused.at)}</span>
+							<span>since {paused.atLabel}</span>
 						</div>
 						<p>{paused.reason}</p>
 						<Form method="post">
@@ -290,12 +298,12 @@ export default function AirtableSync({
 					</StatusBadge>
 					{lastRun && (
 						<span>
-							{formatTime(lastRun.at)} · trigger: {lastRun.trigger}
+							{lastRun.atLabel} · trigger: {lastRun.trigger}
 						</span>
 					)}
 					<StatusBadge tone={webhook.lastPingAt ? "success" : "neutral"}>
 						{webhook.lastPingAt
-							? `Webhook ping received ${formatTime(webhook.lastPingAt)}`
+							? `Webhook ping received ${webhook.lastPingLabel}`
 							: webhook.secretSet
 								? "Webhook secret set — no ping received yet"
 								: "No webhook — background poll only"}
@@ -329,7 +337,7 @@ export default function AirtableSync({
 							<TBody>
 								{recentConflicts.map((c) => (
 									<Tr key={`${c.at}:${c.table}:${c.recordId}:${c.field}`}>
-										<Td kind="mono">{formatTime(c.at)}</Td>
+										<Td kind="mono">{c.atLabel}</Td>
 										<Td>{c.table}</Td>
 										<Td kind="mono">{c.recordId}</Td>
 										<Td>{c.field}</Td>

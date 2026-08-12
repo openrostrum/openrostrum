@@ -22,6 +22,7 @@ import {
 } from "~/db/schema";
 import type { AddedParticipant } from "~/domain/participant-notifications";
 import { normalizeEmail } from "~/lib/auth";
+import { sanitizeHtml } from "~/lib/html";
 import { getEmailSender } from "~/ports/email";
 import {
 	BUILTIN_META,
@@ -309,80 +310,6 @@ export async function resolveFormDefinition(
 		participant: bySection("participant"),
 		roles,
 	};
-}
-
-const ALLOWED_TAGS = new Set([
-	"p",
-	"strong",
-	"b",
-	"em",
-	"i",
-	"u",
-	"s",
-	"ul",
-	"ol",
-	"li",
-	"br",
-	"a",
-	"blockquote",
-	"code",
-	"pre",
-	"h2",
-	"h3",
-]);
-
-/**
- * Allowlist sanitizer for speaker-authored rich text — anything else stored
- * from a public POST would be an XSS onto every admin/portal/public surface
- * that renders it. Keeps formatting tags, strips every attribute except a
- * safe http(s) href, drops script-bearing elements with their content.
- */
-const DROPPED_TAGS = [
-	"script",
-	"style",
-	"iframe",
-	"object",
-	"embed",
-	"noscript",
-	"svg",
-	"math",
-	"template",
-];
-
-export async function sanitizeHtml(html: string): Promise<string> {
-	if (!html) return "";
-	let rewriter = new HTMLRewriter();
-	for (const tag of DROPPED_TAGS) {
-		rewriter = rewriter.on(tag, {
-			element(el) {
-				el.remove();
-			},
-		});
-	}
-	const response = rewriter
-		.on("*", {
-			element(el) {
-				if (!ALLOWED_TAGS.has(el.tagName)) {
-					el.removeAndKeepContent();
-					return;
-				}
-				const names = [
-					...(el.attributes as unknown as Iterable<[string, string]>),
-				].map(([name]) => name);
-				for (const name of names) {
-					if (el.tagName === "a" && name === "href") {
-						const href = el.getAttribute("href") ?? "";
-						if (/^https?:\/\//i.test(href)) {
-							el.setAttribute("rel", "noopener noreferrer nofollow");
-							continue;
-						}
-					}
-					el.removeAttribute(name);
-				}
-			},
-		})
-		.transform(new Response(html));
-	return await response.text();
 }
 
 /**

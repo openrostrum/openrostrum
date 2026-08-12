@@ -286,7 +286,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const timings = createTimings();
 	const now = new Date();
 
-	const likePattern = likeContains(q);
 	const eventScope = eq(tasks.eventId, event.id);
 	const outstandingScope = and(
 		eventScope,
@@ -295,10 +294,13 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const taskFilter = taskId ? eq(tasks.id, taskId) : undefined;
 	const contactSearch = q
 		? or(
-				sql`${contacts.firstName} LIKE ${likePattern} ESCAPE '\\'`,
-				sql`${contacts.lastName} LIKE ${likePattern} ESCAPE '\\'`,
-				sql`${contacts.email} LIKE ${likePattern} ESCAPE '\\'`,
-				sql`${contacts.firstName} || ' ' || ${contacts.lastName} LIKE ${likePattern} ESCAPE '\\'`,
+				likeContains(contacts.firstName, q),
+				likeContains(contacts.lastName, q),
+				likeContains(contacts.email, q),
+				likeContains(
+					sql`(${contacts.firstName} || ' ' || ${contacts.lastName})`,
+					q,
+				),
 			)
 		: undefined;
 	const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);

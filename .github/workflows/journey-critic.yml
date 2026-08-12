@@ -1,0 +1,79 @@
+name: Journey critic
+
+# Walks the live deploy as personas with goals and reports experience defects.
+# Scheduled rather than per-PR: there is no preview deploy to walk, and this
+# signs up real accounts and creates real events on the target.
+on:
+  schedule:
+    - cron: "17 11 * * 1"
+  workflow_dispatch:
+    inputs:
+      journeys:
+        description: "Comma-separated journey ids (blank = all)"
+        required: false
+        type: string
+      target:
+        description: "Origin to walk"
+        required: false
+        default: "https://openrostrum.com"
+        type: string
+
+concurrency:
+  group: journey-critic
+  cancel-in-progress: false
+
+jobs:
+  walk:
+    runs-on: ubuntu-latest
+    # A stalled browser must not hold a runner: every journey has its own
+    # timeout in critic.mjs, this is the backstop for the whole run.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Guard — walk only when configured
+        id: guard
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "::warning::Journey critic skipped — set the ANTHROPIC_API_KEY repo secret to enable it."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.go == 'true'
+      - uses: pnpm/action-setup@v4
+        if: steps.guard.outputs.go == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.go == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        if: steps.guard.outputs.go == 'true'
+      - name: Install Chromium
+        if: steps.guard.outputs.go == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Walk the product
+        id: walk
+        if: steps.guard.outputs.go == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          JC_TARGET: ${{ inputs.target || 'https://openrostrum.com' }}
+          JC_JOURNEYS: ${{ inputs.journeys }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: node tooling/journey-critic/run.mjs
+      # Screenshots are the evidence — upload them even when the run failed,
+      # because a failed run is exactly when the owner needs to see how far it got.
+      - name: Upload report and screenshots
+        if: always() && steps.guard.outputs.go == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: journey-critic
+          path: tooling/journey-critic/.out/**
+          if-no-files-found: warn
+          retention-days: 30

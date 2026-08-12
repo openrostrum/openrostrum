@@ -113,6 +113,25 @@ describe("program feeds", () => {
 		expect(JSON.stringify(body)).not.toMatch(/@px\.test/);
 	});
 
+	it("basic HTML writes a role the house way — escaped parts, plain separator", async () => {
+		await seedProgram();
+		const speakers = await (
+			await fetchFeed("/feeds/devflow/speakers.html")
+		).text();
+		// The separator is markup the consumer restyles, not user input: escaping
+		// each part and joining after is the only order that produces both.
+		expect(speakers).toContain(
+			'<p class="or-role">Engineer · Widgets &amp; &lt;Co&gt;</p>',
+		);
+
+		const sessions = await (
+			await fetchFeed("/feeds/devflow/sessions.html")
+		).text();
+		expect(sessions).toContain(
+			"Bo Alvarez — Engineer · Widgets &amp; &lt;Co&gt;",
+		);
+	});
+
 	it("?embed= applies that embed's filters; a disabled embed 404s", async () => {
 		await seedProgram();
 		const res = await fetchFeed("/feeds/devflow/sessions.json?embed=pub-emb-1");

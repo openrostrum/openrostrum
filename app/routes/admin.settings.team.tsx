@@ -7,12 +7,16 @@ import { getDb } from "~/db";
 import { organizationMembers, passwordResets, users } from "~/db/schema";
 import {
 	destroySession,
+	getActiveEvent,
 	mintSentinelHash,
 	normalizeEmail,
 	requireAdmin,
 	SENTINEL_HASH_PREFIX,
 } from "~/lib/auth";
+import { formatInTimeZone } from "~/lib/dates";
 import { errorMessage } from "~/lib/errors";
+import { resolveTimezone } from "~/lib/event-time";
+import { escapeHtml } from "~/lib/html";
 import { type Org, resolveOrg } from "~/lib/org.server";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -45,14 +49,6 @@ const InviteSchema = z.object({
 
 type Db = ReturnType<typeof getDb>;
 type AppUser = typeof users.$inferSelect;
-
-function escapeHtml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;");
-}
 
 // (Re)mints the invite token — run in ONE batch (with the user insert when the
 // account is new) so a failure can never strand a token-less sentinel. Old
@@ -149,6 +145,11 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	}
 	const db = getDb(env);
 	const timings = createTimings();
+	// "Joined" is a calendar date, so the clock that decides it must be the
+	// team's — the worker's own is UTC and would date a late-evening signup to
+	// tomorrow, then flip to the viewer's zone at hydration.
+	const event = await getActiveEvent(env, user);
+	const timeZone = event ? resolveTimezone(event.timezone) : "UTC";
 	const { members, inviteRows } = await timings.time("db", async () => ({
 		members: await db
 			.select({
@@ -196,7 +197,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	return data(
 		{
 			org: { id: org.id, name: org.name },
-			members,
+			members: members.map((m) => ({
+				...m,
+				joinedLabel: formatInTimeZone(m.joinedAt, timeZone, "date"),
+			})),
 			invites,
 			me: user.id,
 			invitedEmail,
@@ -509,12 +513,6 @@ function InviteLink({ id, link }: { id: string; link: string }) {
 	);
 }
 
-const joinedFormat = new Intl.DateTimeFormat("en-US", {
-	month: "short",
-	day: "numeric",
-	year: "numeric",
-});
-
 export default function Team({ loaderData, actionData }: Route.ComponentProps) {
 	const { org, members, invites, me, invitedEmail, inviteEmailFailed } =
 		loaderData;
@@ -660,7 +658,7 @@ export default function Team({ loaderData, actionData }: Route.ComponentProps) {
 								</div>
 							</Td>
 							<Td>{m.email}</Td>
-							<Td kind="mono">{joinedFormat.format(new Date(m.joinedAt))}</Td>
+							<Td kind="mono">{m.joinedLabel}</Td>
 							<Td>
 								{confirming === m.membershipId ? (
 									<Form method="post" className="flex items-center gap-2">

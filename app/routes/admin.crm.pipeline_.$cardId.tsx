@@ -13,9 +13,10 @@ import {
 	movePipelineCard,
 	queryNotes,
 } from "~/domain/crm";
-import { requireAdmin, resolveActiveOrg } from "~/lib/auth";
+import { getActiveEvent, requireAdmin, resolveActiveOrg } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatInTz } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
+import { resolveTimezone } from "~/lib/event-time";
 import { PIPELINE_STAGE_LABEL, PIPELINE_STAGE_TONE } from "~/lib/pipeline";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -83,6 +84,9 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	if (!card) {
 		throw data("Card not found in your pipeline", { status: 404 });
 	}
+	// Stage moves and notes are logged by people working in the event's day —
+	// the worker's clock is UTC and would date an evening call to tomorrow.
+	const activeEvent = await getActiveEvent(env, user);
 	const [history, [historyCount], noteThread, orgEvents] = await timings.time(
 		"db",
 		() =>
@@ -119,6 +123,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			notes: noteThread.notes,
 			noteCount: noteThread.total,
 			events: orgEvents,
+			timeZone: activeEvent ? resolveTimezone(activeEvent.timezone) : "UTC",
 		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
@@ -219,7 +224,8 @@ export default function CrmPipelineCard({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { card, history, historyTotal, notes, noteCount, events } = loaderData;
+	const { card, history, historyTotal, notes, noteCount, events, timeZone } =
+		loaderData;
 	const name = `${card.firstName} ${card.lastName}`.trim();
 	const busy = useBusy();
 	const formError =
@@ -324,7 +330,12 @@ export default function CrmPipelineCard({
 				</Panel>
 			</div>
 
-			<CrmNotesPanel notes={notes} total={noteCount} error={noteError} />
+			<CrmNotesPanel
+				notes={notes}
+				total={noteCount}
+				timeZone={timeZone}
+				error={noteError}
+			/>
 
 			<div className="flex flex-col gap-3">
 				<Table>
@@ -337,7 +348,7 @@ export default function CrmPipelineCard({
 						{history.map((h) => (
 							<Tr key={h.id}>
 								<Td kind="mono">
-									{formatInTz(h.createdAt, "UTC", "datetime")}
+									{formatInTimeZone(h.createdAt, timeZone, "datetime-zone")}
 								</Td>
 								<Td kind="strong">
 									{h.fromStage

@@ -1,3 +1,4 @@
+import { formatRole } from "~/lib/format";
 import { buildIcs } from "~/lib/ics";
 import type {
 	ProgramEvent,
@@ -231,10 +232,10 @@ export function sessionsToBasicHtml(
   ${
 		s.speakers.length
 			? `<ul class="or-speakers">${s.speakers
-					.map(
-						(sp) =>
-							`<li>${esc(sp.name)}${sp.jobTitle ? ` — ${esc(sp.jobTitle)}` : ""}${sp.companyName ? `, ${esc(sp.companyName)}` : ""}</li>`,
-					)
+					.map((sp) => {
+						const role = formatRole(sp, esc);
+						return `<li>${esc(sp.name)}${role ? ` — ${role}` : ""}</li>`;
+					})
 					.join("")}</ul>`
 			: ""
 	}
@@ -256,21 +257,15 @@ export function speakersToBasicHtml(
 	speakers: PublicSpeakerProfile[],
 ): string {
 	const items = speakers
-		.map(
-			(sp) => `<article class="or-speaker" id="speaker-${esc(sp.id)}">
+		.map((sp) => {
+			const role = formatRole(sp, esc);
+			return `<article class="or-speaker" id="speaker-${esc(sp.id)}">
   <h2>${esc(sp.name)}</h2>
-  ${
-		sp.jobTitle || sp.companyName
-			? `<p class="or-role">${[sp.jobTitle, sp.companyName]
-					.filter(Boolean)
-					.map((v) => esc(String(v)))
-					.join(", ")}</p>`
-			: ""
-	}
+  ${role ? `<p class="or-role">${role}</p>` : ""}
   ${sp.bio ? `<p class="or-bio">${esc(sp.bio)}</p>` : ""}
   <ul class="or-sessions">${sp.sessions.map((s) => `<li>${esc(s.title)}${s.timeRange ? ` — ${esc(`${s.dateLabel ?? ""} ${s.timeRange}`.trim())}` : ""}${s.room ? `, ${esc(s.room)}` : ""}</li>`).join("")}</ul>
-</article>`,
-		)
+</article>`;
+		})
 		.join("\n");
 	return `<!doctype html>
 <html lang="en">

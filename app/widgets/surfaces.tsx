@@ -14,8 +14,10 @@ import {
 	Avatar,
 	Button,
 	ButtonLink,
+	Caps,
 	Chip,
 	EmptyState,
+	InkLink,
 	MotionReveal,
 	Tab,
 	Tabs,
@@ -34,6 +36,7 @@ import {
 	TagPill,
 } from "./bits";
 import { FilterBar } from "./filter-bar";
+import { formatRole } from "~/lib/format";
 import { useMySchedule } from "./my-schedule";
 import { SessionCard, SpeakerRow } from "./session-card";
 
@@ -123,7 +126,7 @@ export function SessionsSurface({
 	);
 }
 
-/* --------------------------------------------------------------- speakers --- */
+/* ------------------------------------------------- speakers and gallery --- */
 
 function SpeakerDetail({
 	speaker,
@@ -136,9 +139,7 @@ function SpeakerDetail({
 	backLabel: string;
 	sessionsBase: string;
 }) {
-	const role = [speaker.jobTitle, speaker.companyName]
-		.filter(Boolean)
-		.join(", ");
+	const role = formatRole(speaker);
 	return (
 		<DetailPanel backHref={backHref} backLabel={backLabel}>
 			<div className="flex flex-col gap-4">
@@ -153,17 +154,15 @@ function SpeakerDetail({
 				</div>
 				{speaker.bio && <ShowMoreText text={speaker.bio} limit={420} />}
 				<div className="flex flex-col gap-2 border-t border-hair pt-4">
-					<h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-						Sessions ({speaker.sessions.length})
-					</h3>
+					<Caps as="h3">Sessions ({speaker.sessions.length})</Caps>
 					{speaker.sessions.map((session) => (
-						<div key={session.id} className="flex flex-col">
-							<Link
+						<div key={session.id} className="flex flex-col text-[13.5px]">
+							<InkLink
 								to={makeHref(sessionsBase, { session: session.id })}
-								className="w-fit rounded-[3px] text-[13.5px] font-medium text-fg underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+								strong
 							>
 								{session.title}
-							</Link>
+							</InkLink>
 							<p className="font-mono text-[11.5px] tabular-nums text-fg-muted">
 								{[session.dateLabel, session.timeRange]
 									.filter(Boolean)
@@ -172,12 +171,11 @@ function SpeakerDetail({
 									<>
 										{(session.dateLabel || session.timeRange) && " · "}
 										{session.roomId ? (
-											<Link
+											<InkLink
 												to={makeHref(sessionsBase, { room: session.roomId })}
-												className="rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
 											>
 												{session.room}
-											</Link>
+											</InkLink>
 										) : (
 											session.room
 										)}
@@ -196,21 +194,110 @@ function SpeakerDetail({
 	);
 }
 
-export function SpeakersSurface({
+function SpeakerListRow({
+	speaker,
+	href,
+}: {
+	speaker: PublicSpeakerProfile;
+	href: string;
+}) {
+	const role = formatRole(speaker);
+	return (
+		<Link
+			to={href}
+			className={`flex items-center gap-3.5 border-t border-hair px-4 py-3 first:border-t-0 transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
+		>
+			<Avatar name={speaker.name} src={speaker.photoUrl} size={40} />
+			<span className="flex min-w-0 flex-1 flex-col">
+				<span className="truncate text-[14px] font-medium text-fg">
+					{speaker.name}
+				</span>
+				{role && (
+					<span className="truncate text-[12.5px] text-fg-muted">{role}</span>
+				)}
+				{speaker.bio && (
+					<span className="truncate text-[12.5px] text-fg-faint">
+						{speaker.bio}
+					</span>
+				)}
+			</span>
+			<span className="shrink-0 font-mono text-[11.5px] text-fg-muted">
+				{speaker.sessions.length} session
+				{speaker.sessions.length === 1 ? "" : "s"}
+			</span>
+		</Link>
+	);
+}
+
+function SpeakerGalleryTile({
+	speaker,
+	href,
+}: {
+	speaker: PublicSpeakerProfile;
+	href: string;
+}) {
+	const role = formatRole(speaker);
+	return (
+		<Link
+			to={href}
+			className="group flex flex-col gap-2 rounded-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
+		>
+			<PhotoTile name={speaker.name} photoUrl={speaker.photoUrl} />
+			<span className="flex flex-col">
+				<span className="truncate text-[13.5px] font-medium text-fg group-hover:underline group-hover:underline-offset-2">
+					{speaker.name}
+				</span>
+				{role && (
+					<span className="truncate text-[12px] text-fg-muted">{role}</span>
+				)}
+			</span>
+		</Link>
+	);
+}
+
+/**
+ * The two things a layout owns: the tile and the words that name the surface
+ * the visitor is on. Search, counts, pagination, the empty states and the
+ * detail view are the same directory underneath — /speakers and /gallery are
+ * one component, or they drift.
+ */
+const SPEAKER_LAYOUTS = {
+	list: {
+		Tile: SpeakerListRow,
+		container: "rounded-card bg-surface shadow-card",
+		backLabel: "All speakers",
+		emptyBody:
+			"Speakers appear here once the organizers publish accepted sessions.",
+	},
+	gallery: {
+		Tile: SpeakerGalleryTile,
+		container: "grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4",
+		backLabel: "Back to gallery",
+		emptyBody:
+			"The gallery fills in once the organizers publish accepted sessions.",
+	},
+} as const;
+
+export type SpeakerLayout = keyof typeof SPEAKER_LAYOUTS;
+
+export function SpeakerDirectory({
 	data,
 	base,
 	sessionsBase,
+	layout,
 }: {
 	data: SpeakerDirectoryData;
 	base: string;
 	sessionsBase: string;
+	layout: SpeakerLayout;
 }) {
+	const { Tile, container, backLabel, emptyBody } = SPEAKER_LAYOUTS[layout];
 	if (data.detail) {
 		return (
 			<SpeakerDetail
 				speaker={data.detail}
 				backHref={makeHref(base, { q: data.q, page: data.page })}
-				backLabel="All speakers"
+				backLabel={backLabel}
 				sessionsBase={sessionsBase}
 			/>
 		);
@@ -234,51 +321,25 @@ export function SpeakersSurface({
 					body={
 						data.q
 							? "Try a different name, or clear the search to see everyone."
-							: "Speakers appear here once the organizers publish accepted sessions."
+							: emptyBody
 					}
 					action={
 						data.q ? <TextLink to={base}>Clear search</TextLink> : undefined
 					}
 				/>
 			) : (
-				<div className="rounded-card bg-surface shadow-card">
-					{data.speakers.map((speaker) => {
-						const role = [speaker.jobTitle, speaker.companyName]
-							.filter(Boolean)
-							.join(", ");
-						return (
-							<Link
-								key={speaker.id}
-								to={makeHref(base, {
-									speaker: speaker.id,
-									q: data.q,
-									page: data.page,
-								})}
-								className={`flex items-center gap-3.5 border-t border-hair px-4 py-3 first:border-t-0 transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
-							>
-								<Avatar name={speaker.name} src={speaker.photoUrl} size={40} />
-								<span className="flex min-w-0 flex-1 flex-col">
-									<span className="truncate text-[14px] font-medium text-fg">
-										{speaker.name}
-									</span>
-									{role && (
-										<span className="truncate text-[12.5px] text-fg-muted">
-											{role}
-										</span>
-									)}
-									{speaker.bio && (
-										<span className="truncate text-[12.5px] text-fg-faint">
-											{speaker.bio}
-										</span>
-									)}
-								</span>
-								<span className="shrink-0 font-mono text-[11.5px] text-fg-muted">
-									{speaker.sessions.length} session
-									{speaker.sessions.length === 1 ? "" : "s"}
-								</span>
-							</Link>
-						);
-					})}
+				<div className={container}>
+					{data.speakers.map((speaker) => (
+						<Tile
+							key={speaker.id}
+							speaker={speaker}
+							href={makeHref(base, {
+								speaker: speaker.id,
+								q: data.q,
+								page: data.page,
+							})}
+						/>
+					))}
 				</div>
 			)}
 			<Pagination
@@ -348,12 +409,9 @@ function SessionDetail({
 					{show("room") && (
 						<MetaRow label="Room">
 							{session.room && session.roomId ? (
-								<Link
-									to={makeHref(sessionsBase, { room: session.roomId })}
-									className="rounded-[3px] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-								>
+								<InkLink to={makeHref(sessionsBase, { room: session.roomId })}>
 									{session.room}
-								</Link>
+								</InkLink>
 							) : (
 								(session.room ?? "To be announced")
 							)}
@@ -377,9 +435,7 @@ function SessionDetail({
 				)}
 				{show("speakers") && session.speakers.length > 0 && (
 					<div className="flex flex-col gap-2.5 border-t border-hair pt-4">
-						<h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-							Speakers ({session.speakers.length})
-						</h3>
+						<Caps as="h3">Speakers ({session.speakers.length})</Caps>
 						{session.speakers.map((speaker) => (
 							<SpeakerRow
 								key={speaker.id}
@@ -504,8 +560,8 @@ export function AgendaSurface({
 								),
 							}}
 						>
-							<div className="flex h-9 items-center justify-center border-b border-hair px-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-								{room.name}
+							<div className="flex h-9 items-center justify-center border-b border-hair px-2">
+								<Caps>{room.name}</Caps>
 							</div>
 							<div className="relative" style={{ height }}>
 								{data.hourMarks.map((mark) => (
@@ -706,9 +762,7 @@ export function ItinerarySurface({
 						</div>
 						{starredDays.map((day) => (
 							<div key={day.key} className="flex flex-col gap-3">
-								<h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
-									{day.dateLabel}
-								</h3>
+								<Caps as="h3">{day.dateLabel}</Caps>
 								{day.sessions.map((session) => (
 									<SessionCard
 										key={session.id}
@@ -800,90 +854,6 @@ export function ItinerarySurface({
 					</div>
 				))
 			)}
-		</section>
-	);
-}
-
-/* ---------------------------------------------------------------- gallery --- */
-
-export function GallerySurface({
-	data,
-	base,
-	sessionsBase,
-}: {
-	data: SpeakerDirectoryData;
-	base: string;
-	sessionsBase: string;
-}) {
-	if (data.detail) {
-		return (
-			<SpeakerDetail
-				speaker={data.detail}
-				backHref={makeHref(base, { q: data.q, page: data.page })}
-				backLabel="Back to gallery"
-				sessionsBase={sessionsBase}
-			/>
-		);
-	}
-	return (
-		<section className="flex flex-col gap-4">
-			<FilterBar
-				base={base}
-				filters={{ q: data.q, track: "", format: "", room: "" }}
-				facets={{ tracks: [], formats: [], rooms: [] }}
-				facetKeys={[]}
-				searchPlaceholder="Search speakers by name…"
-			/>
-			<ResultCount>
-				{data.total} speaker{data.total === 1 ? "" : "s"}
-			</ResultCount>
-			{data.total === 0 ? (
-				<EmptyState
-					icon="mic"
-					title={data.q ? "No speakers match" : "No speakers announced yet"}
-					body={
-						data.q
-							? "Try a different name, or clear the search to see everyone."
-							: "The gallery fills in once the organizers publish accepted sessions."
-					}
-					action={
-						data.q ? <TextLink to={base}>Clear search</TextLink> : undefined
-					}
-				/>
-			) : (
-				<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-					{data.speakers.map((speaker) => (
-						<Link
-							key={speaker.id}
-							to={makeHref(base, {
-								speaker: speaker.id,
-								q: data.q,
-								page: data.page,
-							})}
-							className="group flex flex-col gap-2 rounded-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petrol"
-						>
-							<PhotoTile name={speaker.name} photoUrl={speaker.photoUrl} />
-							<span className="flex flex-col">
-								<span className="truncate text-[13.5px] font-medium text-fg group-hover:underline group-hover:underline-offset-2">
-									{speaker.name}
-								</span>
-								{(speaker.jobTitle || speaker.companyName) && (
-									<span className="truncate text-[12px] text-fg-muted">
-										{[speaker.jobTitle, speaker.companyName]
-											.filter(Boolean)
-											.join(", ")}
-									</span>
-								)}
-							</span>
-						</Link>
-					))}
-				</div>
-			)}
-			<Pagination
-				page={data.page}
-				pages={data.pages}
-				makePageHref={(page) => makeHref(base, { q: data.q, page })}
-			/>
 		</section>
 	);
 }

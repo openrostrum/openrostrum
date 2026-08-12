@@ -16,23 +16,6 @@ export function parseDueDate(value: string): Date {
 	return new Date(`${value}T23:59:59Z`);
 }
 
-/** Render a real instant (session times, upload stamps) in the EVENT's timezone. */
-export function formatInTz(
-	date: Date,
-	timeZone: string,
-	style: "date" | "datetime" = "datetime",
-): string {
-	return new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-		...(style === "datetime"
-			? { hour: "numeric", minute: "2-digit", timeZoneName: "short" }
-			: {}),
-	}).format(date);
-}
-
 /** "Sunday, August 10, 2026" — the dashboard greeting's date line, in the event's timezone. */
 export function formatDateLine(date: Date, timeZone: string): string {
 	return new Intl.DateTimeFormat("en-US", {
@@ -42,6 +25,22 @@ export function formatDateLine(date: Date, timeZone: string): string {
 		day: "numeric",
 		year: "numeric",
 	}).format(date);
+}
+
+/**
+ * "Job title · company" — the one way OpenRostrum writes a person's role. With
+ * neither part the caller picks the fallback, because that copy is the
+ * surface's. `transform` maps each part before joining: the HTML feeds must
+ * escape the parts but not the separator.
+ */
+export function formatRole(
+	person: { jobTitle?: string | null; companyName?: string | null },
+	transform?: (part: string) => string,
+): string {
+	const parts = [person.jobTitle, person.companyName].filter(
+		(part): part is string => Boolean(part),
+	);
+	return (transform ? parts.map(transform) : parts).join(" · ");
 }
 
 export function formatBytes(bytes: number | null | undefined): string {

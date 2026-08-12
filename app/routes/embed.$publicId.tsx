@@ -15,11 +15,10 @@ import {
 	AgendaSurface,
 	AgendaUnpublished,
 	EmbedShell,
-	GallerySurface,
 	ItinerarySurface,
 	ProgramErrorScreen,
 	SessionsSurface,
-	SpeakersSurface,
+	SpeakerDirectory,
 } from "~/widgets";
 import type {
 	AgendaSurfaceData,
@@ -144,14 +143,16 @@ export default function EmbedPage({
 					/>
 				)}
 				{surface.type === "speakers" && (
-					<SpeakersSurface
+					<SpeakerDirectory
+						layout="list"
 						data={surface.data}
 						base={base}
 						sessionsBase={`/sessions/${event.slug}`}
 					/>
 				)}
 				{surface.type === "gallery" && (
-					<GallerySurface
+					<SpeakerDirectory
+						layout="gallery"
 						data={surface.data}
 						base={base}
 						sessionsBase={`/sessions/${event.slug}`}

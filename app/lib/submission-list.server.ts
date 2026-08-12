@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne } from "drizzle-orm";
 import { data } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
@@ -9,7 +9,8 @@ import {
 } from "~/db/constants";
 import { contacts, type events, submissions } from "~/db/schema";
 import { transitionSubmissions } from "~/domain/accept";
-import { formatInTimezone, formatScheduleRange } from "~/lib/format-date";
+import { formatInTimeZone, formatScheduleRange } from "~/lib/dates";
+import { likeContains } from "~/lib/like";
 import {
 	humanStatus,
 	type ListActionData,
@@ -58,12 +59,6 @@ function emptyCounts(): Record<ListTab, number> {
 	>;
 }
 
-/** Escapes LIKE wildcards so a literal "%"/"_" in the search matches itself. */
-function titleLike(q: string): SQL {
-	const pattern = `%${q.replaceAll(/[\\%_]/g, (c) => `\\${c}`)}%`;
-	return sql`${submissions.title} LIKE ${pattern} ESCAPE '\\'`;
-}
-
 export async function loadSubmissionList(
 	env: Env,
 	event: EventRow | null,
@@ -97,7 +92,7 @@ export async function loadSubmissionList(
 				tab === "all"
 					? ne(submissions.status, "draft")
 					: eq(submissions.status, tab),
-				q ? titleLike(q) : undefined,
+				q ? likeContains(submissions.title, q) : undefined,
 			);
 
 			const grouped = await db
@@ -231,7 +226,7 @@ export async function loadSubmissionList(
 						name: st.track.name,
 						color: st.track.color,
 					})),
-					submittedAt: formatInTimezone(r.createdAt, event.timezone, "date"),
+					submittedAt: formatInTimeZone(r.createdAt, event.timezone, "date"),
 				})),
 				contacts: contactRows.map((c) => ({
 					id: c.id,

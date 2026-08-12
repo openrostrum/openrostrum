@@ -39,7 +39,8 @@ import {
 } from "~/domain/portal";
 import { normalizeEmail, requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
-import { formatInTz, textLength } from "~/lib/format";
+import { formatInTimeZone } from "~/lib/dates";
+import { textLength } from "~/lib/format";
 import { headshotUrl } from "~/lib/headshot";
 import { sanitizeHtml } from "~/lib/html";
 import { createTimings, track } from "~/lib/track";
@@ -305,7 +306,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				submission.status === "withdrawn" ? submission.withdrawnReason : null,
 			schedule:
 				submission.startsAt && submission.endsAt
-					? `${formatInTz(submission.startsAt, tz)} – ${formatInTz(submission.endsAt, tz)}`
+					? `${formatInTimeZone(submission.startsAt, tz, "datetime-zone")} – ${formatInTimeZone(submission.endsAt, tz, "datetime-zone")}`
 					: null,
 			room: room[0]?.name ?? null,
 			meta: {
@@ -350,7 +351,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				editable: editWindow.editable,
 				reason: editWindow.reason,
 				closesLabel: editWindow.closesAt
-					? formatInTz(editWindow.closesAt, tz)
+					? formatInTimeZone(editWindow.closesAt, tz, "datetime-zone")
 					: null,
 			},
 			canWithdrawSubmission:

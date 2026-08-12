@@ -26,14 +26,14 @@ import {
 	proposedSequence,
 } from "~/domain/calendar-sequence";
 import { normalizeEmail } from "~/lib/auth";
-import { formatInTimeZone } from "~/lib/dates";
+import { formatInTimeZone, formatScheduleRange } from "~/lib/dates";
 import {
 	type MergeContext,
 	renderBody,
 	renderSubject,
 } from "~/lib/email-render";
 import { errorMessage } from "~/lib/errors";
-import { formatScheduleRange } from "~/lib/format-date";
+import { escapeHtml } from "~/lib/html";
 import { buildIcs, icsEntryFingerprint } from "~/lib/ics";
 import { emailOrigin, firstPortalsByEvent, portalUrl } from "~/lib/portal-url";
 import { track } from "~/lib/track";
@@ -1171,12 +1171,4 @@ function decisionDetailsHtml(
 		}
 	}
 	return `<hr>${lines.join("")}`;
-}
-
-function escapeHtml(s: string): string {
-	return s
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;");
 }

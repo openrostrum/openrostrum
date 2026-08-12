@@ -199,6 +199,27 @@ describe("CRM person profile", () => {
 		);
 	});
 
+	it("stamps a note in the event's zone, not the worker's UTC", async () => {
+		await seedCrmBaseline();
+		const db = getDb(env);
+		const email = "priya@example.com";
+		await db.insert(crmNotes).values({
+			id: "note_evening",
+			organizationId: "org1",
+			email,
+			body: "Called after the evening keynote.",
+			authorId: "u_admin1",
+			authorName: "Org One Admin",
+			// 7pm in America/Los_Angeles, the seeded event's zone — already the
+			// next calendar day once the worker's own UTC clock reads it.
+			createdAt: new Date("2026-10-13T02:00:00.000Z"),
+		});
+
+		const html = renderPerson((await runLoader("u_admin1", email)).data);
+		expect(html).toContain("Oct 12, 2026, 7:00 PM PDT");
+		expect(html).not.toContain("Oct 13, 2026, 2:00 AM UTC");
+	});
+
 	it("404s for a person who exists only in another organization", async () => {
 		await seedCrmBaseline();
 		// zara@rival.com is org2-only — org1's admin must not see her profile.
