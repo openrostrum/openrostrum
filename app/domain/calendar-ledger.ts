@@ -411,8 +411,8 @@ export function ledgerWriteStatementUpperBound(
 /**
  * Index the invites THIS request just wrote: leaving them to the durable scan
  * re-arms it after every send round, so the agenda keeps offering to go check
- * history on an event nobody neglected. Best-effort — the emails are already
- * gone, so a failure here is a scan the next click finishes, never a lost send.
+ * history on an event nobody neglected. A failure here throws; the emails are
+ * already durable, so the next scan re-indexes them and no send is repeated.
  */
 export async function recordSentCalendarInvites(
 	db: Db,
