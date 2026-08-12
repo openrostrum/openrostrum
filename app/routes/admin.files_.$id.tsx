@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { useState } from "react";
 import {
 	Form,
@@ -21,6 +21,7 @@ import {
 	FILE_REVIEW_LABEL,
 	FILE_REVIEW_TONE,
 	getFileChain,
+	listSessionOptions,
 	refileChain,
 	REVIEW_NOTE_MAX,
 	setFileReview,
@@ -41,6 +42,7 @@ import {
 	Input,
 	PageHeader,
 	Panel,
+	SearchInput,
 	Select,
 	StatusBadge,
 	Table,
@@ -123,13 +125,15 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	// assignment and a headshot to its person, so they get no picker at all.
 	const refilable =
 		canonicalTaskAssignmentId === null && latest.kind !== "headshot";
-	const sessionOptions = refilable
-		? await db
-				.select({ id: submissions.id, title: submissions.title })
-				.from(submissions)
-				.where(eq(submissions.eventId, event.id))
-				.orderBy(asc(submissions.title))
-		: [];
+	const sessionQuery = (
+		new URL(request.url).searchParams.get("session") ?? ""
+	).trim();
+	const { options: sessionOptions, total: sessionTotal } = refilable
+		? await listSessionOptions(db, event.id, {
+				query: sessionQuery,
+				keep: submission ?? null,
+			})
+		: { options: [], total: 0 };
 	const contactId = latest.contactId ?? assignment?.contactId ?? null;
 	const [contact] = contactId
 		? await db
@@ -191,6 +195,8 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			})),
 			submission: submission ?? null,
 			sessionOptions,
+			sessionTotal,
+			sessionQuery,
 			refilable,
 			contact: contact ?? null,
 			assignment: assignment
@@ -475,6 +481,8 @@ export default function FileDetail({
 		versions,
 		submission,
 		sessionOptions,
+		sessionTotal,
+		sessionQuery,
 		refilable,
 		contact,
 		assignment,
@@ -482,6 +490,7 @@ export default function FileDetail({
 		commentKey,
 	} = loaderData;
 	const busy = useBusy();
+	const sessionTruncated = sessionTotal > sessionOptions.length;
 	const displayedReview = reviewFile ?? latest;
 	const inReviewLoop = reviewFile !== null;
 	const speakerName = contact
@@ -540,28 +549,58 @@ export default function FileDetail({
 						<Tr>
 							<Td kind="strong">Session</Td>
 							<Td>
-								<Form method="post" className="flex flex-wrap items-end gap-3">
-									<Input type="hidden" name="intent" value="assign-session" />
-									<Field
-										label="File this deliverable under"
-										hint="Every version moves together and keeps its history."
-									>
-										<Select
-											name="submissionId"
-											defaultValue={submission?.id ?? ""}
+								<div className="flex flex-col gap-3">
+									{(sessionTruncated || sessionQuery) && (
+										<Form
+											method="get"
+											className="flex flex-wrap items-end gap-3"
 										>
-											<option value="">No session — event-level file</option>
-											{sessionOptions.map((s) => (
-												<option key={s.id} value={s.id}>
-													{s.title}
-												</option>
-											))}
-										</Select>
-									</Field>
-									<Button type="submit" variant="ghost" disabled={busy}>
-										Save session
-									</Button>
-								</Form>
+											<SearchInput
+												name="session"
+												defaultValue={sessionQuery}
+												placeholder="Search sessions by title…"
+												aria-label="Search sessions"
+											/>
+											<Button type="submit" variant="ghost" icon="search">
+												Search
+											</Button>
+											{sessionQuery && (
+												<TextLink to={`/admin/files/${latest.id}`}>
+													Clear search
+												</TextLink>
+											)}
+										</Form>
+									)}
+									<Form
+										method="post"
+										className="flex flex-wrap items-end gap-3"
+									>
+										<Input type="hidden" name="intent" value="assign-session" />
+										<Field
+											label="File this deliverable under"
+											hint={
+												sessionTruncated
+													? `Showing ${sessionOptions.length} of ${sessionTotal} sessions — search to reach the rest. Every version moves together and keeps its history.`
+													: "Every version moves together and keeps its history."
+											}
+										>
+											<Select
+												name="submissionId"
+												defaultValue={submission?.id ?? ""}
+											>
+												<option value="">No session — event-level file</option>
+												{sessionOptions.map((s) => (
+													<option key={s.id} value={s.id}>
+														{s.title}
+													</option>
+												))}
+											</Select>
+										</Field>
+										<Button type="submit" variant="ghost" disabled={busy}>
+											Save session
+										</Button>
+									</Form>
+								</div>
 							</Td>
 						</Tr>
 					)}

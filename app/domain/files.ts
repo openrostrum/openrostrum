@@ -1,5 +1,7 @@
 import {
 	and,
+	asc,
+	count,
 	desc,
 	eq,
 	isNotNull,
@@ -730,6 +732,48 @@ export async function refileChain(
 	if (!first) return { ok: false, error: "That file is no longer here." };
 	await db.batch([first, ...rest]);
 	return { ok: true, submissionTitle, versionCount: merged.length };
+}
+
+/** A page of the CFP, not the whole thing — the rest is reached by name. */
+export const SESSION_OPTION_LIMIT = 100;
+
+export type SessionOption = { id: string; title: string };
+
+/** The "attach this file to a session" picker, for every surface that offers
+ * one. A CFP grows without limit, so it ships one page plus a true count, and
+ * `keep` pins the file's current session so a search can never silently
+ * re-point the select and move the file on the next save. */
+export async function listSessionOptions(
+	db: Db,
+	eventId: string,
+	opts: { query?: string; keep?: SessionOption | null } = {},
+): Promise<{ options: SessionOption[]; total: number }> {
+	const query = opts.query?.trim() ?? "";
+	const where = query
+		? and(
+				eq(submissions.eventId, eventId),
+				sql`${submissions.title} like ${likeContains(query)} escape '\\'`,
+			)
+		: eq(submissions.eventId, eventId);
+	const matched = await db
+		.select({ id: submissions.id, title: submissions.title })
+		.from(submissions)
+		.where(where)
+		.orderBy(asc(submissions.title))
+		.limit(SESSION_OPTION_LIMIT);
+	// Only pay for the count when the page is actually full.
+	const [counted] =
+		matched.length === SESSION_OPTION_LIMIT
+			? await db.select({ n: count() }).from(submissions).where(where)
+			: [{ n: matched.length }];
+	const keep = opts.keep;
+	return {
+		options:
+			keep && !matched.some((s) => s.id === keep.id)
+				? [keep, ...matched]
+				: matched,
+		total: counted?.n ?? matched.length,
+	};
 }
 
 export type FileLibraryRow = {

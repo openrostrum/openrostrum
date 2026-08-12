@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { useState } from "react";
 import { Form, data } from "react-router";
 import { FilePicker } from "~/components/file-picker";
@@ -8,6 +8,7 @@ import {
 	FILE_REVIEW_LABEL,
 	FILE_REVIEW_TONE,
 	listFileGroups,
+	listSessionOptions,
 	UPLOAD_ACCEPT,
 	UPLOAD_CONSTRAINTS,
 	UPLOAD_ERRORS,
@@ -63,6 +64,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	const q = url.searchParams.get("q")?.trim() ?? "";
 	const status = url.searchParams.get("status") ?? "";
 	const submissionId = url.searchParams.get("submission") ?? "";
+	const sessionQuery = url.searchParams.get("session")?.trim() ?? "";
 	const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
 	const uploadError = url.searchParams.get("uploadError");
 	const uploaded = url.searchParams.get("notice") === "uploaded";
@@ -75,6 +77,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			status,
 			submissionId,
 			sessionOptions: [],
+			sessionTotal: 0,
+			sessionQuery,
 			uploadError: null,
 			uploaded: false,
 			timezone: "UTC",
@@ -91,12 +95,27 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			pageSize: PAGE_SIZE,
 		}),
 	);
-	const sessionOptions = await timings.time("db", () =>
-		db
-			.select({ id: submissions.id, title: submissions.title })
-			.from(submissions)
-			.where(eq(submissions.eventId, event.id))
-			.orderBy(asc(submissions.title)),
+	// The session the table is filtered by stays in the picker whatever the
+	// search or the cap says — it names the view the organizer is looking at.
+	const [filtered] = submissionId
+		? await db
+				.select({ id: submissions.id, title: submissions.title })
+				.from(submissions)
+				.where(
+					and(
+						eq(submissions.id, submissionId),
+						eq(submissions.eventId, event.id),
+					),
+				)
+				.limit(1)
+		: [];
+	const { options: sessionOptions, total: sessionTotal } = await timings.time(
+		"db",
+		() =>
+			listSessionOptions(db, event.id, {
+				query: sessionQuery,
+				keep: filtered ?? null,
+			}),
 	);
 	return data(
 		{
@@ -107,6 +126,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			status,
 			submissionId,
 			sessionOptions,
+			sessionTotal,
+			sessionQuery,
 			uploadError:
 				uploadError && uploadError in UPLOAD_ERRORS
 					? UPLOAD_ERRORS[uploadError as UploadErrorCode]
@@ -139,10 +160,13 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 		status,
 		submissionId,
 		sessionOptions,
+		sessionTotal,
+		sessionQuery,
 		uploadError,
 		uploaded,
 		timezone,
 	} = loaderData;
+	const sessionTruncated = sessionTotal > sessionOptions.length;
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	const toggleSelected = (id: string, checked: boolean) => {
 		setSelected((prev) => {
@@ -156,11 +180,12 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 	const filteredSession = submissionId
 		? (sessionOptions.find((s) => s.id === submissionId) ?? null)
 		: null;
-	const filterQuery = (target: number) => {
+	const filterQuery = (target: number, session = sessionQuery) => {
 		const params = new URLSearchParams();
 		if (q) params.set("q", q);
 		if (status) params.set("status", status);
 		if (submissionId) params.set("submission", submissionId);
+		if (session) params.set("session", session);
 		if (target > 1) params.set("page", String(target));
 		const s = params.toString();
 		return s ? `?${s}` : "";
@@ -190,7 +215,14 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 							required
 						/>
 					</div>
-					<Field label="Attach to session (optional)">
+					<Field
+						label="Attach to session (optional)"
+						hint={
+							sessionTruncated
+								? `Showing ${sessionOptions.length} of ${sessionTotal} sessions — search to reach the rest.`
+								: undefined
+						}
+					>
 						<Select name="submissionId" defaultValue="">
 							<option value="">No session — event-level file</option>
 							{sessionOptions.map((s) => (
@@ -212,6 +244,31 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 					{uploadError && <ErrorText>{uploadError}</ErrorText>}
 					{uploaded && <StatusBadge tone="success">File uploaded.</StatusBadge>}
 				</Form>
+				{(sessionTruncated || sessionQuery) && (
+					// A separate GET form: it narrows the picker above without
+					// disturbing the table filters, which ride along as hidden inputs.
+					<Form method="get" className="mt-3 flex flex-wrap items-end gap-3">
+						{q && <Input type="hidden" name="q" value={q} />}
+						{status && <Input type="hidden" name="status" value={status} />}
+						{submissionId && (
+							<Input type="hidden" name="submission" value={submissionId} />
+						)}
+						<SearchInput
+							name="session"
+							defaultValue={sessionQuery}
+							placeholder="Search sessions by title…"
+							aria-label="Search sessions to attach to"
+						/>
+						<Button type="submit" variant="ghost" icon="search">
+							Search sessions
+						</Button>
+						{sessionQuery && (
+							<TextLink to={filterQuery(page, "") || "/admin/files"}>
+								Clear search
+							</TextLink>
+						)}
+					</Form>
+				)}
 			</Panel>
 
 			<Form method="get" className="flex flex-wrap items-end gap-3">

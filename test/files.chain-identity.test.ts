@@ -1,10 +1,17 @@
 import { env } from "cloudflare:test";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { files } from "../app/db/schema";
-import { insertDirectUpload, uploadHeadshot } from "../app/domain/files";
+import { files, submissions } from "../app/db/schema";
+import {
+	insertDirectUpload,
+	SESSION_OPTION_LIMIT,
+	uploadHeadshot,
+} from "../app/domain/files";
 import { loader as libraryLoader } from "../app/routes/admin.files";
-import { action as detailAction } from "../app/routes/admin.files_.$id";
+import {
+	action as detailAction,
+	loader as detailLoader,
+} from "../app/routes/admin.files_.$id";
 import { seedFilesWorld } from "./files.helpers";
 import { authedRequest, CONTEXT, postForm, unwrap } from "./tasks-fixtures";
 
@@ -18,13 +25,51 @@ type LibraryRow = {
 	speakerName: string | null;
 };
 
-async function library() {
-	return unwrap<{ rows: LibraryRow[]; total: number }>(
+async function library(search = "") {
+	return unwrap<{
+		rows: LibraryRow[];
+		total: number;
+		sessionOptions: Array<{ id: string; title: string }>;
+		sessionTotal: number;
+	}>(
 		await libraryLoader({
 			context: CONTEXT,
-			request: await authedRequest("http://localhost/admin/files"),
+			request: await authedRequest(`http://localhost/admin/files${search}`),
 			params: {},
 		} as unknown as Parameters<typeof libraryLoader>[0]),
+	);
+}
+
+/** Enough sessions that no picker can honestly ship them all. */
+async function seedManySessions(
+	db: Awaited<ReturnType<typeof seedFilesWorld>>,
+) {
+	const bulk = Array.from({ length: SESSION_OPTION_LIMIT + 40 }, (_, n) => ({
+		id: `s_bulk_${n}`,
+		eventId: "e1",
+		title: `Session ${String(n).padStart(3, "0")}`,
+		status: "accepted" as const,
+	}));
+	// D1 caps bound variables per statement, so seed in small batches.
+	for (let at = 0; at < bulk.length; at += 10) {
+		await db.insert(submissions).values(bulk.slice(at, at + 10));
+	}
+}
+
+type DetailData = {
+	sessionOptions: Array<{ id: string; title: string }>;
+	sessionTotal: number;
+	sessionQuery: string;
+};
+
+async function detail(fileId: string, search = "") {
+	const url = `http://localhost/admin/files/${fileId}${search}`;
+	return unwrap<DetailData>(
+		await detailLoader({
+			context: CONTEXT,
+			request: await authedRequest(url),
+			params: { id: fileId },
+		} as unknown as Parameters<typeof detailLoader>[0]),
 	);
 }
 
@@ -197,6 +242,62 @@ describe("an event-level upload chain can be filed against its session", () => {
 			submissionId: null,
 			submissionTitle: null,
 		});
+	});
+
+	it("keeps the picker bounded on an event with more sessions than fit", async () => {
+		const db = await seedFilesWorld();
+		const ids = await seedLooseDeck(db);
+		// A real CFP runs to hundreds; the picker may not ship all of them.
+		await seedManySessions(db);
+
+		const capped = await detail(ids[2] ?? "");
+		expect(capped.sessionOptions).toHaveLength(SESSION_OPTION_LIMIT);
+		// An honest count (the 140 bulk + the world's 3), so the hint can say what
+		// is being withheld.
+		expect(capped.sessionTotal).toBe(SESSION_OPTION_LIMIT + 43);
+
+		// The one past the cap is still reachable by name.
+		const found = await detail(ids[2] ?? "", "?session=Session%20139");
+		expect(found.sessionOptions.map((s) => s.title)).toEqual(["Session 139"]);
+		expect(found.sessionQuery).toBe("Session 139");
+	});
+
+	it("keeps the library's upload picker bounded and searchable too", async () => {
+		const db = await seedFilesWorld();
+		await seedManySessions(db);
+
+		const capped = await library();
+		expect(capped.sessionOptions).toHaveLength(SESSION_OPTION_LIMIT);
+		expect(capped.sessionTotal).toBe(SESSION_OPTION_LIMIT + 43);
+
+		const found = await library("?session=Session%20139");
+		expect(found.sessionOptions.map((s) => s.title)).toEqual(["Session 139"]);
+
+		// Filtering the table by a session past the cap must still name it — the
+		// badge and the picker both read from these options.
+		const filtered = await library("?submission=s_bulk_139");
+		expect(filtered.sessionOptions.map((s) => s.id)).toContain("s_bulk_139");
+	});
+
+	it("keeps the file's own session pickable while a search is narrowing the list", async () => {
+		const db = await seedFilesWorld();
+		await env.BLOBS.put("t/filed", "filed");
+		const row = await insertDirectUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			r2Key: "t/filed",
+			fileName: "sponsor-deck.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 5,
+			sharedToPortal: false,
+		});
+
+		// Searching for something else must not silently re-point the select at
+		// another session — a save would then move the file the organizer meant
+		// to leave alone.
+		const narrowed = await detail(row.id, "?session=Talk%20B");
+		expect(narrowed.sessionOptions.map((s) => s.id)).toContain("s1");
 	});
 
 	it("refuses another event's session and refuses to move a speaker's task upload", async () => {
