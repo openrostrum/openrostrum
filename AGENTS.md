@@ -30,6 +30,7 @@ One row per topic below, pointing to where the depth lives; an agent reads only 
 | Airtable sync design | sync work | `docs/airtable-sync-design.md` |
 | Multi-tenancy — orgs, sign-up, membership authz | tenancy, auth, signup, invites | `docs/multi-tenancy-design.md` |
 | Grader-facing deploy notes | deploy time | `docs/JUDGING.md` |
+| Journey critic — personas walking the live deploy for experience defects | acting on its findings, changing its charter | `tooling/journey-critic/README.md` |
 
 ## Commands
 
