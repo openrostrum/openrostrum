@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	data,
 	Form,
+	Link,
 	type ShouldRevalidateFunctionArgs,
 	useFetcher,
 	useFetchers,
@@ -1479,7 +1480,7 @@ function ListView({
 								{byId.has(s.id) && (
 									<ConflictClock label="Scheduling conflict" />
 								)}
-								<TextLink to={`/admin/submissions/${s.id}`}>{s.title}</TextLink>
+								<Link to={`/admin/submissions/${s.id}`}>{s.title}</Link>
 							</span>
 						</Td>
 						<Td>
