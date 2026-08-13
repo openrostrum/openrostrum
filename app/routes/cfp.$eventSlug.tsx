@@ -7,10 +7,7 @@ import { getEventBySlug } from "~/lib/program";
 import { ButtonLink } from "~/ui";
 import type { Route } from "./+types/cfp.$eventSlug";
 
-// @public — this event's channel-ready CFP URL. Same oldest-open rule as
-// bare /cfp, scoped to the slug so an organizer can share one short link
-// without exposing a form UUID. No open form → a designed empty, not a
-// draft UUID and not a 500.
+// @public — no open form is an empty page, not a draft UUID and not a 500.
 
 export async function loader({ context, params }: Route.LoaderArgs) {
 	const db = getDb(context.cloudflare.env);

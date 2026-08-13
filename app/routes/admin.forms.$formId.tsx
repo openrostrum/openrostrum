@@ -2586,7 +2586,7 @@ function Builder({
 					<EmptyLine>
 						{d.form.status === "draft"
 							? "Draft — publish to get a shareable public link."
-							: "This form is closed. Publish it again to share a public link."}
+							: "This form is not accepting submissions — publish it again to share a public link."}
 					</EmptyLine>
 				)}
 			</Panel>

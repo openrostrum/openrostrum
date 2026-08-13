@@ -106,7 +106,8 @@ export function slugify(value: string): string {
 }
 
 export function eventSlugBase(name: string): string {
-	return slugify(name) || "event";
+	const base = slugify(name).slice(0, 80).replace(/-+$/, "");
+	return base || "event";
 }
 
 export function EventDetailsFields({

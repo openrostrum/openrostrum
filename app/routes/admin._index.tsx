@@ -145,7 +145,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			db
 				.select({
 					id: forms.id,
-					publicId: forms.publicId,
 					internalName: forms.internalName,
 					status: forms.status,
 					closeAt: forms.closeAt,
