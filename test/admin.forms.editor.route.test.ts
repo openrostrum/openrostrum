@@ -17,6 +17,7 @@ import { createSession, hashPassword } from "../app/lib/auth";
 import { utcToZonedInputs, zonedTimeToUtc } from "../app/lib/forms";
 import { sanitizeRichText } from "../app/lib/forms.server";
 import { action, loader } from "../app/routes/admin.forms.$formId";
+import { loader as publicFormLoader } from "../app/routes/submit.$eventSlug.$formId";
 import { unwrap as unwrapData } from "./route-data";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
@@ -1183,6 +1184,121 @@ describe("question rules", () => {
 });
 
 describe("publish / duplicate / delete", () => {
+	it("create → type names → publish keeps those names on the builder and the public page", async () => {
+		// Critic walk: organizer fills Internal name / External title / Page
+		// heading, then Next / Publish — never a separate Save. The live form
+		// they hand to speakers must not still say "Untitled form".
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		const [created] = await db
+			.select({
+				internalName: forms.internalName,
+				publicId: forms.publicId,
+			})
+			.from(forms)
+			.where(eq(forms.id, formId));
+		expect(created?.internalName).toBe("Untitled form");
+
+		const typed = {
+			internalName: "CFP 2027 – Main Call",
+			externalTitle: "DevOps Days Lyon 2027 — Call for Proposals",
+			pageHeading: "CFP Lyon 2027",
+			closeDate: "2027-04-30",
+			closeTime: "23:59",
+		};
+		const published = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({ intent: "publish", ...typed }),
+					cookie,
+				),
+			),
+		);
+		expect(published.ok).toBe("publish");
+		expect(published.fieldErrors).toBeUndefined();
+
+		const builder = unwrapData<{
+			form: {
+				internalName: string;
+				externalTitle: string;
+				pageHeading: string;
+				status: string;
+				welcomeHtml: string;
+				showWelcome: boolean;
+			};
+			closeDate: string;
+			closeTime: string;
+		}>(await loader(loaderArgs(formId, cookie)));
+		expect(builder.form.internalName).toBe(typed.internalName);
+		expect(builder.form.externalTitle).toBe(typed.externalTitle);
+		expect(builder.form.pageHeading).toBe(typed.pageHeading);
+		expect(builder.form.status).toBe("open");
+		expect(builder.closeDate).toBe(typed.closeDate);
+		expect(builder.closeTime).toBe(typed.closeTime);
+		expect(builder.form.welcomeHtml).toContain("<strong>");
+		expect(builder.form.showWelcome).toBe(true);
+
+		const publicPage = unwrapData<{
+			form: { externalTitle: string; pageHeading: string };
+		}>(
+			await publicFormLoader({
+				context: CONTEXT,
+				request: new Request(
+					`http://localhost/submit/devops-days-lyon-2027/${created?.publicId}`,
+				),
+				params: {
+					eventSlug: "devops-days-lyon-2027",
+					formId: created?.publicId ?? "",
+				},
+			} as unknown as Parameters<typeof publicFormLoader>[0]),
+		);
+		expect(publicPage.form.externalTitle).toBe(typed.externalTitle);
+		expect(publicPage.form.pageHeading).toBe(typed.pageHeading);
+		expect(publicPage.form.externalTitle).not.toBe("Untitled form");
+	});
+
+	it("does not publish when the typed heading is invalid", async () => {
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		const result = unwrap(
+			await action(
+				actionArgs(
+					formId,
+					saveFormBody({
+						intent: "publish",
+						pageHeading: "Call for Papers!",
+					}),
+					cookie,
+				),
+			),
+		);
+		expect(result.ok).toBeUndefined();
+		expect(result.fieldErrors?.pageHeading?.[0]).toContain("15");
+		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
+		expect(form?.status).toBe("draft");
+		expect(form?.internalName).toBe("Untitled form");
+		expect(form?.pageHeading).toBe("");
+	});
+
+	it("list-page publish does not wipe a name that was already saved", async () => {
+		const { db, cookie } = await seedBase();
+		const formId = await createForm(cookie);
+		expect(
+			unwrap(await action(actionArgs(formId, saveFormBody(), cookie))).ok,
+		).toBe("save-form");
+		expect(await runAction(formId, { intent: "publish" }, cookie)).toEqual({
+			ok: "publish",
+		});
+		const [form] = await db.select().from(forms).where(eq(forms.id, formId));
+		expect(form?.status).toBe("open");
+		expect(form?.internalName).toBe("CFP 2027 – Main Call");
+		expect(form?.externalTitle).toBe(
+			"DevOps Days Lyon 2027 — Call for Proposals",
+		);
+		expect(form?.pageHeading).toBe("CFP Lyon 2027");
+	});
+
 	it("publish flips status to open", async () => {
 		const { db, cookie } = await seedBase();
 		const formId = await createForm(cookie);
