@@ -201,11 +201,7 @@ export type AccessiblePortal = {
 	href: string;
 };
 
-/**
- * Every event the speaker can enter, one canonical portal each. Union of
- * linked contacts, same-email contacts, merge aliases, and their own
- * submissions — never a silent first-match.
- */
+/** Never a silent first-match: every accessible event is listed. */
 export async function listAccessiblePortals(
 	env: Env,
 	user: Pick<AppUser, "id" | "email">,
