@@ -14,6 +14,10 @@ import {
 	PARTICIPANT_ROLE as SCHEMA_PARTICIPANT_ROLE,
 	contacts,
 	emailOutbox,
+	evaluationAnswers,
+	evaluationPlans,
+	evaluationRounds,
+	evaluations,
 	events,
 	fields,
 	files,
@@ -22,6 +26,8 @@ import {
 	organizations,
 	participants,
 	passwordResets,
+	reviews,
+	roundQuestions,
 	sessionStatuses,
 	submissionAnswers,
 	submissionRevisions,
@@ -1449,5 +1455,247 @@ describe("enum lockstep", () => {
 	// the integration-owned schema enum must never diverge.
 	it("keeps the client PARTICIPANT_ROLE tuple in lockstep with the schema", () => {
 		expect(CLIENT_PARTICIPANT_ROLE).toEqual(SCHEMA_PARTICIPANT_ROLE);
+	});
+});
+
+describe("completed evaluations on the organizer detail", () => {
+	const FIXTURE_COMMENT =
+		"Strong practical content and a clear narrative arc; abstract could name the specific tooling used. Recommend accept for the Platform track.";
+
+	async function seedSubmission(db: Awaited<ReturnType<typeof seedWorld>>) {
+		await db.insert(submissions).values({
+			id: "s1",
+			eventId: "e1",
+			title: "Taming 40-Minute CI",
+			description: "Incremental builds at monorepo scale.",
+			status: "pending",
+		});
+	}
+
+	async function seedReviewer(db: Awaited<ReturnType<typeof seedWorld>>) {
+		await db.insert(users).values({
+			id: "u_rev",
+			email: "sam@test.co",
+			passwordHash: await hashPassword("pw"),
+			name: "Sam Whitfield",
+			role: "reviewer",
+		});
+	}
+
+	async function seedCompletedEvaluation(
+		db: Awaited<ReturnType<typeof seedWorld>>,
+	) {
+		await db.insert(evaluationPlans).values({
+			id: "plan1",
+			eventId: "e1",
+			name: "Program Review",
+			status: "open",
+		});
+		await db.insert(evaluationRounds).values({
+			id: "r1",
+			planId: "plan1",
+			name: "Initial Review",
+			position: 0,
+		});
+		await db.insert(roundQuestions).values([
+			{
+				id: "q_orig",
+				roundId: "r1",
+				label: "Originality",
+				type: "rating",
+				config: { min: 1, max: 5 },
+				weight: 1,
+				required: true,
+				position: 0,
+			},
+			{
+				id: "q_rec",
+				roundId: "r1",
+				label: "Recommendation",
+				type: "dropdown",
+				config: { options: ["Accept", "Maybe", "Reject"] },
+				weight: 1,
+				required: true,
+				position: 1,
+			},
+			{
+				id: "q_com",
+				roundId: "r1",
+				label: "Comments",
+				type: "text",
+				weight: 1,
+				required: false,
+				position: 2,
+			},
+		]);
+		await db.insert(evaluations).values({
+			id: "ev1",
+			roundId: "r1",
+			submissionId: "s1",
+			evaluatorId: "u_rev",
+			status: "completed",
+			submittedAt: new Date("2026-08-10T12:00:00Z"),
+		});
+		await db.insert(evaluationAnswers).values([
+			{
+				id: "ea_orig",
+				evaluationId: "ev1",
+				questionId: "q_orig",
+				valueNumber: 4,
+			},
+			{
+				id: "ea_rec",
+				evaluationId: "ev1",
+				questionId: "q_rec",
+				valueText: "Accept",
+			},
+			{
+				id: "ea_com",
+				evaluationId: "ev1",
+				questionId: "q_com",
+				valueText: FIXTURE_COMMENT,
+			},
+		]);
+	}
+
+	type EvaluationPayload = {
+		reviews: {
+			tally: { approve: number; maybe: number; deny: number };
+			rows: Array<{
+				reviewer: string;
+				decision: string;
+				comment: string | null;
+			}>;
+		};
+		evaluations: {
+			total: number;
+			truncated: boolean;
+			rows: Array<{
+				evaluator: string;
+				planId: string;
+				answers: Array<{
+					question: string;
+					value: string;
+					scale: string | null;
+				}>;
+			}>;
+		};
+	};
+
+	it("shows a completed evaluation's Originality 4 and fixture comment", async () => {
+		const db = await seedWorld();
+		await seedSubmission(db);
+		await seedReviewer(db);
+		await seedCompletedEvaluation(db);
+
+		const loaded = unwrap(await callLoader(await detailRequest()))
+			.data as unknown as EvaluationPayload;
+		const html = renderDetail(loaded);
+		const scorecard = loaded.evaluations.rows[0];
+
+		expect(scorecard?.evaluator).toBe("Sam Whitfield");
+		expect(scorecard?.answers).toContainEqual({
+			question: "Originality",
+			value: "4",
+			scale: "1–5",
+		});
+		expect(scorecard?.answers).toContainEqual({
+			question: "Comments",
+			value: FIXTURE_COMMENT,
+			scale: null,
+		});
+		expect(html).toContain("Sam Whitfield");
+		expect(html).toContain("Originality");
+		expect(html).toContain("4");
+		expect(html).toContain("1–5");
+		expect(html).toContain(FIXTURE_COMMENT);
+		expect(html).toContain("Accept");
+		expect(html).toContain("/admin/evaluation/plan1?tab=results&amp;sub=s1");
+	});
+
+	it("keeps the 3-state tally and does not invent a numeric 4", async () => {
+		const db = await seedWorld();
+		await seedSubmission(db);
+		await seedReviewer(db);
+		await db.insert(reviews).values({
+			id: "rv1",
+			submissionId: "s1",
+			reviewerId: "u_rev",
+			decision: "approve",
+			comment: "Ship it for the Platform track.",
+		});
+
+		const loaded = unwrap(await callLoader(await detailRequest()))
+			.data as unknown as EvaluationPayload;
+		const html = renderDetail(loaded);
+
+		expect(loaded.reviews.tally).toEqual({ approve: 1, maybe: 0, deny: 0 });
+		expect(loaded.reviews.rows[0]?.comment).toBe(
+			"Ship it for the Platform track.",
+		);
+		expect(loaded.evaluations.rows).toEqual([]);
+		expect(html).toContain("approve");
+		expect(html).toContain("Ship it for the Platform track.");
+		expect(html).not.toContain("Originality");
+	});
+
+	async function seedCompletedEvaluations(count: number) {
+		const db = await seedWorld();
+		await seedSubmission(db);
+		await db.insert(evaluationPlans).values({
+			id: "plan1",
+			eventId: "e1",
+			name: "Program Review",
+			status: "open",
+		});
+		await db.insert(evaluationRounds).values({
+			id: "r1",
+			planId: "plan1",
+			name: "Initial Review",
+			position: 0,
+		});
+		for (let i = 0; i < count; i++) {
+			await db.insert(users).values({
+				id: `u_rev_${i}`,
+				email: `rev${i}@test.co`,
+				passwordHash: "x",
+				name: `Reviewer ${i}`,
+				role: "reviewer",
+			});
+			await db.insert(evaluations).values({
+				id: `ev_${i}`,
+				roundId: "r1",
+				submissionId: "s1",
+				evaluatorId: `u_rev_${i}`,
+				status: "completed",
+				submittedAt: new Date(Date.UTC(2026, 7, 10, 12, i)),
+			});
+		}
+		return db;
+	}
+
+	it("caps completed evaluations at 50 and reports the true total", async () => {
+		await seedCompletedEvaluations(51);
+		const loaded = unwrap(await callLoader(await detailRequest()))
+			.data as unknown as EvaluationPayload;
+		const html = renderDetail(loaded);
+
+		expect(loaded.evaluations.total).toBe(51);
+		expect(loaded.evaluations.rows).toHaveLength(50);
+		expect(loaded.evaluations.truncated).toBe(true);
+		expect(html).toContain("Showing the first");
+		expect(html).toContain("completed evaluations");
+	});
+
+	it("does not claim evaluation truncation at exactly the cap", async () => {
+		await seedCompletedEvaluations(50);
+		const loaded = unwrap(await callLoader(await detailRequest()))
+			.data as unknown as EvaluationPayload;
+		const html = renderDetail(loaded);
+
+		expect(loaded.evaluations.total).toBe(50);
+		expect(loaded.evaluations.rows).toHaveLength(50);
+		expect(loaded.evaluations.truncated).toBe(false);
+		expect(html).not.toContain("Showing the first");
 	});
 });
