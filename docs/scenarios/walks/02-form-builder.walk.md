@@ -75,7 +75,13 @@ Loader: `db.query.forms.findFirst({ where: eq(forms.id, params.formId), with: { 
 → type/heading/title/welcome re-render from the row. **OK**
 EXPERIENCE (instant step navigation, values survive Back/Next pre-save): client component
 behavior inside the single builder route — no schema gap; binding-statement caveat as filed
-in walk 01 (scenario-only requirement). 
+in walk 01 (scenario-only requirement).
+**Publish from the builder is Save + `status='open'`.** The header Publish control
+submits `builder-form` (`intent=publish` plus Internal name / External title / Page
+heading / close date / the rest of SaveForm). A Next → Publish walk with no separate
+Save must not leave `internal_name = 'Untitled form'`. List-page "Open form" still
+POSTs intent-only and must not wipe a name that was already saved. Invalid SaveForm
+input blocks the status flip. 
 
 ---
 

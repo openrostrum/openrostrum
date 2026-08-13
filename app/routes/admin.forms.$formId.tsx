@@ -809,6 +809,13 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 					return await handleSaveForm(db, form, event, fd);
 
 				case "publish": {
+					// Builder Publish posts the in-progress wizard fields
+					// (internalName is always on that form). List-page Publish
+					// sends only intent — don't wipe a name that was already saved.
+					if (fd.has("internalName")) {
+						const saved = await handleSaveForm(db, form, event, fd);
+						if (saved.ok !== "save-form") return saved;
+					}
 					await db
 						.update(forms)
 						.set({ status: "open" })
@@ -2516,20 +2523,30 @@ function Builder({
 						<StatusBadge tone={FORM_STATUS_TONE[d.form.status] ?? "neutral"}>
 							{d.form.status}
 						</StatusBadge>
-						{d.form.status !== "open" && (
-							<Form method="post">
-								<Input type="hidden" name="intent" value="publish" readOnly />
-								<Button type="submit" variant="ghost" disabled={busy}>
-									Publish
-								</Button>
-							</Form>
-						)}
 						{actionData?.ok === "save-form" && !savingForm && (
 							<span aria-live="polite">Saved</span>
 						)}
-						<Button form="builder-form" type="submit" disabled={busy}>
+						<Button
+							form="builder-form"
+							type="submit"
+							name="intent"
+							value="save-form"
+							disabled={busy}
+						>
 							{savingForm ? "Saving…" : "Save"}
 						</Button>
+						{d.form.status !== "open" && (
+							<Button
+								form="builder-form"
+								type="submit"
+								name="intent"
+								value="publish"
+								variant="ghost"
+								disabled={busy}
+							>
+								Publish
+							</Button>
+						)}
 					</>
 				}
 			/>
@@ -2559,7 +2576,6 @@ function Builder({
 			<FormTabs formId={d.form.id} active="builder" counts={d.counts} />
 
 			<Form method="post" id="builder-form">
-				<Input type="hidden" name="intent" value="save-form" readOnly />
 				<Input type="hidden" name="type" value={formType} readOnly />
 			</Form>
 			{actionData?.formError && <ErrorText>{actionData.formError}</ErrorText>}
@@ -2940,7 +2956,13 @@ function Builder({
 							</Button>
 						)}
 						<div className="ml-auto">
-							<Button form="builder-form" type="submit" disabled={busy}>
+							<Button
+								form="builder-form"
+								type="submit"
+								name="intent"
+								value="save-form"
+								disabled={busy}
+							>
 								{savingForm ? "Saving…" : "Save"}
 							</Button>
 						</div>
