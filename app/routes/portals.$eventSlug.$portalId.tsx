@@ -2,6 +2,7 @@ import {
 	Form,
 	isRouteErrorResponse,
 	Outlet,
+	data,
 	useLocation,
 	useRouteError,
 } from "react-router";
@@ -15,6 +16,7 @@ import {
 	portalPath,
 } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
+import { createTimings } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
@@ -27,6 +29,10 @@ import {
 	Tabs,
 } from "~/ui";
 import type { Route } from "./+types/portals.$eventSlug.$portalId";
+
+export function headers({ loaderHeaders }: Route.HeadersArgs) {
+	return loaderHeaders;
+}
 
 /**
  * Portal shell. This loader gates GET navigation, but children still
@@ -48,20 +54,26 @@ export type PortalShellData = {
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
+	const timings = createTimings();
 	const ctx = await getPortalContext(env, user, params, request);
-	const accessible = ctx.preview ? [] : await listAccessiblePortals(env, user);
-	return {
-		base: portalPath(ctx),
-		portal: {
-			name: ctx.portal.name,
-			accentColor: ctx.portal.accentColor,
-			hasLogo: ctx.portal.logoKey !== null,
+	const accessible = ctx.preview
+		? []
+		: await timings.time("db", () => listAccessiblePortals(env, user));
+	return data(
+		{
+			base: portalPath(ctx),
+			portal: {
+				name: ctx.portal.name,
+				accentColor: ctx.portal.accentColor,
+				hasLogo: ctx.portal.logoKey !== null,
+			},
+			eventName: ctx.event.name,
+			user: { name: ctx.contact?.firstName ?? user.name, email: user.email },
+			preview: ctx.preview,
+			portals: accessible,
 		},
-		eventName: ctx.event.name,
-		user: { name: ctx.contact?.firstName ?? user.name, email: user.email },
-		preview: ctx.preview,
-		portals: accessible,
-	};
+		{ headers: { "Server-Timing": timings.header() } },
+	);
 }
 
 const TABS = [

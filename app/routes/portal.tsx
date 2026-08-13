@@ -14,10 +14,6 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
 
-/**
- * Speaker landing after a bare login (homePathForRole → /portal). One
- * accessible portal still redirects; more than one stays here as a chooser.
- */
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
