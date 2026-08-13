@@ -25,6 +25,7 @@ The decision unit is a surface family: every concrete implementation and consume
 | Portal pill toggles | `app/components/portal/bits.tsx`; `portal/home-view.tsx` | Task-tab pills snapped between states. | **Changed:** press/color feedback is parallel; task content swaps immediately. | 120ms responsive | The button can feel pressed without animating the frequently switched content. |
 | Personal-schedule star | `app/widgets/bits.tsx`; itinerary/session cards | Star state snapped with no press feedback. | **Changed:** tokenized press/color feedback; localStorage state changes immediately. | 120ms responsive | Direct acknowledgement costs no time and makes the control feel physical. |
 | Public speaker/session hover | `app/widgets/surfaces.tsx` | Directory rows and agenda blocks changed background abruptly. | **Changed:** background color fades only. | 120ms responsive | Pointer wayfinding is smoother without moving program data. |
+| Public agenda phone list | `app/widgets/surfaces.tsx`; `app/lib/agenda-list.ts` | Room-column grid was the only presentation. | **Static.** Chronological list mounts immediately; only shared link hover fades. | 120ms hover only | A phone reader is scanning when/where/what. Empty hours and layout motion would look like a broken grid. |
 | Marketing navigation/cards/CTA | `app/marketing/landing.tsx`; `app/marketing/auth.tsx`; `app/marketing/primitives.tsx` | Mixed implicit, 150ms, and 160ms timing. | **Changed:** all parallel hover/press feedback uses design tokens and reduced-motion fallbacks. | 120ms responsive | The doorway should share product physics even at a larger visual scale. |
 | Marketing product shot first paint | `app/marketing/landing.tsx` | Admin mock entered over 500ms from 12px below. | **Changed to static:** removed. | — | It was consciously watched and delayed the product screenshot for no explanatory value. |
 | Tabs and route content | `app/ui/tabs.tsx`; admin tabs; portal nav; public day/view tabs | Active color faded while route content swapped. | **Static content:** preserve instant navigation/content; only parallel color feedback moves. | 120ms color only | Animating content would compound in all-day navigation and obscure loading truth. |
@@ -53,7 +54,7 @@ The decision unit is a surface family: every concrete implementation and consume
 ## Totals
 
 - **24 changed surface families:** 23 gained/standardized quiet parallel motion; 1 consciously watched marketing entrance was removed.
-- **21 deliberately static surface families:** direct manipulation, data truth, dense reflow, validation, loading, and frequent navigation stay immediate.
+- **22 deliberately static surface families:** direct manipulation, data truth, dense reflow, validation, loading, and frequent navigation stay immediate.
 - **No dependency, keyframe, delayed unmount, or JS animation layer was added.**
 
 ## Live verification

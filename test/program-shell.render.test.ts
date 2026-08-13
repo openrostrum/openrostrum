@@ -35,6 +35,17 @@ function renderShell(kind: "program" | "embed") {
 	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
 }
 
+describe("public program navigation", () => {
+	it("wraps destinations so a fifth tab cannot clip off a phone", () => {
+		// Five labels (Sessions / Speakers / Agenda / Itinerary / Gallery) do not
+		// fit one 390px row. Shrinking them clips Gallery; wrapping keeps every
+		// public surface reachable without a sideways swipe.
+		expect(renderShell("program")).toMatch(
+			/aria-label="Program"[^>]*flex-wrap/,
+		);
+	});
+});
+
 describe("public program theme control", () => {
 	it("exposes the theme preference on standalone program pages", () => {
 		expect(renderShell("program")).toMatch(
