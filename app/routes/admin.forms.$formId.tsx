@@ -65,6 +65,7 @@ import { PaginationBar } from "./admin.forms";
 import {
 	Button,
 	ButtonLink,
+	EmptyLine,
 	EmptyState,
 	ErrorText,
 	Field,
@@ -2582,11 +2583,11 @@ function Builder({
 						</ButtonLink>
 					</div>
 				) : (
-					<p>
+					<EmptyLine>
 						{d.form.status === "draft"
 							? "Draft — publish to get a shareable public link."
 							: "This form is closed. Publish it again to share a public link."}
-					</p>
+					</EmptyLine>
 				)}
 			</Panel>
 
