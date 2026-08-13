@@ -18,8 +18,12 @@ import {
 	tracks,
 } from "../app/db/schema";
 import { loadWizardInitial, resolveFormDefinition } from "../app/cfp/server";
-import { action as sessionAction } from "../app/routes/submit.$eventSlug.$formId.step.session";
+import {
+	action as sessionAction,
+	loader as sessionLoader,
+} from "../app/routes/submit.$eventSlug.$formId.step.session";
 import { action as submitAction } from "../app/routes/submit.$eventSlug.$formId.step.review";
+import { catchThrown, thrownStatus } from "./thrown";
 import {
 	BASE_URL,
 	CONTEXT,
@@ -72,6 +76,27 @@ function submitBody(overrides: Partial<Record<string, unknown>> = {}) {
 		...overrides,
 	};
 }
+
+describe("CFP session step before account", () => {
+	it("lets a logged-out speaker open the session step", async () => {
+		await seedCfp();
+		const result = (await sessionLoader({
+			context: CONTEXT,
+			request: new Request(`${BASE_URL}/step/session`),
+			params: PARAMS,
+		} as unknown as Parameters<typeof sessionLoader>[0])) as {
+			data?: { mode?: string };
+		};
+		expect(result.data?.mode).toBe("form");
+	});
+
+	it("still requires a signed-in account to submit", async () => {
+		await seedCfp();
+		const thrown = await catchThrown(() => callSubmit("", submitBody()));
+		expect(thrownStatus(thrown)).toBe(302);
+		expect((thrown as Response).headers.get("Location")).toMatch(/\/login/);
+	});
+});
 
 describe("CFP submit action", () => {
 	it("creates submission + contact + participants + answers atomically, status pending, confirmation email with portal link", async () => {

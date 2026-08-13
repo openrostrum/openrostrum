@@ -54,6 +54,7 @@ import {
 	Table,
 	TBody,
 	Td,
+	Textarea,
 	THead,
 	Th,
 	Tr,
@@ -882,11 +883,11 @@ function Scorecard({
 												))}
 											</Select>
 										) : (
-											<Input
+											<Textarea
 												name={`q_${q.id}`}
 												defaultValue={q.myText ?? ""}
 												disabled={locked}
-												size={40}
+												rows={4}
 											/>
 										)}
 									</Field>

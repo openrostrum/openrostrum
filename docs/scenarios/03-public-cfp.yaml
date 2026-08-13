@@ -38,22 +38,22 @@ scenarios:
          event name "Northbound AI Summit 2026" is visible; the banner reads "Form submissions
          will be accepted until September 15, 2026 at 11:59 PM PDT"; the submission-limit line
          "Submission Limit: 3 submissions per user" is visible; the stepper rail shows
-         Welcome -> Account -> Submission -> Participant -> Review.
-      3. Read the Welcome step's organizer-authored rich text, then click Get Started -> Account step.
-      4. Enter priya@example.com (new email) -> the signup branch appears: First Name "Priya",
-         Last Name "Raman", password "Priya!Speaks2026", accept terms -> Create account. The page
-         now shows "You are logged in as Priya Raman (priya@example.com)".
-      5. Submission step: Title "Evals in Production: Lessons from 40 Deployments" (the counter
+         Welcome -> Submission -> Participant -> Account -> Review.
+      3. Read the Welcome step's organizer-authored rich text, then click Get Started -> Submission step.
+      4. Submission step: Title "Evals in Production: Lessons from 40 Deployments" (the counter
          reads 48/255 once typed); Description rich text of two sentences with the phrase
          "offline evals lie" in bold; Format "Featured Keynote"; Tags "Tag A"; Track "Topic A";
          Level "Introductory"; Language "English" -> Next step.
-      6. Participant step: Priya's First/Last/Email arrive pre-filled from the account step; the
+      5. Participant step: First/Last/Email can be typed now (no account yet); the
          role banner reads "1-4 Speakers allowed - 1 added" (no block — min is 1); Mobile Phone
          +1 415 555 0142; Biography "Infra engineer, 10 years shipping ML systems."
          -> Continue to review.
-      7. Review step shows every entered value verbatim (title, bolded description phrase, all
-         five dropdown choices, the participant row). Click Submit. Record the URL of one wizard
-         step for CFP-S7's deep-link probe.
+      6. Review step shows every entered value verbatim (title, bolded description phrase, all
+         five dropdown choices, the participant row). Click Submit -> Account step.
+      7. Enter priya@example.com (new email) -> the signup branch appears: First Name "Priya",
+         Last Name "Raman", password "Priya!Speaks2026", accept terms -> Create account. The page
+         now shows "You are logged in as Priya Raman (priya@example.com)". Continue to review
+         and Submit. Record the URL of one wizard step for CFP-S7's deep-link probe.
       8. Success page: green check + EXACTLY the sentinel message from step 1; a "Continue to
          portal" button and a "submit another session" link are present. Touch nothing.
       9. Without any click, the page auto-redirects to Priya's speaker portal between 8 and 12
@@ -75,7 +75,7 @@ scenarios:
     name: Returning speaker logs in — wrong password rejected cleanly, correct password proceeds
     persona: speaker
     steps: |
-      1. In a fresh incognito window, open FORM_URL -> Get Started -> Account step.
+      1. In a fresh incognito window, open FORM_URL -> Get Started -> Submission -> Review -> Account step.
       2. Enter the seeded submitter email marcus.chen@example.com -> the step branches to
          "Log in with your existing account" with a password prompt and a visible
          "Forgot your password?" link.
@@ -84,8 +84,8 @@ scenarios:
          preserved (no field wipe); the user remains on the Account step with no session issued.
       5. Retry the same wrong password twice more — behavior stays consistent (no crash, no raw
          error text, no silent lockout without a message).
-      6. Enter the correct seeded password (MARCUS_PW) -> Log In -> the wizard advances to the
-         Submission step and shows "You are logged in as Marcus Chen (marcus.chen@example.com).
+      6. Enter the correct seeded password (MARCUS_PW) -> Log In -> the wizard returns to the
+         Review step and shows "You are logged in as Marcus Chen (marcus.chen@example.com).
          Not you? Click here to log out."
       7. Click "Click here to log out" -> returns to the logged-out state; reopening FORM_URL
          does not resurrect Marcus's session.

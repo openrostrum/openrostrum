@@ -94,3 +94,16 @@ describe("reviewer scorecard anchors", () => {
 		expect(html).toContain("counts 2× toward the score");
 	});
 });
+
+describe("scorecard comments field", () => {
+	it("renders the Comments question as a multi-line textarea", async () => {
+		await seedEvalBase(env);
+		const html = await renderReview("s1");
+		const commentsField = html.match(
+			/<textarea[^>]*name="q_q_com"[^>]*>[\s\S]*?<\/textarea>/,
+		);
+		expect(commentsField).toBeTruthy();
+		expect(commentsField?.[0]).toMatch(/rows="[4-9]"|rows="[1-9][0-9]+"/);
+		expect(html).not.toMatch(/<input[^>]*name="q_q_com"/);
+	});
+});

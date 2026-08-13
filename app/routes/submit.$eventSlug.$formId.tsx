@@ -78,9 +78,9 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 
 const STEP_ORDER = [
 	"welcome",
-	"account",
 	"session",
 	"participant",
+	"account",
 	"review",
 ] as const;
 

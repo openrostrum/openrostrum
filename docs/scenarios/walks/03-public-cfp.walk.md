@@ -61,11 +61,11 @@ const [row] = await db
 ```
 
 Columns exist: `forms.close_at`, `forms.submission_limit`, `events.submission_limit`, `events.timezone`, `events.name`.
-Stepper rail Welcome → Account → Submission → Participant → Review = SCOPE Appendix D. **OK**
+Stepper rail Welcome → Submission → Participant → Account → Review = SCOPE Appendix D. **OK**
 (Fixture note: seed sets no `submission_limit` and `close_at = unixepoch('2026-09-15')` which is 00:00 UTC, not 11:59 PM PDT — see G12.)
 
 ### Step 3 — Welcome rich text → Get Started
-`forms.welcome_html` + `forms.show_welcome` exist. Navigation to `/submit/northbound-ai-summit-2026/form-sessions-uuid/step/account` (`submit.$eventSlug.$formId.step.account.tsx` under the ROUTE-MAP's `(+ .step.*)` grant). Client-side `<Link>` nav = no full reload. **OK**
+`forms.welcome_html` + `forms.show_welcome` exist. Navigation to `/submit/northbound-ai-summit-2026/form-sessions-uuid/step/session` (`submit.$eventSlug.$formId.step.session.tsx` under the ROUTE-MAP's `(+ .step.*)` grant). Client-side `<Link>` nav = no full reload. **OK**
 
 ### Step 4 — new email → signup branch → account created, logged in
 Email-first lookup (public, by design — flow 09 rule z):
@@ -87,7 +87,7 @@ await db.insert(contacts).values({                               // ← see GAP 
   firstName: "Priya", lastName: "Raman",
 });
 const cookie = await createSession(env, user.id, isSecureRequest(request));
-return redirect(`/submit/${params.eventSlug}/${params.formId}/step/session`, { headers: { "Set-Cookie": cookie } });
+return redirect(`/submit/${params.eventSlug}/${params.formId}/step/review`, { headers: { "Set-Cookie": cookie } });
 ```
 
 "You are logged in as Priya Raman (priya@example.com)" renders from `getUser(env, request)`.

@@ -152,7 +152,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		await linkUserToContacts(db, bundle.event.id, user.id, user.email);
 		track("cfp.login", { formId: bundle.form.id });
 		const cookie = await createSession(env, user.id, isSecureRequest(request));
-		return redirect(stepPath(base, "session"), {
+		return redirect(stepPath(base, "review"), {
 			headers: { "Set-Cookie": cookie },
 		});
 	}
@@ -244,7 +244,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 		}
 		track("cfp.signup", { formId: bundle.form.id });
 		const cookie = await createSession(env, userId, isSecureRequest(request));
-		return redirect(stepPath(base, "session"), {
+		return redirect(stepPath(base, "review"), {
 			headers: { "Set-Cookie": cookie, "Server-Timing": timings.header() },
 		});
 	}
@@ -276,8 +276,8 @@ export default function AccountStep({
 						accounts.
 					</MutedText>
 					<div className="flex flex-wrap gap-3">
-						<ButtonLink to={stepPath(base, "session")}>
-							Continue to submission
+						<ButtonLink to={stepPath(base, "review")}>
+							Continue to review
 						</ButtonLink>
 						<ButtonLink to={base} variant="ghost">
 							Back

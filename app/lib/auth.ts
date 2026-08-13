@@ -4,10 +4,13 @@ import { getDb } from "~/db";
 import { readCookie, serializeCookie } from "~/lib/cookies";
 import {
 	authSessions,
+	evaluationPlans,
+	evaluationRounds,
 	events,
 	organizationMembers,
 	organizations,
 	reviewerTracks,
+	roundEvaluators,
 	tracks,
 	users,
 } from "~/db/schema";
@@ -326,19 +329,39 @@ export async function userCanAccessEvent(
 /**
  * Event scope for reviewers. Reviewers hold NO organization membership
  * (a membership row would make them org admins) — their events derive from
- * track assignments: reviewer_tracks → tracks.event_id. Reviewer surfaces
+ * track assignments and evaluation-round pool seats. Reviewer surfaces
  * resolve through this, never through getActiveEvent (null for them).
  */
 export async function getReviewerEventIds(
 	env: Env,
 	userId: string,
 ): Promise<string[]> {
-	const rows = await getDb(env)
-		.selectDistinct({ eventId: tracks.eventId })
-		.from(reviewerTracks)
-		.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
-		.where(eq(reviewerTracks.userId, userId));
-	return rows.map((r) => r.eventId);
+	const db = getDb(env);
+	const [trackRows, poolRows] = await Promise.all([
+		db
+			.selectDistinct({ eventId: tracks.eventId })
+			.from(reviewerTracks)
+			.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
+			.where(eq(reviewerTracks.userId, userId)),
+		db
+			.selectDistinct({ eventId: evaluationPlans.eventId })
+			.from(roundEvaluators)
+			.innerJoin(
+				evaluationRounds,
+				eq(evaluationRounds.id, roundEvaluators.roundId),
+			)
+			.innerJoin(
+				evaluationPlans,
+				eq(evaluationPlans.id, evaluationRounds.planId),
+			)
+			.where(eq(roundEvaluators.userId, userId)),
+	]);
+	return [
+		...new Set([
+			...trackRows.map((r) => r.eventId),
+			...poolRows.map((r) => r.eventId),
+		]),
+	];
 }
 
 /**

@@ -1,5 +1,5 @@
-// @public route family — the loader gates with getUser and redirects to the
-// account step; the action requires a signed-in speaker.
+// @public route family — the session step is reachable before an account
+// exists; draft save and submit still require a signed-in speaker.
 import { useEffect, useMemo, useState } from "react";
 import {
 	data,
@@ -79,11 +79,7 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const url = new URL(request.url);
-	const base = submitPath(params.eventSlug, params.formId);
 	const user = await getUser(env, request);
-	if (!user) {
-		throw redirect(`${base}/step/account${url.search}`);
-	}
 	const bundle = await loadPublicForm(env, params.eventSlug, params.formId);
 	if (!bundle) throw data("Form not found", { status: 404 });
 	const { form, event } = bundle;
@@ -93,8 +89,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const sid = url.searchParams.get("sid");
 
 	if (closed && !sid) {
-		// The layout renders the closed state in place of this step — don't do
-		// the definition/prefill work nothing will render.
 		return data({
 			mode: "closed" as const,
 			readOnly: true,
@@ -113,11 +107,23 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const definition = await timings.time("definition", () =>
 		resolveFormDefinition(db, form),
 	);
-	const selfContact = await loadSelfContact(db, event.id, user);
+	const selfContact = user
+		? await loadSelfContact(db, event.id, user)
+		: {
+				firstName: "",
+				lastName: "",
+				email: "",
+				mobilePhone: "",
+				bio: "",
+			};
 	const sectionTitle =
 		form.sessionSectionTitle || "Tell us about your submission";
 	const sectionHtml = form.sessionSectionHtml;
 	if (sid) {
+		if (!user)
+			throw redirect(
+				`${submitPath(params.eventSlug, params.formId)}/step/account${url.search}`,
+			);
 		const initial = await timings.time("draft", () =>
 			loadWizardInitial(db, form, user.id, sid),
 		);
@@ -140,6 +146,25 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		);
 	}
 
+	if (!user) {
+		return data(
+			{
+				mode: "form" as const,
+				readOnly: false,
+				initial: null,
+				definition,
+				selfContact,
+				sectionTitle,
+				sectionHtml,
+				drafts: [],
+				limit: null as number | null,
+				used: 0,
+				limitReached: false,
+			},
+			{ headers: { "Server-Timing": timings.header() } },
+		);
+	}
+
 	const drafts = await timings.time("drafts", () =>
 		listDrafts(db, form.id, user.id),
 	);
@@ -147,9 +172,6 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const limit = effectiveSubmissionLimit(form, event);
 	const limitReached = limit !== null && used >= limit;
 	const startNew = url.searchParams.has("new");
-
-	// At the limit, existing drafts can still be completed (they already count)
-	// — only STARTING a submission is blocked.
 	const mode = limitReached
 		? drafts.length > 0
 			? ("hub" as const)
@@ -591,7 +613,7 @@ export default function SessionStep({
 					← Back
 				</ButtonLink>
 				<div className="flex flex-wrap items-center gap-3">
-					{!editingSubmitted && (
+					{!editingSubmitted && layout.user && (
 						<Button
 							variant="ghost"
 							type="button"

@@ -1,11 +1,25 @@
-import { and, countDistinct, eq, gt, inArray, isNull, ne } from "drizzle-orm";
+import {
+	and,
+	countDistinct,
+	eq,
+	exists,
+	gt,
+	inArray,
+	isNull,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { Db } from "~/db";
 import {
 	contacts,
+	evaluationPlans,
+	evaluationRounds,
 	events,
 	organizationMembers,
 	passwordResets,
 	reviewerTracks,
+	roundEvaluators,
 	submissions,
 	tracks,
 	users,
@@ -39,29 +53,49 @@ export type EventReviewer = {
 };
 
 /**
- * The event's reviewer registry: every user holding a track assignment on this
- * event. Track assignment is what anchors a reviewer to an event (reviewers
- * hold no org membership), so this is also the tenancy boundary — another
- * org's reviewers can never appear here.
+ * The event's reviewer registry: track assignment OR a seat in one of this
+ * event's evaluation-round pools. Reviewers hold no org membership, so this
+ * join is the tenancy boundary — another org's reviewers can never appear here.
+ * A reviewer with zero tracks is valid: they only see explicitly assigned work.
  */
 export async function listEventReviewers(
 	db: Db,
 	eventId: string,
 ): Promise<EventReviewer[]> {
-	const rows = await db
-		.select({
-			id: users.id,
-			email: users.email,
-			name: users.name,
-			passwordHash: users.passwordHash,
-			trackId: reviewerTracks.trackId,
-		})
-		.from(reviewerTracks)
-		.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
-		.innerJoin(users, eq(users.id, reviewerTracks.userId))
-		.where(eq(tracks.eventId, eventId));
+	const [trackRows, poolRows] = await Promise.all([
+		db
+			.select({
+				id: users.id,
+				email: users.email,
+				name: users.name,
+				passwordHash: users.passwordHash,
+				trackId: reviewerTracks.trackId,
+			})
+			.from(reviewerTracks)
+			.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
+			.innerJoin(users, eq(users.id, reviewerTracks.userId))
+			.where(eq(tracks.eventId, eventId)),
+		db
+			.select({
+				id: users.id,
+				email: users.email,
+				name: users.name,
+				passwordHash: users.passwordHash,
+			})
+			.from(roundEvaluators)
+			.innerJoin(users, eq(users.id, roundEvaluators.userId))
+			.innerJoin(
+				evaluationRounds,
+				eq(evaluationRounds.id, roundEvaluators.roundId),
+			)
+			.innerJoin(
+				evaluationPlans,
+				eq(evaluationPlans.id, evaluationRounds.planId),
+			)
+			.where(eq(evaluationPlans.eventId, eventId)),
+	]);
 	const byUser = new Map<string, EventReviewer>();
-	for (const row of rows) {
+	for (const row of trackRows) {
 		const existing = byUser.get(row.id);
 		if (existing) {
 			existing.trackIds.push(row.trackId);
@@ -75,19 +109,62 @@ export async function listEventReviewers(
 			});
 		}
 	}
+	for (const row of poolRows) {
+		if (byUser.has(row.id)) continue;
+		byUser.set(row.id, {
+			id: row.id,
+			email: row.email,
+			name: row.name,
+			invited: !hasUsablePassword(row.passwordHash),
+			trackIds: [],
+		});
+	}
 	return [...byUser.values()].sort((a, b) =>
 		(a.name ?? a.email).localeCompare(b.name ?? b.email),
 	);
 }
 
-/** Batchable distinct-reviewer count over the same track-assignment anchor
- * as `listEventReviewers` — the tenancy boundary stays in this one file. */
+/** Batchable distinct-reviewer count over the same tenancy boundary as
+ * `listEventReviewers` — tracks plus the event's evaluation-round pools. */
 export function countEventReviewers(db: Db, eventId: string) {
 	return db
-		.select({ n: countDistinct(reviewerTracks.userId) })
-		.from(reviewerTracks)
-		.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
-		.where(eq(tracks.eventId, eventId));
+		.select({ n: countDistinct(users.id) })
+		.from(users)
+		.where(
+			or(
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(reviewerTracks)
+						.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
+						.where(
+							and(
+								eq(reviewerTracks.userId, users.id),
+								eq(tracks.eventId, eventId),
+							),
+						),
+				),
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(roundEvaluators)
+						.innerJoin(
+							evaluationRounds,
+							eq(evaluationRounds.id, roundEvaluators.roundId),
+						)
+						.innerJoin(
+							evaluationPlans,
+							eq(evaluationPlans.id, evaluationRounds.planId),
+						)
+						.where(
+							and(
+								eq(roundEvaluators.userId, users.id),
+								eq(evaluationPlans.eventId, eventId),
+							),
+						),
+				),
+			),
+		);
 }
 
 /**
@@ -201,57 +278,76 @@ export async function hasStandingOutsideOrg(
 	userId: string,
 	organizationId: string,
 ): Promise<boolean> {
-	// Evaluator rows can't exist without a track assignment, so `reviewing`
-	// already covers them.
-	const [memberships, reviewing, contactRows, authored] = await Promise.all([
-		db
-			.select({ id: organizationMembers.id })
-			.from(organizationMembers)
-			.where(
-				and(
-					eq(organizationMembers.userId, userId),
-					ne(organizationMembers.organizationId, organizationId),
-				),
-			)
-			.limit(1),
-		db
-			.select({ id: tracks.id })
-			.from(reviewerTracks)
-			.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
-			.innerJoin(events, eq(events.id, tracks.eventId))
-			.where(
-				and(
-					eq(reviewerTracks.userId, userId),
-					ne(events.organizationId, organizationId),
-				),
-			)
-			.limit(1),
-		db
-			.select({ id: contacts.id })
-			.from(contacts)
-			.innerJoin(events, eq(events.id, contacts.eventId))
-			.where(
-				and(
-					eq(contacts.userId, userId),
-					ne(events.organizationId, organizationId),
-				),
-			)
-			.limit(1),
-		db
-			.select({ id: submissions.id })
-			.from(submissions)
-			.innerJoin(events, eq(events.id, submissions.eventId))
-			.where(
-				and(
-					eq(submissions.submitterId, userId),
-					ne(events.organizationId, organizationId),
-				),
-			)
-			.limit(1),
-	]);
+	const [memberships, reviewing, pooled, contactRows, authored] =
+		await Promise.all([
+			db
+				.select({ id: organizationMembers.id })
+				.from(organizationMembers)
+				.where(
+					and(
+						eq(organizationMembers.userId, userId),
+						ne(organizationMembers.organizationId, organizationId),
+					),
+				)
+				.limit(1),
+			db
+				.select({ id: tracks.id })
+				.from(reviewerTracks)
+				.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
+				.innerJoin(events, eq(events.id, tracks.eventId))
+				.where(
+					and(
+						eq(reviewerTracks.userId, userId),
+						ne(events.organizationId, organizationId),
+					),
+				)
+				.limit(1),
+			db
+				.select({ id: evaluationRounds.id })
+				.from(roundEvaluators)
+				.innerJoin(
+					evaluationRounds,
+					eq(evaluationRounds.id, roundEvaluators.roundId),
+				)
+				.innerJoin(
+					evaluationPlans,
+					eq(evaluationPlans.id, evaluationRounds.planId),
+				)
+				.innerJoin(events, eq(events.id, evaluationPlans.eventId))
+				.where(
+					and(
+						eq(roundEvaluators.userId, userId),
+						ne(events.organizationId, organizationId),
+					),
+				)
+				.limit(1),
+			db
+				.select({ id: contacts.id })
+				.from(contacts)
+				.innerJoin(events, eq(events.id, contacts.eventId))
+				.where(
+					and(
+						eq(contacts.userId, userId),
+						ne(events.organizationId, organizationId),
+					),
+				)
+				.limit(1),
+			db
+				.select({ id: submissions.id })
+				.from(submissions)
+				.innerJoin(events, eq(events.id, submissions.eventId))
+				.where(
+					and(
+						eq(submissions.submitterId, userId),
+						ne(events.organizationId, organizationId),
+					),
+				)
+				.limit(1),
+		]);
 	return (
 		memberships.length > 0 ||
 		reviewing.length > 0 ||
+		pooled.length > 0 ||
 		contactRows.length > 0 ||
 		authored.length > 0
 	);

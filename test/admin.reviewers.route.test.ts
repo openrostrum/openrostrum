@@ -240,22 +240,61 @@ describe("reviewer invites (sentinel-hash users + org-less tokens)", () => {
 		expect(await db.select().from(emailOutbox)).toHaveLength(0);
 	});
 
-	it("rejects an add with no tracks — routing depends on them", async () => {
+	it("adds a reviewer with zero tracks and does not 4xx", async () => {
 		const { db } = await seedEvalBase(env, { withPlan: false });
-		const result = (await post(
+		const response = (await post(
 			new URLSearchParams([
 				["intent", "add"],
-				["name", "No Tracks"],
-				["email", "no.tracks@example.com"],
+				["name", "Lena Fischer"],
+				["email", "lena.fischer@example.com"],
 			]),
-		)) as { fieldErrors?: Record<string, string[]> };
-		expect(result.fieldErrors?.trackIds?.[0]).toBeTruthy();
+		)) as Response;
+		expect(response.status).toBe(302);
+
+		const [lena] = await db
+			.select()
+			.from(users)
+			.where(eq(users.email, "lena.fischer@example.com"));
+		expect(lena?.role).toBe("reviewer");
+		expect(
+			await db
+				.select()
+				.from(reviewerTracks)
+				.where(eq(reviewerTracks.userId, lena?.id ?? "")),
+		).toHaveLength(0);
+
+		const loaded = (await call(
+			reviewersLoader,
+			await sessionRequest(env, "u_admin", "http://localhost/admin/reviewers"),
+		)) as {
+			data: {
+				reviewers: Array<{ email: string; tracks: unknown[] }>;
+			};
+		};
+		const row = loaded.data.reviewers.find(
+			(r) => r.email === "lena.fischer@example.com",
+		);
+		expect(row).toBeTruthy();
+		expect(row?.tracks).toEqual([]);
+	});
+
+	it("adds a reviewer when the event has no tracks at all", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await db.delete(tracks);
+		const response = (await post(
+			new URLSearchParams([
+				["intent", "add"],
+				["name", "No Library"],
+				["email", "no.library@example.com"],
+			]),
+		)) as Response;
+		expect(response.status).toBe(302);
 		expect(
 			await db
 				.select()
 				.from(users)
-				.where(eq(users.email, "no.tracks@example.com")),
-		).toHaveLength(0);
+				.where(eq(users.email, "no.library@example.com")),
+		).toHaveLength(1);
 	});
 });
 

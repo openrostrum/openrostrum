@@ -3,6 +3,7 @@ import { renderToString } from "react-dom/server";
 import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { FootNote } from "../app/cfp/ui";
+import SubmitLayout from "../app/routes/submit.$eventSlug.$formId";
 import { DraftsHub } from "../app/routes/submit.$eventSlug.$formId.step.session";
 
 function renderInRouter(element: ReturnType<typeof createElement>): string {
@@ -43,5 +44,48 @@ describe("public CFP hydration contracts", () => {
 		expect(html).toContain("Last updated");
 		expect(html).toContain("Aug 11, 2026, 6:16 AM PDT");
 		expect(html).toContain("?sid=s1");
+	});
+
+	it("puts Submission before Account on the stepper", () => {
+		const loaderData = {
+			event: { name: "DevFlow Conf", slug: "devflow", timezone: "UTC" },
+			form: {
+				publicId: "form-1",
+				externalTitle: "Call for Sessions",
+				pageHeading: "Welcome!",
+				welcomeHtml: null,
+				participantsStep: true,
+				autoRedirect: false,
+			},
+			closed: false,
+			closeBanner: null,
+			limit: 3,
+			user: null,
+			portalPath: null,
+		};
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/submit/:eventSlug/:formId",
+				Component: () =>
+					createElement(SubmitLayout, {
+						loaderData,
+					} as never),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, {
+				initialEntries: ["/submit/devflow/form-1"],
+			}),
+		);
+		const rail = html.match(
+			/<nav aria-label="Submission steps"[\s\S]*?<\/nav>/,
+		)?.[0];
+		expect(rail).toBeTruthy();
+		const welcome = rail!.indexOf(">Welcome<");
+		const submission = rail!.indexOf(">Submission<");
+		const account = rail!.indexOf(">Account<");
+		expect(welcome).toBeGreaterThan(-1);
+		expect(submission).toBeGreaterThan(welcome);
+		expect(account).toBeGreaterThan(submission);
 	});
 });
