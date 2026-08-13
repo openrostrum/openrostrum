@@ -333,6 +333,23 @@ export function formatDay(d: Date | null | undefined): string {
 	});
 }
 
+/** Reviewer-facing window: never a broken dash range when dates are unset. */
+export function formatRoundWindow(
+	opensAt: Date | null | undefined,
+	closesAt: Date | null | undefined,
+): string {
+	if (!opensAt && !closesAt) return "No deadline set";
+	if (opensAt && closesAt)
+		return `${formatDay(opensAt)} – ${formatDay(closesAt)}`;
+	if (opensAt) return `Opens ${formatDay(opensAt)}`;
+	return `Due ${formatDay(closesAt)}`;
+}
+
+export function formatRoundDue(closesAt: Date | null | undefined): string {
+	if (!closesAt) return "No deadline set";
+	return formatDay(closesAt);
+}
+
 /** Value for an <input type="date"> from a stored date (UTC calendar day). */
 export function dateInputValue(d: Date | null | undefined): string {
 	return d ? d.toISOString().slice(0, 10) : "";

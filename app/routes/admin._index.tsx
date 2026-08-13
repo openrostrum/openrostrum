@@ -15,7 +15,7 @@ import {
 	tasks,
 	tracks,
 } from "~/db/schema";
-import { formIsOpen, submitPath } from "~/domain/forms";
+import { cfpPath, formIsOpen } from "~/domain/forms";
 import { deriveGettingStarted } from "~/domain/getting-started";
 import { getActiveEvent, isSecureRequest, requireAdmin } from "~/lib/auth";
 import {
@@ -145,7 +145,6 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			db
 				.select({
 					id: forms.id,
-					publicId: forms.publicId,
 					internalName: forms.internalName,
 					status: forms.status,
 					closeAt: forms.closeAt,
@@ -249,12 +248,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 		(f) => f.state === "open" && f.closesInDays !== null && f.closesInDays <= 7,
 	);
 
-	// The shareable CFP link points at the open form closing soonest — the
-	// same form the sorted table shows first, so the two never disagree.
+	// Shareable CFP link is the event's short alias once any form is open.
+	// Oldest-open resolution lives on /cfp/:slug; this surface only advertises
+	// that there is something to share.
 	const firstOpenCard = formCards.find((f) => f.state === "open");
-	const firstOpenForm = firstOpenCard
-		? formRows.find((f) => f.id === firstOpenCard.id)
-		: undefined;
 	const gettingStarted = {
 		...deriveGettingStarted({
 			hasDates: event.startsAt !== null && event.endsAt !== null,
@@ -266,9 +263,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			submissionCount: submissionsTotal,
 		}),
 		dismissed: await isGettingStartedDismissed(request, user.id, event.id),
-		cfpUrl: firstOpenForm
-			? new URL(request.url).origin +
-				submitPath(event.slug, firstOpenForm.publicId)
+		cfpUrl: firstOpenCard
+			? new URL(request.url).origin + cfpPath(event.slug)
 			: null,
 	};
 

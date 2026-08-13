@@ -1,6 +1,6 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, or } from "drizzle-orm";
 import type { Db } from "~/db";
-import { formats, languages, levels, tags, tracks } from "~/db/schema";
+import { formats, forms, languages, levels, tags, tracks } from "~/db/schema";
 
 /**
  * Server-only halves of the form-domain contract (`./forms` holds the pure
@@ -58,6 +58,27 @@ export async function loadRuleOptions(
 		level: levelRows.map((r) => ({ value: r.id, label: r.name })),
 		language: languageRows.map((r) => ({ value: r.name, label: r.name })),
 	};
+}
+
+/** Oldest form on this event that still accepts new submissions. */
+export async function oldestOpenForm(
+	db: Db,
+	eventId: string,
+	now: Date = new Date(),
+): Promise<{ publicId: string } | null> {
+	const [row] = await db
+		.select({ publicId: forms.publicId })
+		.from(forms)
+		.where(
+			and(
+				eq(forms.eventId, eventId),
+				eq(forms.status, "open"),
+				or(isNull(forms.closeAt), gt(forms.closeAt, now)),
+			),
+		)
+		.orderBy(asc(forms.createdAt))
+		.limit(1);
+	return row ?? null;
 }
 
 // What the shared editor produces; everything else is attack surface — the

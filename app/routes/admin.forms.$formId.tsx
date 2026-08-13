@@ -41,6 +41,7 @@ import {
 } from "~/db/schema";
 import {
 	adminFormPath,
+	cfpPath,
 	defaultExternalTitle,
 	submitPath,
 } from "~/domain/forms";
@@ -51,6 +52,7 @@ import {
 	BUILTIN_ORDER,
 	type BuiltinRef,
 	defaultBuiltinPlacements,
+	effectiveFormStatus,
 	FORM_STATUS_TONE,
 	type FormSectionId,
 	placementMissingOptions,
@@ -68,11 +70,13 @@ import { PaginationBar } from "./admin.forms";
 import {
 	Button,
 	ButtonLink,
+	EmptyLine,
 	EmptyState,
 	ErrorText,
 	Field,
 	Icon,
 	Input,
+	NoteText,
 	PageHeader,
 	Panel,
 	SearchInput,
@@ -526,7 +530,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			closeDate: closeInputs.date,
 			closeTime: closeInputs.time,
 			timezone: event.timezone,
-			publicUrl: `${url.origin}${submitPath(event.slug, form.publicId)}`,
+			publicUrl:
+				effectiveFormStatus(form.status, form.closeAt, Date.now()) === "open"
+					? `${url.origin}${cfpPath(event.slug)}`
+					: null,
+			deepUrl: `${url.origin}${submitPath(event.slug, form.publicId)}`,
 			placements: placements.map((p) => ({
 				id: p.id,
 				section: p.section,
@@ -2557,25 +2565,36 @@ function Builder({
 			/>
 
 			<Panel>
-				<div className="flex flex-wrap items-end gap-3">
-					<div className="min-w-0 flex-1">
-						<Field label="Public link">
-							<Input
-								readOnly
-								value={d.publicUrl}
-								aria-label="Public form link"
-							/>
-						</Field>
+				{d.publicUrl ? (
+					<div className="flex flex-wrap items-end gap-3">
+						<div className="min-w-0 flex-1">
+							<Field label="Public link">
+								<Input
+									readOnly
+									value={d.publicUrl}
+									aria-label="Public form link"
+								/>
+							</Field>
+							{d.deepUrl !== d.publicUrl && (
+								<NoteText>This form: {d.deepUrl}</NoteText>
+							)}
+						</div>
+						<CopyButton
+							value={d.publicUrl}
+							label="Copy link"
+							failedLabel="Copy failed — select the link"
+						/>
+						<ButtonLink variant="ghost" to={d.publicUrl}>
+							View form
+						</ButtonLink>
 					</div>
-					<CopyButton
-						value={d.publicUrl}
-						label="Copy link"
-						failedLabel="Copy failed — select the link"
-					/>
-					<ButtonLink variant="ghost" to={d.publicUrl}>
-						View form
-					</ButtonLink>
-				</div>
+				) : (
+					<EmptyLine>
+						{d.form.status === "draft"
+							? "Draft — publish to get a shareable public link."
+							: "This form is not accepting submissions — publish it again to share a public link."}
+					</EmptyLine>
+				)}
 			</Panel>
 
 			<FormTabs formId={d.form.id} active="builder" counts={d.counts} />

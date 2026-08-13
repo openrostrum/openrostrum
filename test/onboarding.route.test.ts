@@ -12,6 +12,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { deriveGettingStarted } from "../app/domain/getting-started";
+import { eventSlugBase } from "../app/settings/event-form";
 import {
 	action as datesAction,
 	loader as datesLoader,
@@ -68,6 +69,7 @@ const NAME_FORM = {
 	setupOrganizationId: SETUP_ORGANIZATION_ID,
 	setupEventId: SETUP_EVENT_ID,
 	conferenceName: "Devcon 2027",
+	slug: "devcon-2027",
 };
 
 type Handler = (args: never) => unknown;
@@ -118,7 +120,7 @@ async function completeStepOne(cookie: string, name = "Devcon 2027") {
 		post(
 			startAction,
 			"/onboarding",
-			{ ...NAME_FORM, conferenceName: name },
+			{ ...NAME_FORM, conferenceName: name, slug: eventSlugBase(name) },
 			cookie,
 		),
 	);
@@ -185,7 +187,27 @@ describe("onboarding step 1 — name your conference", () => {
 		expect(founder?.activeEventId).toBe(event?.id);
 	});
 
-	it("works around a slug another organization already took instead of blocking on it", async () => {
+	it("does not create an event when the tidy slug is taken until the organizer confirms a slug", async () => {
+		const { cookie } = await seedSessionUser();
+		const db = getDb(env);
+		await db.insert(organizations).values({ id: "org_other", name: "Other" });
+		await db.insert(events).values({
+			id: "e_other",
+			organizationId: "org_other",
+			name: "Other Event",
+			slug: "devcon-2027",
+		});
+
+		const result = await post(startAction, "/onboarding", NAME_FORM, cookie);
+
+		expect(result).not.toBeInstanceOf(Response);
+		expect(
+			(result as { fieldErrors?: { slug?: string[] } }).fieldErrors?.slug?.[0],
+		).toMatch(/taken/i);
+		expect(await db.select().from(events)).toHaveLength(1);
+	});
+
+	it("creates the event under the slug the organizer confirmed", async () => {
 		const { cookie } = await seedSessionUser();
 		const db = getDb(env);
 		await db.insert(organizations).values({ id: "org_other", name: "Other" });
@@ -197,7 +219,12 @@ describe("onboarding step 1 — name your conference", () => {
 		});
 
 		const result = await settled(
-			post(startAction, "/onboarding", NAME_FORM, cookie),
+			post(
+				startAction,
+				"/onboarding",
+				{ ...NAME_FORM, slug: "devcon-2027-west" },
+				cookie,
+			),
 		);
 
 		expect(locationOf(result)).toBe("/onboarding/dates");
@@ -205,7 +232,7 @@ describe("onboarding step 1 — name your conference", () => {
 			.select()
 			.from(events)
 			.where(eq(events.id, SETUP_EVENT_ID));
-		expect(created?.slug).toBe("devcon-2027-2");
+		expect(created?.slug).toBe("devcon-2027-west");
 	});
 
 	it("falls back to a usable slug when the name has no URL-safe characters", async () => {
@@ -215,7 +242,7 @@ describe("onboarding step 1 — name your conference", () => {
 			post(
 				startAction,
 				"/onboarding",
-				{ ...NAME_FORM, conferenceName: "!!!" },
+				{ ...NAME_FORM, conferenceName: "!!!", slug: "event" },
 				cookie,
 			),
 		);

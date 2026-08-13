@@ -133,12 +133,13 @@ walk files carry the concrete SQL):
   today only the seed mints templates, so a non-seeded event's confirmation
   email silently never sends.
 - **New events inherit the active event's organization** in create-event;
-  first run creates the first org + event from the conference name alone (the
-  org is named after it — `/admin/settings/team` is where the two names are
-  told apart later). A membership without an event is a half-finished setup:
-  first run resumes into that org and never renames it, because whoever
-  invited the user owns that name. An org picker for multi-org users arrives
-  with the Selected-Events follow-up, not before.
+  first run creates the first org + event from the conference name and a
+  confirmed public URL (the org is named after the conference —
+  `/admin/settings/team` is where the two names are told apart later). A
+  membership without an event is a half-finished setup: first run resumes
+  into that org and never renames it, because whoever invited the user owns
+  that name. An org picker for multi-org users arrives with the
+  Selected-Events follow-up, not before.
 - **Library-field creation defaults to event-scoped**; org-wide is an explicit
   choice in the create-field UI (the XOR always has exactly one side set).
 - **Email suppression stays person-global across orgs** (deliberate
@@ -168,7 +169,7 @@ helpers.
 |---|---|
 | A | Migration + seed backfill above, in one change + the nine-scenario re-walk (process.md gate — determination per step DURING the walk) + `docs/JUDGING.md` note (Demo org, unchanged judge credentials) |
 | B | Membership-aware auth core: `getActiveEvent` membership check + fallback fix (null-`activeEventId` test), admin guard, API-token org scoping, event-switcher org scoping |
-| C | `/signup` (existing-email path per above) + first-run wizard (org + first event; step 1 asks the conference name and nothing else) + "Get started free" homepage CTA + `docs/JUDGING.md` update (the "signup is intentionally OFF" framing dies here) |
+| C | `/signup` (existing-email path per above) + first-run wizard (org + first event; step 1 asks the conference name and shows the public URL so a collision is confirmed, not silently suffixed) + "Get started free" homepage CTA + `docs/JUDGING.md` update (the "signup is intentionally OFF" framing dies here) |
 | D | Org-member invites (P1 #21 semantics, last-member guard), Demo-org Airtable row-selection guard + not-configured state, `docs/JUDGING.md` invite-flow update |
 
 ## Verification per wave

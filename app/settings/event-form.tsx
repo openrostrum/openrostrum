@@ -105,6 +105,11 @@ export function slugify(value: string): string {
 		.replace(/^-+|-+$/g, "");
 }
 
+export function eventSlugBase(name: string): string {
+	const base = slugify(name).slice(0, 80).replace(/-+$/, "");
+	return base || "event";
+}
+
 export function EventDetailsFields({
 	values,
 	errors,
@@ -137,7 +142,7 @@ export function EventDetailsFields({
 						onChange={
 							autoSlug
 								? (e) => {
-										if (!slugEdited) setSlug(slugify(e.target.value));
+										if (!slugEdited) setSlug(eventSlugBase(e.target.value));
 									}
 								: undefined
 						}

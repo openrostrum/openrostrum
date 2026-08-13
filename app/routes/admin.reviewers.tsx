@@ -40,6 +40,7 @@ import {
 	ErrorText,
 	Field,
 	Input,
+	NoteText,
 	PageHeader,
 	Panel,
 	Select,
@@ -555,14 +556,8 @@ function AccessLinkCell({
 	const link = reviewer.inviteLink ?? freshLink;
 	if (link) {
 		return (
-			<div className="flex items-center gap-2">
-				<Input
-					readOnly
-					value={link}
-					size={28}
-					aria-label={`Sign-in link for ${reviewer.name ?? reviewer.email}`}
-					onFocus={(e) => e.currentTarget.select()}
-				/>
+			<div className="flex min-w-0 flex-col gap-2">
+				<NoteText>{link}</NoteText>
 				<CopyButton
 					value={link}
 					copiedLabel="Copied"

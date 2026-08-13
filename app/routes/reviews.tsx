@@ -23,7 +23,8 @@ import {
 import { requireRole } from "~/lib/auth";
 import {
 	EVAL_STATUS_TONE,
-	formatDay,
+	formatRoundDue,
+	formatRoundWindow,
 	REVIEW_DECISION_TONE,
 	REVIEW_PAGE_SIZE as PAGE_SIZE,
 	REVIEWABLE_EXCLUDED,
@@ -160,7 +161,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			roundName: row.roundName,
 			planName: row.planName,
 			eventName: row.eventName,
-			window: `${formatDay(row.opensAt)} – ${formatDay(row.closesAt)}`,
+			window: formatRoundWindow(row.opensAt, row.closesAt),
 			...lockInfo(row),
 			assigned: 0,
 			completed: 0,
@@ -227,7 +228,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				submissionId: r.submissionId,
 				title: r.title,
 				event: r.eventName,
-				due: formatDay(r.closesAt),
+				due: formatRoundDue(r.closesAt),
 			})),
 		};
 	}

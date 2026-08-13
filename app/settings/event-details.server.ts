@@ -12,6 +12,14 @@ import type { EventDetailsErrors, EventDetailsValues } from "./event-form";
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
+export const EventSlug = z
+	.string()
+	.trim()
+	.toLowerCase()
+	.min(1, "A URL slug is required")
+	.max(80, "Keep the slug under 80 characters")
+	.regex(SLUG_RE, "Lowercase letters, numbers, and hyphens only");
+
 export function isValidTimeZone(tz: string): boolean {
 	try {
 		new Intl.DateTimeFormat("en-US", { timeZone: tz });
@@ -42,13 +50,7 @@ export const optionalBoundedInt = (max: number, message: string) =>
 const EventDetailsForm = z
 	.object({
 		name: z.string().trim().min(1, "Event name is required").max(200),
-		slug: z
-			.string()
-			.trim()
-			.toLowerCase()
-			.min(1, "A URL slug is required")
-			.max(80, "Keep the slug under 80 characters")
-			.regex(SLUG_RE, "Lowercase letters, numbers, and hyphens only"),
+		slug: EventSlug,
 		type: z.string().trim().min(1, "Pick an event type").max(80),
 		websiteUrl: optional(500, "Keep the URL under 500 characters").refine(
 			(v) => v === null || /^https?:\/\/\S+\.\S+/.test(v),

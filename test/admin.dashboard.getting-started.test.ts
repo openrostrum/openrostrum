@@ -156,9 +156,7 @@ describe("getting-started derivation from live rows", () => {
 		expect(data.gettingStarted.complete).toBe(true);
 		expect(data.gettingStarted.doneCount).toBe(5);
 		expect(data.gettingStarted.activeStepId).toBeNull();
-		expect(data.gettingStarted.cfpUrl).toBe(
-			"http://localhost/submit/democonf/pub-cfp",
-		);
+		expect(data.gettingStarted.cfpUrl).toBe("http://localhost/cfp/democonf");
 	});
 
 	it("draft forms and draft submissions satisfy nothing", async () => {
@@ -222,7 +220,7 @@ describe("getting-started derivation from live rows", () => {
 		const data = await runLoader(getRequest([sessionCookie]));
 
 		expect(data.gettingStarted.cfpUrl).toBe(
-			`http://localhost/submit/conf-linkpick/pub-soon`,
+			"http://localhost/cfp/conf-linkpick",
 		);
 	});
 

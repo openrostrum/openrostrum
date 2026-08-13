@@ -8,11 +8,11 @@ This file feeds the eval kit's `submissionNotes` and is written for whoever poin
 |---|---|
 | App root (links the showcased public pages) | `https://openrostrum.com/` |
 | Organizer admin | `/admin` (also `/dashboard`, `/organizer`) |
-| Organizer sign-up and first-run setup | `/signup` → `/onboarding` (conference name) → `/onboarding/dates` → `/onboarding/place` → `/admin`. Only the name is required; the last two steps can be skipped and set later in `/admin/settings` |
+| Organizer sign-up and first-run setup | `/signup` → `/onboarding` (conference name + public URL) → `/onboarding/dates` → `/onboarding/place` → `/admin`. Dates and location can be skipped and set later in `/admin/settings` |
 | Speaker CRM | `/admin/crm` · directory `/admin/crm/directory` · sourcing pipeline `/admin/crm/pipeline` |
 | Agenda builder | `/admin/agenda` |
 | AI review | `/admin/evaluation?tab=ai` |
-| Public CFP form | `/cfp` redirects to the default open form; route shape `/submit/<event-slug>/<form-id>` |
+| Public CFP form | `/cfp` redirects to the default open form; `/cfp/<event-slug>` is this event's shareable alias; deep links stay `/submit/<event-slug>/<form-id>` |
 | Speaker portal | `/portals/<event-slug>/<portal-id>` from confirmation email; authenticated speakers can also enter at `/portal` |
 | Reviewer dashboard | `/reviews` (reviewer role lands here after login) |
 | Public pages | `/sessions/<slug>` · `/speakers/<slug>` · `/schedule/<slug>` · `/itinerary/<slug>` · `/gallery/<slug>` (bare routes redirect to the default event) |
