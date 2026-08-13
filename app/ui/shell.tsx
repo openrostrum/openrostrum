@@ -61,12 +61,12 @@ export function Sidebar({
 	children: ReactNode;
 }) {
 	return (
-		<aside className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-hair px-3 pb-[14px] pt-[18px]">
-			<div className="px-[10px]">
+		<aside className="flex h-full w-[240px] shrink-0 flex-col overflow-hidden border-r border-hair px-3 pb-[14px] pt-[18px]">
+			<div className="shrink-0 px-[10px]">
 				<Wordmark />
 			</div>
-			<nav className="mt-4 flex-1">{children}</nav>
-			<div className="mt-auto flex items-center gap-[10px] border-t border-hair px-[10px] pt-3">
+			<nav className="mt-4 min-h-0 flex-1 overflow-y-auto">{children}</nav>
+			<div className="mt-auto flex shrink-0 items-center gap-[10px] border-t border-hair px-[10px] pt-3">
 				<Avatar name={user.name ?? user.email} size={26} />
 				<div className="min-w-0 flex-1">
 					<div className="truncate text-[13px] font-medium leading-[1.3] text-fg">

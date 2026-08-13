@@ -355,7 +355,7 @@ function lockInfo(row: {
 export default function Reviews({ loaderData }: Route.ComponentProps) {
 	const busy = useBusy();
 	return (
-		<div className="flex min-h-screen">
+		<div className="flex h-screen overflow-hidden">
 			<Sidebar user={loaderData.user} logoutDisabled={busy}>
 				<SidebarSection label="Review">
 					<SideNavLink to="/reviews" icon="star">
@@ -363,7 +363,7 @@ export default function Reviews({ loaderData }: Route.ComponentProps) {
 					</SideNavLink>
 				</SidebarSection>
 			</Sidebar>
-			<main className="min-w-0 flex-1">
+			<main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
 				{loaderData.child ? <Outlet /> : <Queue data={loaderData} />}
 			</main>
 		</div>

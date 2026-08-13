@@ -41,7 +41,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 export default function AdminShell({ loaderData }: Route.ComponentProps) {
 	const busy = useBusy();
 	return (
-		<div className="flex min-h-screen">
+		<div className="flex h-screen overflow-hidden">
 			<Sidebar
 				user={loaderData.user}
 				themeControl={<ThemeToggle />}
@@ -64,7 +64,7 @@ export default function AdminShell({ loaderData }: Route.ComponentProps) {
 					</SidebarSection>
 				))}
 			</Sidebar>
-			<main className="min-w-0 flex-1">
+			<main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
 				<Outlet />
 			</main>
 		</div>
