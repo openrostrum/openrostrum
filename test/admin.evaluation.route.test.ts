@@ -11,6 +11,7 @@ import {
 	events,
 	organizations,
 	reviews,
+	reviewerTracks,
 	roundEvaluators,
 	roundQuestions,
 	submissions,
@@ -770,5 +771,111 @@ describe("round and question forms at the boundary", () => {
 		});
 		expect(negative.fieldErrors?.weight?.[0]).toBeTruthy();
 		expect(await questions()).toHaveLength(before); // none was written
+	});
+});
+
+describe("plan editor mutation replay", () => {
+	const KEY = "aaaaaaaa-0000-4000-8000-000000000001";
+
+	const post = async (fields: Record<string, string>) =>
+		(await call(
+			planAction,
+			await sessionRequest(
+				env,
+				"u_admin",
+				"http://localhost/admin/evaluation/plan1",
+				{ method: "POST", body: new URLSearchParams(fields) },
+			),
+			"plan1",
+		)) as {
+			ok?: string;
+			formError?: string;
+			fieldErrors?: Record<string, string[]>;
+		};
+
+	it("posting add-round twice with the same key creates one round", async () => {
+		const { db } = await seedEvalBase(env);
+		const fields = {
+			intent: "add-round",
+			name: "Committee",
+			idempotencyKey: KEY,
+		};
+		expect(await post(fields)).toMatchObject({ ok: expect.any(String) });
+		expect(await post(fields)).toMatchObject({ ok: expect.any(String) });
+		const rows = await db
+			.select()
+			.from(evaluationRounds)
+			.where(eq(evaluationRounds.planId, "plan1"));
+		expect(rows.filter((row) => row.name === "Committee")).toHaveLength(1);
+	});
+
+	it("posting add-question twice with the same key creates one question", async () => {
+		const { db } = await seedEvalBase(env);
+		const fields = {
+			intent: "add-question",
+			roundId: "r1",
+			label: "Stage craft",
+			type: "text",
+			idempotencyKey: KEY,
+		};
+		expect(await post(fields)).toMatchObject({ ok: expect.any(String) });
+		expect(await post(fields)).toMatchObject({ ok: expect.any(String) });
+		expect(
+			await db
+				.select()
+				.from(roundQuestions)
+				.where(
+					and(
+						eq(roundQuestions.roundId, "r1"),
+						eq(roundQuestions.label, "Stage craft"),
+					),
+				),
+		).toHaveLength(1);
+	});
+
+	it("posting add-evaluator twice with the same key keeps one pool row", async () => {
+		const { db } = await seedEvalBase(env);
+		await db.insert(users).values({
+			id: "u_rev2",
+			email: "riley@test.co",
+			passwordHash: "x",
+			name: "Riley Second",
+			role: "reviewer",
+		});
+		await db
+			.insert(reviewerTracks)
+			.values({ userId: "u_rev2", trackId: "t_ai" });
+		const fields = {
+			intent: "add-evaluator",
+			roundId: "r1",
+			userId: "u_rev2",
+			idempotencyKey: KEY,
+		};
+		expect(await post(fields)).toMatchObject({ ok: expect.any(String) });
+		expect(await post(fields)).toMatchObject({ ok: expect.any(String) });
+		expect(
+			await db
+				.select()
+				.from(roundEvaluators)
+				.where(
+					and(
+						eq(roundEvaluators.roundId, "r1"),
+						eq(roundEvaluators.userId, "u_rev2"),
+					),
+				),
+		).toHaveLength(1);
+	});
+
+	it("delete-round removes the round after confirmation", async () => {
+		const { db } = await seedEvalBase(env);
+		const result = await post({ intent: "delete-round", roundId: "r1" });
+		expect(result.ok).toBeTruthy();
+		expect(result.formError).toBeUndefined();
+		expect(
+			await db
+				.select()
+				.from(evaluationRounds)
+				.where(eq(evaluationRounds.id, "r1")),
+		).toHaveLength(0);
 	});
 });

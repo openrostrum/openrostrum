@@ -50,6 +50,7 @@ import { getEmailSender } from "~/ports/email";
 import {
 	Button,
 	ButtonLink,
+	ConfirmButton,
 	EmptyRow,
 	EmptyState,
 	ErrorText,
@@ -86,6 +87,11 @@ const RoundInput = z.object({
 	anonymized: yesNo,
 	showOtherScores: yesNo,
 });
+
+function postedRowId(form: FormData): string {
+	const parsed = z.uuid().safeParse(String(form.get("idempotencyKey") ?? ""));
+	return parsed.success ? parsed.data : crypto.randomUUID();
+}
 
 function parseOptions(raw: string | undefined): string[] {
 	return (raw ?? "")
@@ -593,6 +599,10 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			eventName: event.name,
 			tab,
 			rounds: roundViews,
+			addRoundKey: crypto.randomUUID(),
+			addQuestionKeyByRound: Object.fromEntries(
+				roundViews.map((round) => [round.id, crypto.randomUUID()]),
+			),
 			registry: registry.map((r) => ({
 				id: r.id,
 				label: r.name ?? r.email,
@@ -686,11 +696,33 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				showOtherScores: parsed.data.showOtherScores,
 			};
 			if (intent === "add-round") {
-				await db.insert(evaluationRounds).values({
-					...values,
-					planId: plan.id,
-					position: planRounds.length,
-				});
+				const id = postedRowId(form);
+				const inserted = await db
+					.insert(evaluationRounds)
+					.values({
+						id,
+						...values,
+						planId: plan.id,
+						position: planRounds.length,
+					})
+					.onConflictDoNothing({ target: evaluationRounds.id })
+					.returning({ id: evaluationRounds.id });
+				if (inserted.length === 0) {
+					const [replayed] = await db
+						.select({ id: evaluationRounds.id })
+						.from(evaluationRounds)
+						.where(
+							and(
+								eq(evaluationRounds.id, id),
+								eq(evaluationRounds.planId, plan.id),
+							),
+						)
+						.limit(1);
+					if (!replayed) {
+						return { intent, formError: "Could not add that round." };
+					}
+					return { intent, ok: `Round “${values.name}” added.` };
+				}
 				track("evaluation.round_created", {
 					eventId: event.id,
 					planId: plan.id,
@@ -741,13 +773,40 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				required: parsed.data.required,
 			};
 			if (intent === "add-question") {
+				const id = postedRowId(form);
 				const [{ n }] = (await db
 					.select({ n: count() })
 					.from(roundQuestions)
 					.where(eq(roundQuestions.roundId, roundId))) as [{ n: number }];
-				await db
+				const inserted = await db
 					.insert(roundQuestions)
-					.values({ ...values, roundId, position: n });
+					.values({ id, ...values, roundId, position: n })
+					.onConflictDoNothing({ target: roundQuestions.id })
+					.returning({ id: roundQuestions.id });
+				if (inserted.length === 0) {
+					const [replayed] = await db
+						.select({ id: roundQuestions.id })
+						.from(roundQuestions)
+						.where(
+							and(
+								eq(roundQuestions.id, id),
+								eq(roundQuestions.roundId, roundId),
+							),
+						)
+						.limit(1);
+					if (!replayed) {
+						return {
+							intent,
+							roundId,
+							formError: "Could not add that question.",
+						};
+					}
+					return {
+						intent,
+						roundId,
+						ok: `Question “${values.label}” added.`,
+					};
+				}
 				track("evaluation.question_created", { eventId: event.id, roundId });
 				return { intent, roundId, ok: `Question “${values.label}” added.` };
 			}
@@ -1127,7 +1186,17 @@ export default function PlanEditor({
 	loaderData,
 	actionData,
 }: Route.ComponentProps) {
-	const { plan, tab, rounds, registry, assign, progress, results } = loaderData;
+	const {
+		plan,
+		tab,
+		rounds,
+		addRoundKey,
+		addQuestionKeyByRound,
+		registry,
+		assign,
+		progress,
+		results,
+	} = loaderData;
 	return (
 		<div className="mx-auto flex max-w-6xl flex-col gap-5 px-7 py-6">
 			<PageHeader
@@ -1164,6 +1233,8 @@ export default function PlanEditor({
 			{tab === "rounds" && (
 				<RoundsTab
 					rounds={rounds}
+					addRoundKey={addRoundKey}
+					addQuestionKeyByRound={addQuestionKeyByRound}
 					registry={registry}
 					actionData={actionData}
 				/>
@@ -1184,10 +1255,14 @@ type RoundView = LoaderData["rounds"][number];
 
 function RoundsTab({
 	rounds,
+	addRoundKey,
+	addQuestionKeyByRound,
 	registry,
 	actionData,
 }: {
 	rounds: RoundView[];
+	addRoundKey: string;
+	addQuestionKeyByRound: Record<string, string>;
 	registry: Array<{ id: string; label: string }>;
 	actionData?: {
 		intent?: string;
@@ -1198,7 +1273,6 @@ function RoundsTab({
 	const busy = useBusy();
 	const [editing, setEditing] = useState<string | null>(null);
 	const [editingQuestion, setEditingQuestion] = useState<string | null>(null);
-	const [confirming, setConfirming] = useState<string | null>(null);
 	return (
 		<>
 			{rounds.length === 0 && (
@@ -1236,40 +1310,20 @@ function RoundsTab({
 									>
 										{editing === round.id ? "Close editor" : "Edit round"}
 									</Button>
-									<Button
-										type="button"
-										variant="ghost"
-										onClick={() => setConfirming(round.id)}
-									>
-										Delete
-									</Button>
+									<Form method="post">
+										<Input type="hidden" name="roundId" value={round.id} />
+										<ConfirmButton
+											disabled={busy}
+											label="Delete"
+											prompt={`Delete “${round.name}” with its scorecard and every evaluation recorded in it? This cannot be undone.`}
+											confirmLabel="Delete round"
+											name="intent"
+											value="delete-round"
+										/>
+									</Form>
 								</>
 							}
 						/>
-						{confirming === round.id && (
-							<Form method="post" className="flex flex-wrap items-center gap-3">
-								<Input type="hidden" name="intent" value="delete-round" />
-								<Input type="hidden" name="roundId" value={round.id} />
-								<ErrorText>
-									Delete “{round.name}” with its scorecard and every evaluation
-									recorded in it? This cannot be undone.
-								</ErrorText>
-								<Button
-									type="submit"
-									disabled={busy}
-									onClick={() => setConfirming(null)}
-								>
-									Delete round
-								</Button>
-								<Button
-									type="button"
-									variant="ghost"
-									onClick={() => setConfirming(null)}
-								>
-									Cancel
-								</Button>
-							</Form>
-						)}
 						{editing === round.id && (
 							<RoundForm
 								intent="update-round"
@@ -1356,6 +1410,7 @@ function RoundsTab({
 						<QuestionForm
 							intent="add-question"
 							roundId={round.id}
+							idempotencyKey={addQuestionKeyByRound[round.id]}
 							actionData={actionData}
 						/>
 						<div className="flex flex-wrap items-end gap-3">
@@ -1415,7 +1470,11 @@ function RoundsTab({
 				</Panel>
 			))}
 			<Panel>
-				<RoundForm intent="add-round" actionData={actionData} />
+				<RoundForm
+					intent="add-round"
+					idempotencyKey={addRoundKey}
+					actionData={actionData}
+				/>
 			</Panel>
 		</>
 	);
@@ -1424,10 +1483,12 @@ function RoundsTab({
 function RoundForm({
 	intent,
 	round,
+	idempotencyKey,
 	actionData,
 }: {
 	intent: "add-round" | "update-round";
 	round?: RoundView;
+	idempotencyKey?: string;
 	actionData?: {
 		intent?: string;
 		fieldErrors?: Record<string, string[] | undefined>;
@@ -1439,6 +1500,14 @@ function RoundForm({
 	return (
 		<Form method="post" className="flex flex-wrap items-end gap-3">
 			<Input type="hidden" name="intent" value={intent} />
+			{intent === "add-round" && idempotencyKey && (
+				<Input
+					type="hidden"
+					name="idempotencyKey"
+					value={idempotencyKey}
+					readOnly
+				/>
+			)}
 			{round && <Input type="hidden" name="roundId" value={round.id} />}
 			<Field label="Round name" error={errors?.name?.[0]}>
 				<Input
@@ -1482,12 +1551,14 @@ function QuestionForm({
 	intent,
 	roundId,
 	question,
+	idempotencyKey,
 	actionData,
 	onDone,
 }: {
 	intent: "add-question" | "update-question";
 	roundId: string;
 	question?: RoundView["questions"][number];
+	idempotencyKey?: string;
 	actionData?: {
 		intent?: string;
 		roundId?: string;
@@ -1504,6 +1575,14 @@ function QuestionForm({
 		<Form method="post" className="flex flex-wrap items-end gap-3">
 			<Input type="hidden" name="intent" value={intent} />
 			<Input type="hidden" name="roundId" value={roundId} />
+			{intent === "add-question" && idempotencyKey && (
+				<Input
+					type="hidden"
+					name="idempotencyKey"
+					value={idempotencyKey}
+					readOnly
+				/>
+			)}
 			{question && (
 				<Input type="hidden" name="questionId" value={question.id} />
 			)}
@@ -2104,7 +2183,6 @@ function SettingsTab({
 	plan: { id: string; name: string; instructions: string; status: string };
 }) {
 	const busy = useBusy();
-	const [confirming, setConfirming] = useState(false);
 	return (
 		<>
 			<Panel>
@@ -2135,33 +2213,16 @@ function SettingsTab({
 								: "Reopen plan"}
 						</Button>
 					</Form>
-					{!confirming ? (
-						<Button
-							type="button"
-							variant="ghost"
-							onClick={() => setConfirming(true)}
-						>
-							Delete plan…
-						</Button>
-					) : (
-						<Form method="post" className="flex items-center gap-3">
-							<Input type="hidden" name="intent" value="delete-plan" />
-							<ErrorText>
-								Delete this plan with every round, scorecard, and recorded
-								evaluation? This cannot be undone.
-							</ErrorText>
-							<Button type="submit" disabled={busy}>
-								Delete plan
-							</Button>
-							<Button
-								type="button"
-								variant="ghost"
-								onClick={() => setConfirming(false)}
-							>
-								Cancel
-							</Button>
-						</Form>
-					)}
+					<Form method="post">
+						<ConfirmButton
+							disabled={busy}
+							label="Delete plan…"
+							prompt="Delete this plan with every round, scorecard, and recorded evaluation? This cannot be undone."
+							confirmLabel="Delete plan"
+							name="intent"
+							value="delete-plan"
+						/>
+					</Form>
 				</div>
 			</Panel>
 		</>
