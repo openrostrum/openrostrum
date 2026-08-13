@@ -840,7 +840,9 @@ function Scorecard({
 							: "Round closed — review locked"}
 					</StatusBadge>
 				)}
-				{mine?.ok && <StatusBadge tone="success">{mine.ok}</StatusBadge>}
+				{mine?.ok && card.status !== "completed" && (
+					<StatusBadge tone="success">{mine.ok}</StatusBadge>
+				)}
 				{mine?.formError && <ErrorText>{mine.formError}</ErrorText>}
 
 				{card.status !== "abstained" && (

@@ -9,8 +9,8 @@ import {
 	isGettingStartedDismissed,
 } from "../app/lib/getting-started-dismissal";
 
-// Oracle: the checklist spec — five ordered steps (basics → tracks/formats →
-// published form → reviewers → first submission), each done-state derived
+// Oracle: the checklist spec — five ordered steps (basics → published form →
+// tracks/formats → reviewers → first submission), each done-state derived
 // from live data, the active step being the first incomplete one.
 
 const ALL_DONE: GettingStartedFacts = {
@@ -45,6 +45,25 @@ describe("deriveGettingStarted", () => {
 		const state = deriveGettingStarted({ ...ALL_DONE, publishedFormCount: 0 });
 		expect(state.steps.find((s) => s.id === "cfp")?.done).toBe(false);
 	});
+	it("after basics, the next move is opening a CFP — not tracks", () => {
+		const state = deriveGettingStarted({
+			hasDates: true,
+			hasLocation: true,
+			trackCount: 0,
+			formatCount: 0,
+			publishedFormCount: 0,
+			reviewerCount: 0,
+			submissionCount: 0,
+		});
+		expect(state.activeStepId).toBe("cfp");
+		expect(state.steps.map((s) => s.id)).toEqual([
+			"basics",
+			"cfp",
+			"program",
+			"reviewers",
+			"first_submission",
+		]);
+	});
 
 	it("the active step is the FIRST incomplete one in journey order", () => {
 		const state = deriveGettingStarted({
@@ -71,8 +90,8 @@ describe("deriveGettingStarted", () => {
 		});
 		expect(state.steps.map((s) => s.id)).toEqual([
 			"basics",
-			"program",
 			"cfp",
+			"program",
 			"reviewers",
 			"first_submission",
 		]);

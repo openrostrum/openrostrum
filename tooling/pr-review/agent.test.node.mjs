@@ -6,7 +6,12 @@ import {
 	fauxProvider,
 	fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { runRuleReviewer, runRuleReviewers, summaryLine } from "./agent.mjs";
+import {
+	isRetryableTransportFailure,
+	runRuleReviewer,
+	runRuleReviewers,
+	summaryLine,
+} from "./agent.mjs";
 import {
 	FINDING_LIMITS,
 	loadSystems,
@@ -513,6 +518,87 @@ test("provider failure and turn exhaustion are incomplete", async () => {
 	assert.equal(exhausted.closing, true, "the close was never asked for");
 });
 
+test("a dropped stream is retried once and can still complete", async () => {
+	const { runtime, faux } = fauxRuntime([
+		fauxAssistantMessage("", {
+			stopReason: "error",
+			errorMessage: "terminated",
+		}),
+		done(0),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "complete", result.reason);
+	assert.equal(result.retried, 1);
+	assert.equal(result.findings.length, 0);
+	assert.equal(faux.state.callCount, 2);
+});
+
+test("a second dropped stream stays incomplete", async () => {
+	const { runtime, faux } = fauxRuntime([
+		fauxAssistantMessage("", {
+			stopReason: "error",
+			errorMessage: "TypeError: terminated",
+		}),
+		fauxAssistantMessage("", {
+			stopReason: "error",
+			errorMessage: "terminated",
+		}),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /terminated/);
+	assert.equal(result.retried, 1);
+	assert.equal(faux.state.callCount, 2);
+});
+
+test("a named provider failure is not retried as a dropped stream", async () => {
+	const { runtime, faux } = fauxRuntime([
+		fauxAssistantMessage("", {
+			stopReason: "error",
+			errorMessage: "provider unavailable",
+		}),
+		done(0),
+	]);
+
+	const result = await runRuleReviewer({
+		agent: ENGINEERING,
+		system: "SYSTEM RULE",
+		repository: repository(THREE_FILES),
+		runtime,
+	});
+
+	assert.equal(result.status, "incomplete");
+	assert.match(result.reason, /provider unavailable/);
+	assert.equal(result.retried, undefined);
+	assert.equal(faux.state.callCount, 1);
+});
+
+test("only a closed stream is a retryable transport failure", () => {
+	assert.equal(isRetryableTransportFailure("terminated"), true);
+	assert.equal(isRetryableTransportFailure("TypeError: terminated"), true);
+	assert.equal(
+		isRetryableTransportFailure("SocketError: other side closed"),
+		true,
+	);
+	assert.equal(isRetryableTransportFailure("provider unavailable"), false);
+	assert.equal(isRetryableTransportFailure("turn budget exhausted"), false);
+	assert.equal(isRetryableTransportFailure("review timeout exceeded"), false);
+});
+
 // ---------------------------------------------------------------------------
 // Incremental submission
 // ---------------------------------------------------------------------------
@@ -955,6 +1041,14 @@ test("the run summary reports a re-ask only when there was one", () => {
 		reason: "terminated",
 	});
 	assert.match(failed, /reasked=1;.*reason=terminated$/);
+
+	const retried = summaryLine({
+		...session,
+		status: "complete",
+		retried: 1,
+	});
+	assert.match(retried, /retried=1/);
+	assert.doesNotMatch(direct, /retried/);
 });
 
 // Forcing tool calls removed the model's way of saying "done", so a reviewer that

@@ -1,7 +1,7 @@
 import { and, count, countDistinct, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { data, redirect } from "react-router";
 import { AlertLink } from "~/components/alert-link";
-import { GettingStartedCard } from "~/components/getting-started";
+import { GettingStartedCard, STEP_COPY } from "~/components/getting-started";
 import { SectionHeading } from "~/components/section-heading";
 import { StatCard, StatCell } from "~/components/stat-card";
 import { getDb } from "~/db";
@@ -460,6 +460,28 @@ export default function AdminDashboard({ loaderData }: Route.ComponentProps) {
 			action: "Review forms",
 			text: `${alerts.closingSoon.count} CFP forms close within 7 days`,
 		});
+	}
+	if (statusCounts.pending > 0) {
+		alertRows.push({
+			key: "pending",
+			to: "/admin/submissions",
+			action: "Review submissions",
+			text: `${statusCounts.pending} pending ${plural(statusCounts.pending, "submission")} ${
+				statusCounts.pending === 1 ? "needs" : "need"
+			} a decision`,
+		});
+	}
+	if (showChecklist) {
+		for (const step of gettingStarted.steps) {
+			if (step.done) continue;
+			const copy = STEP_COPY[step.id];
+			alertRows.push({
+				key: `setup-${step.id}`,
+				to: copy.to,
+				action: copy.action,
+				text: copy.title,
+			});
+		}
 	}
 
 	return (

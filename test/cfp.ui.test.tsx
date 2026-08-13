@@ -1,9 +1,10 @@
-import { createElement } from "react";
+import { createElement, type ComponentType } from "react";
 import { renderToString } from "react-dom/server";
-import { createRoutesStub } from "react-router";
+import { createRoutesStub, Outlet } from "react-router";
 import { describe, expect, it } from "vitest";
 import { FootNote } from "../app/cfp/ui";
 import SubmitLayout from "../app/routes/submit.$eventSlug.$formId";
+import ParticipantStep from "../app/routes/submit.$eventSlug.$formId.step.participant";
 import { DraftsHub } from "../app/routes/submit.$eventSlug.$formId.step.session";
 
 function renderInRouter(element: ReturnType<typeof createElement>): string {
@@ -11,6 +12,76 @@ function renderInRouter(element: ReturnType<typeof createElement>): string {
 		{ path: "/", Component: () => element },
 	]);
 	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
+}
+function renderParticipantStep(): string {
+	const RouteComponent = ParticipantStep as unknown as ComponentType<{
+		loaderData: unknown;
+		params: { eventSlug: string; formId: string };
+	}>;
+	const loaderData = {
+		definition: {
+			session: [],
+			participant: [],
+			roles: { speaker: { min: 1, max: null } },
+		},
+		selfContact: {
+			firstName: "Priya",
+			lastName: "Raman",
+			email: "priya@example.com",
+			mobilePhone: "",
+			bio: "",
+		},
+		closed: false,
+		sectionTitle: "Tell us about you",
+		sectionHtml: null,
+	};
+	const ctx = {
+		state: {
+			wizardId: "w1",
+			values: {},
+			participants: [
+				{
+					key: "self",
+					role: "speaker" as const,
+					firstName: "Priya",
+					lastName: "Raman",
+					email: "priya@example.com",
+					mobilePhone: "",
+					bio: "",
+					self: true,
+				},
+			],
+		},
+		setState: () => {},
+		reset: () => {},
+	};
+	const RoutesStub = createRoutesStub([
+		{
+			id: "routes/submit.$eventSlug.$formId",
+			path: "/",
+			Component: () => createElement(Outlet, { context: ctx }),
+			children: [
+				{
+					path: "step",
+					Component: () =>
+						createElement(RouteComponent, {
+							loaderData,
+							params: { eventSlug: "test-event", formId: "form-uuid-1" },
+						}),
+				},
+			],
+		},
+	]);
+	return renderToString(
+		createElement(RoutesStub, {
+			initialEntries: ["/step"],
+			hydrationData: {
+				loaderData: {
+					"routes/submit.$eventSlug.$formId": { user: null },
+				},
+			},
+		}),
+	);
 }
 
 describe("public CFP hydration contracts", () => {
@@ -87,5 +158,14 @@ describe("public CFP hydration contracts", () => {
 		expect(welcome).toBeGreaterThan(-1);
 		expect(submission).toBeGreaterThan(welcome);
 		expect(account).toBeGreaterThan(submission);
+	});
+
+	it("does not speak organizer jargon on the participant step", () => {
+		const html = renderParticipantStep();
+		expect(html).toContain("Tell us about you");
+		expect(html).toContain("Add another person");
+		expect(html).toContain("1 speaker added");
+		expect(html).not.toContain("Add Secondary Contact");
+		expect(html).not.toContain("At least 1 Speakers");
 	});
 });

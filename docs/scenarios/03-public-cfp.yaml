@@ -45,7 +45,7 @@ scenarios:
          "offline evals lie" in bold; Format "Featured Keynote"; Tags "Tag A"; Track "Topic A";
          Level "Introductory"; Language "English" -> Next step.
       5. Participant step: First/Last/Email can be typed now (no account yet); the
-         role banner reads "1-4 Speakers allowed - 1 added" (no block — min is 1); Mobile Phone
+         role banner reads "1 speaker added" (no block — min is 1); Mobile Phone
          +1 415 555 0142; Biography "Infra engineer, 10 years shipping ML systems."
          -> Continue to review.
       6. Review step shows every entered value verbatim (title, bolded description phrase, all
@@ -150,7 +150,7 @@ scenarios:
       - "EXPERIENCE: resuming requires zero hunting — logging back in surfaces the draft immediately, and nothing typed before Save as draft is lost."
 
   - id: CFP-S5
-    name: Participant step — role count "2-4 Speakers" blocks progression, live email validation, max cap, Add Secondary Contact
+    name: Participant step — role count blocks progression, live email validation, max cap, add another person
     persona: speaker
     steps: |
       1. As admin: duplicate the Session Submission Form, name it "Panel Submission Form", set the
@@ -158,19 +158,19 @@ scenarios:
       2. As Priya, open PANEL_FORM_URL, log in, and fill the Submission step: Title "Agents in
          Production: A Practitioners Panel"; a two-sentence Description; Format "Featured
          Keynote"; Tags "Tag A"; Track "Topic A" -> Next step.
-      3. Participant step: the role banner reads "2-4 Speakers allowed - 1 added" (Priya
+      3. Participant step: the role banner reads "Add 1 more speaker" (Priya
          pre-filled). Click Continue to review -> progression BLOCKED with a clear message that at
          least 2 speakers are required.
       4. Add a speaker: First "Dana", Last "Okafor", Email "dana@" -> leaving the field shows the
          live inline error "Enter a valid email address." before any submit.
       5. Correct the email to dana.okafor@example.com; Mobile Phone +1 646 555 0177; short bio.
-         The banner now reads "2-4 Speakers allowed - 2 added".
+         The banner now reads "2 speakers added".
       6. Max-cap probe: add two more valid speakers (Pat Quinn <pat.quinn@example.com>, Sam Reyes
-         <sam.reyes@example.com>) -> banner reads "- 4 added"; attempting to add a 5th speaker is
+         <sam.reyes@example.com>) -> banner reads "4 speakers added"; attempting to add a 5th speaker is
          refused (control disabled or inline Max-4 message).
-      7. Remove Pat and Sam -> banner returns to "- 2 added" instantly.
-      8. Click "+ Add Secondary Contact" (helper copy explains secondary contacts assist with
-         tasks and communication); enter Leo Martins <leo.martins@example.com>.
+      7. Remove Pat and Sam -> banner returns to "2 speakers added" instantly.
+      8. Click "Add another person" (helper copy explains someone who should get updates, not a
+         speaker); enter Leo Martins <leo.martins@example.com>.
       9. Continue to review -> now allowed. Review lists 2 speakers + 1 secondary contact.
          Submit -> success page.
     success_signals:
@@ -178,7 +178,7 @@ scenarios:
       - "DB: the submission has exactly 3 participant rows — Priya (speaker), Dana (speaker), Leo (secondary role) — with Dana and Leo contacts created/linked by email."
       - "Screenshot at step 4: live per-field email validation fired on blur, not as a post-submit surprise."
       - "Step 6 evidence: the 5th-speaker attempt is refused at Max 4."
-      - "EXPERIENCE: the '2-4 Speakers allowed - N added' counter updates instantly as speakers are added and removed, with no page reload."
+      - "EXPERIENCE: the speaker-count banner updates instantly as speakers are added and removed, with no page reload."
 
   - id: CFP-S6
     name: Submission limit enforced — drafts count toward the limit, over-limit attempts blocked client- and server-side

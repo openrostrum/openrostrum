@@ -102,7 +102,6 @@ export default function ParticipantStep({
 	const base = submitPath(params.eventSlug, params.formId);
 	const { definition } = loaderData;
 	const state = ctx.state;
-
 	if (!layout) return null;
 	if (!state) {
 		// Deep link before any wizard state exists — start from the beginning.
@@ -243,16 +242,16 @@ export default function ParticipantStep({
 						<HtmlContent html={loaderData.sectionHtml} />
 					) : (
 						<LeadText>
-							Who’s presenting? Add each speaker below — you can also add a
-							secondary contact to help with tasks and communication.
+							Who’s presenting? Add each speaker below — you can also add
+							someone who should get updates.
 						</LeadText>
 					)}
 					<InfoNotice>
 						{roleCountLabel(speakerLimits, speakerCount)}
 						{roles.chairperson &&
-							` · ${roleCountLabel(roles.chairperson, state.participants.filter((p) => p.role === "chairperson").length, "Chairpersons")}`}
+							` · ${roleCountLabel(roles.chairperson, state.participants.filter((p) => p.role === "chairperson").length, "chairperson")}`}
 						{roles.moderator &&
-							` · ${roleCountLabel(roles.moderator, state.participants.filter((p) => p.role === "moderator").length, "Moderators")}`}
+							` · ${roleCountLabel(roles.moderator, state.participants.filter((p) => p.role === "moderator").length, "moderator")}`}
 					</InfoNotice>
 
 					{state.participants.map((p) => (
@@ -384,10 +383,10 @@ export default function ParticipantStep({
 							icon="plus"
 							onClick={() => addRow("secondary")}
 						>
-							Add Secondary Contact
+							Add another person
 						</Button>
 						<MutedText>
-							Secondary contacts can assist with tasks and communication.
+							Someone who should get updates (not a speaker).
 						</MutedText>
 					</div>
 

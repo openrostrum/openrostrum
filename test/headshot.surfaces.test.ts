@@ -1,4 +1,7 @@
 import { env } from "cloudflare:test";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
@@ -14,6 +17,10 @@ import { loader as adminHeadshotLoader } from "../app/routes/admin.contacts_.$id
 import { loader as directoryLoader } from "../app/routes/admin.crm.directory";
 import { loader as portalHeadshotLoader } from "../app/routes/portals.$eventSlug.$portalId.headshot";
 import { loader as portalHomeLoader } from "../app/routes/portals.$eventSlug.$portalId.home";
+import {
+	HomeView,
+	type HomeViewData,
+} from "../app/components/portal/home-view";
 import { loader as portalSubmissionLoader } from "../app/routes/portals.$eventSlug.$portalId.submissions_.$submissionId";
 import { requestAs, seedCrmBaseline } from "./crm-fixtures";
 import {
@@ -168,6 +175,33 @@ describe("the speaker portal renders the photos it stores", () => {
 		expect(home.profile?.photoUrl).toMatch(
 			/^\/portals\/testconf\/portal-pub-1\/headshot\?v=/,
 		);
+	});
+
+	it("the portal home profile card renders that URL as an img, not initials", async () => {
+		await seedPortalPanel();
+		await giveHeadshot("c_priya", "e1", PRIYA_BYTES);
+
+		const home = unwrap<HomeViewData>(
+			await portalHomeLoader({
+				context: CONTEXT,
+				request: await authedRequest("u_priya", `${BASE}/home`),
+				params: PORTAL_PARAMS,
+			} as unknown as Parameters<typeof portalHomeLoader>[0]),
+		);
+
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/",
+				Component: () => createElement(HomeView, { data: home }),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+		expect(html).toMatch(
+			/src="\/portals\/testconf\/portal-pub-1\/headshot\?v=[^"]+"/,
+		);
+		expect(html).not.toMatch(/>PR<\/span>/);
 	});
 
 	it("shows a co-speaker's photo on the shared submission, and serves those bytes", async () => {

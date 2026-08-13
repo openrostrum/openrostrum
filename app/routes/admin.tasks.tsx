@@ -142,6 +142,18 @@ const taskTypeOption = (type: (typeof TASK_TYPE)[number]) => {
 	return hint ? `${label} — ${hint}` : label;
 };
 
+const NAME_TAKEN = "A task with this name already exists for this event.";
+
+function assignOptionLabel(
+	task: { name: string; type: string; dueInDays: number | null },
+	nameHasDuplicate: boolean,
+): string {
+	if (!nameHasDuplicate) return task.name;
+	const due =
+		task.dueInDays == null ? "no due date" : `due in ${task.dueInDays} days`;
+	return `${task.name} — ${taskTypeLabel(task.type)}, ${due}`;
+}
+
 const AssignForm = z.object({
 	taskId: z.string().min(1, "Pick a task to assign"),
 	target: z.enum([
@@ -228,7 +240,12 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			totalAssignments: 0,
 			remindableSpeakers: 0,
 		},
-		taskOptions: [] as Array<{ id: string; name: string; type: string }>,
+		taskOptions: [] as Array<{
+			id: string;
+			name: string;
+			type: string;
+			label: string;
+		}>,
 		taskTypes: TASK_TYPE,
 		speakers: [] as Array<{
 			contactId: string;
@@ -344,11 +361,30 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 			.where(
 				and(eventScope, eq(taskAssignments.status, "incomplete"), taskFilter),
 			);
-		const taskOptions = await db
-			.select({ id: tasks.id, name: tasks.name, type: tasks.type })
+		const taskRows = await db
+			.select({
+				id: tasks.id,
+				name: tasks.name,
+				type: tasks.type,
+				dueInDays: tasks.dueInDays,
+			})
 			.from(tasks)
 			.where(eventScope)
 			.orderBy(asc(tasks.name));
+		const nameCounts = new Map<string, number>();
+		for (const t of taskRows) {
+			const key = t.name.trim().toLowerCase();
+			nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+		}
+		const taskOptions = taskRows.map((t) => ({
+			id: t.id,
+			name: t.name,
+			type: t.type,
+			label: assignOptionLabel(
+				t,
+				(nameCounts.get(t.name.trim().toLowerCase()) ?? 0) > 1,
+			),
+		}));
 
 		const stats = {
 			speakersOutstanding: agg?.speakers ?? 0,
@@ -575,6 +611,56 @@ export async function action({ context, request }: Route.ActionArgs) {
 			} satisfies ActionResult;
 		}
 		const d = parsed.data;
+		let existing: { id: string; name: string } | undefined;
+		if (intent === "update-task") {
+			const taskId = String(form.get("taskId") ?? "");
+			[existing] = await db
+				.select({ id: tasks.id, name: tasks.name })
+				.from(tasks)
+				.where(and(eq(tasks.id, taskId), eq(tasks.eventId, event.id)))
+				.limit(1);
+			if (!existing) {
+				return {
+					formError: "That task no longer exists.",
+				} satisfies ActionResult;
+			}
+			const keepingOwnName =
+				existing.name.trim().toLowerCase() === d.name.toLowerCase();
+			if (!keepingOwnName) {
+				const [clash] = await db
+					.select({ id: tasks.id })
+					.from(tasks)
+					.where(
+						and(
+							eq(tasks.eventId, event.id),
+							sql`lower(trim(${tasks.name})) = ${d.name.toLowerCase()}`,
+							ne(tasks.id, existing.id),
+						),
+					)
+					.limit(1);
+				if (clash) {
+					return {
+						fieldErrors: { name: [NAME_TAKEN] },
+					} satisfies ActionResult;
+				}
+			}
+		} else {
+			const [clash] = await db
+				.select({ id: tasks.id })
+				.from(tasks)
+				.where(
+					and(
+						eq(tasks.eventId, event.id),
+						sql`lower(trim(${tasks.name})) = ${d.name.toLowerCase()}`,
+					),
+				)
+				.limit(1);
+			if (clash) {
+				return {
+					fieldErrors: { name: [NAME_TAKEN] },
+				} satisfies ActionResult;
+			}
+		}
 		let portalFormId: string | null = null;
 		if (d.completion.startsWith("form:")) {
 			// Ownership check: a forged POST must not attach another event's form.
@@ -624,12 +710,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 					type: d.type,
 				});
 			} else {
-				const taskId = String(form.get("taskId") ?? "");
-				const [existing] = await db
-					.select({ id: tasks.id })
-					.from(tasks)
-					.where(and(eq(tasks.id, taskId), eq(tasks.eventId, event.id)))
-					.limit(1);
 				if (!existing) {
 					return {
 						formError: "That task no longer exists.",
@@ -1110,7 +1190,7 @@ export default function TasksDashboard({
 							<option value="">All tasks</option>
 							{taskOptions.map((t) => (
 								<option key={t.id} value={t.id}>
-									{t.name}
+									{t.label}
 								</option>
 							))}
 						</Select>
@@ -1444,7 +1524,7 @@ export default function TasksDashboard({
 								>
 									{taskOptions.map((t) => (
 										<option key={t.id} value={t.id}>
-											{t.name}
+											{t.label}
 										</option>
 									))}
 								</Select>

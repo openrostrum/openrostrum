@@ -24,7 +24,7 @@ import { loader as itineraryLoader } from "../app/routes/itinerary.$eventSlug";
 import { loader as scheduleLoader } from "../app/routes/schedule.$eventSlug";
 import { loader as sessionsLoader } from "../app/routes/sessions.$eventSlug";
 import { loader as speakersLoader } from "../app/routes/speakers.$eventSlug";
-import { ProgramShell, SessionsSurface } from "../app/widgets";
+import { AgendaSurface, ProgramShell, SessionsSurface } from "../app/widgets";
 import { CONTEXT, seedProgram, thrownStatus, unwrap } from "./program.fixtures";
 
 // Oracles come from the data-exposure matrix (public = accepted + approved
@@ -539,6 +539,101 @@ describe("public agenda + itinerary surfaces", () => {
 			d.groups.flatMap((g) => g.sessions.map((s) => s.id)),
 		);
 		expect(allIds?.sort()).toEqual(["s1", "s2"]); // search must not shrink the starred pool
+	});
+
+	it("logged-out agenda detail HTML names the session's track", async () => {
+		await seedProgram();
+		const { data } = unwrap<AgendaData>(
+			await call(
+				scheduleLoader,
+				"http://localhost/schedule/devflow?session=s1",
+			),
+		);
+		const sessions = unwrap<SessionsData>(
+			await call(
+				sessionsLoader,
+				"http://localhost/sessions/devflow?session=s1",
+			),
+		);
+		expect(data.surface?.detail?.tracks.map((track) => track.name)).toEqual([
+			"Platform & Infra",
+		]);
+		expect(sessions.data.surface.detail?.tracks).toEqual(
+			data.surface?.detail?.tracks,
+		);
+		const RoutesStub = createRoutesStub([
+			{
+				id: "root",
+				path: "/",
+				Component: () =>
+					createElement(ProgramShell, {
+						event: data.event,
+						active: "schedule",
+						children: createElement(AgendaSurface, {
+							data: data.surface!,
+							base: "/schedule/devflow",
+							sessionsBase: "/sessions/devflow",
+							speakersBase: "/speakers/devflow",
+						}),
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+		expect(html).toContain("Taming 40-Minute CI");
+		expect(html).toContain("Platform &amp; Infra");
+		expect(html).toContain(">Track</span>");
+	});
+
+	it("logged-out agenda detail does not invent a Track row when the session has none", async () => {
+		await seedProgram();
+		await getDb(env)
+			.insert(submissions)
+			.values({
+				id: "s_no_track",
+				eventId: "e1",
+				title: "Caching Strategies for LLM APIs",
+				description: "The fastest call is the one you never make.",
+				status: "accepted",
+				contentStatus: "approved",
+				formatId: "f1",
+				roomId: "r1",
+				startsAt: new Date("2027-05-12T18:00:00Z"),
+				endsAt: new Date("2027-05-12T18:30:00Z"),
+			});
+		const { data } = unwrap<AgendaData>(
+			await call(
+				scheduleLoader,
+				"http://localhost/schedule/devflow?session=s_no_track",
+			),
+		);
+		expect(data.surface?.detail?.id).toBe("s_no_track");
+		expect(data.surface?.detail?.tracks).toEqual([]);
+
+		const RoutesStub = createRoutesStub([
+			{
+				id: "root",
+				path: "/",
+				Component: () =>
+					createElement(ProgramShell, {
+						event: data.event,
+						active: "schedule",
+						children: createElement(AgendaSurface, {
+							data: data.surface!,
+							base: "/schedule/devflow",
+							sessionsBase: "/sessions/devflow",
+							speakersBase: "/speakers/devflow",
+						}),
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+		expect(html).toContain("Caching Strategies for LLM APIs");
+		expect(html).toContain(">Format</span>");
+		expect(html).not.toContain(">Track</span>");
 	});
 });
 

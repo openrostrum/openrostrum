@@ -3,7 +3,8 @@ import { redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { users } from "~/db/schema";
-import { requireAdmin, safeRedirect, userCanAccessEvent } from "~/lib/auth";
+import { requireAdmin, userCanAccessEvent } from "~/lib/auth";
+import { stayAfterSwitch } from "~/lib/event-switch-path";
 import { createTimings, track } from "~/lib/track";
 import type { Route } from "./+types/admin.events.switch";
 
@@ -56,6 +57,6 @@ export async function action({ context, request }: Route.ActionArgs) {
 	);
 	track("event.switched", { eventId, userId: user.id });
 
-	const dest = safeRedirect(redirectTo ?? "") ?? "/admin";
+	const dest = stayAfterSwitch(redirectTo ?? "");
 	return redirect(dest, { headers: { "Server-Timing": timings.header() } });
 }

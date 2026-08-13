@@ -20,7 +20,7 @@ import {
 } from "~/cfp/ui";
 import { stepPath, type WizardCtx } from "~/cfp/wizard";
 import { getDb } from "~/db";
-import { submitPath } from "~/domain/forms";
+import { publicFormTitle, submitPath } from "~/domain/forms";
 import { getUser } from "~/lib/auth";
 import { useBusy } from "~/lib/use-busy";
 import { systemClock } from "~/ports/clock";
@@ -60,7 +60,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			event: { name: event.name, slug: event.slug, timezone: event.timezone },
 			form: {
 				publicId: form.publicId,
-				externalTitle: form.externalTitle || form.internalName,
+				externalTitle: publicFormTitle(form, event),
 				pageHeading: form.pageHeading,
 				welcomeHtml: form.showWelcome ? form.welcomeHtml : null,
 				participantsStep: form.participantsStep,

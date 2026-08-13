@@ -331,15 +331,13 @@ export function validateSection(
 export function roleCountLabel(
 	limits: RoleLimits,
 	count: number,
-	roleLabel = "Speakers",
+	role: ParticipantRole = "speaker",
 ): string {
-	const added = `${count} added`;
-	if (limits.max === null) {
-		return `At least ${limits.min} ${roleLabel} · ${added}`;
-	}
-	const range =
-		limits.max === limits.min ? `${limits.min}` : `${limits.min}–${limits.max}`;
-	return `${range} ${roleLabel} allowed · ${added}`;
+	const needed = Math.max(0, limits.min - count);
+	const noun = PARTICIPANT_ROLE_LABELS[role].toLowerCase();
+	const word = (n: number) => (n === 1 ? noun : `${noun}s`);
+	if (needed > 0) return `Add ${needed} more ${word(needed)}`;
+	return `${count} ${word(count)} added`;
 }
 
 export type ParticipantErrors = {
