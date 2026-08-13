@@ -611,10 +611,10 @@ export async function action({ context, request }: Route.ActionArgs) {
 			} satisfies ActionResult;
 		}
 		const d = parsed.data;
-		const taskId =
-			intent === "update-task" ? String(form.get("taskId") ?? "") : "";
+		let existing: { id: string; name: string } | undefined;
 		if (intent === "update-task") {
-			const [existing] = await db
+			const taskId = String(form.get("taskId") ?? "");
+			[existing] = await db
 				.select({ id: tasks.id, name: tasks.name })
 				.from(tasks)
 				.where(and(eq(tasks.id, taskId), eq(tasks.eventId, event.id)))
@@ -710,10 +710,15 @@ export async function action({ context, request }: Route.ActionArgs) {
 					type: d.type,
 				});
 			} else {
+				if (!existing) {
+					return {
+						formError: "That task no longer exists.",
+					} satisfies ActionResult;
+				}
 				await timings.time("db", () =>
-					db.update(tasks).set(values).where(eq(tasks.id, taskId)),
+					db.update(tasks).set(values).where(eq(tasks.id, existing.id)),
 				);
-				track("task.updated", { eventId: event.id, taskId });
+				track("task.updated", { eventId: event.id, taskId: existing.id });
 			}
 		} catch (error) {
 			track("task.save_failed", {
