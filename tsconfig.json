@@ -10,6 +10,10 @@
 		"skipLibCheck": true,
 		"strict": true,
 		"noUncheckedIndexedAccess": true,
+		// Zero violations the day these went on: a free ratchet, so dead bindings
+		// fail the build instead of waiting for a reviewer to notice them.
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
 		"noEmit": true
 	}
 }

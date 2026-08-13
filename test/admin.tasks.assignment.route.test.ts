@@ -57,7 +57,7 @@ async function callAction(
 	fields: Record<string, string>,
 ) {
 	const url = `http://localhost/admin/tasks/${assignmentId}`;
-	const request = await authedRequest(url, {}, postForm(url, fields));
+	const request = await authedRequest(url, {}, postForm(fields));
 	return unwrapAction(
 		await action({
 			context: CONTEXT,

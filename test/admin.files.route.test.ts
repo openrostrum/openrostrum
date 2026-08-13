@@ -120,7 +120,7 @@ async function loadDetail(fileId: string) {
 
 async function postDetail(fileId: string, fields: Record<string, string>) {
 	const url = `http://localhost/admin/files/${fileId}`;
-	const request = await authedRequest(url, {}, postForm(url, fields));
+	const request = await authedRequest(url, {}, postForm(fields));
 	return detailAction({
 		context: CONTEXT,
 		request,
@@ -712,7 +712,7 @@ describe("file detail — versions, review, comments", () => {
 				request: await requestAs(
 					"u_replier",
 					url,
-					postForm(url, {
+					postForm({
 						intent: "comment",
 						fileId: "f_slides_v2",
 						commentKey: replayKey,

@@ -160,10 +160,7 @@ export async function authedRequest(
 	return new Request(url, { ...init, headers });
 }
 
-export function postForm(
-	url: string,
-	fields: Record<string, string>,
-): RequestInit {
+export function postForm(fields: Record<string, string>): RequestInit {
 	const body = new URLSearchParams(fields);
 	return {
 		method: "POST",
