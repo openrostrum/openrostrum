@@ -27,3 +27,19 @@ test("a gateway may name its own model, and the run says nobody vouched for its 
 	assert.equal(runtime.model.baseUrl, "http://127.0.0.1:8317");
 	assert.equal(runtime.visionVouched, false);
 });
+
+test("thinking stays off unless a gateway model needs otherwise", () => {
+	assert.equal(makeRuntime({ key: "sk-test" }).thinkingLevel, "off");
+	assert.equal(
+		makeRuntime({ key: "sk-test", thinkingLevel: undefined }).thinkingLevel,
+		"off",
+	);
+	// grok-4.6 rejects "none" outright, and every journey died on turn one for it.
+	const gateway = makeRuntime({
+		key: "sk-test",
+		model: "grok-4.6",
+		baseUrl: "https://router-api.ramp.com",
+		thinkingLevel: "minimal",
+	});
+	assert.equal(gateway.thinkingLevel, "minimal");
+});
