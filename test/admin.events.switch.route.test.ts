@@ -1,14 +1,23 @@
 import { env } from "cloudflare:test";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
+import { EventSwitcherMenu } from "../app/components/event-switcher";
 import { getDb } from "../app/db";
 import {
 	events,
 	organizationMembers,
 	organizations,
+	submissions,
 	users,
 } from "../app/db/schema";
-import { createSession, hashPassword } from "../app/lib/auth";
+import { createSession, getActiveEvent, hashPassword } from "../app/lib/auth";
+import { stayAfterSwitch } from "../app/lib/event-switch-path";
+import { loader as adminLoader } from "../app/routes/admin";
 import { action } from "../app/routes/admin.events.switch";
+import { loader as submissionsLoader } from "../app/routes/admin.submissions";
+import { unwrap } from "./route-data";
 
 // The event switcher is a tenancy chokepoint: it may set users.activeEventId
 // ONLY to an event of an org the caller belongs to (docs/multi-tenancy-design.md
@@ -72,6 +81,41 @@ async function activeEventOf(userId: string): Promise<string | null> {
 	return row?.activeEventId ?? null;
 }
 
+async function cookieFor(userId: string): Promise<string> {
+	const setCookie = await createSession(env, userId);
+	return setCookie.split(";")[0] ?? "";
+}
+
+async function loadAdminShell(userId: string) {
+	const request = new Request("http://localhost/admin", {
+		headers: { Cookie: await cookieFor(userId) },
+	});
+	const result = await adminLoader({
+		context: CONTEXT,
+		request,
+		params: {},
+	} as unknown as Parameters<typeof adminLoader>[0]);
+	return unwrap<{
+		events: Array<{ id: string; name: string; isCurrent: boolean }>;
+	}>(result);
+}
+
+async function loadSubmissions(userId: string) {
+	const request = new Request("http://localhost/admin/submissions", {
+		headers: { Cookie: await cookieFor(userId) },
+	});
+	const result = await submissionsLoader({
+		context: CONTEXT,
+		request,
+		params: {},
+	} as unknown as Parameters<typeof submissionsLoader>[0]);
+	return unwrap<{
+		eventName: string | null;
+		submissions: Array<{ id: string; title: string }>;
+		total: number;
+	}>(result);
+}
+
 describe("admin.events.switch action", () => {
 	it("switches to an own-org event and redirects to /admin by default", async () => {
 		await seed();
@@ -79,6 +123,47 @@ describe("admin.events.switch action", () => {
 		expect(response.status).toBe(302);
 		expect(response.headers.get("Location")).toBe("/admin");
 		expect(await activeEventOf("u_a")).toBe("e_a2");
+	});
+
+	it("the next getActiveEvent and admin loaders follow the switched event", async () => {
+		await seed();
+		await getDb(env).insert(submissions).values({
+			id: "s_a1",
+			eventId: "e_a1",
+			title: "Seeded talk",
+			status: "pending",
+		});
+
+		const switched = await postSwitch(
+			{ eventId: "e_a2", redirectTo: "/admin/submissions" },
+			"u_a",
+		);
+		expect(switched.headers.get("Location")).toBe("/admin/submissions");
+
+		const user = await getDb(env).query.users.findFirst({
+			where: (u, { eq }) => eq(u.id, "u_a"),
+		});
+		if (!user) throw new Error("expected seeded admin");
+		expect((await getActiveEvent(env, user))?.id).toBe("e_a2");
+
+		const empty = await loadSubmissions("u_a");
+		expect(empty.eventName).toBe("A2");
+		expect(empty.submissions).toEqual([]);
+		expect(empty.total).toBe(0);
+
+		const shell = await loadAdminShell("u_a");
+		expect(shell.events.filter((e) => e.isCurrent).map((e) => e.id)).toEqual([
+			"e_a2",
+		]);
+
+		await postSwitch(
+			{ eventId: "e_a1", redirectTo: "/admin/submissions" },
+			"u_a",
+		);
+		const populated = await loadSubmissions("u_a");
+		expect(populated.eventName).toBe("A1");
+		expect(populated.submissions.map((row) => row.id)).toEqual(["s_a1"]);
+		expect(populated.total).toBe(1);
 	});
 
 	it("honors a same-origin redirectTo and rejects an external one", async () => {
@@ -93,6 +178,15 @@ describe("admin.events.switch action", () => {
 			"u_a",
 		);
 		expect(evil.headers.get("Location")).toBe("/admin");
+	});
+	it("collapses a record URL to its collection so the next event's list loads", async () => {
+		await seed();
+		const response = await postSwitch(
+			{ eventId: "e_a2", redirectTo: "/admin/submissions/s_a1" },
+			"u_a",
+		);
+		expect(response.headers.get("Location")).toBe("/admin/submissions");
+		expect(await activeEventOf("u_a")).toBe("e_a2");
 	});
 
 	it("refuses another org's event with 403 and does not write (cross-tenant denial)", async () => {
@@ -137,5 +231,74 @@ describe("admin.events.switch action", () => {
 		expect(response.status).toBe(302);
 		expect(response.headers.get("Location")).toBe("/403");
 		expect(await activeEventOf("u_spk")).toBeNull();
+	});
+});
+
+describe("stayAfterSwitch", () => {
+	it("keeps collection screens and their filters, and walks record URLs up", () => {
+		expect(stayAfterSwitch("/admin/submissions?status=pending")).toBe(
+			"/admin/submissions?status=pending",
+		);
+		expect(stayAfterSwitch("/admin/forms")).toBe("/admin/forms");
+		expect(stayAfterSwitch("/admin/evaluation")).toBe("/admin/evaluation");
+		expect(stayAfterSwitch("/admin/agenda")).toBe("/admin/agenda");
+		expect(stayAfterSwitch("/admin/submissions/s_old")).toBe(
+			"/admin/submissions",
+		);
+		expect(stayAfterSwitch("/admin/forms/form_1")).toBe("/admin/forms");
+		expect(stayAfterSwitch("/admin/crm/person/ada@test.co")).toBe("/admin/crm");
+	});
+
+	it("rejects off-admin and external targets", () => {
+		expect(stayAfterSwitch("")).toBe("/admin");
+		expect(stayAfterSwitch("/portal")).toBe("/admin");
+		expect(stayAfterSwitch("//evil.example")).toBe("/admin");
+		expect(stayAfterSwitch("https://evil.example/admin")).toBe("/admin");
+	});
+});
+
+describe("event switcher menu submission", () => {
+	it("renders one form root with a submit control per event", () => {
+		const RoutesStub = createRoutesStub([
+			{
+				id: "root",
+				path: "/",
+				Component: () =>
+					createElement(EventSwitcherMenu, {
+						Form: "form",
+						events: [
+							{
+								id: "e_old",
+								name: "DevFlow Conf 2027",
+								type: "Conference",
+								dates: null,
+								isCurrent: true,
+							},
+							{
+								id: "e_new",
+								name: "Forward Summit 2028",
+								type: "Conference",
+								dates: null,
+								isCurrent: false,
+							},
+						],
+						redirectTo: "/admin/submissions",
+						busy: false,
+						onSubmit: () => {},
+						onCreate: () => {},
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
+		);
+
+		expect(html).toContain("<form");
+		expect(html).toContain('method="post"');
+		expect(html).toContain('action="/admin/events/switch"');
+		expect(html.match(/type="submit"/g)).toHaveLength(2);
+		expect(html.match(/name="eventId"/g)).toHaveLength(2);
+		expect(html).toContain('value="e_old"');
+		expect(html).toContain('value="e_new"');
 	});
 });

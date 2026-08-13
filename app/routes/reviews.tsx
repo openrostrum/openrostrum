@@ -200,9 +200,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 						status: evaluations.status,
 						submissionId: submissions.id,
 						title: submissions.title,
-						roundId: evaluationRounds.id,
-						roundName: evaluationRounds.name,
-						planName: evaluationPlans.name,
+						eventName: events.name,
 						closesAt: evaluationRounds.closesAt,
 					})
 					.from(evaluations)
@@ -215,6 +213,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 						evaluationPlans,
 						eq(evaluationPlans.id, evaluationRounds.planId),
 					)
+					.innerJoin(events, eq(events.id, evaluationPlans.eventId))
 					.where(where)
 					.orderBy(desc(evaluations.createdAt))
 					.limit(PAGE_SIZE)
@@ -228,8 +227,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				status: r.status,
 				submissionId: r.submissionId,
 				title: r.title,
-				round: r.roundName,
-				plan: r.planName,
+				event: r.eventName,
 				due: formatRoundDue(r.closesAt),
 			})),
 		};
@@ -417,7 +415,7 @@ function Queue({ data: d }: { data: QueueData }) {
 					Assigned
 				</Tab>
 				<Tab to="?tab=tracks" count={tracksTotal} active={tab === "tracks"}>
-					My tracks
+					In my tracks
 				</Tab>
 			</Tabs>
 
@@ -454,9 +452,11 @@ function Queue({ data: d }: { data: QueueData }) {
 											)}
 										</Td>
 										<Td>
-											<TextLink to={link({ round: r.roundId, page: 1 })}>
-												Filter
-											</TextLink>
+											{roundSummaries.length > 1 && (
+												<TextLink to={link({ round: r.roundId, page: 1 })}>
+													Show only this round
+												</TextLink>
+											)}
 										</Td>
 									</Tr>
 								))}
@@ -487,7 +487,7 @@ function Queue({ data: d }: { data: QueueData }) {
 					<Table>
 						<THead>
 							<Th>Submission</Th>
-							<Th>Plan · Round</Th>
+							<Th>Event</Th>
 							<Th>Due</Th>
 							<Th>Status</Th>
 							<Th></Th>
@@ -496,9 +496,7 @@ function Queue({ data: d }: { data: QueueData }) {
 							{(assignedItems?.rows ?? []).map((item) => (
 								<Tr key={item.id}>
 									<Td kind="strong">{item.title}</Td>
-									<Td>
-										{item.plan} · {item.round}
-									</Td>
+									<Td>{item.event}</Td>
 									<Td kind="mono">{item.due}</Td>
 									<Td>
 										<StatusBadge

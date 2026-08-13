@@ -7,7 +7,6 @@ import {
 	useFetcher,
 	useNavigate,
 	useOutletContext,
-	useRouteLoaderData,
 } from "react-router";
 import {
 	isEditingSubmitted,
@@ -47,7 +46,6 @@ import { systemClock } from "~/ports/clock";
 import { Button, ButtonLink, ErrorText, Field, Input, Panel } from "~/ui";
 import type { SessionActionResult } from "./submit.$eventSlug.$formId.step.session";
 import type { Route } from "./+types/submit.$eventSlug.$formId.step.participant";
-import type { Route as LayoutRoute } from "./+types/submit.$eventSlug.$formId";
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
@@ -79,9 +77,6 @@ export default function ParticipantStep({
 	loaderData,
 	params,
 }: Route.ComponentProps) {
-	const layout = useRouteLoaderData<LayoutRoute.ComponentProps["loaderData"]>(
-		"routes/submit.$eventSlug.$formId",
-	);
 	const ctx = useOutletContext<WizardCtx>();
 	const navigate = useNavigate();
 	const saveFetcher = useFetcher<SessionActionResult>();
@@ -95,8 +90,6 @@ export default function ParticipantStep({
 	const base = submitPath(params.eventSlug, params.formId);
 	const { definition } = loaderData;
 	const state = ctx.state;
-
-	if (!layout) return null;
 	if (!state) {
 		// Deep link before any wizard state exists — start from the beginning.
 		return (
@@ -236,16 +229,16 @@ export default function ParticipantStep({
 						<HtmlContent html={loaderData.sectionHtml} />
 					) : (
 						<LeadText>
-							Who’s presenting? Add each speaker below — you can also add a
-							secondary contact to help with tasks and communication.
+							Who’s presenting? Add each speaker below — you can also add
+							someone who should get updates.
 						</LeadText>
 					)}
 					<InfoNotice>
 						{roleCountLabel(speakerLimits, speakerCount)}
 						{roles.chairperson &&
-							` · ${roleCountLabel(roles.chairperson, state.participants.filter((p) => p.role === "chairperson").length, "Chairpersons")}`}
+							` · ${roleCountLabel(roles.chairperson, state.participants.filter((p) => p.role === "chairperson").length, "chairperson")}`}
 						{roles.moderator &&
-							` · ${roleCountLabel(roles.moderator, state.participants.filter((p) => p.role === "moderator").length, "Moderators")}`}
+							` · ${roleCountLabel(roles.moderator, state.participants.filter((p) => p.role === "moderator").length, "moderator")}`}
 					</InfoNotice>
 
 					{state.participants.map((p) => (
@@ -377,10 +370,10 @@ export default function ParticipantStep({
 							icon="plus"
 							onClick={() => addRow("secondary")}
 						>
-							Add Secondary Contact
+							Add another person
 						</Button>
 						<MutedText>
-							Secondary contacts can assist with tasks and communication.
+							Someone who should get updates (not a speaker).
 						</MutedText>
 					</div>
 

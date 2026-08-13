@@ -6,9 +6,15 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { roundQuestions } from "../app/db/schema";
 import ReviewSubmission, {
+	action as reviewAction,
 	loader as reviewLoader,
 } from "../app/routes/reviews.$id";
-import { CONTEXT_OF, seedEvalBase, sessionRequest } from "./eval-fixtures";
+import {
+	CONTEXT_OF,
+	sampleScorecardBody,
+	seedEvalBase,
+	sessionRequest,
+} from "./eval-fixtures";
 
 const CONTEXT = CONTEXT_OF(env);
 
@@ -20,7 +26,10 @@ const call = async (fn: unknown, request: Request, id: string) =>
 		params: { id },
 	});
 
-async function renderReview(submissionId: string): Promise<string> {
+async function renderReview(
+	submissionId: string,
+	actionData?: unknown,
+): Promise<string> {
 	const request = await sessionRequest(
 		env,
 		"u_rev",
@@ -31,12 +40,16 @@ async function renderReview(submissionId: string): Promise<string> {
 	};
 	const RouteComponent = ReviewSubmission as unknown as ComponentType<{
 		loaderData: unknown;
+		actionData?: unknown;
 	}>;
 	const RoutesStub = createRoutesStub([
 		{
 			path: "/reviews/:id",
 			Component: () =>
-				createElement(RouteComponent, { loaderData: result.data }),
+				createElement(RouteComponent, {
+					loaderData: result.data,
+					actionData,
+				}),
 		},
 	]);
 	return renderToString(
@@ -92,5 +105,23 @@ describe("reviewer scorecard anchors", () => {
 		await seedEvalBase(env);
 		const html = await renderReview("s1");
 		expect(html).toContain("counts 2× toward the score");
+	});
+});
+
+describe("reviewer scorecard save confirmation", () => {
+	it("shows one success confirmation after saving, not two", async () => {
+		await seedEvalBase(env);
+		const actionData = await call(
+			reviewAction,
+			await sessionRequest(env, "u_rev", "http://localhost/reviews/s1", {
+				method: "POST",
+				body: sampleScorecardBody("ev1"),
+			}),
+			"s1",
+		);
+		const html = await renderReview("s1", actionData);
+		const submitted = (html.match(/Review submitted/g) ?? []).length;
+		const saved = (html.match(/Review saved/g) ?? []).length;
+		expect(submitted + saved).toBe(1);
 	});
 });

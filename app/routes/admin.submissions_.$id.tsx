@@ -19,11 +19,16 @@ import {
 import type { Submission } from "~/db/schema";
 import {
 	contacts,
+	evaluationAnswers,
+	evaluationPlans,
+	evaluationRounds,
+	evaluations,
 	files,
 	formats,
 	languages,
 	levels,
 	participants,
+	roundQuestions,
 	sessionStatuses,
 	submissionRevisions,
 	submissions,
@@ -46,6 +51,7 @@ import {
 } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import { formatInTimeZone, formatScheduleRange } from "~/lib/dates";
+import { parseRatingConfig } from "~/lib/evaluation";
 import { CONTENT_STATUS_TONE, humanStatus } from "~/lib/submission-list";
 import { CONTACT_PICKER_CAP } from "~/lib/submission-list.server";
 import { createTimings, track } from "~/lib/track";
@@ -53,6 +59,7 @@ import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
 	Chip,
+	EmptyLine,
 	EmptyRow,
 	ErrorText,
 	Field,
@@ -79,6 +86,7 @@ const CONTENT_STATUS_OPTIONS =
 	CONTENT_STATUS satisfies readonly Submission["contentStatus"][];
 
 const REVISION_LIST_LIMIT = 50;
+const EVALUATION_LIST_LIMIT = 50;
 
 const SUBMISSION_LIST_LABELS = new Map([
 	["/admin/abstracts", "abstracts"],
@@ -188,34 +196,36 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 			!showAllRevisions && revisionRows.length > REVISION_LIST_LIMIT;
 		if (revisionsTruncated) revisionRows.length = REVISION_LIST_LIMIT;
 
-		const [fileRows, withdrawnBy, library, contactRows] = await Promise.all([
-			db
-				.select()
-				.from(files)
-				.where(eq(files.submissionId, row.id))
-				.orderBy(desc(files.createdAt)),
-			row.withdrawnById
-				? db
-						.select({ name: users.name, email: users.email })
-						.from(users)
-						.where(eq(users.id, row.withdrawnById))
-						.then((r) => r[0] ?? null)
-				: Promise.resolve(null),
-			loadLibrary(db, event.id),
-			// The attach control's roster — one past the cap so truncation is
-			// detectable, never silent (same bound as the Add Submission drawer).
-			db
-				.select({
-					id: contacts.id,
-					firstName: contacts.firstName,
-					lastName: contacts.lastName,
-					email: contacts.email,
-				})
-				.from(contacts)
-				.where(eq(contacts.eventId, event.id))
-				.orderBy(asc(contacts.lastName), asc(contacts.firstName))
-				.limit(CONTACT_PICKER_CAP + 1),
-		]);
+		const [fileRows, withdrawnBy, library, contactRows, completedEvaluations] =
+			await Promise.all([
+				db
+					.select()
+					.from(files)
+					.where(eq(files.submissionId, row.id))
+					.orderBy(desc(files.createdAt)),
+				row.withdrawnById
+					? db
+							.select({ name: users.name, email: users.email })
+							.from(users)
+							.where(eq(users.id, row.withdrawnById))
+							.then((r) => r[0] ?? null)
+					: Promise.resolve(null),
+				loadLibrary(db, event.id),
+				// The attach control's roster — one past the cap so truncation is
+				// detectable, never silent (same bound as the Add Submission drawer).
+				db
+					.select({
+						id: contacts.id,
+						firstName: contacts.firstName,
+						lastName: contacts.lastName,
+						email: contacts.email,
+					})
+					.from(contacts)
+					.where(eq(contacts.eventId, event.id))
+					.orderBy(asc(contacts.lastName), asc(contacts.firstName))
+					.limit(CONTACT_PICKER_CAP + 1),
+				loadCompletedEvaluations(db, row.id, event.id),
+			]);
 		const contactsTruncated = contactRows.length > CONTACT_PICKER_CAP;
 		if (contactsTruncated) contactRows.length = CONTACT_PICKER_CAP;
 
@@ -308,11 +318,125 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					at: formatInTimeZone(r.updatedAt, tz),
 				})),
 			},
+			evaluations: completedEvaluations,
 			library,
 		};
 	});
 	if (!payload) throw data("Submission not found.", { status: 404 });
 	return data(payload, { headers: { "Server-Timing": timings.header() } });
+}
+
+function formatEvaluationAnswer(opts: {
+	type: "rating" | "dropdown" | "text";
+	config: unknown;
+	valueNumber: number | null;
+	valueText: string | null;
+}): { value: string; scale: string | null } {
+	if (opts.type === "rating") {
+		const { min, max } = parseRatingConfig(opts.config);
+		return {
+			value: opts.valueNumber == null ? "—" : String(opts.valueNumber),
+			scale: `${min}–${max}`,
+		};
+	}
+	return { value: opts.valueText ?? "—", scale: null };
+}
+
+async function loadCompletedEvaluations(
+	db: ReturnType<typeof getDb>,
+	submissionId: string,
+	eventId: string,
+) {
+	const [totalRow] = await db
+		.select({ n: count() })
+		.from(evaluations)
+		.innerJoin(evaluationRounds, eq(evaluationRounds.id, evaluations.roundId))
+		.innerJoin(evaluationPlans, eq(evaluationPlans.id, evaluationRounds.planId))
+		.where(
+			and(
+				eq(evaluations.submissionId, submissionId),
+				eq(evaluations.status, "completed"),
+				eq(evaluationPlans.eventId, eventId),
+			),
+		);
+	const total = totalRow?.n ?? 0;
+	const evalRows = await db
+		.select({
+			id: evaluations.id,
+			evaluatorName: users.name,
+			evaluatorEmail: users.email,
+			roundName: evaluationRounds.name,
+			planId: evaluationPlans.id,
+			planName: evaluationPlans.name,
+		})
+		.from(evaluations)
+		.innerJoin(users, eq(users.id, evaluations.evaluatorId))
+		.innerJoin(evaluationRounds, eq(evaluationRounds.id, evaluations.roundId))
+		.innerJoin(evaluationPlans, eq(evaluationPlans.id, evaluationRounds.planId))
+		.where(
+			and(
+				eq(evaluations.submissionId, submissionId),
+				eq(evaluations.status, "completed"),
+				eq(evaluationPlans.eventId, eventId),
+			),
+		)
+		.orderBy(
+			desc(evaluations.submittedAt),
+			asc(evaluationRounds.position),
+			asc(users.name),
+		)
+		.limit(EVALUATION_LIST_LIMIT);
+	const truncated = total > evalRows.length;
+	const answers =
+		evalRows.length === 0
+			? []
+			: await db
+					.select({
+						evaluationId: evaluationAnswers.evaluationId,
+						question: roundQuestions.label,
+						type: roundQuestions.type,
+						config: roundQuestions.config,
+						position: roundQuestions.position,
+						valueNumber: evaluationAnswers.valueNumber,
+						valueText: evaluationAnswers.valueText,
+					})
+					.from(evaluationAnswers)
+					.innerJoin(
+						roundQuestions,
+						eq(roundQuestions.id, evaluationAnswers.questionId),
+					)
+					.where(
+						inArray(
+							evaluationAnswers.evaluationId,
+							evalRows.map((row) => row.id),
+						),
+					)
+					.orderBy(asc(roundQuestions.position));
+	const answersByEval = new Map<string, typeof answers>();
+	for (const answer of answers) {
+		const list = answersByEval.get(answer.evaluationId) ?? [];
+		list.push(answer);
+		answersByEval.set(answer.evaluationId, list);
+	}
+	return {
+		total,
+		truncated,
+		rows: evalRows.map((row) => ({
+			id: row.id,
+			evaluator: row.evaluatorName ?? row.evaluatorEmail,
+			planId: row.planId,
+			planName: row.planName,
+			roundName: row.roundName,
+			answers: (answersByEval.get(row.id) ?? []).map((answer) => {
+				const formatted = formatEvaluationAnswer(answer);
+				return {
+					question: answer.question,
+					value: formatted.value,
+					scale: formatted.scale,
+				};
+			}),
+		})),
+	};
 }
 
 async function loadLibrary(db: ReturnType<typeof getDb>, eventId: string) {
@@ -1372,6 +1496,7 @@ export default function SubmissionDetail({
 		revisionsTruncated,
 		files: fileRows,
 		reviews,
+		evaluations: evaluationRows,
 		library,
 		contacts: contactRows,
 		contactsTruncated,
@@ -1658,6 +1783,51 @@ export default function SubmissionDetail({
 								</div>
 							))}
 							{reviews.rows.length === 0 && <p>No reviewer decisions yet.</p>}
+						</div>
+					</Panel>
+
+					<Panel>
+						<div className="flex flex-col gap-3">
+							<h2>Evaluations — {evaluationRows.total} completed</h2>
+							{evaluationRows.rows.map((evaluation) => (
+								<div key={evaluation.id} className="flex flex-col gap-2">
+									<div className="flex flex-wrap items-center gap-2">
+										<span>{evaluation.evaluator}</span>
+										<span>
+											{evaluation.planName} · {evaluation.roundName}
+										</span>
+										<TextLink
+											to={`/admin/evaluation/${evaluation.planId}?tab=results&sub=${s.id}`}
+										>
+											Open in Evaluation 2.0
+										</TextLink>
+									</div>
+									{evaluation.answers.map((answer) => (
+										<div
+											key={`${evaluation.id}-${answer.question}`}
+											className="flex flex-wrap gap-2"
+										>
+											<span>{answer.question}:</span>
+											<span>
+												{answer.value}
+												{answer.scale ? ` (${answer.scale})` : ""}
+											</span>
+										</div>
+									))}
+								</div>
+							))}
+							{evaluationRows.rows.length === 0 && (
+								<EmptyLine>
+									No completed evaluations yet — assign reviewers from
+									Evaluation 2.0, then their scorecards appear here.
+								</EmptyLine>
+							)}
+							{evaluationRows.truncated && (
+								<p>
+									Showing the first {evaluationRows.rows.length} of{" "}
+									{evaluationRows.total} completed evaluations.
+								</p>
+							)}
 						</div>
 					</Panel>
 				</div>

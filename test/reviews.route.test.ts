@@ -1,4 +1,7 @@
 import { env } from "cloudflare:test";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
@@ -10,7 +13,7 @@ import {
 	submissions,
 } from "../app/db/schema";
 import { loader as adminEvalLoader } from "../app/routes/admin.evaluation";
-import { loader as queueLoader } from "../app/routes/reviews";
+import Reviews, { loader as queueLoader } from "../app/routes/reviews";
 import {
 	action as reviewAction,
 	loader as reviewLoader,
@@ -111,6 +114,31 @@ describe("reviewer queue (/reviews)", () => {
 		expect(result.data.roundSummaries[0]?.window).toBe("No deadline set");
 		expect(result.data.assignedItems.rows[0]?.due).toBe("No deadline set");
 		expect(JSON.stringify(result.data)).not.toContain("— – —");
+	});
+
+	it("does not show a lone Filter control when there is only one round", async () => {
+		await seedEvalBase(env);
+		const request = await sessionRequest(
+			env,
+			"u_rev",
+			"http://localhost/reviews",
+		);
+		const result = (await call(queueLoader, request)) as { data: unknown };
+		const RouteComponent = Reviews as unknown as ComponentType<{
+			loaderData: unknown;
+		}>;
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/reviews",
+				Component: () =>
+					createElement(RouteComponent, { loaderData: result.data }),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/reviews"] }),
+		);
+		expect(html).not.toContain("Filter");
+		expect(html).not.toContain("Show only this round");
 	});
 });
 

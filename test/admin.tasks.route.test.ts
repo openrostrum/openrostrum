@@ -219,6 +219,220 @@ describe("task definitions", () => {
 		expect(rows).toHaveLength(3); // only the seeded definitions
 	});
 
+	async function createTask(
+		fields: Record<string, string>,
+		opts: { activeEventId?: string } = {},
+	) {
+		const request = await authedRequest(
+			"http://localhost/admin/tasks",
+			opts,
+			postForm({
+				intent: "create-task",
+				type: "contact",
+				required: "yes",
+				autoAssign: "no",
+				...fields,
+			}),
+		);
+		return action({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0]);
+	}
+
+	it("rejects a second create of the same name in the same event and writes no row", async () => {
+		const db = await seedTasksBaseline();
+		const first = await createTask({ name: "Upload Session Presentation" });
+		expect(first).toBeInstanceOf(Response);
+
+		const second = (await createTask({
+			name: "Upload Session Presentation",
+		})) as { fieldErrors?: Record<string, string[]> };
+		expect(second.fieldErrors?.name?.[0]).toMatch(/already exists/i);
+
+		const rows = await db
+			.select({ id: tasks.id })
+			.from(tasks)
+			.where(
+				and(
+					eq(tasks.eventId, "e1"),
+					eq(tasks.name, "Upload Session Presentation"),
+				),
+			);
+		expect(rows).toHaveLength(1);
+	});
+
+	it("treats names as unique after trim and without regard to case", async () => {
+		const db = await seedTasksBaseline();
+		const result = (await createTask({
+			name: "  hotel stay requirements  ",
+		})) as { fieldErrors?: Record<string, string[]> };
+		expect(result.fieldErrors?.name?.[0]).toMatch(/already exists/i);
+		const rows = await db.select().from(tasks).where(eq(tasks.eventId, "e1"));
+		expect(rows).toHaveLength(3);
+	});
+
+	it("lets a different event reuse the same definition name", async () => {
+		const db = await seedTasksBaseline();
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org1",
+			name: "Other summit",
+			slug: "other-summit",
+		});
+		const result = await createTask(
+			{ name: "Hotel Stay Requirements" },
+			{ activeEventId: "e2" },
+		);
+		expect(result).toBeInstanceOf(Response);
+		const rows = await db
+			.select({ eventId: tasks.eventId })
+			.from(tasks)
+			.where(eq(tasks.name, "Hotel Stay Requirements"));
+		expect(rows).toEqual(
+			expect.arrayContaining([{ eventId: "e1" }, { eventId: "e2" }]),
+		);
+		expect(rows).toHaveLength(2);
+	});
+
+	it("rejects renaming a definition onto another name already used in the event", async () => {
+		const db = await seedTasksBaseline();
+		const request = await authedRequest(
+			"http://localhost/admin/tasks",
+			{},
+			postForm({
+				intent: "update-task",
+				taskId: "t_flight",
+				name: "Hotel Stay Requirements",
+				type: "contact",
+				required: "yes",
+				autoAssign: "no",
+			}),
+		);
+		const result = (await action({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0])) as {
+			fieldErrors?: Record<string, string[]>;
+		};
+		expect(result.fieldErrors?.name?.[0]).toMatch(/already exists/i);
+		const [row] = await db
+			.select({ name: tasks.name })
+			.from(tasks)
+			.where(eq(tasks.id, "t_flight"));
+		expect(row?.name).toBe("Flight Reimbursement");
+	});
+
+	it("lets an organizer save a definition under its own name", async () => {
+		const db = await seedTasksBaseline();
+		const request = await authedRequest(
+			"http://localhost/admin/tasks",
+			{},
+			postForm({
+				intent: "update-task",
+				taskId: "t_flight",
+				name: "Flight Reimbursement",
+				type: "contact",
+				description: "Receipts only",
+				required: "yes",
+				autoAssign: "no",
+			}),
+		);
+		const result = await action({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0]);
+		expect(result).toBeInstanceOf(Response);
+		const [row] = await db
+			.select({ name: tasks.name, description: tasks.description })
+			.from(tasks)
+			.where(eq(tasks.id, "t_flight"));
+		expect(row).toEqual({
+			name: "Flight Reimbursement",
+			description: "Receipts only",
+		});
+	});
+
+	it("lets an organizer edit a historical same-name definition without merging it", async () => {
+		const db = await seedTasksBaseline();
+		await db.insert(tasks).values({
+			id: "t_hotel_dupe",
+			eventId: "e1",
+			name: "Hotel Stay Requirements",
+			type: "submission",
+			dueInDays: 7,
+		});
+		const request = await authedRequest(
+			"http://localhost/admin/tasks",
+			{},
+			postForm({
+				intent: "update-task",
+				taskId: "t_hotel_dupe",
+				name: "Hotel Stay Requirements",
+				type: "submission",
+				description: "Session-scoped copy",
+				required: "yes",
+				autoAssign: "no",
+			}),
+		);
+		const result = await action({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof action>[0]);
+		expect(result).toBeInstanceOf(Response);
+		const rows = await db
+			.select({ id: tasks.id, description: tasks.description })
+			.from(tasks)
+			.where(
+				and(eq(tasks.eventId, "e1"), eq(tasks.name, "Hotel Stay Requirements")),
+			);
+		expect(rows).toHaveLength(2);
+		expect(rows.find((r) => r.id === "t_hotel_dupe")?.description).toBe(
+			"Session-scoped copy",
+		);
+		expect(rows.find((r) => r.id === "t_hotel")?.description).not.toBe(
+			"Session-scoped copy",
+		);
+	});
+
+	it("labels historical same-name definitions in the assign list by type and due", async () => {
+		const db = await seedTasksBaseline();
+		await db.insert(tasks).values({
+			id: "t_hotel_dupe",
+			eventId: "e1",
+			name: "Hotel Stay Requirements",
+			type: "submission",
+			dueInDays: 7,
+		});
+		const request = await authedRequest(
+			"http://localhost/admin/tasks?view=definitions",
+		);
+		const loaded = (await loader({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as Parameters<typeof loader>[0])) as unknown as {
+			data: {
+				taskOptions: Array<{ id: string; name: string; label: string }>;
+			};
+		};
+		const labels = Object.fromEntries(
+			loaded.data.taskOptions.map((t) => [t.id, t.label]),
+		);
+		expect(labels.t_hotel).not.toBe(labels.t_hotel_dupe);
+		expect(labels.t_hotel).toMatch(/Hotel Stay Requirements/);
+		expect(labels.t_hotel).toMatch(/Speaker/);
+		expect(labels.t_hotel).toMatch(/14/);
+		expect(labels.t_hotel_dupe).toMatch(/Hotel Stay Requirements/);
+		expect(labels.t_hotel_dupe).toMatch(/Session/);
+		expect(labels.t_hotel_dupe).toMatch(/7/);
+		expect(labels.t_flight).toBe("Flight Reimbursement");
+	});
+
 	it("flags the new definition in the redirect and loader so the create form resets (consecutive creates must not inherit the previous task's values)", async () => {
 		const db = await seedTasksBaseline();
 		const request = await authedRequest(

@@ -678,7 +678,7 @@ describe("onboarding hands the dashboard a head start", () => {
 		});
 		expect(state.steps.find((s) => s.id === "basics")?.done).toBe(true);
 		expect(state.doneCount).toBe(1);
-		expect(state.activeStepId).toBe("program");
+		expect(state.activeStepId).toBe("cfp");
 	});
 
 	it("reports an honest zero when both steps are skipped", async () => {
