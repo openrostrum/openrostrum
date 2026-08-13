@@ -2,8 +2,13 @@ import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { events, fileComments, files, taskAssignments } from "../app/db/schema";
-import { insertDirectUpload, insertTaskUpload } from "../app/domain/files";
+import {
+	addFileComment,
+	insertDirectUpload,
+	insertTaskUpload,
+} from "../app/domain/files";
 import { loader as libraryLoader } from "../app/routes/admin.files";
+import { action as uploadAction } from "../app/routes/files.upload";
 import {
 	action as detailAction,
 	loader as detailLoader,
@@ -16,6 +21,7 @@ import {
 	seedFilesWorld,
 	thrownStatus,
 	unwrap,
+	uploadForm,
 } from "./files.helpers";
 
 type LibraryArgs = Parameters<typeof libraryLoader>[0];
@@ -76,7 +82,7 @@ async function loadLibrary(query = "") {
 			speakerName: string | null;
 			reviewStatus: string;
 			sharedToPortal: boolean;
-			createdAt: Date;
+			latestUploadedAt: Date;
 		}>;
 		total: number;
 		timezone: string;
@@ -154,6 +160,123 @@ describe("central files library", () => {
 		});
 	});
 
+	it("admin session upload then speaker re-upload is one session row with combined versions and comments", async () => {
+		const db = await seedFilesWorld();
+		const uploaded = (await uploadAction({
+			context: CONTEXT,
+			request: await authedRequest(
+				"http://localhost/files/upload",
+				{},
+				{
+					method: "POST",
+					body: uploadForm(
+						{ name: "slides.pdf", content: "admin v1" },
+						{ destination: "session", submissionId: "s1" },
+					),
+				},
+			),
+			params: {},
+		} as unknown as Parameters<typeof uploadAction>[0])) as Response;
+		expect(uploaded.headers.get("Location") ?? "").toContain("notice=uploaded");
+
+		const [adminRow] = await db.select().from(files);
+		expect(adminRow?.submissionId).toBe("s1");
+		await addFileComment(db, {
+			key: crypto.randomUUID(),
+			fileId: adminRow?.id ?? "",
+			authorId: null,
+			authorName: "Jordan Alvarez",
+			body: "Please export 16:9.",
+		});
+
+		await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/portal-v2",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 9,
+		});
+
+		const { rows, total } = await loadLibrary();
+		expect(total).toBe(1);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			fileName: "slides.pdf",
+			version: 2,
+			versionCount: 2,
+			submissionTitle: "Talk A",
+			speakerName: "Priya Sharma",
+		});
+		expect(rows[0]?.latestUploadedAt).toBeInstanceOf(Date);
+		expect(rows[0]?.latestUploadedAt.getTime()).not.toBeNaN();
+
+		const detail = await loadDetail(rows[0]?.id ?? "");
+		expect(detail.versions.map((version) => version.version)).toEqual([2, 1]);
+		expect(detail.comments.map((comment) => comment.body)).toEqual([
+			"Please export 16:9.",
+		]);
+	});
+
+	it("uses the newest version date and sorts the library newest-first", async () => {
+		const db = await seedFilesWorld();
+		await db.insert(files).values([
+			{
+				id: "f_deck_v1",
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: "ta_priya_slides",
+				r2Key: "t/deck-v1",
+				fileName: "deck.pdf",
+				kind: "slides",
+				version: 1,
+				createdAt: new Date("2026-08-01T10:00:00Z"),
+			},
+			{
+				id: "f_deck_v2",
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: "ta_priya_slides",
+				r2Key: "t/deck-v2",
+				fileName: "deck.pdf",
+				kind: "slides",
+				version: 2,
+				createdAt: new Date("2026-08-04T10:00:00Z"),
+			},
+			{
+				id: "f_deck_v2_admin_alias",
+				eventId: "e1",
+				submissionId: "s1",
+				r2Key: "t/deck-v2-admin",
+				fileName: "deck.pdf",
+				kind: "slides",
+				version: 2,
+				createdAt: new Date("2026-08-02T10:00:00Z"),
+			},
+			{
+				id: "f_kit_v1",
+				eventId: "e1",
+				r2Key: "t/kit-v1",
+				fileName: "kit.pdf",
+				kind: "doc",
+				version: 1,
+				createdAt: new Date("2026-08-03T10:00:00Z"),
+			},
+		]);
+
+		const { rows } = await loadLibrary();
+		expect(rows.map((row) => row.fileName)).toEqual(["deck.pdf", "kit.pdf"]);
+		expect(rows.map((row) => row.latestUploadedAt.toISOString())).toEqual([
+			"2026-08-04T10:00:00.000Z",
+			"2026-08-03T10:00:00.000Z",
+		]);
+	});
+
 	it("shows one session-linked row with an upload date after direct v1 and portal v2", async () => {
 		const db = await seedFilesWorld();
 		await insertDirectUpload(db, {
@@ -188,8 +311,8 @@ describe("central files library", () => {
 			submissionTitle: "Talk A",
 			speakerName: "Priya Sharma",
 		});
-		expect(rows[0]?.createdAt).toBeInstanceOf(Date);
-		expect(rows[0]?.createdAt.getTime()).not.toBeNaN();
+		expect(rows[0]?.latestUploadedAt).toBeInstanceOf(Date);
+		expect(rows[0]?.latestUploadedAt.getTime()).not.toBeNaN();
 	});
 
 	it("keeps an established direct history together when it joins one task chain", async () => {

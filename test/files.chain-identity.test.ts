@@ -1,9 +1,16 @@
 import { env } from "cloudflare:test";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { files, submissions } from "../app/db/schema";
 import {
+	fileComments,
+	files,
+	submissions,
+	taskAssignments,
+} from "../app/db/schema";
+import {
+	addFileComment,
 	insertDirectUpload,
+	insertTaskUpload,
 	SESSION_OPTION_LIMIT,
 	uploadHeadshot,
 } from "../app/domain/files";
@@ -218,6 +225,142 @@ describe("an event-level upload chain can be filed against its session", () => {
 			.from(files)
 			.where(eq(files.submissionId, "s1"));
 		expect(versions.map((v) => v.version).sort()).toEqual([1, 2, 3, 4]);
+	});
+
+	it("refiling an event-level deck onto a session that already has the speaker's upload keeps one history", async () => {
+		const db = await seedFilesWorld();
+		const ids = await seedLooseDeck(db);
+		for (const [index, id] of ids.entries()) {
+			await db
+				.update(files)
+				.set({ createdAt: new Date(`2026-08-0${index + 1}T10:00:00Z`) })
+				.where(eq(files.id, id));
+		}
+		const looseCommentKey = crypto.randomUUID();
+		await addFileComment(db, {
+			key: looseCommentKey,
+			fileId: ids[2] ?? "",
+			authorId: null,
+			authorName: "Jordan Alvarez",
+			body: "Use the widescreen export.",
+		});
+		await db
+			.update(fileComments)
+			.set({ createdAt: new Date("2026-08-01T12:00:00Z") })
+			.where(eq(fileComments.id, looseCommentKey));
+		await env.BLOBS.put("t/task-draft", "speaker draft");
+		await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/task-draft",
+			fileName: "draft.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 13,
+		});
+		await db
+			.update(files)
+			.set({ createdAt: new Date("2026-08-04T10:00:00Z") })
+			.where(eq(files.taskAssignmentId, "ta_priya_slides"));
+		await env.BLOBS.put("t/task-v2", "speaker v2");
+		const speaker = await insertTaskUpload(db, {
+			eventId: "e1",
+			submissionId: "s1",
+			contactId: "c_priya",
+			taskAssignmentId: "ta_priya_slides",
+			r2Key: "t/task-v2",
+			fileName: "slides.pdf",
+			kind: "slides",
+			contentType: "application/pdf",
+			sizeBytes: 10,
+		});
+		const speakerCommentKey = crypto.randomUUID();
+		await addFileComment(db, {
+			key: speakerCommentKey,
+			fileId: speaker.id,
+			authorId: null,
+			authorName: "Priya Sharma",
+			body: "Draft deck - final version coming Friday.",
+		});
+		await db
+			.update(fileComments)
+			.set({ createdAt: new Date("2026-08-04T12:00:00Z") })
+			.where(eq(fileComments.id, speakerCommentKey));
+		expect((await library()).total).toBe(2);
+
+		const result = (await postDetail(ids[2] ?? "", {
+			intent: "assign-session",
+			submissionId: "s1",
+		})) as { data?: { formError?: string } };
+		expect(result.data?.formError).toBeUndefined();
+
+		const after = await library();
+		expect(after.total).toBe(1);
+		expect(after.rows[0]).toMatchObject({
+			fileName: "slides.pdf",
+			version: 5,
+			versionCount: 5,
+			submissionTitle: "Talk A",
+			speakerName: "Priya Sharma",
+		});
+		const versions = await db
+			.select({ version: files.version })
+			.from(files)
+			.where(eq(files.submissionId, "s1"));
+		expect(versions.map((v) => v.version).sort()).toEqual([1, 2, 3, 4, 5]);
+		const shown = unwrap<{ comments: Array<{ body: string }> }>(
+			await detailLoader({
+				context: CONTEXT,
+				request: await authedRequest(
+					`http://localhost/admin/files/${after.rows[0]?.id ?? ""}`,
+				),
+				params: { id: after.rows[0]?.id ?? "" },
+			} as unknown as Parameters<typeof detailLoader>[0]),
+		);
+		expect(shown.comments.map((c) => c.body)).toEqual([
+			"Use the widescreen export.",
+			"Draft deck - final version coming Friday.",
+		]);
+	});
+
+	it("files independently when multiple task-owned deliverables share the same name", async () => {
+		const db = await seedFilesWorld();
+		const ids = await seedLooseDeck(db);
+		await db.insert(taskAssignments).values({
+			id: "ta_priya_other_slides",
+			taskId: "t_hotel",
+			contactId: "c_priya",
+			submissionId: "s1",
+			status: "incomplete",
+		});
+		for (const assignmentId of ["ta_priya_slides", "ta_priya_other_slides"]) {
+			await insertTaskUpload(db, {
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: assignmentId,
+				r2Key: `t/${assignmentId}`,
+				fileName: "slides.pdf",
+				kind: "slides",
+				contentType: "application/pdf",
+				sizeBytes: 10,
+			});
+		}
+
+		const result = (await postDetail(ids[2] ?? "", {
+			intent: "assign-session",
+			submissionId: "s1",
+		})) as { data?: { formError?: string } };
+
+		expect(result.data?.formError).toBeUndefined();
+		const directRows = await db
+			.select({ submissionId: files.submissionId })
+			.from(files)
+			.where(isNull(files.taskAssignmentId));
+		expect(directRows.every((row) => row.submissionId === "s1")).toBe(true);
+		expect((await library()).total).toBe(3);
 	});
 
 	it("files a chain back to event level", async () => {
