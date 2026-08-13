@@ -122,6 +122,16 @@ JOIN submissions s ON s.id = seed.submission_id AND s.event_id = 'e_demo'
 JOIN contacts c ON c.id = seed.contact_id AND c.event_id = s.event_id
 JOIN events e ON e.id = s.event_id AND e.organization_id = 'org_demo';
 
+-- Agenda/session detail only render Track when a session has one. Caching
+-- Strategies was accepted, approved, and scheduled but untracked, so its
+-- public detail had no Track row.
+INSERT OR IGNORE INTO submission_tracks (submission_id, track_id)
+SELECT s.id, t.id
+FROM submissions s
+JOIN tracks t ON t.id = 't_aiinfra' AND t.event_id = s.event_id
+JOIN events e ON e.id = s.event_id AND e.organization_id = 'org_demo'
+WHERE s.id = 's_llm_caching' AND s.event_id = 'e_demo';
+
 -- Real uploads keep the versioned file chain and contacts.headshot_key aligned.
 -- Conflict updates preserve any file comments attached after the first seed.
 WITH seed_headshots (id, event_id, contact_id, r2_key, file_name, kind, content_type, size_bytes, version, created_at) AS (
