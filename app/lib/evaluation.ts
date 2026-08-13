@@ -5,6 +5,7 @@
  * the chunk helper that keeps id-list queries under D1's parameter cap.
  */
 
+import { z } from "zod";
 import type { BadgeTone } from "~/ui";
 
 /**
@@ -87,6 +88,132 @@ export function meanScore(scores: readonly number[]): number | null {
 
 export function formatScore(score: number | null): string {
 	return score == null ? "—" : (Math.round(score * 100) / 100).toFixed(2);
+}
+
+/** The product convention for every numeric scale. Organizer labels must follow it. */
+export const RATING_DIRECTION = "Higher is better";
+
+export type RatingAnchor = { value: number; label: string };
+
+/** Shape stored on `round_questions.config` — labels ride along in the JSON blob. */
+export type StoredQuestionConfig = {
+	min?: number;
+	max?: number;
+	options?: string[];
+};
+
+const RatingConfigBlob = z.object({
+	min: z.number().int().optional(),
+	max: z.number().int().optional(),
+	labels: z.record(z.string(), z.string()).optional(),
+});
+
+export function parseRatingConfig(raw: unknown): {
+	min: number;
+	max: number;
+	labels: Record<string, string>;
+} {
+	const parsed = RatingConfigBlob.safeParse(raw ?? {});
+	const min = parsed.success ? (parsed.data.min ?? 1) : 1;
+	const max = parsed.success ? (parsed.data.max ?? 5) : 5;
+	const lo = Math.min(min, max);
+	const hi = Math.max(min, max);
+	const labels: Record<string, string> = {};
+	if (parsed.success) {
+		for (const [key, value] of Object.entries(parsed.data.labels ?? {})) {
+			const text = value.trim();
+			if (text) labels[key] = text;
+		}
+	}
+	return { min: lo, max: hi, labels };
+}
+
+function defaultAnchorLabel(value: number, min: number, max: number): string {
+	if (value === min) return "Weak — does not meet the bar";
+	if (value === max) return "Outstanding — a standout talk";
+	const mid = Math.round((min + max) / 2);
+	if (value === mid) return "Meets the bar";
+	const t = (value - min) / (max - min);
+	return t < 0.5 ? "Below the bar" : "Strong";
+}
+
+/** Every point on the scale, organizer label if present, otherwise the built-in. */
+export function ratingAnchors(raw: unknown): RatingAnchor[] {
+	const { min, max, labels } = parseRatingConfig(raw);
+	const anchors: RatingAnchor[] = [];
+	for (let value = min; value <= max; value++) {
+		anchors.push({
+			value,
+			label: labels[String(value)] || defaultAnchorLabel(value, min, max),
+		});
+	}
+	return anchors;
+}
+
+/** Ends + middle for a long scale; every point when there are five or fewer. */
+export function ratingLegend(anchors: readonly RatingAnchor[]): string {
+	if (anchors.length === 0) return "";
+	if (anchors.length <= 5) {
+		return anchors
+			.map((anchor) => `${anchor.value} ${anchor.label}`)
+			.join(" · ");
+	}
+	const first = anchors[0];
+	const middle = anchors[Math.floor(anchors.length / 2)];
+	const last = anchors[anchors.length - 1];
+	if (!first || !middle || !last) return "";
+	return [first, middle, last]
+		.map((anchor) => `${anchor.value} ${anchor.label}`)
+		.join(" · ");
+}
+
+export function labelsFromLines(
+	min: number,
+	max: number,
+	raw: string,
+): Record<string, string> {
+	const lines = raw.split(/\r?\n/);
+	const labels: Record<string, string> = {};
+	for (let i = 0; i <= max - min; i++) {
+		const text = (lines[i] ?? "").trim();
+		if (text) labels[String(min + i)] = text;
+	}
+	return labels;
+}
+
+export function labelLinesForForm(
+	min: number,
+	max: number,
+	labels: Record<string, string>,
+): string {
+	const lines: string[] = [];
+	for (let value = min; value <= max; value++) {
+		lines.push(labels[String(value)] ?? "");
+	}
+	while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+	return lines.join("\n");
+}
+
+export function storedRatingConfig(
+	min: number,
+	max: number,
+	labels: Record<string, string>,
+): StoredQuestionConfig {
+	if (Object.keys(labels).length === 0) return { min, max };
+	return { min, max, labels } as StoredQuestionConfig;
+}
+
+export function formatWeightMultiplier(weight: number): string {
+	return `${weight}×`;
+}
+
+export function ratingWeightsDiffer(
+	questions: readonly { type: string; weight: number }[],
+): boolean {
+	const weights = questions
+		.filter((question) => question.type === "rating")
+		.map((question) => question.weight);
+	return weights.some((weight) => weight !== weights[0]);
 }
 
 export type AssignmentPair = { submissionId: string; evaluatorId: string };

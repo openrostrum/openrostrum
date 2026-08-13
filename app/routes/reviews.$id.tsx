@@ -24,11 +24,15 @@ import {
 	tracks,
 	users,
 } from "~/db/schema";
+import { RatingScaleField } from "~/components/rating-scale-field";
 import { requireRole } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
 	REVIEW_DECISION_TONE as DECISION_TONE,
 	formatDay,
+	formatWeightMultiplier,
+	ratingAnchors,
+	ratingWeightsDiffer,
 	roundWritable,
 } from "~/lib/evaluation";
 import { escapeHtmlText, stripHtml } from "~/lib/html";
@@ -42,6 +46,7 @@ import {
 	ErrorText,
 	Field,
 	Input,
+	NoteText,
 	PageHeader,
 	Panel,
 	Select,
@@ -308,6 +313,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 							min: q.config?.min ?? 1,
 							max: q.config?.max ?? 5,
 							options: q.config?.options ?? [],
+							anchors: q.type === "rating" ? ratingAnchors(q.config) : [],
 							weight: q.weight,
 							required: q.required,
 							myNumber: mine?.valueNumber ?? null,
@@ -765,6 +771,7 @@ type CardData = {
 		min: number;
 		max: number;
 		options: string[];
+		anchors: Array<{ value: number; label: string }>;
 		weight: number;
 		required: boolean;
 		myNumber: number | null;
@@ -794,19 +801,26 @@ function Scorecard({
 	const [abstaining, setAbstaining] = useState(false);
 	const mine = actionData?.evaluationId === card.id ? actionData : undefined;
 	const locked = !card.writable;
+	const weighted = ratingWeightsDiffer(card.questions);
 	return (
 		<Panel>
 			<div className="flex flex-col gap-4">
 				<PageHeader
 					title={card.roundName}
 					count={card.planName}
-					subtitle={
-						<>
-							{card.window}
-							{card.instructions ? ` — ${card.instructions}` : ""}
-						</>
-					}
+					subtitle={card.window}
 				/>
+				{card.instructions.trim() ? (
+					<Field label="Reviewer instructions">
+						<p className="whitespace-pre-wrap">{card.instructions}</p>
+					</Field>
+				) : null}
+				{weighted && (
+					<NoteText>
+						Ratings are weighted. A 2× question counts twice in the total the
+						committee sees.
+					</NoteText>
+				)}
 				{card.status === "completed" && (
 					<StatusBadge tone="success">
 						Review submitted{locked ? "" : " — you can still edit it"}
@@ -833,47 +847,49 @@ function Scorecard({
 						<Input type="hidden" name="intent" value="save-eval" />
 						<Input type="hidden" name="evaluationId" value={card.id} />
 						{card.questions.map((q) => (
-							<Field
-								key={q.id}
-								label={`${q.label}${q.required ? " *" : ""}${q.weight !== 1 ? ` · weight ${q.weight}` : ""}`}
-								error={mine?.fieldErrors?.[`q_${q.id}`]?.[0]}
-							>
+							<div key={q.id} className="flex flex-col gap-3">
 								{q.type === "rating" ? (
-									<Select
+									<RatingScaleField
 										name={`q_${q.id}`}
-										defaultValue={q.myNumber == null ? "" : String(q.myNumber)}
+										label={q.label}
+										required={q.required}
+										anchors={q.anchors}
+										defaultValue={q.myNumber}
 										disabled={locked}
-									>
-										<option value="">—</option>
-										{Array.from(
-											{ length: q.max - q.min + 1 },
-											(_, i) => q.min + i,
-										).map((n) => (
-											<option key={n} value={n}>
-												{n}
-											</option>
-										))}
-									</Select>
-								) : q.type === "dropdown" ? (
-									<Select
-										name={`q_${q.id}`}
-										defaultValue={q.myText ?? ""}
-										disabled={locked}
-									>
-										<option value="">—</option>
-										{q.options.map((option) => (
-											<option key={option} value={option}>
-												{option}
-											</option>
-										))}
-									</Select>
-								) : (
-									<Input
-										name={`q_${q.id}`}
-										defaultValue={q.myText ?? ""}
-										disabled={locked}
-										size={40}
+										weightNote={
+											weighted && q.weight !== 1
+												? `This rating counts ${formatWeightMultiplier(q.weight)} toward the score.`
+												: null
+										}
+										error={mine?.fieldErrors?.[`q_${q.id}`]?.[0]}
 									/>
+								) : (
+									<Field
+										label={`${q.label}${q.required ? " *" : ""}`}
+										error={mine?.fieldErrors?.[`q_${q.id}`]?.[0]}
+									>
+										{q.type === "dropdown" ? (
+											<Select
+												name={`q_${q.id}`}
+												defaultValue={q.myText ?? ""}
+												disabled={locked}
+											>
+												<option value="">—</option>
+												{q.options.map((option) => (
+													<option key={option} value={option}>
+														{option}
+													</option>
+												))}
+											</Select>
+										) : (
+											<Input
+												name={`q_${q.id}`}
+												defaultValue={q.myText ?? ""}
+												disabled={locked}
+												size={40}
+											/>
+										)}
+									</Field>
 								)}
 								{q.others && (
 									<StatusBadge tone="faint">
@@ -882,7 +898,7 @@ function Scorecard({
 										{q.others.reviewers === 1 ? "" : "s"}
 									</StatusBadge>
 								)}
-							</Field>
+							</div>
 						))}
 						{!locked && (
 							<div className="flex items-center gap-3">

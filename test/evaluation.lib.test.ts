@@ -3,8 +3,13 @@ import {
 	csvCell,
 	distributeAssignments,
 	evaluationScore,
+	labelLinesForForm,
+	labelsFromLines,
 	meanScore,
+	ratingAnchors,
+	ratingLegend,
 	roundWritable,
+	storedRatingConfig,
 	toCsv,
 } from "../app/lib/evaluation";
 
@@ -172,6 +177,62 @@ describe("roundWritable", () => {
 				"open",
 			),
 		).toEqual({ writable: false, reason: "not-open" });
+	});
+});
+
+describe("rating anchors", () => {
+	it("fills a bare 1–5 config with direction-stating defaults", () => {
+		expect(ratingAnchors({ min: 1, max: 5 })).toEqual([
+			{ value: 1, label: "Weak — does not meet the bar" },
+			{ value: 2, label: "Below the bar" },
+			{ value: 3, label: "Meets the bar" },
+			{ value: 4, label: "Strong" },
+			{ value: 5, label: "Outstanding — a standout talk" },
+		]);
+	});
+
+	it("keeps organizer labels and fills only the gaps", () => {
+		expect(
+			ratingAnchors({
+				min: 1,
+				max: 5,
+				labels: {
+					"1": "Not ready for the stage",
+					"5": "Must-see keynote",
+				},
+			}),
+		).toEqual([
+			{ value: 1, label: "Not ready for the stage" },
+			{ value: 2, label: "Below the bar" },
+			{ value: 3, label: "Meets the bar" },
+			{ value: 4, label: "Strong" },
+			{ value: 5, label: "Must-see keynote" },
+		]);
+	});
+
+	it("a 1–10 legend names the ends and the middle", () => {
+		const legend = ratingLegend(ratingAnchors({ min: 1, max: 10 }));
+		expect(legend).toContain("1 Weak — does not meet the bar");
+		expect(legend).toContain("6 Meets the bar");
+		expect(legend).toContain("10 Outstanding — a standout talk");
+		expect(legend).not.toContain("2 Below the bar");
+	});
+
+	it("blank label lines keep their place so 1 and 5 can be named alone", () => {
+		expect(
+			labelsFromLines(1, 5, "Not ready\n\nProgrammable\n\nMust-see"),
+		).toEqual({
+			"1": "Not ready",
+			"3": "Programmable",
+			"5": "Must-see",
+		});
+		expect(
+			labelLinesForForm(1, 5, {
+				"1": "Not ready",
+				"5": "Must-see",
+			}),
+		).toBe("Not ready\n\n\n\nMust-see");
+		expect(storedRatingConfig(1, 5, {})).toEqual({ min: 1, max: 5 });
 	});
 });
 
