@@ -24,7 +24,7 @@ hang off `submissions.id` and therefore survive accept+schedule untouched (XM-S3
 
 **Step 1** [admin] locate form, Copy Link.
 `SELECT public_id FROM forms WHERE event_id='e_demo' AND internal_name='Call for Speakers 2026'`
-→ URL `/submit/ai-engineer-sandbox/<public_id>` (route `submit.$eventSlug.$formId.tsx`, per
+→ URL `/submit/northbound-ai-summit-2026/<public_id>` (route `submit.$eventSlug.$formId.tsx`, per
 ROUTE-MAP). `close_at`, `submission_limit`, `success_html` all live columns on `forms`. **OK**
 
 **Step 2** [anon] open URL; welcome + close-date banner.

@@ -1,6 +1,52 @@
 -- Idempotent enrichment scoped to the fixed e_demo rows seeded by seed.sql.
 -- Safe for direct remote execution; upload the verified R2 bundle first so
 -- live file rows never point at missing objects. Runbook: docs/JUDGING.md.
+--
+-- Identity updates run first so a live D1 that still holds the old sandbox
+-- name, slug, or dummy people becomes Northbound without a full reseed.
+
+UPDATE events
+ SET name = 'Northbound AI Summit 2026',
+     slug = 'northbound-ai-summit-2026',
+     location = 'Yerba Buena Center for the Arts, San Francisco, California'
+ WHERE id = 'e_demo' AND organization_id = 'org_demo';
+
+UPDATE organizations
+ SET name = 'Northbound Collective'
+ WHERE id = 'org_demo';
+
+UPDATE users SET name = 'Chris Okada' WHERE id = 'u_admin' AND email = 'admin@example.com';
+UPDATE users SET name = 'Samira Cole' WHERE id = 'u_speaker' AND email = 'speaker@example.com';
+UPDATE users SET name = 'Riley Okonkwo' WHERE id = 'u_reviewer' AND email = 'reviewer@example.com';
+
+UPDATE contacts
+ SET first_name = 'Samira', last_name = 'Cole',
+     job_title = 'Staff Engineer', company_name = 'Latticework'
+ WHERE id = 'c_sam' AND event_id = 'e_demo'
+ AND EXISTS (SELECT 1 FROM events e WHERE e.id = contacts.event_id AND e.organization_id = 'org_demo');
+
+UPDATE contacts
+ SET first_name = 'Alex', last_name = 'Moreau',
+     job_title = 'Developer Advocate', company_name = 'Harborline'
+ WHERE id = 'c_alex' AND event_id = 'e_demo'
+ AND EXISTS (SELECT 1 FROM events e WHERE e.id = contacts.event_id AND e.organization_id = 'org_demo');
+
+UPDATE submissions SET title = 'Three layers of agent memory'
+ WHERE id = 's_draft' AND event_id = 'e_demo'
+ AND EXISTS (SELECT 1 FROM events e WHERE e.id = submissions.event_id AND e.organization_id = 'org_demo');
+UPDATE submissions SET title = 'Retrieval that holds up in production'
+ WHERE id = 's_accepted' AND event_id = 'e_demo'
+ AND EXISTS (SELECT 1 FROM events e WHERE e.id = submissions.event_id AND e.organization_id = 'org_demo');
+UPDATE submissions SET title = 'OrbitOps: one pane of glass for enterprise AI'
+ WHERE id = 's_declineq' AND event_id = 'e_demo'
+ AND EXISTS (SELECT 1 FROM events e WHERE e.id = submissions.event_id AND e.organization_id = 'org_demo');
+UPDATE submissions SET title = 'Running an engineering team after the hype'
+ WHERE id = 's_declined' AND event_id = 'e_demo'
+ AND EXISTS (SELECT 1 FROM events e WHERE e.id = submissions.event_id AND e.organization_id = 'org_demo');
+UPDATE submissions SET title = 'The feature-flag lifecycle nobody writes down'
+ WHERE id = 's_withdrawn' AND event_id = 'e_demo'
+ AND EXISTS (SELECT 1 FROM events e WHERE e.id = submissions.event_id AND e.organization_id = 'org_demo');
+
 
 -- Named speakers push the public directory past its 30-row page size; missing
 -- photos remain intentional fallback-state coverage.
@@ -130,7 +176,7 @@ UPDATE contacts
 -- R2 binding on one consistent artifact chain.
 WITH seed_slides (id, event_id, submission_id, contact_id, task_assignment_id, r2_key, file_name, kind, content_type, size_bytes, version, review_status, created_at) AS (
  VALUES
- ('file_slides_rag',     'e_demo', 's_accepted',    'c_sam',  'ta_3', 'slides/e_demo/s_accepted/v1.pdf',    'rag-to-riches.pdf',      'slides', 'application/pdf', 1528, 1, 'approved', unixepoch()),
+ ('file_slides_rag',     'e_demo', 's_accepted',    'c_sam',  'ta_3', 'slides/e_demo/s_accepted/v1.pdf',    'rag-to-riches.pdf',      'slides', 'application/pdf', 1532, 1, 'approved', unixepoch()),
  ('file_slides_opening', 'e_demo', 's_open_keynote','c_maya', NULL,   'slides/e_demo/s_open_keynote/v1.pdf', 'opening-keynote.pdf',     'slides', 'application/pdf', 1508, 1, 'approved', unixepoch()),
  ('file_slides_evals',   'e_demo', 's_evals_ws',    'c_eli',  NULL,   'slides/e_demo/s_evals_ws/v1.pdf',     'evals-from-scratch.pdf', 'slides', 'application/pdf', 1544, 1, 'approved', unixepoch())
 )
@@ -172,10 +218,10 @@ UPDATE task_assignments
 
 -- Speaker bios at directory-page depth (the speakers widget shows them on the
 -- detail panel, the compat API serves them as `about`).
-UPDATE contacts SET bio = 'Sam leads the agents platform team at Agentic Labs, where his team operates one of the larger production agent fleets outside the model labs. Before that he spent six years building developer-tools infrastructure. He speaks about the unglamorous parts of AI engineering — queues, evals, and the bill.'
+UPDATE contacts SET bio = 'Samira leads the retrieval and memory platform at Latticework, where her team operates one of the larger production assistant fleets outside the model labs. Before that she spent six years building developer-tools infrastructure. She speaks about the unglamorous parts of AI engineering — queues, evals, and the bill.'
  WHERE id = 'c_sam' AND event_id = 'e_demo'
  AND EXISTS (SELECT 1 FROM events e WHERE e.id = contacts.event_id AND e.organization_id = 'org_demo');
-UPDATE contacts SET bio = 'Alex is a Developer Advocate at RAGWorks, where they maintain the open-source retrieval toolkit ragkit and write a long-running field-notes series on search quality. They co-host the Retrieval Roundtable podcast and have taught retrieval workshops at a dozen developer conferences.'
+UPDATE contacts SET bio = 'Alex is a Developer Advocate at Harborline, where they maintain the open-source retrieval toolkit ragkit and write a long-running field-notes series on search quality. They co-host the Retrieval Roundtable podcast and have taught retrieval workshops at a dozen developer conferences.'
  WHERE id = 'c_alex' AND event_id = 'e_demo'
  AND EXISTS (SELECT 1 FROM events e WHERE e.id = contacts.event_id AND e.organization_id = 'org_demo');
 UPDATE contacts SET bio = 'Noor is VP of Engineering at the Post-SaaS Institute, where she studies how teams replace subscription software with open, self-hosted alternatives — and what it costs them. She previously ran platform engineering at two infrastructure companies and writes the Post-SaaS Notes newsletter.'
@@ -194,7 +240,7 @@ UPDATE contacts SET bio = 'Lena leads deliverability at Inbox Works, helping eve
 -- Public cards truncate at 240 characters, so each abstract has real depth and
 -- paragraph breaks; declined rows remain credible committee rejections.
 UPDATE submissions SET description =
- 'Agents forget everything between runs unless you build memory on purpose. This talk covers the three memory layers we use at Agentic Labs — scratchpad, episodic, and long-term profile — and when each one earns its storage cost.'
+ 'Agents forget everything between runs unless you build memory on purpose. This talk covers the three memory layers we use at Latticework — scratchpad, episodic, and long-term profile — and when each one earns its storage cost.'
  || char(10) || char(10) ||
  'TODO before submitting: tighten the outline once the memory-ablation eval numbers land, and decide whether the profile-decay demo is live or recorded.'
  WHERE id = 's_draft' AND event_id = 'e_demo'

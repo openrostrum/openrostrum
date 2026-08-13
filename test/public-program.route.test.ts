@@ -65,7 +65,8 @@ describe("public sessions surface", () => {
 		expect(s1?.speakers[0]?.jobTitle).toBe("CTO");
 		expect(s1?.speakers[0]?.companyName).toBe("DevFlow");
 		expect(s1?.room).toBe("Main Hall");
-		expect(s1?.timeRange).toBe("9:30 AM – 10:00 AM"); // event TZ, not UTC
+		expect(s1?.timeRange).toBe("9:30 AM – 10:00 AM PDT");
+		expect(s1?.startLabel).toBe("9:30 AM PDT");
 		expect(s1?.description).toBe("Cut the queue."); // rich text stripped
 		const s5 = data.surface.sessions.find((s) => s.id === "s5");
 		// Entities decode once, &amp; last — double-escaped input stays text.
@@ -89,7 +90,7 @@ describe("public sessions surface", () => {
 		expect(data.event.dateRange).toBe("May 12 – 14, 2027");
 		expect(
 			data.surface.sessions.find((session) => session.id === "s1")?.timeRange,
-		).toBe("4:30 PM – 5:00 PM");
+		).toBe("4:30 PM – 5:00 PM UTC");
 	});
 
 	it("search matches titles AND speaker names; facets filter", async () => {
@@ -130,6 +131,32 @@ describe("public sessions surface", () => {
 			(error) => expect(thrownStatus(error)).toBe(404),
 		);
 	});
+
+	it("places the room inside the venue when the event has a location", async () => {
+		await seedProgram();
+		await getDb(env).update(events).set({
+			location: "Yerba Buena Center for the Arts, San Francisco, California",
+		});
+		const { data } = unwrap<SessionsData>(
+			await call(sessionsLoader, "http://localhost/sessions/devflow"),
+		);
+		const s1 = data.surface.sessions.find((s) => s.id === "s1");
+		expect(s1?.room).toBe("Main Hall · Yerba Buena Center for the Arts");
+		expect(data.event.location).toBe(
+			"Yerba Buena Center for the Arts, San Francisco, California",
+		);
+	});
+
+	it("keeps a bare room name when the event has no location", async () => {
+		await seedProgram();
+		const { data } = unwrap<SessionsData>(
+			await call(sessionsLoader, "http://localhost/sessions/devflow"),
+		);
+		expect(data.event.location).toBeNull();
+		expect(data.surface.sessions.find((s) => s.id === "s1")?.room).toBe(
+			"Main Hall",
+		);
+	});
 });
 
 describe("public speakers + gallery surfaces", () => {
@@ -151,7 +178,7 @@ describe("public speakers + gallery surfaces", () => {
 		expect(ada?.sessions.map((s) => s.id).sort()).toEqual(["s1", "s5"]);
 		const s1Ref = ada?.sessions.find((s) => s.id === "s1");
 		expect(s1Ref?.room).toBe("Main Hall");
-		expect(s1Ref?.timeRange).toBe("9:30 AM – 10:00 AM");
+		expect(s1Ref?.timeRange).toBe("9:30 AM – 10:00 AM PDT");
 	});
 
 	it("name search narrows and ?speaker= opens the detail projection", async () => {
@@ -404,7 +431,7 @@ describe("public agenda + itinerary surfaces", () => {
 		expect(day1?.groups.flatMap((g) => g.sessions.map((s) => s.id))).toEqual([
 			"s1",
 		]);
-		expect(day1?.groups[0]?.timeLabel).toBe("9:30 AM");
+		expect(day1?.groups[0]?.timeLabel).toBe("9:30 AM PDT");
 
 		const mine = unwrap<ItineraryData>(
 			await call(

@@ -213,7 +213,7 @@ describe("CSV import", () => {
 		const db = getDb(env);
 		const csv = [
 			"Name,Email,Company",
-			"Sam Speaker,SPEAKER@example.com,Agentic Labs",
+			"Samira Cole,SPEAKER@example.com,Agentic Labs",
 			"Grace Hopper,grace@example.com,US Navy",
 		].join("\n");
 		const request = await adminRequest(
@@ -255,8 +255,8 @@ describe("CSV import", () => {
 			.select()
 			.from(contacts)
 			.where(eq(contacts.id, "c_sam"));
-		expect(sam?.firstName).toBe("Sam");
-		expect(sam?.lastName).toBe("Speaker");
+		expect(sam?.firstName).toBe("Samira");
+		expect(sam?.lastName).toBe("Cole");
 		expect(sam?.companyName).toBe("Agentic Labs");
 		const [grace] = await db
 			.select()

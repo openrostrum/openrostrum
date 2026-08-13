@@ -59,7 +59,14 @@ describe("demo seed baseline", () => {
 
 		expect(event.startsAt?.toISOString()).toBe("2026-10-12T15:00:00.000Z");
 		expect(event.endsAt?.toISOString()).toBe("2026-10-15T01:00:00.000Z");
-		expect(toProgramEvent(event).dateRange).toBe("October 12 – 14, 2026");
+		const projected = toProgramEvent(event);
+		expect(event.name).toBe("Northbound AI Summit 2026");
+		expect(event.slug).toBe("northbound-ai-summit-2026");
+		expect(event.location).toBe(
+			"Yerba Buena Center for the Arts, San Francisco, California",
+		);
+		expect(projected.dateRange).toBe("October 12 – 14, 2026");
+		expect(projected.location).toBe(event.location);
 	});
 
 	it("repairs the exact deployed UTC-midnight demo event signature", async () => {

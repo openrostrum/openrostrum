@@ -368,7 +368,7 @@ no form name, no close date, no link. Producing the required body needs:
 {{form_close_date}}, {{resume_draft_link}}); (b) a defined resume-draft URL —
 P1 #4 commits "save as draft + resume … portal shows 'resume draft'" but no
 route/param shape exists for deep-linking a draft
-(`/submit/ai-engineer-sandbox/form-sessions-uuid?draft=s_dana_draft`? via the
+(`/submit/northbound-ai-summit-2026/form-sessions-uuid?draft=s_dana_draft`? via the
 portal drafts hub?). **GAP — resume-draft deep-link shape unspecified
 [MINOR]; body content blocked by renderer gap [dup MAJOR].**
 
@@ -676,7 +676,7 @@ before, no org column); MINOR #9 (config shape) persists.
 ### EM-S3 step 2 — UNCHANGED
 Public CFP resolves the event by globally-unique slug — the design doc
 KEEPS one global slug namespace as a recorded trade-off (:66–68), so
-`/submit/ai-engineer-sandbox/…` resolution is identical. Determination made
+`/submit/northbound-ai-summit-2026/…` resolution is identical. Determination made
 explicit: Dana's new `users` row gets NO `organization_members` row —
 membership is an organizer concept; speaker access continues via
 `submitter_id`/`contacts`, which the design leaves untouched (§Authorization,
@@ -697,7 +697,7 @@ deep-link (auth.ts:202–214) have no membership dimension, and Dana's portal
 query keys on `submitter_id`, not org. Renderer MAJOR #3 persists. Stale-dup
 note: the `:portalId` half of the 08-09 citation is fixed — `portals` exists
 (schema.ts:~275–289, seeded `portal-demo-uuid`), so the email CAN mint
-`/portals/ai-engineer-sandbox/portal-demo-uuid`.
+`/portals/northbound-ai-summit-2026/portal-demo-uuid`.
 
 ### EM-S3 step 5 — UNCHANGED
 Admin-notify recipients are plain addresses in `forms.config` — no tenant

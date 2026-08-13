@@ -20,7 +20,7 @@ const decks = [
 			[
 				"FROM RAG TO RICHES",
 				"Retrieval systems that survive production",
-				"Sam Speaker + Alex Co",
+				"Samira Cole + Alex Moreau",
 			],
 			[
 				"THE THREE REBUILDS",

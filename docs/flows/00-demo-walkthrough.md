@@ -9,7 +9,7 @@ Video timeline anchors: 0:00 intro/context · 0:46 sessionboard.com tour · 2:33
 ## Part A — Admin: event & form setup
 
 **A1. Admin opens the app on an existing event.**
-Left rail shows Program tree (View All / Abstracts / Sessions / Files · Forms / Evaluation / Agenda / Invoices / Site · Portals / Tasks / Forms / File Requests / Resources / Files · Settings). Event switcher shows "AI.Engineer Sandbox… Oct 12–14, 2026".
+Left rail shows Program tree (View All / Abstracts / Sessions / Files · Forms / Evaluation / Agenda / Invoices / Site · Portals / Tasks / Forms / File Requests / Resources / Files · Settings). Event switcher shows "Northbound AI Summit… Oct 12–14, 2026".
 → `f_027.jpg` (All Submissions list), `f_033.jpg` (Dashboard).
 *Note: at 3:47–4:20 swyx gets lost hunting for the form builder while pages skeleton-load — he complains "part of this I also don't love is that it's kind of slow… this slowness is part of why I think you guys can probably do a better job." Our nav must make Forms findable in one hop and load instantly.*
 

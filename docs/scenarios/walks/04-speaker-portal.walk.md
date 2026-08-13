@@ -60,7 +60,7 @@ Required DOM:
 **GAP (walk-03 G9, MINOR — shared):** `login.tsx`, the designated reference, carries neither `autocomplete` attribute today.
 
 ### Step 4 — login → portal Home
-`login.tsx` action verifies + `createSession` → `redirect(safeRedirect(redirectTo))` with `redirectTo=/portals/ai-engineer-sandbox/<portalId>/home` from step 1's gate. Works **only** because the gate supplied `redirectTo` (see H13). **OK**
+`login.tsx` action verifies + `createSession` → `redirect(safeRedirect(redirectTo))` with `redirectTo=/portals/northbound-ai-summit-2026/<portalId>/home` from step 1's gate. Works **only** because the gate supplied `redirectTo` (see H13). **OK**
 
 ### Step 5 — Home: submissions card, profile card, tasks panel
 Identity resolution (the helper H8 says should be shared):
@@ -129,7 +129,7 @@ route action calls the integration-owned spine, per CLAUDE.md wave 2:
 ```ts
 await acceptSubmission(db, { submissionId: evalsId });   // app/domain/accept.ts (mandated file)
 ```
-Detail URL recorded: `/portals/ai-engineer-sandbox/<portalId>/submissions/<evalsId>` (child of the
+Detail URL recorded: `/portals/northbound-ai-summit-2026/<portalId>/submissions/<evalsId>` (child of the
 `submissions` grant). **OK** — modulo H1 (`<portalId>`) and H11 (accept idempotency on re-accept).
 
 Scale signal: Home queries are `contact_id`-anchored (`participants_contact_idx`) — 8-row fan-out, not
@@ -697,8 +697,8 @@ Event resolution is a SELECT; `organizationId NOT NULL` constrains writers, and 
 the org side — the artifact still produces:
 
 ```sql
-SELECT id, organization_id, name, slug FROM events WHERE slug = 'ai-engineer-sandbox' LIMIT 1;
--- e_demo | org_demo | AI.Engineer Sandbox Event | ai-engineer-sandbox   (seed.sql:61-68)
+SELECT id, organization_id, name, slug FROM events WHERE slug = 'northbound-ai-summit-2026' LIMIT 1;
+-- e_demo | org_demo | Northbound AI Summit 2026 | northbound-ai-summit-2026   (seed.sql:61-68)
 ```
 The portal loader adds NO membership check — by design (design.md:111; tenancy gates admin
 surfaces, not speaker ones). H1 (`:portalId` homeless) stands: no `portals` table arrived in this

@@ -6,7 +6,7 @@ Walked 2026-08-09 against: `app/db/schema.ts`, `app/lib/auth.ts`, `app/ports/{em
 
 Conventions: SQL uses the real snake_case columns from schema.ts; TS uses the real exported symbols.
 `FORM` = the seeded session form (`forms.id='form_sessions'`, `public_id='form-sessions-uuid'`,
-event `e_demo`, slug `ai-engineer-sandbox`). FORM_URL = `/submit/ai-engineer-sandbox/form-sessions-uuid`.
+event `e_demo`, slug `northbound-ai-summit-2026`). FORM_URL = `/submit/northbound-ai-summit-2026/form-sessions-uuid`.
 
 ## Verdict up front — ranked gaps in this file
 
@@ -65,7 +65,7 @@ Stepper rail Welcome → Account → Submission → Participant → Review = SCO
 (Fixture note: seed sets no `submission_limit` and `close_at = unixepoch('2026-09-15')` which is 00:00 UTC, not 11:59 PM PDT — see G12.)
 
 ### Step 3 — Welcome rich text → Get Started
-`forms.welcome_html` + `forms.show_welcome` exist. Navigation to `/submit/ai-engineer-sandbox/form-sessions-uuid/step/account` (`submit.$eventSlug.$formId.step.account.tsx` under the ROUTE-MAP's `(+ .step.*)` grant). Client-side `<Link>` nav = no full reload. **OK**
+`forms.welcome_html` + `forms.show_welcome` exist. Navigation to `/submit/northbound-ai-summit-2026/form-sessions-uuid/step/account` (`submit.$eventSlug.$formId.step.account.tsx` under the ROUTE-MAP's `(+ .step.*)` grant). Client-side `<Link>` nav = no full reload. **OK**
 
 ### Step 4 — new email → signup branch → account created, logged in
 Email-first lookup (public, by design — flow 09 rule z):
@@ -151,7 +151,7 @@ await db.batch([
 ```
 
 All tables/columns exist; `db.batch` per the D1 rule. Wizard-step URL recorded for S7:
-`/submit/ai-engineer-sandbox/form-sessions-uuid/step/participant`. **OK** (review-page data source = G2 again).
+`/submit/northbound-ai-summit-2026/form-sessions-uuid/step/participant`. **OK** (review-page data source = G2 again).
 
 ### Step 8 — success page: sentinel message + portal button + submit-another
 Loader returns `forms.success_html` (step 1's sentinel) + `forms.auto_redirect` (default true). Both columns exist. **OK**
@@ -160,7 +160,7 @@ Loader returns `forms.success_html` (step 1's sentinel) + `forms.auto_redirect` 
 Client artifact is trivial (`setTimeout(() => navigate(portalUrl), 10_000)` gated on `autoRedirect`). The blocked part is `portalUrl` itself. ROUTE-MAP: `/portals/:eventSlug/:portalId/*`.
 
 ```
-portalUrl = `/portals/ai-engineer-sandbox/${???}/home`
+portalUrl = `/portals/northbound-ai-summit-2026/${???}/home`
 ```
 
 **GAP (G1, MAJOR):** nothing in `schema.ts` can fill `???`. There is no `portals` table (only `portal_forms`, a different thing), no `events.portal_id`, no per-contact portal uuid. SCOPE Appendix E says "portal-uuid". The CFP feature (this redirect + the email link) and the portal feature resolve this param independently — with no shared source of truth, PORTAL_URL is unmintable on paper.
@@ -297,7 +297,7 @@ FROM submissions
 WHERE form_id = 'form_sessions' AND submitter_id = :priyaUserId AND status = 'draft';
 -- index: submissions_submitter_idx / submissions_form_idx
 ```
-Resume URL: `/submit/ai-engineer-sandbox/form-sessions-uuid/submissions/<draftId>` — a reopen route in the flow-02 shape, but ROUTE-MAP's grant is `(+ .step.*)` only; a `submissions.$submissionId` child is a reasonable reading of the same row. **OK** (thin).
+Resume URL: `/submit/northbound-ai-summit-2026/form-sessions-uuid/submissions/<draftId>` — a reopen route in the flow-02 shape, but ROUTE-MAP's grant is `(+ .step.*)` only; a `submissions.$submissionId` child is a reasonable reading of the same row. **OK** (thin).
 
 ### Step 6 — pre-filled resume, no duplicate row
 Loader selects the draft row (`title`, `description` HTML with `<strong>durable</strong>` intact, `format_id`) + its `submission_answers`; the subsequent save/submit is an **UPDATE**, not INSERT:
@@ -334,7 +334,7 @@ await db.batch([
   ...srcFields.map((ff) => db.insert(formFields).values({ ...ff, id: crypto.randomUUID(), formId: panelId })),
 ]);
 ```
-`role_speaker_min/max` exist. PANEL_FORM_URL = `/submit/ai-engineer-sandbox/<newPublicId>`. **OK**
+`role_speaker_min/max` exist. PANEL_FORM_URL = `/submit/northbound-ai-summit-2026/<newPublicId>`. **OK**
 
 ### Steps 2–3 — banner "2-4 Speakers allowed - 1 added", progression blocked
 Server-side gate in the review/continue action:
@@ -426,7 +426,7 @@ if (limit !== null && used >= limit)
 **GAP (G7, MINOR):** the status set is my inference — the design states only that drafts count (P1 #4 "drafts count toward limits"). Withdrawn/declined counting is unadjudicated (a speaker who withdraws: does a slot free up?). And when the *event-level* fallback applies, whether the COUNT is scoped `form_id = ?` or `event_id = ?` (across forms) is unstated — the schema comment defines the *value* fallback, not the *counting scope*.
 
 ### Step 7 — forged POST rejected, nothing persisted
-The forged `POST /submit/ai-engineer-sandbox/form-sessions-uuid/step/review` (or the submit action route) hits the same action, which runs `requireUser` → the count above → returns 4xx before any insert:
+The forged `POST /submit/northbound-ai-summit-2026/form-sessions-uuid/step/review` (or the submit action route) hits the same action, which runs `requireUser` → the count above → returns 4xx before any insert:
 
 ```ts
 if (limit !== null && used >= limit) throw data({ error: "Submission limit reached." }, { status: 422 });
@@ -459,7 +459,7 @@ const isClosed = (form: Form, clock: Clock) =>
 Public loader runs `isClosed` → renders event name + "Form submissions are no longer being accepted." with no Get Started. Branded page = normal route render, not ErrorBoundary. **OK** (with G8's predicate as the artifact).
 
 ### Step 3 — deep-link probe on the recorded step URL
-`/submit/ai-engineer-sandbox/form-sessions-uuid/step/participant` — EVERY `.step.*` loader must run the same check. No shared layout/util is designated for the `.step.*` family; if the check lives only in the index route, the deep link walks past it. Serviceable (a `submit.$eventSlug.$formId.tsx` layout route wrapping the steps runs its loader on child navigation), but unstated. **OK, thin — fold into G8's "one stated rule" remedy.**
+`/submit/northbound-ai-summit-2026/form-sessions-uuid/step/participant` — EVERY `.step.*` loader must run the same check. No shared layout/util is designated for the `.step.*` family; if the check lives only in the index route, the deep link walks past it. Serviceable (a `submit.$eventSlug.$formId.tsx` layout route wrapping the steps runs its loader on child navigation), but unstated. **OK, thin — fold into G8's "one stated rule" remedy.**
 
 ### Step 4 — Ravi's draft can't be resumed into a submission
 Resume loader + save/submit actions run `isClosed` first → the draft renders read-only/blocked ("the edit window ends at the close date" = flow-09 rule a). **OK**
@@ -603,7 +603,7 @@ The serving artifact is byte-identical (`UPDATE forms SET success_html=… WHERE
 ```sql
 SELECT f.*, e.name, e.timezone, e.submission_limit
 FROM forms f JOIN events e ON e.id = f.event_id
-WHERE f.public_id = 'form-sessions-uuid' AND e.slug = 'ai-engineer-sandbox';
+WHERE f.public_id = 'form-sessions-uuid' AND e.slug = 'northbound-ai-summit-2026';
 -- e.organization_id ('org_demo') is on the row and simply unread; no auth, no membership
 ```
 
@@ -654,7 +654,7 @@ The submit batch writes `submissions.event_id` copied from `form.eventId` — su
 `forms.success_html` + `forms.auto_redirect` reads; no tenancy column.
 
 ### CFP-S1 step 9 — UNCHANGED
-Tenancy adds nothing to the redirect: `portals` hangs off `event_id` (org derivable), and the seeded `portal_demo` (`public_id='portal-demo-uuid'`) makes `PORTAL_URL = /portals/ai-engineer-sandbox/portal-demo-uuid/…` mintable — G1's premise dissolved by the pre-tenancy `portals` table (baseline-drift note above), not by this migration.
+Tenancy adds nothing to the redirect: `portals` hangs off `event_id` (org derivable), and the seeded `portal_demo` (`public_id='portal-demo-uuid'`) makes `PORTAL_URL = /portals/northbound-ai-summit-2026/portal-demo-uuid/…` mintable — G1's premise dissolved by the pre-tenancy `portals` table (baseline-drift note above), not by this migration.
 
 ### CFP-S1 step 10 — UNCHANGED
 `emailTemplates`/`emailOutbox` stay event-keyed (`email_outbox.event_id` nullable ref — untouched). The gate determination matters: the portal login gate is `requireUser` (speaker), **not** an org-membership check — a membership-gated portal would lock out every speaker, and the design pins "speaker/reviewer landing unchanged" (Verification §Regression, lines 144–145). G5 (merge-tag renderer) stands as filed — no tenancy interaction.

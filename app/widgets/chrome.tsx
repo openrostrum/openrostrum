@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { isRouteErrorResponse } from "react-router";
 import { ThemeToggle } from "~/components/theme-toggle";
 import { ButtonLink, EmptyState, InkLink, Mark, Tab, Tabs } from "~/ui";
-import type { ProgramEvent } from "~/lib/program-types";
+import { programWhenWhere, type ProgramEvent } from "~/lib/program-types";
 
 /**
  * Chrome for the anonymous program surfaces. Like app/marketing, this is a
@@ -38,9 +38,9 @@ export function ProgramShell({
 						<h1 className="font-display text-[26px] font-semibold tracking-[-0.01em] text-fg">
 							{event.name}
 						</h1>
-						{(event.dateRange || event.location) && (
+						{programWhenWhere(event) && (
 							<p className="mt-1 text-[13.5px] text-fg-muted">
-								{[event.dateRange, event.location].filter(Boolean).join(" · ")}
+								{programWhenWhere(event)}
 							</p>
 						)}
 					</div>
@@ -82,9 +82,9 @@ export function EmbedShell({
 				<p className="font-display text-[17px] font-semibold text-fg">
 					{event.name}
 				</p>
-				{event.dateRange && (
+				{programWhenWhere(event) && (
 					<p className="mt-0.5 text-[12.5px] text-fg-muted">
-						{event.dateRange}
+						{programWhenWhere(event)}
 					</p>
 				)}
 			</header>

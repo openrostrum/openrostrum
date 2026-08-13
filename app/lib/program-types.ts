@@ -65,6 +65,15 @@ export type ProgramEvent = {
 	dateRange: string | null;
 };
 
+/** Dates and city on one line; no dangling separator when either side is empty. */
+export function programWhenWhere(event: {
+	dateRange: string | null;
+	location: string | null;
+}): string | null {
+	const line = [event.dateRange, event.location].filter(Boolean).join(" · ");
+	return line || null;
+}
+
 export type ProgramFacets = {
 	tracks: Array<{ id: string; name: string }>;
 	formats: Array<{ id: string; name: string }>;

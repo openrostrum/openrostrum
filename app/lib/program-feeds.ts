@@ -1,9 +1,10 @@
 import { formatRole } from "~/lib/format";
 import { buildIcs } from "~/lib/ics";
-import type {
-	ProgramEvent,
-	PublicSession,
-	PublicSpeakerProfile,
+import {
+	programWhenWhere,
+	type ProgramEvent,
+	type PublicSession,
+	type PublicSpeakerProfile,
 } from "~/lib/program-types";
 
 /**
@@ -247,6 +248,7 @@ export function sessionsToBasicHtml(
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(event.name)} — Sessions</title></head>
 <body class="or-embed">
 <h1>${esc(event.name)}</h1>
+	${programWhenWhere(event) ? `<p class="or-when">${esc(programWhenWhere(event) ?? "")}</p>` : ""}
 ${items || "<p>No published sessions yet.</p>"}
 </body>
 </html>`;
@@ -272,6 +274,7 @@ export function speakersToBasicHtml(
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(event.name)} — Speakers</title></head>
 <body class="or-embed">
 <h1>${esc(event.name)}</h1>
+	${programWhenWhere(event) ? `<p class="or-when">${esc(programWhenWhere(event) ?? "")}</p>` : ""}
 ${items || "<p>No published speakers yet.</p>"}
 </body>
 </html>`;

@@ -9,8 +9,14 @@
  * `date` — "Oct 12, 2026" · `time` — "10:00 AM"
  * `datetime` — "Oct 12, 2026, 10:00 AM" · `datetime-zone` adds "PDT", for
  * surfaces where the reader is deciding across zones (sync history, deadlines).
+ * `time-zone` — "10:00 AM PDT", for public session times a traveler is reading.
  */
-export type TimeStyle = "date" | "time" | "datetime" | "datetime-zone";
+export type TimeStyle =
+	| "date"
+	| "time"
+	| "datetime"
+	| "datetime-zone"
+	| "time-zone";
 
 export function formatInTimeZone(
 	date: Date | null | undefined,
@@ -19,13 +25,16 @@ export function formatInTimeZone(
 ): string {
 	if (!date) return "—";
 	const options: Intl.DateTimeFormatOptions = {
-		...(style !== "time" && {
-			month: "short",
-			day: "numeric",
-			year: "numeric",
-		}),
+		...(style !== "time" &&
+			style !== "time-zone" && {
+				month: "short",
+				day: "numeric",
+				year: "numeric",
+			}),
 		...(style !== "date" && { hour: "numeric", minute: "2-digit" }),
-		...(style === "datetime-zone" && { timeZoneName: "short" }),
+		...((style === "datetime-zone" || style === "time-zone") && {
+			timeZoneName: "short",
+		}),
 	};
 	try {
 		return new Intl.DateTimeFormat("en-US", { ...options, timeZone }).format(

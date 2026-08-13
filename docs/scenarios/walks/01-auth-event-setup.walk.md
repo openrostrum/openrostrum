@@ -571,7 +571,7 @@ SELECT e.id, e.name, e.slug
   JOIN organization_members om ON om.organization_id = e.organization_id
  WHERE om.user_id = 'u_admin'
  ORDER BY e.created_at;
--- → 'AI.Engineer Sandbox Event' (e_demo) + 'DevOps Days Lyon 2027' — both org_demo, both listed.
+-- → 'Northbound AI Summit 2026' (e_demo) + 'DevOps Days Lyon 2027' — both org_demo, both listed.
 
 -- switch action (unchanged shape):
 UPDATE users SET active_event_id = :newEventId WHERE id = 'u_admin';
