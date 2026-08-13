@@ -35,6 +35,7 @@ import { createTimings, track } from "~/lib/track";
 import {
 	Button,
 	Chip,
+	EmptyLine,
 	EmptyRow,
 	ErrorText,
 	Field,
@@ -689,13 +690,19 @@ export default function Reviewers({
 							<Td kind="strong">{r.name ?? "—"}</Td>
 							<Td kind="mono">{r.email}</Td>
 							<Td>
-								<div className="flex flex-wrap gap-3">
-									{r.tracks.map((t) => (
-										<Chip key={t.id} color={t.color}>
-											{t.name}
-										</Chip>
-									))}
-								</div>
+								{r.tracks.length === 0 ? (
+									<EmptyLine>
+										No tracks — they only see talks you assign.
+									</EmptyLine>
+								) : (
+									<div className="flex flex-wrap gap-3">
+										{r.tracks.map((t) => (
+											<Chip key={t.id} color={t.color}>
+												{t.name}
+											</Chip>
+										))}
+									</div>
+								)}
 							</Td>
 							<Td kind="mono">
 								{r.completed}/{r.assigned}

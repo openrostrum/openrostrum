@@ -623,8 +623,6 @@ export default function SessionStep({
 							{saveFetcher.state !== "idle" ? "Saving…" : "Save as draft"}
 						</Button>
 					)}
-					{/* Advancing while a draft save is in flight would carry a stale
-					    (sid-less) wizard state into the review step — busy covers it. */}
 					<Button type="button" disabled={busy} onClick={advance}>
 						{layout.form.participantsStep
 							? "Next step →"
