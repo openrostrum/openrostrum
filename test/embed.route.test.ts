@@ -84,6 +84,50 @@ describe("embed render route", () => {
 		);
 	});
 
+	it("hides Track only when the organizer hid that field on the embed", async () => {
+		await seedProgram();
+		await getDb(env)
+			.insert(embeds)
+			.values([
+				{
+					id: "emb-agenda-shown",
+					eventId: "e1",
+					publicId: "pub-emb-agenda-shown",
+					name: "Agenda with tracks",
+					type: "agenda",
+					enabled: true,
+					config: {},
+				},
+				{
+					id: "emb-agenda-hidden",
+					eventId: "e1",
+					publicId: "pub-emb-agenda-hidden",
+					name: "Agenda without tracks",
+					type: "agenda",
+					enabled: true,
+					config: { hiddenFields: ["track"] },
+				},
+			]);
+
+		const shown = unwrap<EmbedData>(
+			await callEmbed("pub-emb-agenda-shown", "?session=s1"),
+		);
+		expect(renderEmbed(shown.data, "pub-emb-agenda-shown")).toContain(
+			">Track</span>",
+		);
+		expect(renderEmbed(shown.data, "pub-emb-agenda-shown")).toContain(
+			"Platform &amp; Infra",
+		);
+
+		const hidden = unwrap<EmbedData>(
+			await callEmbed("pub-emb-agenda-hidden", "?session=s1"),
+		);
+		const hiddenHtml = renderEmbed(hidden.data, "pub-emb-agenda-hidden");
+		expect(hiddenHtml).toContain("Taming 40-Minute CI");
+		expect(hiddenHtml).not.toContain(">Track</span>");
+		expect(hiddenHtml).not.toContain("Platform &amp; Infra");
+	});
+
 	it("agenda-type embeds respect the publish gate", async () => {
 		await seedProgram({ agendaPublished: false });
 		await getDb(env).insert(embeds).values({
