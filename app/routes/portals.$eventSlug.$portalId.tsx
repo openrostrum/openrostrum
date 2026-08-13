@@ -8,20 +8,48 @@ import {
 import { PortalBrand } from "~/components/portal-brand";
 import { FooterNote } from "~/components/portal/bits";
 import { ThemeToggle } from "~/components/theme-toggle";
-import { getPortalContext, portalPath } from "~/domain/portal";
+import {
+	type AccessiblePortal,
+	getPortalContext,
+	listAccessiblePortals,
+	portalPath,
+} from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { useBusy } from "~/lib/use-busy";
-import { Button, Input, PageHeader, Panel, StatusBadge, Tab, Tabs } from "~/ui";
+import {
+	Button,
+	Input,
+	PageHeader,
+	Panel,
+	StatusBadge,
+	Tab,
+	Tabs,
+	TextLink,
+} from "~/ui";
 import type { Route } from "./+types/portals.$eventSlug.$portalId";
 
 /**
  * Portal shell. This loader gates GET navigation, but children still
  * self-authenticate — single-fetch can run a child loader alone.
  */
+export type PortalShellData = {
+	base: string;
+	portal: {
+		name: string;
+		accentColor: string | null;
+		hasLogo: boolean;
+	};
+	eventName: string;
+	user: { name: string | null; email: string };
+	preview: { contactName: string } | null;
+	portals: AccessiblePortal[];
+};
+
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
 	const ctx = await getPortalContext(env, user, params, request);
+	const accessible = ctx.preview ? [] : await listAccessiblePortals(env, user);
 	return {
 		base: portalPath(ctx),
 		portal: {
@@ -32,6 +60,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 		eventName: ctx.event.name,
 		user: { name: ctx.contact?.firstName ?? user.name, email: user.email },
 		preview: ctx.preview,
+		portals: accessible,
 	};
 }
 
@@ -44,7 +73,7 @@ const TABS = [
 ] as const;
 
 export default function PortalShell({ loaderData }: Route.ComponentProps) {
-	const { base, portal, eventName, user, preview } = loaderData;
+	const { base, portal, eventName, user, preview, portals } = loaderData;
 	const { pathname } = useLocation();
 	const busy = useBusy();
 	return (
@@ -68,12 +97,23 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 			)}
 			<header className="flex flex-col gap-4">
 				<div className="flex flex-wrap items-center justify-between gap-4">
-					<PortalBrand
-						name={portal.name}
-						eventName={eventName}
-						accentColor={portal.accentColor}
-						logoUrl={portal.hasLogo ? `${base}/logo` : null}
-					/>
+					<div className="flex flex-col gap-2">
+						<PortalBrand
+							name={portal.name}
+							eventName={eventName}
+							accentColor={portal.accentColor}
+							logoUrl={portal.hasLogo ? `${base}/logo` : null}
+						/>
+						{portals.length > 1 && (
+							<ul className="flex flex-wrap gap-3">
+								{portals.map((item) => (
+									<li key={item.href}>
+										<TextLink to={item.href}>{item.eventName}</TextLink>
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
 					<Form method="post" action="/logout">
 						<Button type="submit" variant="ghost" icon="logout" disabled={busy}>
 							Log out

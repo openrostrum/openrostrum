@@ -1,95 +1,64 @@
-import { and, desc, eq, sql } from "drizzle-orm";
-import { redirect } from "react-router";
-import { getDb } from "~/db";
-import {
-	contactIdentityAliases,
-	contacts,
-	events,
-	portals,
-	submissions,
-} from "~/db/schema";
-import { normalizeEmail, requireUser } from "~/lib/auth";
+import { data, redirect } from "react-router";
 import { FullPageEmptyState } from "~/components/full-page-empty-state";
+import { type AccessiblePortal, listAccessiblePortals } from "~/domain/portal";
+import { requireUser } from "~/lib/auth";
+import { createTimings } from "~/lib/track";
+import { PageHeader, Panel, TextLink } from "~/ui";
 import type { Route } from "./+types/portal";
 
+export type PortalResolverData = {
+	choices: AccessiblePortal[];
+};
+
+export function headers({ loaderHeaders }: Route.HeadersArgs) {
+	return loaderHeaders;
+}
+
 /**
- * Speaker landing after a bare login (homePathForRole → /portal): resolve the
- * user to their portal — most recent contact link first (email-matched
- * contacts count, mirroring the portal-entry backlink), then events they
- * submitted to. First match wins.
+ * Speaker landing after a bare login (homePathForRole → /portal). One
+ * accessible portal still redirects; more than one stays here as a chooser.
  */
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const user = await requireUser(env, request);
-	const db = getDb(env);
-
-	const linked = await db
-		.select({ eventId: contacts.eventId, createdAt: contacts.createdAt })
-		.from(contacts)
-		.where(eq(contacts.userId, user.id))
-		.orderBy(desc(contacts.createdAt))
-		.limit(1);
-	const byEmail = linked.length
-		? []
-		: await db
-				.select({ eventId: contacts.eventId, createdAt: contacts.createdAt })
-				.from(contacts)
-				.where(eq(contacts.email, normalizeEmail(user.email)))
-				.orderBy(desc(contacts.createdAt))
-				.limit(1);
-	const aliased =
-		linked.length || byEmail.length
-			? []
-			: await db
-					.select({ eventId: contacts.eventId, createdAt: contacts.createdAt })
-					.from(contactIdentityAliases)
-					.innerJoin(
-						events,
-						eq(events.organizationId, contactIdentityAliases.organizationId),
-					)
-					.innerJoin(
-						contacts,
-						and(
-							eq(contacts.eventId, events.id),
-							sql`lower(${contacts.email}) = ${contactIdentityAliases.survivorEmail}`,
-						),
-					)
-					.where(eq(contactIdentityAliases.sourceUserId, user.id))
-					.orderBy(desc(contacts.createdAt))
-					.limit(1);
-	const submitted =
-		linked.length || byEmail.length || aliased.length
-			? []
-			: await db
-					.select({ eventId: submissions.eventId })
-					.from(submissions)
-					.where(eq(submissions.submitterId, user.id))
-					.orderBy(desc(submissions.createdAt))
-					.limit(1);
-
-	const eventId =
-		linked[0]?.eventId ??
-		byEmail[0]?.eventId ??
-		aliased[0]?.eventId ??
-		submitted[0]?.eventId;
-	if (!eventId) return {};
-
-	const [row] = await db
-		.select({ slug: events.slug, publicId: portals.publicId })
-		.from(portals)
-		.innerJoin(events, eq(events.id, portals.eventId))
-		.where(eq(portals.eventId, eventId))
-		.limit(1);
-	if (!row) return {};
-	throw redirect(`/portals/${row.slug}/${row.publicId}/home`);
+	const timings = createTimings();
+	const accessible = await timings.time("db", () =>
+		listAccessiblePortals(env, user),
+	);
+	const headers = { "Server-Timing": timings.header() };
+	if (accessible.length === 1) {
+		const [only] = accessible;
+		if (only) throw redirect(only.href);
+	}
+	return data({ choices: accessible }, { headers });
 }
 
-export default function PortalResolver() {
+export default function PortalResolver({ loaderData }: Route.ComponentProps) {
+	const { choices } = loaderData;
+	if (choices.length === 0) {
+		return (
+			<FullPageEmptyState
+				icon="mic"
+				title="No portal access yet"
+				body="Your speaker portal appears once you submit to an event's call for papers, or once an organizer adds you to a session. Use the portal link from your confirmation email if you have one."
+			/>
+		);
+	}
 	return (
-		<FullPageEmptyState
-			icon="mic"
-			title="No portal access yet"
-			body="Your speaker portal appears once you submit to an event's call for papers, or once an organizer adds you to a session. Use the portal link from your confirmation email if you have one."
-		/>
+		<main className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center gap-6 px-6">
+			<PageHeader
+				title="Choose an event"
+				subtitle="You have a speaker portal in more than one event. Open the one you want to work in."
+			/>
+			<Panel>
+				<ul className="flex flex-col gap-3">
+					{choices.map((choice) => (
+						<li key={choice.href}>
+							<TextLink to={choice.href}>{choice.eventName}</TextLink>
+						</li>
+					))}
+				</ul>
+			</Panel>
+		</main>
 	);
 }
