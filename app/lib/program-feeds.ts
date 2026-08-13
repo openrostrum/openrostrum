@@ -191,10 +191,19 @@ export function agendaToIcs(
 			start: new Date(s.startsAtIso as string),
 			end: new Date(s.endsAtIso as string),
 			title: s.title,
-			location: s.room ?? undefined,
+			// Calendar entries travel without the page header.
+			location: icsLocation(s.room, event.location),
 			description: icsDescription(s),
 		})),
 	});
+}
+
+function icsLocation(
+	room: string | null,
+	eventLocation: string | null,
+): string | undefined {
+	const line = [room, eventLocation].filter(Boolean).join(", ");
+	return line || undefined;
 }
 
 function icsDescription(s: PublicSession): string {
