@@ -6,8 +6,8 @@
 
 export const GETTING_STARTED_STEPS = [
 	"basics",
-	"program",
 	"cfp",
+	"program",
 	"reviewers",
 	"first_submission",
 ] as const;

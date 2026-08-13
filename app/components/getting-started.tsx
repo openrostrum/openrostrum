@@ -10,7 +10,7 @@ import { CopyButton } from "./copy-button";
 import { SectionHeading } from "./section-heading";
 import { StepMarker } from "./step-marker";
 
-const STEP_COPY: Record<
+export const STEP_COPY: Record<
 	GettingStartedStepId,
 	{ title: string; why: string; to: string; action: string }
 > = {
@@ -20,17 +20,17 @@ const STEP_COPY: Record<
 		to: "/admin/settings",
 		action: "Open settings",
 	},
-	program: {
-		title: "Set up tracks and formats",
-		why: "They drive the dropdowns on your form, reviewer routing, and the agenda.",
-		to: "/admin/settings/library",
-		action: "Open library",
-	},
 	cfp: {
 		title: "Build and publish your submission form",
 		why: "Publishing creates the public link speakers use to send proposals.",
 		to: "/admin/forms",
 		action: "Open forms",
+	},
+	program: {
+		title: "Set up tracks and formats",
+		why: "They drive the dropdowns on your form, reviewer routing, and the agenda.",
+		to: "/admin/settings/library",
+		action: "Open library",
 	},
 	reviewers: {
 		title: "Invite reviewers",
@@ -57,15 +57,25 @@ export function GettingStartedCard({
 	cfpUrl: string | null;
 }) {
 	const busy = useBusy();
+	const firstTalkLanded =
+		state.steps.find((s) => s.id === "first_submission")?.done === true;
+	const cfpPublished = state.steps.find((s) => s.id === "cfp")?.done === true;
 	return (
 		<Panel>
 			<div className="flex flex-col gap-1">
 				<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
 					<div className="flex flex-col gap-1">
-						<SectionHeading>Getting started</SectionHeading>
+						<SectionHeading>
+							{firstTalkLanded
+								? "Finish setup — tracks, reviewers, …"
+								: "Getting started"}
+						</SectionHeading>
 						<p className="text-[12.5px] text-fg-muted">
-							Five steps from an empty event to your first submission. This card
-							disappears once everything is done.
+							{firstTalkLanded
+								? cfpPublished
+									? "Your CFP is live. This card disappears once everything is done."
+									: "A talk has landed. This card disappears once everything is done."
+								: "Five steps from an empty event to your first submission. This card disappears once everything is done."}
 						</p>
 					</div>
 					<div className="ml-auto flex items-center gap-3">

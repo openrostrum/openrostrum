@@ -1,5 +1,8 @@
 import { env } from "cloudflare:test";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
 import { eq } from "drizzle-orm";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
@@ -14,7 +17,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword } from "../app/lib/auth";
-import { action, loader } from "../app/routes/admin._index";
+import AdminDashboard, { action, loader } from "../app/routes/admin._index";
 import {
 	authedRequest,
 	CONTEXT,
@@ -87,6 +90,20 @@ function getRequest(cookies: string[]): Request {
 	return new Request("http://localhost/admin", {
 		headers: { Cookie: cookies.join("; ") },
 	});
+}
+function renderDashboard(loaderData: FullData): string {
+	const RouteComponent = AdminDashboard as unknown as ComponentType<{
+		loaderData: unknown;
+	}>;
+	const RoutesStub = createRoutesStub([
+		{
+			path: "/admin",
+			Component: () => createElement(RouteComponent, { loaderData }),
+		},
+	]);
+	return renderToString(
+		createElement(RoutesStub, { initialEntries: ["/admin"] }),
+	);
 }
 
 describe("getting-started derivation from live rows", () => {
@@ -292,5 +309,77 @@ describe("getting-started dismissal", () => {
 		const response = await runAction(post);
 		expect(response.status).toBe(302);
 		expect(response.headers.get("Set-Cookie")).toBeNull();
+	});
+});
+
+describe("dashboard does not congratulate and warn at once", () => {
+	it("does not say All clear while getting started is still open", async () => {
+		const { sessionCookie } = await freshOrgAdmin("setupopen");
+		const data = await runLoader(getRequest([sessionCookie]));
+		expect(data.gettingStarted.complete).toBe(false);
+		expect(data.gettingStarted.dismissed).toBe(false);
+		expect(data.statusCounts.pending).toBe(0);
+
+		const html = renderDashboard(data);
+		expect(html).not.toContain("All clear");
+		expect(html).toContain("Confirm your event basics");
+	});
+
+	it("does not say All clear when a pending talk sits on unfinished setup", async () => {
+		const { db, eventId, sessionCookie } = await freshOrgAdmin("pendinggs");
+		await db.insert(submissions).values({
+			id: "s_pending_gs",
+			eventId,
+			title: "A talk that already landed",
+			status: "pending",
+		});
+		const data = await runLoader(getRequest([sessionCookie]));
+		expect(data.gettingStarted.complete).toBe(false);
+		expect(data.gettingStarted.dismissed).toBe(false);
+		expect(stepDone(data, "first_submission")).toBe(true);
+		expect(data.statusCounts.pending).toBe(1);
+
+		const html = renderDashboard(data);
+		expect(html).not.toContain("All clear");
+		expect(html).toMatch(/pending submission/i);
+		expect(html).not.toContain("empty event");
+	});
+
+	it("stops calling the event empty once the first talk has landed", async () => {
+		const { db, eventId, sessionCookie } = await freshOrgAdmin("livecfp");
+		await db.insert(submissions).values({
+			id: "s_first_landed",
+			eventId,
+			title: "First talk in",
+			status: "pending",
+		});
+		const data = await runLoader(getRequest([sessionCookie]));
+		expect(stepDone(data, "first_submission")).toBe(true);
+		expect(data.gettingStarted.complete).toBe(false);
+
+		const html = renderDashboard(data);
+		expect(html).toContain("Finish setup");
+		expect(html).not.toContain("empty event");
+	});
+
+	it("still hides the card after dismiss-getting-started", async () => {
+		const { sessionCookie } = await freshOrgAdmin("hidecard");
+		const post = new Request("http://localhost/admin", {
+			...postForm({ intent: "dismiss-getting-started" }),
+			headers: {
+				Cookie: sessionCookie,
+				"Content-Type": "application/x-www-form-urlencoded",
+			},
+		});
+		const response = await runAction(post);
+		const gsCookie =
+			(response.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "";
+		const data = await runLoader(getRequest([sessionCookie, gsCookie]));
+		expect(data.gettingStarted.dismissed).toBe(true);
+		expect(data.gettingStarted.complete).toBe(false);
+
+		const html = renderDashboard(data);
+		expect(html).not.toContain("Getting started");
+		expect(html).not.toContain("Finish setup");
 	});
 });
