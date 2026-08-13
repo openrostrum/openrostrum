@@ -201,7 +201,7 @@ describe("task definitions", () => {
 		const request = await authedRequest(
 			"http://localhost/admin/tasks",
 			{},
-			postForm("http://localhost/admin/tasks", {
+			postForm({
 				intent: "create-task",
 				name: "   ",
 				type: "contact",
@@ -224,7 +224,7 @@ describe("task definitions", () => {
 		const request = await authedRequest(
 			"http://localhost/admin/tasks",
 			{},
-			postForm("http://localhost/admin/tasks", {
+			postForm({
 				intent: "create-task",
 				name: "Task Alpha",
 				type: "contact",
@@ -268,7 +268,7 @@ describe("task definitions", () => {
 		const request = await authedRequest(
 			"http://localhost/admin/tasks",
 			{},
-			postForm("http://localhost/admin/tasks", {
+			postForm({
 				intent: "create-task",
 				name: "AV Requirements Check",
 				type: "contact",
@@ -318,7 +318,7 @@ describe("task definitions", () => {
 		const request = await authedRequest(
 			"http://localhost/admin/tasks",
 			{},
-			postForm("http://localhost/admin/tasks", {
+			postForm({
 				intent: "create-task",
 				name: "Sneaky",
 				type: "contact",
@@ -345,7 +345,7 @@ describe("bulk assignment", () => {
 		const request = await authedRequest(
 			"http://localhost/admin/tasks",
 			{},
-			postForm("http://localhost/admin/tasks", {
+			postForm({
 				intent: "assign-task",
 				taskId,
 				target,
@@ -536,7 +536,7 @@ describe("bulk reminder (manual)", () => {
 		const request = await authedRequest(
 			"http://localhost/admin/tasks",
 			{},
-			postForm("http://localhost/admin/tasks", {
+			postForm({
 				intent: "remind-outstanding",
 				taskId: "",
 			}),

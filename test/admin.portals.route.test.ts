@@ -98,7 +98,7 @@ describe("portals admin — start/exit preview", () => {
 			request: await authedRequest(
 				"http://localhost/admin/portals",
 				{},
-				postForm("http://localhost/admin/portals", {
+				postForm({
 					intent: "start-preview",
 					contactId: "c_priya",
 					portalPublicId: "portal-public-1",
@@ -126,7 +126,7 @@ describe("portals admin — start/exit preview", () => {
 				request: await authedRequest(
 					"http://localhost/admin/portals",
 					{},
-					postForm("http://localhost/admin/portals", {
+					postForm({
 						intent: "start-preview",
 						...forged,
 					}),
@@ -147,7 +147,7 @@ describe("portals admin — start/exit preview", () => {
 			request: await authedRequest(
 				"http://localhost/admin/portals",
 				{},
-				postForm("http://localhost/admin/portals", {
+				postForm({
 					intent: "exit-preview",
 				}),
 			),
@@ -167,7 +167,7 @@ describe("portals admin — start/exit preview", () => {
 			request: await authedRequest(
 				"http://localhost/admin/portals",
 				{ role: "speaker" },
-				postForm("http://localhost/admin/portals", {
+				postForm({
 					intent: "start-preview",
 					contactId: "c_priya",
 					portalPublicId: "portal-public-1",

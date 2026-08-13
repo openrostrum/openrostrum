@@ -238,7 +238,7 @@ describe("getting-started dismissal", () => {
 	it("dismiss → hidden for that admin+event; a teammate still sees it", async () => {
 		const { sessionCookie } = await freshOrgAdmin("dismiss");
 		const post = new Request("http://localhost/admin", {
-			...postForm("http://localhost/admin", {
+			...postForm({
 				intent: "dismiss-getting-started",
 			}),
 			headers: {
@@ -283,7 +283,7 @@ describe("getting-started dismissal", () => {
 	it("an unrelated POST intent redirects without touching the cookie", async () => {
 		const { sessionCookie } = await freshOrgAdmin("nointent");
 		const post = new Request("http://localhost/admin", {
-			...postForm("http://localhost/admin", { intent: "something-else" }),
+			...postForm({ intent: "something-else" }),
 			headers: {
 				Cookie: sessionCookie,
 				"Content-Type": "application/x-www-form-urlencoded",

@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import { files } from "../app/db/schema";
 import { crc32, zipStream } from "../app/lib/zip";
 import { loader as exportLoader } from "../app/routes/admin.files.export[.zip]";
-import { CONTEXT, authedRequest } from "./tasks-fixtures";
 import {
 	catchThrown,
 	parseZip,
 	seedFilesWorld,
 	thrownStatus,
 } from "./files.helpers";
+import { authedRequest, CONTEXT } from "./tasks-fixtures";
 
 type ExportArgs = Parameters<typeof exportLoader>[0];
 
@@ -194,6 +194,102 @@ describe("bulk ZIP export", () => {
 		expect(thrownStatus(empty)).toBe(400);
 		const foreign = await catchThrown(() => exportZip("?fileIds=f_foreign"));
 		expect(thrownStatus(foreign)).toBe(404);
+	});
+
+	it("puts every latest file in one folder when grouping is flat", async () => {
+		await seedExportWorld();
+		const entries = await exportZip("?all=1&group=flat");
+		const byPath = new Map(
+			entries.map((e) => [e.path, new TextDecoder().decode(e.data)]),
+		);
+		expect([...byPath.keys()].sort()).toEqual([
+			"Files/deck.pdf",
+			"Files/handout.pdf",
+			"Files/headshot.png",
+			"Files/slides.pdf",
+		]);
+		expect(byPath.get("Files/slides.pdf")).toBe("slides v2 FINAL");
+	});
+
+	it("keeps session/speaker folders when grouping is omitted or unrecognized", async () => {
+		await seedExportWorld();
+		const omitted = await exportZip("?all=1");
+		const bogus = await exportZip("?all=1&group=track");
+		expect(omitted.map((e) => e.path).sort()).toEqual([
+			"Priya Sharma/headshot.png",
+			"Talk A/handout.pdf",
+			"Talk A/slides.pdf",
+			"Talk B/deck.pdf",
+		]);
+		expect(bogus.map((e) => e.path).sort()).toEqual(
+			omitted.map((e) => e.path).sort(),
+		);
+	});
+
+	it("preflight reports the latest-file count without building a zip", async () => {
+		await seedExportWorld();
+		const request = await authedRequest(
+			"http://localhost/admin/files/export.zip?all=1&preflight=1",
+		);
+		const response = (await exportLoader({
+			context: CONTEXT,
+			request,
+			params: {},
+		} as unknown as ExportArgs)) as Response;
+		expect(response.headers.get("Content-Type")).toMatch(/application\/json/);
+		expect(await response.json()).toEqual({ files: 4, totalBytes: 45 });
+	});
+
+	it("preflight uses the same empty and oversize gates as the download", async () => {
+		const db = await seedFilesWorld();
+		const emptyRequest = await authedRequest(
+			"http://localhost/admin/files/export.zip?preflight=1",
+		);
+		const empty = (await exportLoader({
+			context: CONTEXT,
+			request: emptyRequest,
+			params: {},
+		} as unknown as ExportArgs)) as Response;
+		expect(empty.status).toBe(400);
+		expect(await empty.json()).toEqual({
+			error: "Select at least one file to export.",
+		});
+
+		await db.insert(files).values([
+			{
+				id: "f_big1",
+				eventId: "e1",
+				submissionId: "s1",
+				r2Key: "z/big1",
+				fileName: "raw-video-1.zip",
+				kind: "other",
+				sizeBytes: 600 * 1024 * 1024,
+				version: 1,
+			},
+			{
+				id: "f_big2",
+				eventId: "e1",
+				submissionId: "s2",
+				r2Key: "z/big2",
+				fileName: "raw-video-2.zip",
+				kind: "other",
+				sizeBytes: 600 * 1024 * 1024,
+				version: 1,
+			},
+		]);
+		const oversizeRequest = await authedRequest(
+			"http://localhost/admin/files/export.zip?all=1&preflight=1",
+		);
+		const oversize = (await exportLoader({
+			context: CONTEXT,
+			request: oversizeRequest,
+			params: {},
+		} as unknown as ExportArgs)) as Response;
+		expect(oversize.status).toBe(400);
+		expect(await oversize.json()).toEqual({
+			error:
+				"This selection exceeds the 1 GB archive limit — narrow the selection.",
+		});
 	});
 
 	it("refuses a selection whose metadata exceeds the 1 GB archive limit", async () => {

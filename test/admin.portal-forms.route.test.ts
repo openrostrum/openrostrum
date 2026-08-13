@@ -58,7 +58,7 @@ async function post(
 		request: await authedRequest(
 			"http://localhost/admin/portal-forms",
 			opts,
-			postForm("http://localhost/admin/portal-forms", fields),
+			postForm(fields),
 		),
 		params: {},
 	} as unknown as Parameters<typeof action>[0]);
@@ -150,7 +150,7 @@ describe("portal-form builder — create", () => {
 			request: await authedRequest(
 				"http://localhost/admin/tasks",
 				{},
-				postForm("http://localhost/admin/tasks", {
+				postForm({
 					intent: "create-task",
 					name: "AV Requirements Check",
 					type: "contact",

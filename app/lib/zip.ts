@@ -172,9 +172,13 @@ export function zipStream(
 	const iterator = generate();
 	return new ReadableStream<Uint8Array>({
 		async pull(controller) {
-			const { done, value } = await iterator.next();
-			if (done) controller.close();
-			else controller.enqueue(value);
+			try {
+				const { done, value } = await iterator.next();
+				if (done) controller.close();
+				else controller.enqueue(value);
+			} catch (error) {
+				controller.error(error);
+			}
 		},
 		async cancel() {
 			await iterator.return?.(undefined);

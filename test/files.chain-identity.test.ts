@@ -77,7 +77,7 @@ async function postDetail(fileId: string, fields: Record<string, string>) {
 	const url = `http://localhost/admin/files/${fileId}`;
 	return detailAction({
 		context: CONTEXT,
-		request: await authedRequest(url, {}, postForm(url, fields)),
+		request: await authedRequest(url, {}, postForm(fields)),
 		params: { id: fileId },
 	} as unknown as Parameters<typeof detailAction>[0]);
 }
