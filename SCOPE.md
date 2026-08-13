@@ -157,30 +157,25 @@ This is the literal sequence judges will replay from the walkthrough. Each step 
 9. **Forge hosting** — "very teeny bonus points". Mirror the repo there at the end if trivial.
 10. **Saved views / column preference panels** on admin tables — cosmetic parity, skip unless free.
 
-## Everything is in scope — the rubric decides, not a de-scope table
+## Everything the rubric scores is in scope
 
-There is no OUT table. It was deleted 2026-08-12 by owner decision ("I told you
-WE WANT 100%", after "Remove any mention of scope out"): every row in it had
-become a licence for a lane to skip judged work, and the two rows already
-overridden IN — contact merge, then the whole Speaker CRM module — proved the
-table rots faster than anyone re-reads it. Speaker CRM sat marked OUT while the
-judges scored it as its own area; it came back **23.7%**, the worst we have.
+There is no de-scope table. The test is the eval kit: **if it scores an area, we
+build it.** A P0/P1/P2 tier is a queue, never a refusal, and no lane may decline
+judged work as "out of scope." Speaker CRM is why this rule exists — it sat
+marked out of scope while the judges scored it as its own area, and came back
+**23.7%**.
 
-So: if the eval kit scores it, we build it. If Sessionboard does it and a real
-event team would miss it, we build it. Sequencing still comes from the P0/P1/P2
-tiers above — that is what ordering is for — but a tier is a queue, never a
-refusal, and **no lane may decline judged work as "out of scope."**
+Three things are unbuilt. Each is unscored by the kit *and* has a stated reason,
+and none may be cited to skip anything else:
 
-Two things remain genuinely unbuilt, and each is a stated engineering
-trade-off rather than a scope cut, so neither may be cited to skip a feature:
-
-| Not built | The trade-off |
+| Unbuilt | Why |
 |---|---|
-| Metrics/aggregation stack (Analytics Engine, Prometheus-style telemetry) | Structured `track()` events ([`docs/observability.md`](docs/observability.md)) already answer every question we have a consumer for. Aggregation machinery without production traffic is speculative infrastructure — revisit when there is real traffic to aggregate. |
-| Visual regression tooling (Storybook, screenshot diffing) | Needs a stable baseline skin to diff against, and the skin is a deliberate neutral stand-in until the owner designs it (`docs/rules/engineering.md` → Design system). Revisit once a real skin exists. |
+| Payments & Fees; portal wiki/resource pages; Accelevents; Integrations (Cvent, Swoogo, Zoom); microsite builder; Invoices; Awards; Digital Posters; Marketing module; multi-language forms; roles/permissions matrix | Unscored by the kit and explicitly refused in the brief — "NOT NEEDED" in red on payments, "We only care about English" on languages, struck through for the rest. Equal-admin parity is verified ([`docs/data-model.md`](docs/data-model.md)). |
+| Metrics/aggregation stack (Analytics Engine, Prometheus-style telemetry) | `track()` events ([`docs/observability.md`](docs/observability.md)) answer every question we have a consumer for; aggregation without production traffic is speculative. Revisit when there is traffic to aggregate. |
+| Visual-regression tooling (Storybook, screenshot diffing) | Needs a stable baseline skin to diff against; the skin is a deliberate neutral stand-in until the owner designs it (`docs/rules/engineering.md` → Design system). Revisit once a real skin exists. |
 
-Pixel-fidelity to Sessionboard's design is still not a goal — the brief says so
-explicitly, and job-to-be-done parity is what the rubric measures.
+Pixel-fidelity to Sessionboard's design is not a goal — the brief says so, and the
+rubric measures job-to-be-done parity instead.
 ## Cross-cutting (applies to every tier)
 
 - **Performance is a scored feature.** Target: no skeleton-screen theater, <1s page loads, instant table interactions. The walkthrough shows Sessionboard's loading spinners repeatedly while swyx complains — that contrast is our cheapest win.
