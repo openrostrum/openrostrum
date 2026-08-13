@@ -4,7 +4,7 @@
 # routing, accept→auto-provision, committed decision-feedback email).
 #
 # SEED BASELINE (fresh `db:reset`-equivalent; scenarios run in order RV-S1 → RV-S8 on one instance):
-#   Event "AI.Engineer Sandbox Event", Oct 12–14 2026, TZ America/Los_Angeles.
+#   Event "Northbound AI Summit 2026", Oct 12–14 2026, TZ America/Los_Angeles.
 #   Tracks: AI Infrastructure · Developer Experience · Security · Product & Design.
 #   300 submitted submissions (220 Abstracts / 80 Sessions):
 #     Pending 173 · Accepted 58 · Accept Queue 24 · Decline Queue 19 · Declined 15 · Withdrawn 11,

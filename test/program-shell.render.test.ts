@@ -46,3 +46,56 @@ describe("public program theme control", () => {
 		expect(renderShell("embed")).not.toContain('aria-haspopup="true"');
 	});
 });
+
+function renderWith(
+	eventOverride: Partial<ProgramEvent>,
+	kind: "program" | "embed" = "program",
+) {
+	const next = { ...event, ...eventOverride };
+	const RoutesStub = createRoutesStub([
+		{
+			id: "root",
+			path: "/",
+			Component: () =>
+				kind === "program"
+					? createElement(ProgramShell, {
+							event: next,
+							active: "sessions",
+							children: createElement("p", null, "Program content"),
+						})
+					: createElement(EmbedShell, {
+							event: next,
+							children: createElement("p", null, "Embed content"),
+						}),
+		},
+	]);
+	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
+}
+
+describe("public program header", () => {
+	it("shows dates and location on standalone pages and embeds", () => {
+		const line = "October 12–13, 2026 · San Francisco";
+		expect(renderWith({})).toContain(line);
+		expect(renderWith({}, "embed")).toContain(line);
+	});
+
+	it("shows dates alone when location is empty — no dangling separator", () => {
+		const html = renderWith({ location: null });
+		expect(html).toContain("October 12–13, 2026");
+		expect(html).not.toContain("October 12–13, 2026 ·");
+		expect(html).not.toContain(" · ");
+	});
+
+	it("shows location alone when dates are unset", () => {
+		const html = renderWith({ dateRange: null, location: "San Francisco" });
+		expect(html).toContain("San Francisco");
+		expect(html).not.toContain(" · ");
+	});
+
+	it("omits the meta line entirely when both sides are empty", () => {
+		const html = renderWith({ dateRange: null, location: null });
+		expect(html).not.toContain("October 12–13, 2026");
+		expect(html).not.toContain("San Francisco");
+		expect(html).not.toContain(" · ");
+	});
+});

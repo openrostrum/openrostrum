@@ -9,7 +9,7 @@ touches:
 # Shared vocabulary for BOTH scenario files:
 #   ADMIN_EMAIL / ADMIN_PASSWORD — the seeded admin credentials (documented in the repo
 #     README / seed script). Concrete at run time; symbolic here because seeding owns them.
-#   "seed event" — the pre-seeded demo event ("AI.Engineer Sandbox Event"-equivalent)
+#   "seed event" — the pre-seeded demo event ("Northbound AI Summit 2026"-equivalent)
 #     with tracks/tags/formats/levels/rooms and sample submissions across statuses.
 # Scenario outputs referenced downstream (eval-kit style):
 #   AE-S2 creates the event "DevOps Days Lyon 2027" used by AE-S3/S4/S5 and all FB-S*.

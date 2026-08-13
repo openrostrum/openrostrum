@@ -534,7 +534,7 @@ EmailSender port" ✅ stated):
 ```ts
 await getEmailSender(env).send({
   to: "rosa.delgado@example.com",
-  subject: "You're invited to review for AI.Engineer Sandbox Event",
+  subject: "You're invited to review for Northbound AI Summit 2026",
   html: `…<a href="${origin}/reset-password/${token}">Set your password</a>…`,
   dedupeKey: `reviewer_invite:${userId}:${token}`,
   eventId: event.id,                       // templateId: none — free-compose (G21: state it)
@@ -832,7 +832,7 @@ INSERT INTO organization_members (id, organization_id, user_id, created_at) VALU
  ('om_admin', 'org_demo', 'u_admin', unixepoch());
 
 INSERT INTO events (id, organization_id, name, slug, type, timezone, starts_at, ends_at, created_at) VALUES
- ('e_demo', 'org_demo', 'AI.Engineer Sandbox Event', 'ai-engineer-sandbox', 'Conference',
+ ('e_demo', 'org_demo', 'Northbound AI Summit 2026', 'northbound-ai-summit-2026', 'Conference',
   'America/Los_Angeles', unixepoch('2026-10-12'), unixepoch('2026-10-14'), unixepoch());
 ```
 

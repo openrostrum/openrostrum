@@ -40,7 +40,7 @@ OpenRostrum runs the program side of a conference, end to end:
 | ![Speaker CRM directory — cross-event contacts with filters, bulk event assignment, and pipeline enrollment](.github/media/speaker-crm.png) |
 | Search the organization-wide directory, assign contacts to events, and enroll prospects into the sourcing pipeline. |
 
-See it running at [openrostrum.com](https://openrostrum.com). The public [schedule](https://openrostrum.com/schedule/ai-engineer-sandbox), [speakers](https://openrostrum.com/speakers/ai-engineer-sandbox), and [sessions](https://openrostrum.com/sessions/ai-engineer-sandbox) pages require no account; the schedule appears after an organizer publishes the agenda. Bare aliases such as `/schedule` redirect to the default event.
+See it running at [openrostrum.com](https://openrostrum.com). The public [schedule](https://openrostrum.com/schedule/northbound-ai-summit-2026), [speakers](https://openrostrum.com/speakers/northbound-ai-summit-2026), and [sessions](https://openrostrum.com/sessions/northbound-ai-summit-2026) pages require no account; the schedule appears after an organizer publishes the agenda. Bare aliases such as `/schedule` redirect to the default event.
 
 ## Quick start
 

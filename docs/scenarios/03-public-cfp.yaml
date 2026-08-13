@@ -1,7 +1,7 @@
 # Scenario suite 03 — Public CFP submission flow (SCOPE P0 #2 + committed P1 reaches)
 #
 # Shared concrete fixtures (referenced by ID below and by 04-speaker-portal.yaml):
-# - Seeded demo event "AI.Engineer Sandbox Event" (Oct 12-14, 2026).
+# - Seeded demo event "Northbound AI Summit 2026" (Oct 12-14, 2026).
 # - FORM_URL = public URL of the seeded "Session Submission Form" (admin Forms list -> Copy Link).
 #   Seeded config: OPEN; Close Date 2026-09-15 @ 11:59 PM PDT; submission limit 3 per user;
 #   Speaker role Min 1 / Max 4; fields Title (text, max 255, required), Description (rich text,
@@ -35,7 +35,7 @@ scenarios:
          October 1." and Save. (Proves the success page renders ADMIN-CONFIGURED copy, not a
          hardcoded string.)
       2. In a fresh incognito window (logged out), open FORM_URL. Before any login, confirm: the
-         event name "AI.Engineer Sandbox Event" is visible; the banner reads "Form submissions
+         event name "Northbound AI Summit 2026" is visible; the banner reads "Form submissions
          will be accepted until September 15, 2026 at 11:59 PM PDT"; the submission-limit line
          "Submission Limit: 3 submissions per user" is visible; the stepper rail shows
          Welcome -> Account -> Submission -> Participant -> Review.

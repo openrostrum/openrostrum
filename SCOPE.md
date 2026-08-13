@@ -54,7 +54,7 @@ swyx's red-pen annotations (from the PDF screenshots):
 This is the literal sequence judges will replay from the walkthrough. Each step lists its acceptance criterion.
 
 **0. Seeded demo event + auth.**
-- Admin account + login. One pre-seeded event ("AI.Engineer Sandbox Event"-equivalent) with tracks, tags, formats, levels, rooms, and a few sample submissions so every screen has data.
+- Admin account + login. One pre-seeded event ("Northbound AI Summit 2026"-equivalent) with tracks, tags, formats, levels, rooms, and a few sample submissions so every screen has data.
 - Submitter accounts: email + password signup/login at the public form (mirrors walkthrough), password manager friendly. Forgot-password can be a stub in P0 → real in P1.
 
 **1. Admin creates a submission form (form builder). TARGET = the LATEST UI = 7-step wizard.**

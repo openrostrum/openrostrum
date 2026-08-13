@@ -2,6 +2,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import type { Db } from "~/db";
 import { contacts, events, participants, submissions } from "~/db/schema";
 import { currentHeadshotsSql } from "~/domain/files";
+import { formatInTimeZone } from "~/lib/dates";
 import { resolveTimezone } from "~/lib/event-time";
 import { stripHtml } from "~/lib/html";
 import type {
@@ -86,11 +87,21 @@ function zonedParts(date: Date, timeZone: string) {
 }
 
 function timeLabel(date: Date, timeZone: string): string {
-	return new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		hour: "numeric",
-		minute: "2-digit",
-	}).format(date);
+	return formatInTimeZone(date, timeZone, "time");
+}
+
+function timeLabelWithZone(date: Date, timeZone: string): string {
+	return formatInTimeZone(date, timeZone, "time-zone");
+}
+
+/** Room as a place inside the venue. Empty location keeps the bare room name. */
+export function formatRoomPlace(
+	room: string | null | undefined,
+	location: string | null | undefined,
+): string | null {
+	if (!room) return null;
+	const venue = location?.split(",")[0]?.trim();
+	return venue ? `${room} · ${venue}` : room;
 }
 
 function shortDayLabel(date: Date, timeZone: string): string {
@@ -249,7 +260,7 @@ export async function loadPublicSessions(
 			formatId: r.formatId,
 			level: r.level?.name ?? null,
 			language: r.language,
-			room: r.room?.name ?? null,
+			room: formatRoomPlace(r.room?.name, event.location),
 			roomId: r.roomId,
 			roomOrder: r.room?.displayOrder ?? null,
 			tracks: r.submissionTracks.map((st) => ({
@@ -262,9 +273,11 @@ export async function loadPublicSessions(
 			dayKey: startParts?.dayKey ?? null,
 			dayLabel: start ? shortDayLabel(start, tz) : null,
 			dateLabel: start ? longDayLabel(start, tz) : null,
-			startLabel: start ? timeLabel(start, tz) : null,
+			startLabel: start ? timeLabelWithZone(start, tz) : null,
 			timeRange:
-				start && end ? `${timeLabel(start, tz)} – ${timeLabel(end, tz)}` : null,
+				start && end
+					? `${timeLabel(start, tz)} – ${timeLabelWithZone(end, tz)}`
+					: null,
 			startMin: startParts?.minutes ?? null,
 			endMin: endParts?.minutes ?? null,
 			startsAtIso: start?.toISOString() ?? null,

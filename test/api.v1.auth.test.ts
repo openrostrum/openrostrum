@@ -130,8 +130,8 @@ describe("seeded judge token", () => {
 		await db.insert(events).values({
 			id: "e_demo",
 			organizationId: "org_demo",
-			name: "AI.Engineer Sandbox Event",
-			slug: "ai-engineer-sandbox",
+			name: "Northbound AI Summit 2026",
+			slug: "northbound-ai-summit-2026",
 		});
 		await db.insert(apiTokens).values({
 			id: "apitok_demo",

@@ -531,7 +531,7 @@ INSERT INTO organizations (id, name, created_at) VALUES
 INSERT INTO organization_members (id, organization_id, user_id, created_at) VALUES
  ('om_admin', 'org_demo', 'u_admin', unixepoch());
 INSERT INTO events (id, organization_id, name, slug, type, timezone, starts_at, ends_at, created_at) VALUES
- ('e_demo', 'org_demo', 'AI.Engineer Sandbox Event', 'ai-engineer-sandbox', 'Conference',
+ ('e_demo', 'org_demo', 'Northbound AI Summit 2026', 'northbound-ai-summit-2026', 'Conference',
   'America/Los_Angeles', unixepoch('2026-10-12'), unixepoch('2026-10-14'), unixepoch());
 ```
 

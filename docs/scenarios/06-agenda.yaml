@@ -6,7 +6,7 @@
 # docs/reference/discord/CLARIFICATIONS.md (#8: day/room + drag + conflicts is enough; NO track collisions).
 #
 # SEED BASELINE (same seed as 05-review-accept.yaml; fresh reset, scenarios run in order AG-S1 → AG-S7):
-#   Event "AI.Engineer Sandbox Event", Oct 12–14 2026. Rooms: Main Hall · Workshop Room B · Room 305.
+#   Event "Northbound AI Summit 2026", Oct 12–14 2026. Rooms: Main Hall · Workshop Room B · Room 305.
 #   Formats with Agenda-Settings default durations: Featured Keynote 45min · Talk 30min · Panel 60min · Workshop 90min.
 #   Agenda Settings baseline: Day Start 8:00 AM, Day End 6:00 PM; schedulable statuses = [Accepted].
 #   58 Accepted sessions total: 47 seeded as scheduled across the 3 days × 3 rooms, 11 unscheduled.

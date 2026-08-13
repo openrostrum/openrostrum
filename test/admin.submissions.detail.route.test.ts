@@ -88,7 +88,7 @@ async function seedWorld() {
 			id: "u_admin",
 			email: "admin@test.co",
 			passwordHash: await hashPassword("pw"),
-			name: "Demo Admin",
+			name: "Chris Okada",
 			role: "admin",
 			activeEventId: "e1",
 		},
@@ -96,7 +96,7 @@ async function seedWorld() {
 			id: "u_speaker",
 			email: "speaker@test.co",
 			passwordHash: await hashPassword("pw"),
-			name: "Sam Speaker",
+			name: "Samira Cole",
 			role: "speaker",
 		},
 	]);
@@ -233,7 +233,7 @@ describe("submission detail loader", () => {
 		};
 		expect(payload.submission.title).toBe("Withdrawn talk");
 		// who/when/why survives on the record — nothing is wiped by withdrawal
-		expect(payload.submission.withdrawal?.by).toBe("Sam Speaker");
+		expect(payload.submission.withdrawal?.by).toBe("Samira Cole");
 		expect(payload.submission.withdrawal?.reason).toBe("Visa denied.");
 		// primary participant first; each carries their own acceptance state
 		expect(payload.participants.map((p) => p.acceptanceStatus)).toEqual([

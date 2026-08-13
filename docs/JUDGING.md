@@ -24,11 +24,11 @@ This file feeds the eval kit's `submissionNotes` and is written for whoever poin
 
 | Persona | Email | Notes |
 |---|---|---|
-| Organizer/admin | `admin@example.com` | Member of the seeded "Demo" organization. A new account created through `/signup` followed by `/onboarding` gets a separate organization and event; organization membership scopes all admin access and event data |
+| Organizer/admin | `admin@example.com` | Member of the seeded "Northbound Collective" organization. A new account created through `/signup` followed by `/onboarding` gets a separate organization and event; organization membership scopes all admin access and event data |
 | Reviewer | `reviewer@example.com` | Password login works; reviewer management also shows a **copyable invite link** for new reviewers |
 | Speaker | `speaker@example.com` pre-seeded, or create an account through the public CFP | Email+password; no magic links |
 
-The exact seeded speaker home is `/portals/ai-engineer-sandbox/portal-demo-uuid/home` after signing in as `speaker@example.com`.
+The exact seeded speaker home is `/portals/northbound-ai-summit-2026/portal-demo-uuid/home` after signing in as `speaker@example.com`.
 
 ## Behaviors worth knowing (by design, mirrors Sessionboard)
 
@@ -44,7 +44,7 @@ The exact seeded speaker home is `/portals/ai-engineer-sandbox/portal-demo-uuid/
 - **The compat API is read-only with Hide-PII always on.** It supports event reads; session search/list/get; speakers; contacts; and track/tag/format/level/room/language/status catalogs with the Sessionboard pagination envelope (default 25, max 100). Emails and phones are masked (`j***@a***.com`, `***-***-4567`), statuses retain raw queue values, and drafts never appear. `PUT`, `PATCH`, `DELETE`, plus `POST` paths ending in `/create`, `/bulk`, or `/restore`, return 405; supported POST search remains available.
 - **AI review lives at `/admin/evaluation` → "AI review".** Per-submission "Run AI review" and bulk "Run AI review on unscored" produce a 0–10 first-pass score and rationale through DeepSeek V4 Flash when configured, otherwise the fixed Workers AI fallback `@cf/openai/gpt-oss-120b`. The model ID appears on detail. AI scores are badge-labeled, never enter the human tally or scorecard aggregate, and organizer overrides persist with who/when and the AI original. The plan table and cumulative CSV keep AI and human aggregates in separate columns. With neither provider, the tab states that AI review is unavailable.
 - **Draft saves need only a title;** required-field validation applies when advancing or submitting. Speakers can edit submitted proposals until the form close date; afterward, submissions are read-only. Past close dates are accepted so an organizer can close a CFP immediately.
-- **Airtable sync is a deployment-configured two-way mirror** for sessions/submissions, contacts, and task assignments, currently bound to the Demo organization rather than per-organization credentials. `/admin/settings/airtable` shows an explicit not-configured state when secrets are absent; when configured, it shows linked-record counts, the last trigger/status/provider error, and a **Sync now** action. App changes push out; Airtable edits return by provisioned webhook or hourly reconciliation, with Airtable winning on team-editable fields.
+- **Airtable sync is a deployment-configured two-way mirror** for sessions/submissions, contacts, and task assignments, currently bound to the Northbound Collective organization rather than per-organization credentials. `/admin/settings/airtable` shows an explicit not-configured state when secrets are absent; when configured, it shows linked-record counts, the last trigger/status/provider error, and a **Sync now** action. App changes push out; Airtable edits return by provisioned webhook or hourly reconciliation, with Airtable winning on team-editable fields.
 
 ## Deploy secrets
 
