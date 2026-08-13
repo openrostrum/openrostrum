@@ -103,7 +103,14 @@ describe("portal profile", () => {
 
 		const post = async (file: File) => {
 			const form = new FormData();
-			form.set("intent", "headshot");
+			form.set("intent", "profile");
+			form.set("firstName", "Priya");
+			form.set("lastName", "R");
+			form.set("bio", "");
+			form.set("linkedinUrl", "");
+			form.set("twitterUrl", "");
+			form.set("facebookUrl", "");
+			form.set("websiteUrl", "");
 			form.set("headshot", file);
 			return profileAction({
 				context: CONTEXT,

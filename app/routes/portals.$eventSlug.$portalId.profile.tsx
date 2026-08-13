@@ -7,7 +7,7 @@ import {
 } from "~/components/portal/profile-view";
 import { getDb } from "~/db";
 import { contacts, insertContactSchema } from "~/db/schema";
-import { type HeadshotUploadResult, uploadHeadshot } from "~/domain/files";
+import { uploadHeadshot } from "~/domain/files";
 import { getPortalContext, portalPath } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
@@ -151,42 +151,6 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 	const here = portalPath(ctx, "/profile");
 	const timings = createTimings();
 
-	if (intent === "headshot") {
-		const file = form.get("headshot");
-		let result: HeadshotUploadResult;
-		try {
-			result = await timings.time("upload", () =>
-				uploadHeadshot(env, db, {
-					eventId: ctx.event.id,
-					contactId: contact.id,
-					file,
-				}),
-			);
-		} catch (error) {
-			track("portal.headshot_upload_failed", {
-				eventId: ctx.event.id,
-				contactId: contact.id,
-				error: errorMessage(error),
-			});
-			return fail({
-				fieldErrors: {
-					headshot: ["The upload failed — please try again."],
-				},
-			});
-		}
-		if (!result.ok) {
-			return fail({ fieldErrors: { headshot: [result.error] } });
-		}
-		track("portal.headshot_uploaded", {
-			eventId: ctx.event.id,
-			contactId: contact.id,
-			sizeBytes: file instanceof File ? file.size : 0,
-		});
-		return redirect(`${here}?saved=headshot`, {
-			headers: { "Server-Timing": timings.header() },
-		});
-	}
-
 	if (intent === "profile") {
 		const raw = Object.fromEntries(
 			[
@@ -256,6 +220,38 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 			eventId: ctx.event.id,
 			contactId: contact.id,
 		});
+		const attached = form.get("headshot");
+		if (attached instanceof File && attached.size > 0) {
+			let result;
+			try {
+				result = await timings.time("upload", () =>
+					uploadHeadshot(env, db, {
+						eventId: ctx.event.id,
+						contactId: contact.id,
+						file: attached,
+					}),
+				);
+			} catch (error) {
+				track("portal.headshot_upload_failed", {
+					eventId: ctx.event.id,
+					contactId: contact.id,
+					error: errorMessage(error),
+				});
+				return fail({
+					fieldErrors: {
+						headshot: ["The upload failed — please try again."],
+					},
+				});
+			}
+			if (!result.ok) {
+				return fail({ fieldErrors: { headshot: [result.error] } });
+			}
+			track("portal.headshot_uploaded", {
+				eventId: ctx.event.id,
+				contactId: contact.id,
+				sizeBytes: attached.size,
+			});
+		}
 		return redirect(`${here}?saved=profile`, {
 			headers: { "Server-Timing": timings.header() },
 		});

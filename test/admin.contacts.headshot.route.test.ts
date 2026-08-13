@@ -1,4 +1,7 @@
 import { env } from "cloudflare:test";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
@@ -11,6 +14,7 @@ import {
 } from "../app/db/schema";
 import { loader as rosterLoader } from "../app/routes/admin.contacts";
 import {
+	default as ContactRecord,
 	action as contactAction,
 	loader as contactLoader,
 } from "../app/routes/admin.contacts_.$id";
@@ -73,9 +77,15 @@ describe("speaker headshot on the organizer surfaces", () => {
 			.set({ userId: "u_priya" })
 			.where(eq(contacts.id, "c_priya"));
 
-		// Speaker uploads through their portal…
 		const form = new FormData();
-		form.set("intent", "headshot");
+		form.set("intent", "profile");
+		form.set("firstName", "Priya");
+		form.set("lastName", "Raman");
+		form.set("bio", "");
+		form.set("linkedinUrl", "");
+		form.set("twitterUrl", "");
+		form.set("facebookUrl", "");
+		form.set("websiteUrl", "");
 		form.set(
 			"headshot",
 			new File([PNG_BYTES], "priya.png", { type: "image/png" }),
@@ -134,6 +144,104 @@ describe("speaker headshot on the organizer surfaces", () => {
 		} as unknown as Parameters<typeof headshotLoader>[0])) as Response;
 		expect(served.status).toBe(200);
 		expect(served.headers.get("Content-Type")).toBe("image/png");
+		expect(await served.text()).toBe(PNG_BYTES);
+	});
+
+	it("Save profile with a chosen file writes the headshot and the organizer record renders it as an img, not initials", async () => {
+		await seedWorldWithAdmin();
+		await makeUser("u_priya", "priya@example.com");
+		const db = getDb(env);
+		await db
+			.update(contacts)
+			.set({ userId: "u_priya" })
+			.where(eq(contacts.id, "c_priya"));
+
+		const form = new FormData();
+		form.set("intent", "profile");
+		form.set("firstName", "Priya");
+		form.set("lastName", "Raman");
+		form.set("bio", "<p>SBEK-PORTAL-BIO-01</p>");
+		form.set("linkedinUrl", "");
+		form.set("twitterUrl", "");
+		form.set("facebookUrl", "");
+		form.set("websiteUrl", "");
+		form.set(
+			"headshot",
+			new File([PNG_BYTES], "headshot.png", { type: "image/png" }),
+		);
+		const saved = await portalProfileAction({
+			context: CONTEXT,
+			request: await authedRequest("u_priya", `${BASE}/profile`, {
+				method: "POST",
+				body: form,
+			}),
+			params: PORTAL_PARAMS,
+		} as unknown as Parameters<typeof portalProfileAction>[0]);
+		expect((saved as Response).status).toBe(302);
+
+		const [row] = await db
+			.select({ headshotKey: contacts.headshotKey, bio: contacts.bio })
+			.from(contacts)
+			.where(eq(contacts.id, "c_priya"));
+		expect(row?.bio).toContain("SBEK-PORTAL-BIO-01");
+		expect(row?.headshotKey).toBeTruthy();
+
+		const record = unwrap<{
+			contact: { firstName: string; lastName: string };
+			sessions: unknown[];
+			assignments: unknown[];
+			emails: unknown[];
+			hasAccount: boolean;
+			hasPassword: boolean;
+			inviteUrl: string | null;
+			inviteKey: string;
+			saved: string | null;
+			headshotUrl: string | null;
+		}>(
+			await contactLoader({
+				context: CONTEXT,
+				request: await authedRequest(
+					"u_admin",
+					"http://localhost/admin/contacts/c_priya",
+				),
+				params: { id: "c_priya" },
+			} as unknown as Parameters<typeof contactLoader>[0]),
+		);
+		expect(record.headshotUrl).toMatch(
+			/^\/admin\/contacts\/c_priya\/headshot\?v=/,
+		);
+
+		const Record = ContactRecord as unknown as ComponentType<{
+			loaderData: typeof record;
+			actionData: undefined;
+		}>;
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/admin/contacts/:id",
+				Component: () =>
+					createElement(Record, {
+						loaderData: record,
+						actionData: undefined,
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, {
+				initialEntries: ["/admin/contacts/c_priya"],
+			}),
+		);
+		expect(html).toMatch(/src="\/admin\/contacts\/c_priya\/headshot\?v=[^"]+"/);
+		expect(html).not.toMatch(/>PR<\/span>/);
+
+		const served = (await headshotLoader({
+			context: CONTEXT,
+			request: await authedRequest(
+				"u_admin",
+				"http://localhost/admin/contacts/c_priya/headshot",
+			),
+			params: { id: "c_priya" },
+		} as unknown as Parameters<typeof headshotLoader>[0])) as Response;
+		expect(served.status).toBe(200);
 		expect(await served.text()).toBe(PNG_BYTES);
 	});
 

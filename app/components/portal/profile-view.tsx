@@ -59,53 +59,29 @@ export function ProfileView({
 			{saved === "profile" && (
 				<Notice tone="success">Your profile was saved.</Notice>
 			)}
-			{saved === "headshot" && (
-				<Notice tone="success">Your headshot was updated.</Notice>
-			)}
 
-			<Card title="Headshot">
-				<div className="flex flex-wrap items-start gap-5">
-					{headshotUrl ? (
-						<img
-							src={headshotUrl}
-							alt={`${contact.firstName} ${contact.lastName}`}
-							className="h-24 w-24 rounded-card object-cover"
-						/>
-					) : (
+			<Form
+				method="post"
+				encType="multipart/form-data"
+				className="flex flex-col gap-5"
+			>
+				<Card title="Headshot">
+					<div className="flex flex-wrap items-start gap-5">
 						<Avatar
 							name={`${contact.firstName} ${contact.lastName}`}
+							src={headshotUrl}
 							size={96}
 						/>
-					)}
-					<Form
-						method="post"
-						encType="multipart/form-data"
-						className="flex min-w-0 flex-1 flex-col gap-3"
-					>
-						<input type="hidden" name="intent" value="headshot" />
-						<FilePicker
-							name="headshot"
-							accept={HEADSHOT_ACCEPT}
-							constraints={HEADSHOT_CONSTRAINTS}
-							required
-						/>
-						<div className="flex items-center gap-3">
-							<Button
-								type="submit"
-								variant="ghost"
-								icon="export"
-								disabled={busy}
-							>
-								Upload headshot
-							</Button>
+						<div className="flex min-w-0 flex-1 flex-col gap-3">
+							<FilePicker
+								name="headshot"
+								accept={HEADSHOT_ACCEPT}
+								constraints={HEADSHOT_CONSTRAINTS}
+							/>
 							{err("headshot") && <ErrorText>{err("headshot")}</ErrorText>}
 						</div>
-					</Form>
-				</div>
-			</Card>
-
-			<Form method="post" className="flex flex-col gap-5">
-				<input type="hidden" name="intent" value="profile" />
+					</div>
+				</Card>
 				<Card title="General">
 					<div className="flex flex-col gap-4">
 						<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -233,7 +209,7 @@ export function ProfileView({
 				</Card>
 
 				<div className="flex items-center gap-3">
-					<Button type="submit" disabled={busy}>
+					<Button type="submit" name="intent" value="profile" disabled={busy}>
 						Save profile
 					</Button>
 					{actionData?.intent === "profile" && actionData.formError && (
