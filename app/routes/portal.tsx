@@ -3,7 +3,7 @@ import { FullPageEmptyState } from "~/components/full-page-empty-state";
 import { type AccessiblePortal, listAccessiblePortals } from "~/domain/portal";
 import { requireUser } from "~/lib/auth";
 import { createTimings } from "~/lib/track";
-import { PageHeader, Panel, TextLink } from "~/ui";
+import { InkLink, PageHeader, Panel } from "~/ui";
 import type { Route } from "./+types/portal";
 
 export type PortalResolverData = {
@@ -54,7 +54,9 @@ export default function PortalResolver({ loaderData }: Route.ComponentProps) {
 				<ul className="flex flex-col gap-3">
 					{choices.map((choice) => (
 						<li key={choice.href}>
-							<TextLink to={choice.href}>{choice.eventName}</TextLink>
+							<InkLink to={choice.href} strong>
+								{choice.eventName}
+							</InkLink>
 						</li>
 					))}
 				</ul>

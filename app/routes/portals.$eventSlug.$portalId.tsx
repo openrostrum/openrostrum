@@ -18,13 +18,13 @@ import { requireUser } from "~/lib/auth";
 import { useBusy } from "~/lib/use-busy";
 import {
 	Button,
+	InkLink,
 	Input,
 	PageHeader,
 	Panel,
 	StatusBadge,
 	Tab,
 	Tabs,
-	TextLink,
 } from "~/ui";
 import type { Route } from "./+types/portals.$eventSlug.$portalId";
 
@@ -108,7 +108,9 @@ export default function PortalShell({ loaderData }: Route.ComponentProps) {
 							<ul className="flex flex-wrap gap-3">
 								{portals.map((item) => (
 									<li key={item.href}>
-										<TextLink to={item.href}>{item.eventName}</TextLink>
+										<InkLink to={item.href} strong>
+											{item.eventName}
+										</InkLink>
 									</li>
 								))}
 							</ul>
