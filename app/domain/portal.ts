@@ -4,6 +4,7 @@ import { getDb } from "~/db";
 import { PARTICIPANT_ROLE, type SUBMISSION_STATUS } from "~/db/constants";
 import {
 	type Contact,
+	contactIdentityAliases,
 	contacts,
 	events,
 	FILE_REVIEW_STATUS,
@@ -193,6 +194,81 @@ export async function getPortalContext(
 
 export function portalPath(ctx: PortalContext, suffix = ""): string {
 	return `/portals/${ctx.event.slug}/${ctx.portal.publicId}${suffix}`;
+}
+
+export type AccessiblePortal = {
+	eventName: string;
+	href: string;
+};
+
+/** Never a silent first-match: every accessible event is listed. */
+export async function listAccessiblePortals(
+	env: Env,
+	user: Pick<AppUser, "id" | "email">,
+): Promise<AccessiblePortal[]> {
+	const db = getDb(env);
+	const email = normalizeEmail(user.email);
+	const [linked, byEmail, aliased, submitted] = await Promise.all([
+		db
+			.select({ eventId: contacts.eventId })
+			.from(contacts)
+			.where(eq(contacts.userId, user.id)),
+		db
+			.select({ eventId: contacts.eventId })
+			.from(contacts)
+			.where(and(eq(contacts.email, email), isNull(contacts.userId))),
+		db
+			.select({ eventId: contacts.eventId })
+			.from(contactIdentityAliases)
+			.innerJoin(
+				events,
+				eq(events.organizationId, contactIdentityAliases.organizationId),
+			)
+			.innerJoin(
+				contacts,
+				and(
+					eq(contacts.eventId, events.id),
+					sql`lower(${contacts.email}) = ${contactIdentityAliases.survivorEmail}`,
+				),
+			)
+			.where(eq(contactIdentityAliases.sourceUserId, user.id)),
+		db
+			.select({ eventId: submissions.eventId })
+			.from(submissions)
+			.where(eq(submissions.submitterId, user.id)),
+	]);
+	const eventIds = [
+		...new Set(
+			[...linked, ...byEmail, ...aliased, ...submitted].map(
+				(row) => row.eventId,
+			),
+		),
+	];
+	if (eventIds.length === 0) return [];
+
+	const rows = await db
+		.select({
+			eventId: events.id,
+			eventName: events.name,
+			slug: events.slug,
+			publicId: portals.publicId,
+		})
+		.from(portals)
+		.innerJoin(events, eq(events.id, portals.eventId))
+		.where(inArray(events.id, eventIds))
+		.orderBy(asc(events.name), asc(portals.createdAt), asc(portals.id));
+
+	const choices: AccessiblePortal[] = [];
+	const seen = new Set<string>();
+	for (const row of rows) {
+		if (seen.has(row.eventId)) continue;
+		seen.add(row.eventId);
+		choices.push({
+			eventName: row.eventName,
+			href: `/portals/${row.slug}/${row.publicId}/home`,
+		});
+	}
+	return choices;
 }
 
 /**
