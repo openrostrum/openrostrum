@@ -210,6 +210,29 @@ describe("form create", () => {
 		expect(format?.locked).toBe(false);
 		expect(format?.required).toBe(false);
 	});
+
+	it("defaults a new form's public title to this event, never another event", async () => {
+		const { db, cookie } = await seedBase();
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org1",
+			name: "Forward Summit 2028",
+			slug: "forward-summit-2028",
+		});
+		const formId = await createForm(cookie);
+		const [created] = await db
+			.select({
+				externalTitle: forms.externalTitle,
+				internalName: forms.internalName,
+			})
+			.from(forms)
+			.where(eq(forms.id, formId));
+		expect(created?.internalName).toBe("Untitled form");
+		expect(created?.externalTitle).toBe(
+			"DevOps Days Lyon 2027 — Call for Speakers",
+		);
+		expect(created?.externalTitle).not.toContain("Forward Summit 2028");
+	});
 });
 
 describe("editor loader", () => {

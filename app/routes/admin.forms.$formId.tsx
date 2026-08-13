@@ -39,7 +39,11 @@ import {
 	users,
 	type QuestionRule,
 } from "~/db/schema";
-import { adminFormPath, submitPath } from "~/domain/forms";
+import {
+	adminFormPath,
+	defaultExternalTitle,
+	submitPath,
+} from "~/domain/forms";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
@@ -784,6 +788,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				id,
 				eventId: event.id,
 				internalName: "Untitled form",
+				externalTitle: defaultExternalTitle(event.name),
 			}),
 			...chunk(defaultBuiltinPlacements(id), 8).map((rows) =>
 				db.insert(formFields).values(rows),

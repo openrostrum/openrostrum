@@ -29,3 +29,20 @@ export function submitPath(eventSlug: string, formPublicId: string): string {
 export function adminFormPath(formId: string): string {
 	return `/admin/forms/${formId}`;
 }
+
+/**
+ * Speaker-facing form title. An organizer-authored external title is kept
+ * verbatim; an empty one falls back to this event's name, never the
+ * admin-only internal name and never another event.
+ */
+export function defaultExternalTitle(eventName: string): string {
+	return `${eventName} — Call for Speakers`;
+}
+
+export function publicFormTitle(
+	form: { externalTitle: string },
+	event: { name: string },
+): string {
+	const authored = form.externalTitle.trim();
+	return authored || defaultExternalTitle(event.name);
+}
