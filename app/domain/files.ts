@@ -701,50 +701,65 @@ export async function refileChain(
 				: isNull(files.submissionId),
 			sql`lower(${files.fileName}) = lower(${chain.fileName})`,
 		) as SQL;
-	// Same-named task uploads on the destination are this deliverable —
-	// fold them in and renumber so the library cannot keep two histories.
-	const destTaskScope = targetSubmissionId
-		? (and(
-				eq(files.eventId, chain.eventId),
-				eq(files.submissionId, targetSubmissionId),
-				isNotNull(files.taskAssignmentId),
-				sql`lower(${files.fileName}) = lower(${chain.fileName})`,
-			) as SQL)
-		: undefined;
-	const merged = await db
-		.select({
-			id: files.id,
-			createdAt: files.createdAt,
-			sharedToPortal: files.sharedToPortal,
-		})
-		.from(files)
-		.where(
-			or(
-				adminScope(chain.submissionId),
-				adminScope(targetSubmissionId),
-				...(destTaskScope ? [destTaskScope] : []),
-			) as SQL,
-		);
-	merged.sort(
-		(a, b) =>
-			a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
-	);
-	// One shared row per chain, as appendToChain maintains: a merge that left two
-	// flagged would expose an older version for portal download.
-	const shared = merged.some((row) => row.sharedToPortal);
-	const writes: BatchItem[] = merged.map((row, index) =>
-		db
-			.update(files)
-			.set({
-				submissionId: targetSubmissionId,
-				version: index + 1,
-				sharedToPortal: shared && index === merged.length - 1,
-			})
-			.where(eq(files.id, row.id)),
-	);
-	const [first, ...rest] = writes;
-	if (!first) return { ok: false, error: "That file is no longer here." };
-	await db.batch([first, ...rest]);
+	const sourceAdminScope = adminScope(chain.submissionId);
+	const destinationAdminScope = adminScope(targetSubmissionId);
+	const uniqueDestTaskAssignmentId = targetSubmissionId
+		? sql`(
+				select min(candidate.task_assignment_id)
+				from ${files} candidate
+				inner join ${taskAssignments} candidate_assignment
+					on candidate_assignment.id = candidate.task_assignment_id
+				where candidate.event_id = ${chain.eventId}
+					and candidate_assignment.submission_id = ${targetSubmissionId}
+					and lower(candidate.file_name) = lower(${chain.fileName})
+				having count(distinct candidate.task_assignment_id) = 1
+			)`
+		: sql`(select null)`;
+	// A unique matching task identifies the whole deliverable by assignment,
+	// including earlier versions whose filename changed. Ambiguous matches stay
+	// independent while the admin chain is still filed under the session.
+	const merged = await db.all<{ id: string }>(sql`
+		with selected as materialized (
+			select ${files.id},
+				row_number() over (
+					order by ${files.createdAt}, ${files.id}
+				) as next_version,
+				max(${files.sharedToPortal}) over () as any_shared,
+				max(case when ${sourceAdminScope} then 1 else 0 end) over () as source_present,
+				row_number() over (
+					order by case when ${files.taskAssignmentId} is null then 0 else 1 end,
+						${files.createdAt} desc, ${files.id} desc
+				) as sharing_recipient
+			from ${files}
+			where ${sourceAdminScope}
+				or ${destinationAdminScope}
+				or (
+					${files.eventId} = ${chain.eventId}
+					and ${files.submissionId} = ${targetSubmissionId}
+					and ${files.taskAssignmentId} = ${uniqueDestTaskAssignmentId}
+				)
+		)
+		update ${files}
+		set submission_id = ${targetSubmissionId},
+			version = (
+				select selected.next_version from selected
+				where selected.id = ${files.id}
+			),
+			shared_to_portal = (
+				select case
+					when selected.any_shared = 1 and selected.sharing_recipient = 1 then 1
+					else 0
+				end
+				from selected where selected.id = ${files.id}
+			)
+		where ${files.id} in (
+			select selected.id from selected where selected.source_present = 1
+		)
+		returning ${files.id}
+	`);
+	if (merged.length === 0) {
+		return { ok: false, error: "That file is no longer here." };
+	}
 	return { ok: true, submissionTitle, versionCount: merged.length };
 }
 
@@ -799,7 +814,7 @@ export type FileLibraryRow = {
 	versionCount: number;
 	reviewStatus: FileRow["reviewStatus"];
 	sharedToPortal: boolean;
-	createdAt: Date;
+	latestUploadedAt: Date;
 	submissionId: string | null;
 	submissionTitle: string | null;
 	contactId: string | null;
@@ -854,7 +869,7 @@ export async function listFileGroups(
 		version_count: number;
 		review_status: FileRow["reviewStatus"];
 		shared_to_portal: number;
-		created_at: number;
+		latest_uploaded_at: number;
 		submission_id: string | null;
 		submission_title: string | null;
 		contact_id: string | null;
@@ -864,12 +879,13 @@ export async function listFileGroups(
 	const rows = await db.all<Raw>(sql`
 		select r.id, r.file_name, r.kind, r.size_bytes, r.version, r.version_count,
 			r.canonical_review_status as review_status,
-			r.canonical_shared_to_portal as shared_to_portal, r.created_at,
+			r.canonical_shared_to_portal as shared_to_portal,
+			r.created_at as latest_uploaded_at,
 			r.submission_id, s.title as submission_title,
 			coalesce(r.contact_id, ta.contact_id) as contact_id,
 			c.first_name, c.last_name
 		${base}
-		order by r.created_at desc, r.id desc
+		order by latest_uploaded_at desc, r.id desc
 		limit ${pageSize} offset ${(page - 1) * pageSize}`);
 	const [count] = await db.all<{ total: number }>(
 		sql`select count(*) as total ${base}`,
@@ -886,7 +902,7 @@ export async function listFileGroups(
 			reviewStatus: r.review_status,
 			sharedToPortal: r.shared_to_portal === 1,
 			// timestamps persist as unix seconds (schema convention)
-			createdAt: new Date(r.created_at * 1000),
+			latestUploadedAt: new Date(r.latest_uploaded_at * 1000),
 			submissionId: r.submission_id,
 			submissionTitle: r.submission_title,
 			contactId: r.contact_id,

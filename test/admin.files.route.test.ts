@@ -82,7 +82,7 @@ async function loadLibrary(query = "") {
 			speakerName: string | null;
 			reviewStatus: string;
 			sharedToPortal: boolean;
-			createdAt: Date;
+			latestUploadedAt: Date;
 		}>;
 		total: number;
 		timezone: string;
@@ -211,13 +211,69 @@ describe("central files library", () => {
 			submissionTitle: "Talk A",
 			speakerName: "Priya Sharma",
 		});
-		expect(rows[0]?.createdAt).toBeInstanceOf(Date);
-		expect(rows[0]?.createdAt.getTime()).not.toBeNaN();
+		expect(rows[0]?.latestUploadedAt).toBeInstanceOf(Date);
+		expect(rows[0]?.latestUploadedAt.getTime()).not.toBeNaN();
 
 		const detail = await loadDetail(rows[0]?.id ?? "");
 		expect(detail.versions.map((version) => version.version)).toEqual([2, 1]);
 		expect(detail.comments.map((comment) => comment.body)).toEqual([
 			"Please export 16:9.",
+		]);
+	});
+
+	it("uses the newest version date and sorts the library newest-first", async () => {
+		const db = await seedFilesWorld();
+		await db.insert(files).values([
+			{
+				id: "f_deck_v1",
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: "ta_priya_slides",
+				r2Key: "t/deck-v1",
+				fileName: "deck.pdf",
+				kind: "slides",
+				version: 1,
+				createdAt: new Date("2026-08-01T10:00:00Z"),
+			},
+			{
+				id: "f_deck_v2",
+				eventId: "e1",
+				submissionId: "s1",
+				contactId: "c_priya",
+				taskAssignmentId: "ta_priya_slides",
+				r2Key: "t/deck-v2",
+				fileName: "deck.pdf",
+				kind: "slides",
+				version: 2,
+				createdAt: new Date("2026-08-04T10:00:00Z"),
+			},
+			{
+				id: "f_deck_v2_admin_alias",
+				eventId: "e1",
+				submissionId: "s1",
+				r2Key: "t/deck-v2-admin",
+				fileName: "deck.pdf",
+				kind: "slides",
+				version: 2,
+				createdAt: new Date("2026-08-02T10:00:00Z"),
+			},
+			{
+				id: "f_kit_v1",
+				eventId: "e1",
+				r2Key: "t/kit-v1",
+				fileName: "kit.pdf",
+				kind: "doc",
+				version: 1,
+				createdAt: new Date("2026-08-03T10:00:00Z"),
+			},
+		]);
+
+		const { rows } = await loadLibrary();
+		expect(rows.map((row) => row.fileName)).toEqual(["deck.pdf", "kit.pdf"]);
+		expect(rows.map((row) => row.latestUploadedAt.toISOString())).toEqual([
+			"2026-08-04T10:00:00.000Z",
+			"2026-08-03T10:00:00.000Z",
 		]);
 	});
 
@@ -255,8 +311,8 @@ describe("central files library", () => {
 			submissionTitle: "Talk A",
 			speakerName: "Priya Sharma",
 		});
-		expect(rows[0]?.createdAt).toBeInstanceOf(Date);
-		expect(rows[0]?.createdAt.getTime()).not.toBeNaN();
+		expect(rows[0]?.latestUploadedAt).toBeInstanceOf(Date);
+		expect(rows[0]?.latestUploadedAt.getTime()).not.toBeNaN();
 	});
 
 	it("keeps an established direct history together when it joins one task chain", async () => {

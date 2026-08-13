@@ -413,8 +413,8 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 							</Td>
 							<Td>{f.speakerName ?? "—"}</Td>
 							<Td kind="mono">
-								v{f.version} · {f.versionCount} version
-								{f.versionCount === 1 ? "" : "s"}
+								v{f.version} · {f.versionCount}{" "}
+								{f.versionCount === 1 ? "version" : "versions"}
 							</Td>
 							<Td>
 								<div className="flex flex-wrap items-center gap-2">
@@ -430,7 +430,7 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 							</Td>
 							<Td kind="mono">{formatBytes(f.sizeBytes)}</Td>
 							<Td kind="mono">
-								{formatInTimeZone(f.createdAt, timezone, "date")}
+								{formatInTimeZone(f.latestUploadedAt, timezone, "date")}
 							</Td>
 						</Tr>
 					))}
