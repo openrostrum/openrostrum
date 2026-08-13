@@ -303,12 +303,7 @@ export default function FilesLibrary({ loaderData }: Route.ComponentProps) {
 				)}
 			</Form>
 
-			<ZipExportControls
-				selectedIds={[...selected]}
-				hiddenSelectedIds={[...selected].filter(
-					(id) => !rows.some((r) => r.id === id),
-				)}
-			/>
+			<ZipExportControls selectedIds={[...selected]} />
 
 			<Table>
 				<THead>

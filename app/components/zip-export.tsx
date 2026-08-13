@@ -31,8 +31,8 @@ const PreflightResponse = z.union([
 export function ZipExportControls({
 	selectedIds,
 }: {
+	/** Every selected id, including ones on pages the table is not showing. */
 	selectedIds: readonly string[];
-	hiddenSelectedIds?: readonly string[];
 }) {
 	const busy = useBusy();
 	const [open, setOpen] = useState(false);
