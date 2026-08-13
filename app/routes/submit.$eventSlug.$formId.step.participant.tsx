@@ -1,5 +1,5 @@
-// @public route family — loader gates with getUser and redirects to the
-// account step when logged out.
+// @public route family — the participant step is reachable before an
+// account exists; draft save and submit still require a signed-in speaker.
 import { useState } from "react";
 import {
 	data,
@@ -7,6 +7,7 @@ import {
 	useFetcher,
 	useNavigate,
 	useOutletContext,
+	useRouteLoaderData,
 } from "react-router";
 import {
 	isEditingSubmitted,
@@ -46,13 +47,13 @@ import { systemClock } from "~/ports/clock";
 import { Button, ButtonLink, ErrorText, Field, Input, Panel } from "~/ui";
 import type { SessionActionResult } from "./submit.$eventSlug.$formId.step.session";
 import type { Route } from "./+types/submit.$eventSlug.$formId.step.participant";
+import type { Route as LayoutRoute } from "./+types/submit.$eventSlug.$formId";
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
 	const base = submitPath(params.eventSlug, params.formId);
 	const url = new URL(request.url);
 	const user = await getUser(env, request);
-	if (!user) throw redirect(`${base}/step/account${url.search}`);
 	const bundle = await loadPublicForm(env, params.eventSlug, params.formId);
 	if (!bundle) throw data("Form not found", { status: 404 });
 	const { form, event } = bundle;
@@ -63,7 +64,15 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 	}
 	const db = getDb(env);
 	const definition = await resolveFormDefinition(db, form);
-	const selfContact = await loadSelfContact(db, event.id, user);
+	const selfContact = user
+		? await loadSelfContact(db, event.id, user)
+		: {
+				firstName: "",
+				lastName: "",
+				email: "",
+				mobilePhone: "",
+				bio: "",
+			};
 	return {
 		definition,
 		selfContact,
@@ -77,6 +86,9 @@ export default function ParticipantStep({
 	loaderData,
 	params,
 }: Route.ComponentProps) {
+	const layout = useRouteLoaderData<LayoutRoute.ComponentProps["loaderData"]>(
+		"routes/submit.$eventSlug.$formId",
+	);
 	const ctx = useOutletContext<WizardCtx>();
 	const navigate = useNavigate();
 	const saveFetcher = useFetcher<SessionActionResult>();
@@ -90,6 +102,7 @@ export default function ParticipantStep({
 	const base = submitPath(params.eventSlug, params.formId);
 	const { definition } = loaderData;
 	const state = ctx.state;
+	if (!layout) return null;
 	if (!state) {
 		// Deep link before any wizard state exists — start from the beginning.
 		return (
@@ -404,7 +417,7 @@ export default function ParticipantStep({
 					← Back
 				</ButtonLink>
 				<div className="flex flex-wrap items-center gap-3">
-					{!editingSubmitted && (
+					{!editingSubmitted && layout.user && (
 						<Button
 							variant="ghost"
 							type="button"

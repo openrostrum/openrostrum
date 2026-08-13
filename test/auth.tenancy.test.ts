@@ -145,8 +145,8 @@ describe("userCanAccessEvent (row-level membership guard)", () => {
 	});
 });
 
-describe("getReviewerEventIds (reviewer_tracks → tracks.event_id)", () => {
-	it("derives the reviewer's events from track assignments only, deduplicated", async () => {
+describe("getReviewerEventIds (tracks and evaluation-round pools)", () => {
+	it("derives the reviewer's events from track assignments, deduplicated", async () => {
 		await seedTwoOrgs();
 		const db = getDb(env);
 		await db.insert(users).values({
@@ -160,7 +160,6 @@ describe("getReviewerEventIds (reviewer_tracks → tracks.event_id)", () => {
 			{ id: "t_a2", eventId: "e_a1", name: "Web", color: "#000000" },
 			{ id: "t_b1", eventId: "e_b1", name: "Sec", color: "#000000" },
 		]);
-		// Two tracks in the same event → one event id; e_b1's track is unassigned.
 		await db.insert(reviewerTracks).values([
 			{ userId: "u_rev", trackId: "t_a1" },
 			{ userId: "u_rev", trackId: "t_a2" },
@@ -168,7 +167,7 @@ describe("getReviewerEventIds (reviewer_tracks → tracks.event_id)", () => {
 		expect(await getReviewerEventIds(env, "u_rev")).toEqual(["e_a1"]);
 	});
 
-	it("is empty for a reviewer with no track assignments", async () => {
+	it("is empty for a reviewer with no tracks and no pool seat", async () => {
 		await seedTwoOrgs();
 		await getDb(env).insert(users).values({
 			id: "u_rev",

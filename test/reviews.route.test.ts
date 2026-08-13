@@ -324,6 +324,39 @@ describe("scoring, recusal, and the round lock", () => {
 			.where(eq(evaluations.id, "ev1"));
 		expect(ev?.status).toBe("pending"); // nothing was written
 	});
+
+	it("persists a multi-line Comments answer on the scorecard", async () => {
+		await seedEvalBase(env);
+		const comment =
+			"Line one of the review.\n\nLine two names a concrete risk.";
+		const body = sampleScorecardBody("ev1");
+		body.set("q_q_com", comment);
+		const result = (await call(
+			reviewAction,
+			await sessionRequest(env, "u_rev", "http://localhost/reviews/s1", {
+				method: "POST",
+				body,
+			}),
+			"s1",
+		)) as { ok?: string };
+		expect(result.ok).toBeTruthy();
+
+		const loaded = (await call(
+			reviewLoader,
+			await sessionRequest(env, "u_rev", "http://localhost/reviews/s1"),
+			"s1",
+		)) as {
+			data: {
+				scorecards: Array<{
+					questions: Array<{ id: string; myText: string | null }>;
+				}>;
+			};
+		};
+		const comments = loaded.data.scorecards[0]?.questions.find(
+			(q) => q.id === "q_com",
+		);
+		expect(comments?.myText).toBe(comment);
+	});
 });
 
 describe("track decision + feedback email", () => {

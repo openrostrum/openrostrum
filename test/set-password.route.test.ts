@@ -8,10 +8,14 @@ import {
 	organizationMembers,
 	organizations,
 	passwordResets,
+	reviewerTracks,
+	tracks,
 	users,
 } from "../app/db/schema";
 import { createSession, hashPassword, verifyPassword } from "../app/lib/auth";
+import { action as reviewersAction } from "../app/routes/admin.reviewers";
 import { action, loader } from "../app/routes/set-password.$token";
+import { CONTEXT_OF, seedEvalBase, sessionRequest } from "./eval-fixtures";
 
 // What a token grants derives from its mint-time organizationId column — set
 // means org-member invite (accept creates the membership), NULL means speaker
@@ -312,5 +316,165 @@ describe("set-password accept flow", () => {
 
 		const missing = (await runLoader("tok-nope")) as { state: string };
 		expect(missing.state).toBe("invalid");
+	});
+});
+
+describe("reviewer invite landing copy", () => {
+	it("names the event, pending count, and due date for a reviewer token", async () => {
+		const { db } = await seedEvalBase(env);
+		await db.insert(passwordResets).values({
+			id: "pr_rev",
+			userId: "u_rev",
+			organizationId: null,
+			token: "tok-reviewer",
+			expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+		});
+
+		const view = (await runLoader("tok-reviewer")) as {
+			state: string;
+			orgName?: string | null;
+			invite?: {
+				events: Array<{
+					name: string;
+					pendingCount: number;
+					due: string;
+				}>;
+			};
+		};
+		expect(view.state).toBe("valid");
+		expect(view.orgName).toBeNull();
+		expect(view.invite?.events).toEqual([
+			expect.objectContaining({
+				name: "DevFlow Conf",
+				pendingCount: 1,
+			}),
+		]);
+		expect(view.invite?.events[0]?.due).not.toBe("—");
+		expect(view.invite?.events[0]?.due).not.toBe("");
+	});
+
+	it("says no talks assigned yet and no deadline set when those are empty", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await db.insert(passwordResets).values({
+			id: "pr_empty",
+			userId: "u_rev",
+			organizationId: null,
+			token: "tok-empty-rev",
+			expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+		});
+
+		const view = (await runLoader("tok-empty-rev")) as {
+			invite?: {
+				events: Array<{
+					name: string;
+					pendingCopy: string;
+					due: string;
+				}>;
+			};
+		};
+		expect(view.invite?.events).toEqual([
+			expect.objectContaining({
+				name: "DevFlow Conf",
+				pendingCopy: "no talks assigned yet",
+				due: "no deadline set",
+			}),
+		]);
+	});
+
+	it("names the event for a pool-only reviewer with no tracks", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await db.delete(reviewerTracks).where(eq(reviewerTracks.userId, "u_rev"));
+		const response = (await reviewersAction({
+			context: CONTEXT_OF(env),
+			request: await sessionRequest(
+				env,
+				"u_admin",
+				"http://localhost/admin/reviewers",
+				{
+					method: "POST",
+					body: new URLSearchParams([
+						["intent", "add"],
+						["name", "Pool Only"],
+						["email", "pool.only@example.com"],
+						["sendKey", "cccccccc-0000-4000-8000-000000000001"],
+					]),
+				},
+			),
+			params: {},
+		} as unknown as Parameters<typeof reviewersAction>[0])) as Response;
+		expect(response.status).toBe(302);
+		const [reset] = await db.select().from(passwordResets);
+		expect(reset?.token).toBeTruthy();
+		const view = (await runLoader(reset?.token ?? "")) as {
+			invite?: { events: Array<{ name: string; pendingCopy: string }> };
+		};
+		expect(view.invite?.events).toEqual([
+			expect.objectContaining({
+				name: "DevFlow Conf",
+				pendingCopy: "no talks assigned yet",
+			}),
+		]);
+	});
+
+	it("names every event when the reviewer has work on more than one", async () => {
+		const { db } = await seedEvalBase(env);
+		await db.insert(events).values({
+			id: "e2",
+			organizationId: "org1",
+			name: "Westbound Summit",
+			slug: "westbound",
+		});
+		await db.insert(tracks).values({
+			id: "t_west",
+			eventId: "e2",
+			name: "Platform",
+			color: "#111111",
+		});
+		await db
+			.insert(reviewerTracks)
+			.values({ userId: "u_rev", trackId: "t_west" });
+		await db.insert(passwordResets).values({
+			id: "pr_multi",
+			userId: "u_rev",
+			organizationId: null,
+			token: "tok-multi",
+			expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+		});
+
+		const view = (await runLoader("tok-multi")) as {
+			invite?: { events: Array<{ name: string }> };
+		};
+		const names = (view.invite?.events ?? []).map((e) => e.name).sort();
+		expect(names).toEqual(["DevFlow Conf", "Westbound Summit"]);
+	});
+
+	it("keeps org-invite copy on the org and forgot-password tokens generic", async () => {
+		await seedOrg();
+		await seedUserWithToken({
+			userId: "u_new",
+			role: "admin",
+			token: "tok-org",
+			organizationId: "orgA",
+		});
+		await seedUserWithToken({
+			userId: "u_spk",
+			role: "speaker",
+			token: "tok-reset",
+			organizationId: null,
+		});
+
+		const orgView = (await runLoader("tok-org")) as {
+			orgName?: string | null;
+			invite?: unknown;
+		};
+		expect(orgView.orgName).toBe("Org A");
+		expect(orgView.invite).toBeUndefined();
+
+		const resetView = (await runLoader("tok-reset")) as {
+			orgName?: string | null;
+			invite?: unknown;
+		};
+		expect(resetView.orgName).toBeNull();
+		expect(resetView.invite).toBeUndefined();
 	});
 });
