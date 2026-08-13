@@ -29,10 +29,14 @@ import {
 	fetchChunked,
 	formatDay,
 	formatScore,
+	labelLinesForForm,
+	labelsFromLines,
 	meanScore,
 	parseDateInput,
+	parseRatingConfig,
 	REVIEW_PAGE_SIZE as PAGE_SIZE,
 	REVIEWABLE_EXCLUDED,
+	storedRatingConfig,
 	utcDayKey,
 } from "~/lib/evaluation";
 import { Pager } from "~/lib/pager";
@@ -61,6 +65,7 @@ import {
 	Tabs,
 	TBody,
 	Td,
+	Textarea,
 	TextLink,
 	Th,
 	THead,
@@ -108,12 +113,24 @@ const QuestionInput = z.discriminatedUnion("type", [
 			type: z.literal("rating"),
 			min: z.coerce.number().int().optional(),
 			max: z.coerce.number().int().optional(),
+			labels: z.string().optional(),
 		})
 		.refine((q) => (q.min ?? 1) < (q.max ?? 5), {
 			message: "Scale max must be greater than min",
 			path: ["max"],
 		})
-		.transform((q) => ({ ...q, config: { min: q.min ?? 1, max: q.max ?? 5 } })),
+		.transform((q) => {
+			const min = q.min ?? 1;
+			const max = q.max ?? 5;
+			return {
+				...q,
+				config: storedRatingConfig(
+					min,
+					max,
+					labelsFromLines(min, max, q.labels ?? ""),
+				),
+			};
+		}),
 	z
 		.object({
 			...questionBase,
@@ -237,6 +254,11 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 				min: q.config?.min ?? 1,
 				max: q.config?.max ?? 5,
 				options: q.config?.options ?? [],
+				labels: labelLinesForForm(
+					q.config?.min ?? 1,
+					q.config?.max ?? 5,
+					parseRatingConfig(q.config).labels,
+				),
 				weight: q.weight,
 				required: q.required,
 			})),
@@ -699,6 +721,7 @@ export async function action({ context, request, params }: Route.ActionArgs) {
 				type: form.get("type"),
 				min: form.get("min") || undefined,
 				max: form.get("max") || undefined,
+				labels: form.get("labels") || undefined,
 				options: form.get("options") || undefined,
 				weight: form.get("weight") || 1,
 				required: form.get("required") ?? "yes",
@@ -1270,7 +1293,7 @@ function RoundsTab({
 										<Td>{q.type}</Td>
 										<Td>
 											{q.type === "rating"
-												? `${q.min}–${q.max}`
+												? `${q.min}–${q.max}${q.labels.trim() ? " · labelled" : ""}`
 												: q.type === "dropdown"
 													? q.options.join(" / ")
 													: "free text"}
@@ -1515,6 +1538,19 @@ function QuestionForm({
 					name="max"
 					defaultValue={question?.max ?? 5}
 					size={4}
+				/>
+			</Field>
+			<Field
+				label="What each number means (optional)"
+				hint="One label per point, from lowest to highest. Leave blank to use the built-in scale — 1 is weak, 5 is outstanding, higher is better."
+			>
+				<Textarea
+					name="labels"
+					rows={5}
+					defaultValue={question?.labels ?? ""}
+					placeholder={
+						"Weak — does not meet the bar\nBelow the bar\nMeets the bar\nStrong\nOutstanding — a standout talk"
+					}
 				/>
 			</Field>
 			<Field

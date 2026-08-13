@@ -671,6 +671,29 @@ describe("round and question forms at the boundary", () => {
 		});
 	});
 
+	it("stores organizer-authored rating labels in the question config", async () => {
+		await seedEvalBase(env);
+		await addQuestion({
+			label: "Stage readiness",
+			type: "rating",
+			min: "1",
+			max: "5",
+			labels:
+				"Not ready for the stage\n\nProgrammable as-is\n\nMust-see keynote",
+		});
+		expect(await lastQuestion()).toMatchObject({
+			config: {
+				min: 1,
+				max: 5,
+				labels: {
+					"1": "Not ready for the stage",
+					"3": "Programmable as-is",
+					"5": "Must-see keynote",
+				},
+			},
+		});
+	});
+
 	it("an inverted rating scale is refused on the max field", async () => {
 		await seedEvalBase(env);
 		const before = (await questions()).length;
