@@ -125,7 +125,7 @@ scenarios:
          (Title "Kubernetes cost archaeology", Description, Format "Talk (30 min)",
          Track "Developer Experience", Key takeaway "Tag everything on day one"), and
          reach the participant step.
-      6. The participant step communicates the limits (e.g. "1–4 Speakers allowed") and
+      6. The participant step communicates the current speaker count (e.g. "1 speaker added") and
          shows no Moderator section.
       7. Add speakers up to 4 (Theo + 3 more with distinct names/emails such as
          speaker2@example.com, speaker3@example.com, speaker4@example.com) → adding a 5th
@@ -139,7 +139,7 @@ scenarios:
       - "Step 2 screenshot: min>max rejected inline in the builder — the mistake swyx made on camera is now hard to make."
       - "DB check: the form's role config stores Speaker min 1/max 4, Chairperson min 0/max 1, Moderator disabled."
       - "Steps 7–8 screenshots: the 5th-speaker and 2nd-chairperson attempts visibly blocked; step 6 shows the live role-count copy."
-      - "EXPERIENCE: the role-count indicator updates instantly as participants are added/removed (e.g. '1–4 Speakers allowed — 3 added'), without a page reload per participant."
+      - "EXPERIENCE: the role-count indicator updates instantly as participants are added/removed (e.g. '3 speakers added'), without a page reload per participant."
 
   - id: FB-S5
     name: Form settings + notifications — close date, reminder toggle, limit 3, drafts, custom success message with ~10s redirect, confirmation + admin-notify emails, closed-form state
