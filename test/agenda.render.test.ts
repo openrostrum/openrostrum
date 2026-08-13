@@ -18,6 +18,7 @@ import type {
 	SessionsSurfaceData,
 	SpeakerDirectoryData,
 } from "../app/lib/program-types";
+import { agendaListGroups } from "../app/lib/agenda-list";
 import {
 	AgendaSurface,
 	ItinerarySurface,
@@ -444,6 +445,112 @@ describe("public agenda track and overlap rendering", () => {
 			/aria-label="Main Hall"[^>]*style="min-width:(\d+)px"/,
 		)?.[1];
 		expect(Number(roomWidth)).toBeGreaterThanOrEqual(280);
+	});
+});
+
+function block(partial: {
+	sessionId: string;
+	title: string;
+	timeRange: string;
+	startMin: number;
+	endMin: number;
+	track?: typeof track | null;
+}) {
+	return {
+		sessionId: partial.sessionId,
+		title: partial.title,
+		timeRange: partial.timeRange,
+		track: partial.track === undefined ? track : partial.track,
+		format: "Talk",
+		startMin: partial.startMin,
+		endMin: partial.endMin,
+		displayEndMin: partial.endMin,
+		lane: 0,
+		laneCount: 1,
+	};
+}
+
+const morning = block({
+	sessionId: "session-llms",
+	title: "Serving LLMs on a Budget",
+	timeRange: "9:30 AM – 10:00 AM PDT",
+	startMin: 570,
+	endMin: 600,
+});
+const morningOverlap = block({
+	sessionId: "session-keynote",
+	title: "Opening Keynote: The State of AI Engineering",
+	timeRange: "9:30 AM – 10:15 AM PDT",
+	startMin: 570,
+	endMin: 615,
+	track: { id: "track-platform", name: "Platform & Infra", color: "#112233" },
+});
+const afternoon = block({
+	sessionId: "session-gallery-talk",
+	title: "What Production Teams Actually Ship",
+	timeRange: "2:00 PM – 2:45 PM PDT",
+	startMin: 840,
+	endMin: 885,
+});
+
+const sparseWideDay = {
+	...agendaBase,
+	windowStartMin: 480,
+	windowEndMin: 1080,
+	hourMarks: [
+		{ min: 480, label: "8 AM" },
+		{ min: 540, label: "9 AM" },
+		{ min: 600, label: "10 AM" },
+		{ min: 660, label: "11 AM" },
+		{ min: 720, label: "12 PM" },
+		{ min: 840, label: "2 PM" },
+		{ min: 1080, label: "6 PM" },
+	],
+	rooms: [
+		{ id: "room-a", name: "Main Hall", blocks: [] },
+		{ id: "room-b", name: "Workshop Room B", blocks: [morning] },
+		{ id: "room-c", name: "Room 305", blocks: [] },
+		{ id: "room-d", name: "Gallery", blocks: [afternoon] },
+		{ id: "room-e", name: "Studio", blocks: [] },
+		{ id: "room-f", name: "Boardroom", blocks: [morningOverlap] },
+		{ id: "room-g", name: "Mezzanine", blocks: [] },
+		{ id: "room-h", name: "Library", blocks: [] },
+	],
+};
+
+describe("public agenda phone list", () => {
+	it("orders the day by time and names room and track on every session", () => {
+		const groups = agendaListGroups(sparseWideDay);
+
+		expect(groups.map((group) => group.timeLabel)).toEqual([
+			"9:30 AM",
+			"2:00 PM",
+		]);
+		expect(groups[0]?.entries.map((entry) => entry.room)).toEqual([
+			"Workshop Room B",
+			"Boardroom",
+		]);
+		expect(groups[0]?.entries[0]).toMatchObject({
+			title: "Serving LLMs on a Budget",
+			track: { name: "Developer Experience" },
+		});
+		expect(groups.flatMap((group) => group.entries)).toHaveLength(3);
+	});
+
+	it("renders a chronological list that disappears if the page is grid-only", () => {
+		const html = renderAgenda(sparseWideDay);
+		const list = html.match(
+			/<ol[^>]*aria-label="Sessions by time"[^>]*>[\s\S]*?<\/ol>/,
+		)?.[0];
+
+		expect(list).toBeTruthy();
+		expect(list).toContain("Serving LLMs on a Budget");
+		expect(list).toContain("Workshop Room B");
+		expect(list).toContain("Developer Experience");
+		expect(list).toContain("9:30 AM");
+		expect(list).not.toContain("8 AM");
+		expect(list).not.toContain("11 AM");
+		expect(html).toMatch(/aria-label="Workshop Room B"/);
 	});
 });
 

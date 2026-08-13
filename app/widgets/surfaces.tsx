@@ -36,6 +36,7 @@ import {
 	TagPill,
 } from "./bits";
 import { FilterBar } from "./filter-bar";
+import { agendaListGroups } from "~/lib/agenda-list";
 import { formatRole } from "~/lib/format";
 import { useMySchedule } from "./my-schedule";
 import { SessionCard, SpeakerRow } from "./session-card";
@@ -489,10 +490,11 @@ export function AgendaSurface({
 	const prevDay = data.days[dayIndex - 1];
 	const nextDay = data.days[dayIndex + 1];
 	const height = (data.windowEndMin - data.windowStartMin) * PX_PER_MIN;
+	const groups = agendaListGroups(data);
 	return (
 		<section className="flex flex-col gap-4">
 			<div className="flex flex-wrap items-center gap-3">
-				<div className="overflow-x-auto">
+				<div className="overflow-x-auto [&>div]:w-max [&>div>a]:shrink-0">
 					<Tabs>
 						{data.days.map((day) => (
 							<Tab
@@ -527,7 +529,54 @@ export function AgendaSurface({
 			{data.dateLabel && (
 				<p className="text-[13.5px] font-medium text-fg">{data.dateLabel}</p>
 			)}
-			<div className="overflow-x-auto rounded-card bg-surface shadow-card">
+			{groups.length === 0 ? (
+				<div className="lg:hidden">
+					<EmptyState
+						icon="calendar"
+						title="No sessions this day"
+						body="Pick another day to see scheduled sessions."
+					/>
+				</div>
+			) : (
+				<ol
+					aria-label="Sessions by time"
+					className="flex flex-col divide-y divide-hair rounded-card bg-surface shadow-card lg:hidden"
+				>
+					{groups.flatMap((group) =>
+						group.entries.map((entry) => (
+							<li key={entry.sessionId}>
+								<Link
+									to={makeHref(base, {
+										day: data.activeDay,
+										session: entry.sessionId,
+									})}
+									className={`flex gap-3 px-4 py-3 transition-colors ${MOTION_FEEDBACK} hover:bg-row-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-petrol`}
+								>
+									{show("time") && (
+										<span className="shrink-0 font-mono text-[11.5px] tabular-nums text-fg-muted">
+											{entry.timeLabel}
+										</span>
+									)}
+									<span className="flex min-w-0 flex-1 flex-col gap-1">
+										<span className="text-[14px] font-medium leading-snug text-fg">
+											{entry.title}
+										</span>
+										{show("room") && (
+											<span className="text-[12.5px] text-fg-muted">
+												{entry.room}
+											</span>
+										)}
+										{show("track") && entry.track && (
+											<Chip color={entry.track.color}>{entry.track.name}</Chip>
+										)}
+									</span>
+								</Link>
+							</li>
+						)),
+					)}
+				</ol>
+			)}
+			<div className="hidden overflow-x-auto rounded-card bg-surface shadow-card lg:block">
 				<div
 					className="flex"
 					style={{ minWidth: 56 + data.rooms.length * 200 }}

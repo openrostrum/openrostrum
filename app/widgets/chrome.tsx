@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { isRouteErrorResponse } from "react-router";
 import { ThemeToggle } from "~/components/theme-toggle";
-import { ButtonLink, EmptyState, InkLink, Mark, Tab, Tabs } from "~/ui";
+import { ButtonLink, EmptyState, InkLink, Mark, Tab } from "~/ui";
 import { programWhenWhere, type ProgramEvent } from "~/lib/program-types";
 
 /**
@@ -46,18 +46,19 @@ export function ProgramShell({
 					</div>
 					<ThemeToggle placement="below" />
 				</div>
-				<nav aria-label="Program" className="mt-5 overflow-x-auto">
-					<Tabs>
-						{PROGRAM_SURFACES.map((surface) => (
-							<Tab
-								key={surface.key}
-								to={`/${surface.path}/${event.slug}`}
-								active={surface.key === active}
-							>
-								{surface.label}
-							</Tab>
-						))}
-					</Tabs>
+				<nav
+					aria-label="Program"
+					className="mt-5 flex flex-wrap gap-1 border-b border-hair [&>a]:shrink-0"
+				>
+					{PROGRAM_SURFACES.map((surface) => (
+						<Tab
+							key={surface.key}
+							to={`/${surface.path}/${event.slug}`}
+							active={surface.key === active}
+						>
+							{surface.label}
+						</Tab>
+					))}
 				</nav>
 			</header>
 			<main className="mx-auto w-full max-w-5xl flex-1 px-5 py-6 md:px-8">
