@@ -176,6 +176,7 @@ and none may be cited to skip anything else:
 
 Pixel-fidelity to Sessionboard's design is not a goal — the brief says so, and the
 rubric measures job-to-be-done parity instead.
+
 ## Cross-cutting (applies to every tier)
 
 - **Performance is a scored feature.** Target: no skeleton-screen theater, <1s page loads, instant table interactions. The walkthrough shows Sessionboard's loading spinners repeatedly while swyx complains — that contrast is our cheapest win.
