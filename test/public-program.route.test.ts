@@ -1,9 +1,13 @@
 import { env } from "cloudflare:test";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
 	CONTENT_STATUS,
 	events,
+	rooms,
 	SUBMISSION_STATUS,
 	submissions,
 } from "../app/db/schema";
@@ -20,6 +24,7 @@ import { loader as itineraryLoader } from "../app/routes/itinerary.$eventSlug";
 import { loader as scheduleLoader } from "../app/routes/schedule.$eventSlug";
 import { loader as sessionsLoader } from "../app/routes/sessions.$eventSlug";
 import { loader as speakersLoader } from "../app/routes/speakers.$eventSlug";
+import { ProgramShell, SessionsSurface } from "../app/widgets";
 import { CONTEXT, seedProgram, thrownStatus, unwrap } from "./program.fixtures";
 
 // Oracles come from the data-exposure matrix (public = accepted + approved
@@ -132,19 +137,110 @@ describe("public sessions surface", () => {
 		);
 	});
 
-	it("places the room inside the venue when the event has a location", async () => {
+	it("states the venue once on a multi-room sessions page", async () => {
+		// Oracle: the venue is an event fact (header), not a room fact. A
+		// per-row suffix is noise — every room is in the same building.
+		const venue = "Yerba Buena Center for the Arts";
+		const location = `${venue}, San Francisco, California`;
 		await seedProgram();
-		await getDb(env).update(events).set({
-			location: "Yerba Buena Center for the Arts, San Francisco, California",
-		});
+		const db = getDb(env);
+		await db.update(events).set({ location });
+		await db.insert(rooms).values([
+			{ id: "r3", eventId: "e1", name: "Room 305" },
+			{ id: "r4", eventId: "e1", name: "Workshop Room B" },
+			{ id: "r5", eventId: "e1", name: "Room A" },
+		]);
+		await db.insert(submissions).values([
+			{
+				id: "s_r3",
+				eventId: "e1",
+				title: "Talk in 305",
+				status: "accepted",
+				contentStatus: "approved",
+				roomId: "r3",
+				startsAt: new Date("2027-05-12T18:00:00Z"),
+				endsAt: new Date("2027-05-12T18:30:00Z"),
+			},
+			{
+				id: "s_r4",
+				eventId: "e1",
+				title: "Workshop in B",
+				status: "accepted",
+				contentStatus: "approved",
+				roomId: "r4",
+				startsAt: new Date("2027-05-12T19:00:00Z"),
+				endsAt: new Date("2027-05-12T20:00:00Z"),
+			},
+			{
+				id: "s_r5",
+				eventId: "e1",
+				title: "Talk in A",
+				status: "accepted",
+				contentStatus: "approved",
+				roomId: "r5",
+				startsAt: new Date("2027-05-13T16:00:00Z"),
+				endsAt: new Date("2027-05-13T16:45:00Z"),
+			},
+		]);
+
 		const { data } = unwrap<SessionsData>(
 			await call(sessionsLoader, "http://localhost/sessions/devflow"),
 		);
-		const s1 = data.surface.sessions.find((s) => s.id === "s1");
-		expect(s1?.room).toBe("Main Hall · Yerba Buena Center for the Arts");
-		expect(data.event.location).toBe(
-			"Yerba Buena Center for the Arts, San Francisco, California",
+		expect(data.event.location).toBe(location);
+		expect(data.surface.facets.rooms.map((room) => room.name)).toEqual([
+			"Main Hall",
+			"Room 2",
+			"Room 305",
+			"Room A",
+			"Workshop Room B",
+		]);
+		for (const session of data.surface.sessions) {
+			expect(session.room ?? "").not.toContain(venue);
+		}
+
+		const RoutesStub = createRoutesStub([
+			{
+				id: "root",
+				path: "/",
+				Component: () =>
+					createElement(ProgramShell, {
+						event: data.event,
+						active: "sessions",
+						children: createElement(SessionsSurface, {
+							data: data.surface,
+							base: "/sessions/devflow",
+							sessionsBase: "/sessions/devflow",
+							speakersBase: "/speakers/devflow",
+						}),
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, { initialEntries: ["/"] }),
 		);
+		expect(html.split(venue).length - 1).toBe(1);
+		expect(html).toContain(location);
+		expect(html).toContain("Main Hall");
+		expect(html).toContain("Room 305");
+		expect(html).not.toContain(`Main Hall · ${venue}`);
+
+		const schedule = unwrap<AgendaData>(
+			await call(scheduleLoader, "http://localhost/schedule/devflow"),
+		);
+		expect(schedule.data.surface?.rooms.map((room) => room.name)).toEqual([
+			"Main Hall",
+			"Room 305",
+			"Workshop Room B",
+		]);
+
+		const speakers = unwrap<SpeakersData>(
+			await call(speakersLoader, "http://localhost/speakers/devflow"),
+		);
+		for (const speaker of speakers.data.surface.speakers) {
+			for (const session of speaker.sessions) {
+				expect(session.room ?? "").not.toContain(venue);
+			}
+		}
 	});
 
 	it("keeps a bare room name when the event has no location", async () => {

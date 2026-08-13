@@ -94,16 +94,6 @@ function timeLabelWithZone(date: Date, timeZone: string): string {
 	return formatInTimeZone(date, timeZone, "time-zone");
 }
 
-/** Room as a place inside the venue. Empty location keeps the bare room name. */
-export function formatRoomPlace(
-	room: string | null | undefined,
-	location: string | null | undefined,
-): string | null {
-	if (!room) return null;
-	const venue = location?.split(",")[0]?.trim();
-	return venue ? `${room} · ${venue}` : room;
-}
-
 function shortDayLabel(date: Date, timeZone: string): string {
 	return new Intl.DateTimeFormat("en-US", {
 		timeZone,
@@ -260,7 +250,7 @@ export async function loadPublicSessions(
 			formatId: r.formatId,
 			level: r.level?.name ?? null,
 			language: r.language,
-			room: formatRoomPlace(r.room?.name, event.location),
+			room: r.room?.name ?? null,
 			roomId: r.roomId,
 			roomOrder: r.room?.displayOrder ?? null,
 			tracks: r.submissionTracks.map((st) => ({

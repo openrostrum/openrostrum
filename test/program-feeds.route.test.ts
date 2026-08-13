@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
-import { embeds } from "../app/db/schema";
+import { embeds, events } from "../app/db/schema";
 import { loader } from "../app/routes/feeds.$eventSlug.$kind";
 import { CONTEXT, seedProgram } from "./program.fixtures";
 
@@ -71,6 +71,22 @@ describe("program feeds", () => {
 		const filteredIcs = await filtered.text();
 		expect(filteredIcs.match(/BEGIN:VEVENT/g)).toHaveLength(1);
 		expect(filteredIcs).toContain("UID:or-session-s1@openrostrum");
+	});
+
+	it("agenda.ics LOCATION carries the venue because a calendar entry has no page header", async () => {
+		await seedProgram();
+		await getDb(CONTEXT.cloudflare.env).update(events).set({
+			location: "Yerba Buena Center for the Arts, San Francisco, California",
+		});
+		const ics = await (await fetchFeed("/feeds/devflow/agenda.ics")).text();
+		// RFC 5545 escapes commas in TEXT; unfold to assert the value.
+		const location = ics
+			.replace(/\r\n /g, "")
+			.split("\r\n")
+			.find((line) => line.startsWith("LOCATION:"));
+		expect(location).toBe(
+			"LOCATION:Main Hall\\, Yerba Buena Center for the Arts\\, San Francisco\\, California",
+		);
 	});
 
 	it("agenda.ics is gated on the publish action", async () => {
