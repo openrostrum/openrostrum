@@ -28,11 +28,11 @@ import { RatingScaleField } from "~/components/rating-scale-field";
 import { requireRole } from "~/lib/auth";
 import { errorMessage } from "~/lib/errors";
 import {
-	REVIEW_DECISION_TONE as DECISION_TONE,
-	formatDay,
+	formatRoundWindow,
 	formatWeightMultiplier,
 	ratingAnchors,
 	ratingWeightsDiffer,
+	REVIEW_DECISION_TONE as DECISION_TONE,
 	roundWritable,
 } from "~/lib/evaluation";
 import { escapeHtmlText, stripHtml } from "~/lib/html";
@@ -301,7 +301,7 @@ export async function loader({ context, request, params }: Route.LoaderArgs) {
 					roundName: evaluation.roundName,
 					planName: evaluation.planName,
 					instructions: evaluation.instructions,
-					window: `${formatDay(evaluation.opensAt)} – ${formatDay(evaluation.closesAt)}`,
+					window: formatRoundWindow(evaluation.opensAt, evaluation.closesAt),
 					writable: writable.writable,
 					lockReason: writable.reason,
 					questions: questions.map((q) => {

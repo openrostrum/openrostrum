@@ -1,8 +1,7 @@
-import { and, asc, eq } from "drizzle-orm";
 import { redirect } from "react-router";
 import { getDb } from "~/db";
-import { forms } from "~/db/schema";
 import { submitPath } from "~/domain/forms";
+import { oldestOpenForm } from "~/lib/forms.server";
 import { getDefaultEvent } from "~/lib/program";
 import type { Route } from "./+types/cfp";
 
@@ -14,11 +13,6 @@ export async function loader({ context }: Route.LoaderArgs) {
 	const db = getDb(context.cloudflare.env);
 	const event = await getDefaultEvent(db);
 	if (!event) return redirect("/");
-	const [form] = await db
-		.select({ publicId: forms.publicId })
-		.from(forms)
-		.where(and(eq(forms.eventId, event.id), eq(forms.status, "open")))
-		.orderBy(asc(forms.createdAt))
-		.limit(1);
+	const form = await oldestOpenForm(db, event.id);
 	return redirect(form ? submitPath(event.slug, form.publicId) : "/");
 }

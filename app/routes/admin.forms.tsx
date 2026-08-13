@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { CopyButton } from "~/components/copy-button";
 import { data, Form, useOutlet } from "react-router";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { getDb } from "~/db";
 import { forms, submissions } from "~/db/schema";
-import { adminFormPath } from "~/domain/forms";
+import { adminFormPath, cfpPath } from "~/domain/forms";
 import { getActiveEvent, requireAdmin } from "~/lib/auth";
 import { effectiveFormStatus, FORM_STATUS_TONE } from "~/lib/forms";
 import { likeContains } from "~/lib/like";
@@ -17,6 +18,7 @@ import {
 	Icon,
 	Input,
 	MenuItem,
+	NoteText,
 	PageHeader,
 	Panel,
 	PopoverSurface,
@@ -40,6 +42,7 @@ type FormRow = {
 	draftsCount: number;
 	closesLabel: string | null;
 	createdLabel: string;
+	shareUrl: string | null;
 };
 
 // Without this export, RR7 drops loader headers from DOCUMENT responses —
@@ -47,16 +50,14 @@ type FormRow = {
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
 	return loaderHeaders;
 }
-
 export async function loader({ context, request }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
-	// Self-authenticate — never rely on the admin.tsx layout loader (single
-	// fetch can run this loader alone via `?_routes=`).
 	const user = await requireAdmin(env, request);
 	const event = await getActiveEvent(env, user);
 	const url = new URL(request.url);
 	const q = url.searchParams.get("q")?.trim() ?? "";
 	const tab = url.searchParams.get("tab") ?? "all";
+	const origin = url.origin;
 	const empty = {
 		forms: [] as FormRow[],
 		tabCounts: { all: 0, open: 0, closed: 0, draft: 0 },
@@ -156,6 +157,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 	});
 	const decorated: FormRow[] = rows.map((f) => {
 		const c = countsByForm.get(f.id);
+		const status = effectiveFormStatus(f.status, f.closeAt, now.getTime());
 		return {
 			id: f.id,
 			internalName: f.internalName,
@@ -163,11 +165,12 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 				(f.type === "abstract" ? "Abstracts" : "Sessions") +
 				(f.participantsStep ? " & Participants" : ""),
 			rawStatus: f.status,
-			status: effectiveFormStatus(f.status, f.closeAt, now.getTime()),
+			status,
 			submissionsCount: (c?.total ?? 0) - (c?.drafts ?? 0),
 			draftsCount: c?.drafts ?? 0,
 			closesLabel: f.closeAt ? dateFmt.format(f.closeAt) : null,
 			createdLabel: dateFmt.format(f.createdAt),
+			shareUrl: status === "open" ? `${origin}${cfpPath(event.slug)}` : null,
 		};
 	});
 
@@ -431,6 +434,16 @@ export default function FormsList({ loaderData }: Route.ComponentProps) {
 										{f.closesLabel ? ` · Closes ${f.closesLabel}` : ""} ·
 										Created {f.createdLabel}
 									</p>
+									{f.shareUrl && (
+										<div className="flex min-w-0 flex-wrap items-center gap-2">
+											<NoteText>{f.shareUrl}</NoteText>
+											<CopyButton
+												value={f.shareUrl}
+												label="Copy CFP link"
+												failedLabel="Copy failed — select the link"
+											/>
+										</div>
+									)}
 								</div>
 								<FormActionsMenu form={f} onDelete={() => setDeleteId(f.id)} />
 							</div>

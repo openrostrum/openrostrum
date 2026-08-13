@@ -1,4 +1,7 @@
 import { env } from "cloudflare:test";
+import { createElement, type ComponentType } from "react";
+import { renderToString } from "react-dom/server";
+import { createRoutesStub } from "react-router";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
@@ -17,7 +20,7 @@ import {
 	users,
 } from "../app/db/schema";
 import { hashPassword, verifyPassword } from "../app/lib/auth";
-import {
+import Reviewers, {
 	action as reviewersAction,
 	loader as reviewersLoader,
 } from "../app/routes/admin.reviewers";
@@ -100,6 +103,46 @@ describe("reviewer invites (sentinel-hash users + org-less tokens)", () => {
 		expect(row?.inviteLink).toBe(
 			`http://localhost/set-password/${reset?.token}`,
 		);
+	});
+
+	it("the invite cell shows the full https token, not a 28-character prefix", async () => {
+		const { db } = await seedEvalBase(env, { withPlan: false });
+		await post(
+			new URLSearchParams([
+				["intent", "add"],
+				["name", "Rosa Delgado"],
+				["email", "rosa.delgado@example.com"],
+				["trackIds", "t_ai"],
+			]),
+		);
+		const [reset] = await db.select().from(passwordResets);
+		const loaded = (await call(
+			reviewersLoader,
+			await sessionRequest(env, "u_admin", "http://localhost/admin/reviewers"),
+		)) as { data: unknown };
+		const RouteComponent = Reviewers as unknown as ComponentType<{
+			loaderData: unknown;
+			actionData: undefined;
+		}>;
+		const RoutesStub = createRoutesStub([
+			{
+				path: "/admin/reviewers",
+				Component: () =>
+					createElement(RouteComponent, {
+						loaderData: loaded.data,
+						actionData: undefined,
+					}),
+			},
+		]);
+		const html = renderToString(
+			createElement(RoutesStub, {
+				initialEntries: ["/admin/reviewers"],
+			}),
+		);
+		const full = `http://localhost/set-password/${reset?.token}`;
+		expect(html).toContain(full);
+		expect(html).not.toMatch(/size="28"/);
+		expect(html).not.toMatch(/size={28}/);
 	});
 
 	it("re-adding the same email never duplicates the user or demotes an admin", async () => {

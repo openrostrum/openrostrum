@@ -3,6 +3,8 @@ import {
 	csvCell,
 	distributeAssignments,
 	evaluationScore,
+	formatRoundDue,
+	formatRoundWindow,
 	labelLinesForForm,
 	labelsFromLines,
 	meanScore,
@@ -177,6 +179,26 @@ describe("roundWritable", () => {
 				"open",
 			),
 		).toEqual({ writable: false, reason: "not-open" });
+	});
+});
+
+describe("formatRoundWindow / formatRoundDue", () => {
+	it("never renders an empty dash range when both ends are unset", () => {
+		expect(formatRoundWindow(null, null)).toBe("No deadline set");
+		expect(formatRoundDue(null)).toBe("No deadline set");
+		expect(formatRoundWindow(null, null)).not.toContain("—");
+	});
+
+	it("names a one-sided range", () => {
+		expect(formatRoundWindow(new Date("2026-10-01T00:00:00Z"), null)).toBe(
+			"Opens Oct 1, 2026",
+		);
+		expect(formatRoundWindow(null, new Date("2026-10-03T00:00:00Z"))).toBe(
+			"Due Oct 3, 2026",
+		);
+		expect(formatRoundDue(new Date("2026-10-03T00:00:00Z"))).toBe(
+			"Oct 3, 2026",
+		);
 	});
 });
 

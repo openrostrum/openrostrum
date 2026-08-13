@@ -17,6 +17,15 @@ export function formIsOpen(
 }
 
 /**
+ * The channel-ready CFP entry path for one event. Resolves to that event's
+ * oldest open form. Deep links stay on submitPath so a second form on the
+ * same event keeps a stable address.
+ */
+export function cfpPath(eventSlug: string): string {
+	return `/cfp/${eventSlug}`;
+}
+
+/**
  * The public CFP entry path — one shape for every surface that links,
  * redirects, or emails a form (`/submit/<event-slug>/<form-public-id>`), so
  * the published URL contract can only move in one place. Callers needing an

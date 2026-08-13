@@ -87,6 +87,31 @@ describe("reviewer queue (/reviews)", () => {
 			"Taming 40-Minute CI",
 		]);
 	});
+
+	it("a dateless round does not render a broken window or due dash range", async () => {
+		const { db } = await seedEvalBase(env);
+		await db
+			.update(evaluationRounds)
+			.set({ opensAt: null, closesAt: null })
+			.where(eq(evaluationRounds.id, "r1"));
+		const request = await sessionRequest(
+			env,
+			"u_rev",
+			"http://localhost/reviews?tab=assigned",
+		);
+		const result = (await call(queueLoader, request)) as {
+			data: {
+				roundSummaries: Array<{ window: string }>;
+				assignedItems: { rows: Array<{ due: string }> };
+			};
+		};
+		expect(result.data.roundSummaries.map((r) => r.window)).not.toContain(
+			"— – —",
+		);
+		expect(result.data.roundSummaries[0]?.window).toBe("No deadline set");
+		expect(result.data.assignedItems.rows[0]?.due).toBe("No deadline set");
+		expect(JSON.stringify(result.data)).not.toContain("— – —");
+	});
 });
 
 describe("role separation", () => {

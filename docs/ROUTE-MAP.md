@@ -53,7 +53,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | API tokens (org) | `admin.settings.api.tsx` | `/admin/settings/api` (list/create/revoke org API tokens; show-once mint, per-token event restriction; flows/09 rule p) | 3 | done |
 | Organizer sign-up | `signup.tsx` | `/signup` (`// @public`; existing-email → decided sign-in message; P1 #22 Wave C) | 2 | done |
 | First-run wizard (shell) | `onboarding.tsx` | `/onboarding/*` (auth gate + step rail; auth'd users without an event only) | 2 | done |
-| First run — step 1 | `onboarding._index.tsx` | `/onboarding` (conference name only; creates org + membership + first event, slug derived server-side) | 2 | done |
+| First run — step 1 | `onboarding._index.tsx` | `/onboarding` (conference name + live slug preview; creates org + membership + first event; taken slug is a field error) | 2 | done |
 | First run — step 2 | `onboarding.dates.tsx` | `/onboarding/dates` (dates + timezone; skippable) | 2 | done |
 | First run — step 3 | `onboarding.place.tsx` | `/onboarding/place` (location; skippable; finishes into `/admin`) | 2 | done |
 | Public sessions list | `sessions.$eventSlug.tsx` | `/sessions/:eventSlug` (P1 #16a) | 2 | done |
@@ -66,6 +66,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Compat API (Hono splat) | `api.v1.$.tsx` | `/api/v1/*` (x-access-token; read-only; P1 #20) | 3 | done |
 | Harness aliases (redirects) | `dashboard.tsx` · `organizer.tsx` · `sessions._index.tsx` · `speakers._index.tsx` · `schedule._index.tsx` · `agenda.tsx` · `itinerary._index.tsx` · `gallery._index.tsx` | `/dashboard` `/organizer` → `/admin`; bare `/sessions` `/speakers` `/schedule` `/agenda` `/itinerary` `/gallery` → the default event's public page (default = oldest event by createdAt; `/agenda` and `/schedule` both land on the grid) (`// @public`) | 2 | done |
 | CFP entry alias (redirect) | `cfp.tsx` | `/cfp` → the default event's oldest open submission form at `/submit/:eventSlug/:formId` (the homepage "Call for speakers" link — stable URL over the per-form uuid; no open form → `/`; `// @public`) | 2 | done |
+| CFP per-event alias | `cfp.$eventSlug.tsx` | `/cfp/:eventSlug` → this event's oldest open submission form at `/submit/:eventSlug/:formId`; no open form → designed empty (not a draft UUID); unknown slug → 404 (`// @public`) | 2 | done |
 | Airtable webhook receiver | `hooks.airtable.tsx` | `/hooks/airtable` (POST; HMAC-verified via `X-Airtable-Content-MAC`, no session auth — `// @public`; P1 #15) | 2 | done |
 | Theme preference | `theme.tsx` | `/theme` (POST; persists the tri-state System/Light/Dark cookie; `// @public` — per-browser, works pre-login) | — | done |
 | Airtable sync status | `admin.settings.airtable.tsx` | `/admin/settings/airtable` (last sync, breaker alert + resume, Sync now; explicit not-configured states; P1 #15) | 2 | done |

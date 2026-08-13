@@ -59,6 +59,7 @@ async function runLoader(url: string, cookie: string) {
 				status: string;
 				submissionsCount: number;
 				draftsCount: number;
+				shareUrl: string | null;
 			}>;
 			tabCounts: { all: number; open: number; closed: number; draft: number };
 		};
@@ -130,6 +131,32 @@ describe("admin forms list", () => {
 		expect(result.data.forms[0]?.status).toBe("closed");
 		expect(result.data.tabCounts.closed).toBe(1);
 		expect(result.data.tabCounts.open).toBe(0);
+	});
+
+	it("an open form's shareable link is the event CFP alias, not a UUID", async () => {
+		const { db, cookie } = await seedBase();
+		await db.insert(forms).values({
+			id: "f1",
+			eventId: "e1",
+			publicId: "form-uuid-should-not-be-the-share-link",
+			internalName: "Session CFP",
+			status: "open",
+		});
+		const result = await runLoader("http://localhost/admin/forms", cookie);
+		expect(result.data.forms[0]?.shareUrl).toBe("http://localhost/cfp/e");
+	});
+
+	it("a draft form has no shareable public link", async () => {
+		const { db, cookie } = await seedBase();
+		await db.insert(forms).values({
+			id: "f_draft",
+			eventId: "e1",
+			publicId: "draft-uuid",
+			internalName: "Untitled draft",
+			status: "draft",
+		});
+		const result = await runLoader("http://localhost/admin/forms", cookie);
+		expect(result.data.forms[0]?.shareUrl).toBeNull();
 	});
 });
 

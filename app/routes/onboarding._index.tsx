@@ -1,36 +1,36 @@
+import { useState } from "react";
 import { and, eq } from "drizzle-orm";
 import { Form, redirect } from "react-router";
 import { z } from "zod";
 import { getDb } from "~/db";
 import { events, organizationMembers, organizations, users } from "~/db/schema";
-import {
-	deriveEventSlug,
-	eventSlugBase,
-	randomizedSlug,
-	requireFirstRunStart,
-} from "~/domain/onboarding";
+import { requireFirstRunStart } from "~/domain/onboarding";
 import { provisionEventDefaults } from "~/domain/provisionEvent";
 import { requireAdmin } from "~/lib/auth";
 import { errorChainIncludes, errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
-import { isSlugTakenError } from "~/settings/event-details.server";
+import {
+	EventSlug,
+	isSlugTakenError,
+	SLUG_TAKEN_MESSAGE,
+} from "~/settings/event-details.server";
+import { eventSlugBase } from "~/settings/event-form";
 import { Button, ErrorText, Field, Input, PageHeader, Panel } from "~/ui";
 import type { Route } from "./+types/onboarding._index";
 
 /**
- * The name is the only first-run question with no good default: organization,
- * membership, event, URL, email templates, task list and portal are all derived
- * from it in one batch, so the organizer's first action produces a working event
- * rather than a half-filled form.
+ * The name is the only first-run question with no good default. The derived
+ * slug is visible and editable before Continue — a taken tidy slug is theirs
+ * to confirm, not ours to mint.
  */
-
 const ConferenceForm = z.object({
 	conferenceName: z
 		.string()
 		.trim()
 		.min(1, "Your conference needs a name to get started")
 		.max(200, "Keep the name under 200 characters"),
+	slug: EventSlug,
 });
 
 const SetupIds = z.object({
@@ -39,11 +39,7 @@ const SetupIds = z.object({
 });
 type SetupIds = z.infer<typeof SetupIds>;
 
-/** A derived slug can still lose a race against a concurrent create; the
- * UNIQUE index is the authority, so retry with a randomized suffix. */
-const SLUG_RETRIES = 2;
-
-type EchoValues = Record<"conferenceName", string>;
+type EchoValues = Record<"conferenceName" | "slug", string>;
 
 type ActionResult = {
 	fieldErrors?: Partial<Record<keyof EchoValues, string[]>>;
@@ -69,8 +65,6 @@ export async function action({
 	request,
 }: Route.ActionArgs): Promise<ActionResult | Response> {
 	const env = context.cloudflare.env;
-	// Self-authenticate; a user who already has an event lands on the dashboard,
-	// while a membership-only state resumes against that same organization.
 	const user = await requireAdmin(env, request);
 	const { organizationId: existingOrganizationId } = await requireFirstRunStart(
 		env,
@@ -80,6 +74,7 @@ export async function action({
 	const form = await request.formData();
 	const values: EchoValues = {
 		conferenceName: String(form.get("conferenceName") ?? ""),
+		slug: String(form.get("slug") ?? ""),
 	};
 	const setupResult = SetupIds.safeParse({
 		setupOrganizationId: form.get("setupOrganizationId"),
@@ -106,106 +101,91 @@ export async function action({
 	const organizationId = existingOrganizationId ?? setupIds.setupOrganizationId;
 	const eventId = setupIds.setupEventId;
 	const timings = createTimings();
-	let slug = await timings.time("slug", () => deriveEventSlug(db, name));
+	const slug = parsed.data.slug;
+	try {
+		await timings.time("db", async () => {
+			const eventStatements = [
+				db.insert(events).values({
+					id: eventId,
+					organizationId,
+					name,
+					slug,
+				}),
+				...provisionEventDefaults(db, eventId),
+				db
+					.update(users)
+					.set({ activeEventId: eventId })
+					.where(eq(users.id, user.id)),
+			] as const;
 
-	for (let attempt = 0; attempt <= SLUG_RETRIES; attempt++) {
-		const attemptedSlug = slug;
-		try {
-			await timings.time("db", async () => {
-				const eventStatements = [
-					db.insert(events).values({
-						id: eventId,
-						organizationId,
-						name,
-						slug: attemptedSlug,
-					}),
-					...provisionEventDefaults(db, eventId),
-					db
-						.update(users)
-						.set({ activeEventId: eventId })
-						.where(eq(users.id, user.id)),
-				] as const;
-
-				if (existingOrganizationId) {
-					// An organization that already exists was named by whoever created
-					// it — an invite, or an earlier attempt. Never rename it from here.
-					await db.batch([...eventStatements]);
-					return;
-				}
-
-				await db.batch([
-					db.insert(organizations).values({ id: organizationId, name }),
-					db.insert(organizationMembers).values({
-						organizationId,
-						userId: user.id,
-					}),
-					...eventStatements,
-				]);
-			});
-		} catch (error) {
-			// Only the two IDs echoed by this setup form can identify a losing
-			// replay; unrelated batch failures must remain visible as failures.
-			const replayConflict =
-				errorChainIncludes(
-					error,
-					"UNIQUE constraint failed: organizations.id",
-				) || errorChainIncludes(error, "UNIQUE constraint failed: events.id");
-			const [replayed] = replayConflict
-				? await db
-						.select({ name: events.name })
-						.from(organizationMembers)
-						.innerJoin(
-							organizations,
-							eq(organizations.id, organizationMembers.organizationId),
-						)
-						.innerJoin(events, eq(events.organizationId, organizations.id))
-						.where(
-							and(
-								eq(organizationMembers.userId, user.id),
-								eq(organizations.id, organizationId),
-								eq(events.id, eventId),
-							),
-						)
-						.limit(1)
-				: [];
-			if (replayed?.name === name) {
-				track("onboarding.replayed", { userId: user.id });
-				return redirect("/onboarding/dates", {
-					headers: { "Server-Timing": timings.header() },
-				});
+			if (existingOrganizationId) {
+				await db.batch([...eventStatements]);
+				return;
 			}
-			// The organizer never chose this URL, so a collision with someone
-			// else's event is ours to resolve, not theirs to read about.
-			if (isSlugTakenError(error) && attempt < SLUG_RETRIES) {
-				slug = randomizedSlug(eventSlugBase(name));
-				continue;
-			}
-			track("onboarding.failed", {
-				userId: user.id,
-				error: errorMessage(error),
+
+			await db.batch([
+				db.insert(organizations).values({ id: organizationId, name }),
+				db.insert(organizationMembers).values({
+					organizationId,
+					userId: user.id,
+				}),
+				...eventStatements,
+			]);
+		});
+	} catch (error) {
+		const replayConflict =
+			errorChainIncludes(error, "UNIQUE constraint failed: organizations.id") ||
+			errorChainIncludes(error, "UNIQUE constraint failed: events.id");
+		const [replayed] = replayConflict
+			? await db
+					.select({ name: events.name })
+					.from(organizationMembers)
+					.innerJoin(
+						organizations,
+						eq(organizations.id, organizationMembers.organizationId),
+					)
+					.innerJoin(events, eq(events.organizationId, organizations.id))
+					.where(
+						and(
+							eq(organizationMembers.userId, user.id),
+							eq(organizations.id, organizationId),
+							eq(events.id, eventId),
+						),
+					)
+					.limit(1)
+			: [];
+		if (replayed?.name === name) {
+			track("onboarding.replayed", { userId: user.id });
+			return redirect("/onboarding/dates", {
+				headers: { "Server-Timing": timings.header() },
 			});
+		}
+		if (isSlugTakenError(error)) {
 			return {
-				formError: "Could not create your conference — please try again.",
+				fieldErrors: { slug: [SLUG_TAKEN_MESSAGE] },
 				values,
 				setupIds,
 			};
 		}
-
-		track("onboarding.event_created", {
-			organizationId,
-			eventId,
+		track("onboarding.failed", {
 			userId: user.id,
+			error: errorMessage(error),
 		});
-		return redirect("/onboarding/dates", {
-			headers: { "Server-Timing": timings.header() },
-		});
+		return {
+			formError: "Could not create your conference — please try again.",
+			values,
+			setupIds,
+		};
 	}
 
-	return {
-		formError: "Could not create your conference — please try again.",
-		values,
-		setupIds,
-	};
+	track("onboarding.event_created", {
+		organizationId,
+		eventId,
+		userId: user.id,
+	});
+	return redirect("/onboarding/dates", {
+		headers: { "Server-Timing": timings.header() },
+	});
 }
 
 export default function OnboardingStart({
@@ -215,6 +195,12 @@ export default function OnboardingStart({
 	const busy = useBusy();
 	const setupIds = actionData?.setupIds ?? loaderData;
 	const nameError = actionData?.fieldErrors?.conferenceName?.[0];
+	const slugError = actionData?.fieldErrors?.slug?.[0];
+	const [name, setName] = useState(actionData?.values?.conferenceName ?? "");
+	const [slug, setSlug] = useState(actionData?.values?.slug ?? "");
+	const [slugEdited, setSlugEdited] = useState(
+		Boolean(actionData?.values?.slug),
+	);
 
 	return (
 		<>
@@ -242,8 +228,31 @@ export default function OnboardingStart({
 							required
 							maxLength={200}
 							placeholder="Devcon 2027"
-							defaultValue={actionData?.values?.conferenceName}
+							value={name}
 							invalid={Boolean(nameError)}
+							onChange={(e) => {
+								const next = e.target.value;
+								setName(next);
+								if (!slugEdited) setSlug(eventSlugBase(next));
+							}}
+						/>
+					</Field>
+					<Field
+						label="Public URL"
+						hint="Speakers and reviewers will see this in every public link. Change it now if the suggestion is already taken."
+						error={slugError}
+					>
+						<Input
+							name="slug"
+							required
+							maxLength={80}
+							placeholder="devcon-2027"
+							value={slug}
+							invalid={Boolean(slugError)}
+							onChange={(e) => {
+								setSlug(e.target.value);
+								setSlugEdited(true);
+							}}
 						/>
 					</Field>
 					<Button type="submit" disabled={busy}>

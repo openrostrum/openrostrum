@@ -240,6 +240,42 @@ describe("editor loader", () => {
 		expect(status).toBe(404);
 	});
 
+	it("an open form's public link is the event CFP alias", async () => {
+		const { db, cookie } = await seedBase();
+		await db.insert(forms).values({
+			id: "f_open",
+			eventId: "e1",
+			publicId: "form-uuid-should-not-be-the-share-link",
+			internalName: "Live CFP",
+			status: "open",
+		});
+		const loaded = unwrapData<{
+			publicUrl: string | null;
+			deepUrl: string;
+			form: { status: string };
+		}>(await loader(loaderArgs("f_open", cookie)));
+		expect(loaded.publicUrl).toBe("http://localhost/cfp/devops-days-lyon-2027");
+		expect(loaded.deepUrl).toContain(
+			"/submit/devops-days-lyon-2027/form-uuid-should-not-be-the-share-link",
+		);
+	});
+
+	it("a draft form does not advertise a live-looking UUID as the public link", async () => {
+		const { db, cookie } = await seedBase();
+		await db.insert(forms).values({
+			id: "f_draft",
+			eventId: "e1",
+			publicId: "draft-uuid",
+			internalName: "Untitled",
+			status: "draft",
+		});
+		const loaded = unwrapData<{
+			publicUrl: string | null;
+			form: { status: string };
+		}>(await loader(loaderArgs("f_draft", cookie)));
+		expect(loaded.publicUrl).toBeNull();
+	});
+
 	it("keeps GETs read-only for pre-builder forms; the explicit initialize action places built-ins with customs after them", async () => {
 		const { db, cookie } = await seedBase();
 		// Shape of the seeded demo forms: custom placements only, positions 0/1.
