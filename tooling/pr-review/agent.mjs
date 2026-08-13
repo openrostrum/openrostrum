@@ -306,14 +306,13 @@ function terminalFailure(closed, banked, terminal, model) {
 	return null;
 }
 
-export async function runRuleReviewer({
+async function runRuleReviewerSession({
 	agent,
 	system,
 	repository,
 	runtime,
-	limits: suppliedLimits = {},
+	limits,
 }) {
-	const limits = { ...DEFAULT_LIMITS, ...suppliedLimits };
 	const changedPaths = new Set(repository.changes.map((change) => change.path));
 	const sink = createFindingSink(agent, changedPaths);
 	const terminal = createTerminal();
@@ -485,6 +484,40 @@ export async function runRuleReviewer({
 	}
 }
 
+// Undici reports a provider-closed SSE body as TypeError: terminated. That is
+// a dropped socket, not a finished review: retry once on a fresh session.
+// A second drop stays incomplete. Other incomplete reasons are not retried.
+const TRANSPORT_RETRIES = 1;
+
+export function isRetryableTransportFailure(reason) {
+	if (typeof reason !== "string" || !reason) return false;
+	return (
+		/(?:^|:\s*)terminated$/i.test(reason.trim()) ||
+		/other side closed/i.test(reason)
+	);
+}
+
+export async function runRuleReviewer(args) {
+	const limits = { ...DEFAULT_LIMITS, ...args.limits };
+	let last;
+	for (let attempt = 0; attempt <= TRANSPORT_RETRIES; attempt++) {
+		last = await runRuleReviewerSession({
+			...args,
+			limits,
+		});
+		if (last.status === "complete") {
+			if (attempt > 0) last.retried = attempt;
+			return last;
+		}
+		if (attempt === TRANSPORT_RETRIES) {
+			last.retried = attempt;
+			return last;
+		}
+		if (!isRetryableTransportFailure(last.reason)) return last;
+	}
+	return last;
+}
+
 // One session, one line of the run log. `reasked` and `forced` appear only when
 // they happened, so a clean run stays quiet about recoveries nobody needed and
 // neither a "complete" that took two asks nor one that never volunteered its
@@ -495,6 +528,7 @@ export function summaryLine(result) {
 		`${result.agent}: ${result.status}; turns=${result.turns}; tools=${result.toolCalls}; findings=${result.findings.length}` +
 		(result.reasked ? `; reasked=${result.reasked}` : "") +
 		(result.forced ? "; forced" : "") +
+		(result.retried ? `; retried=${result.retried}` : "") +
 		(result.reason ? `; reason=${result.reason}` : "")
 	);
 }

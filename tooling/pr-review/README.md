@@ -100,9 +100,11 @@ render as prose and are elided.
 
 A session is complete only after `finish_review` is called, its arguments pass a
 TypeBox schema at the boundary — no hand-rolled shape checks — and its `submitted`
-count equals what actually reached the bank. Provider errors, timeouts, aborted
-runs, exhausted budgets, a session that never closes, and a count that disagrees
-with the bank are **incomplete**, never clean. The close is read off the tool call
+count equals what actually reached the bank. A dropped SSE stream (`terminated`,
+`other side closed`) is retried once on a fresh session. Provider errors, timeouts,
+aborted runs, exhausted budgets, a session that never closes, a second dropped
+stream, and a count that disagrees with the bank are **incomplete**, never clean.
+The close is read off the tool call
 and ends the session there, so closing never depends on when a tool result is
 appended relative to the turn hook.
 
@@ -206,8 +208,9 @@ schema, a terminal count that disagrees with the bank, the per-response cap and
 its re-issue, a reviewer that ends in prose being re-asked once and recovering, a
 reviewer that misses the signal twice staying incomplete, findings surviving a
 re-ask, a reviewer that submits through the whole close allowance still ending
-complete because the close is all it is left, a run summary that reports the extra
-ask and a forced close only when each happened,
+complete because the close is all it is left, a dropped stream retried once to
+completion, a second drop staying incomplete, a named provider failure not
+retried, a run summary that reports the extra ask and a forced close only when each happened,
 anchoring, fingerprints, dedupe, reconciliation, stale deferral, and posting
 payloads. CI runs this complete set in its unconditional quality job.
 
