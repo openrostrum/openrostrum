@@ -128,7 +128,7 @@ export async function runJourney({
 		initialState: {
 			systemPrompt: charter,
 			model: runtime.model,
-			thinkingLevel: "off",
+			thinkingLevel: runtime.thinkingLevel ?? "off",
 			tools: session.tools,
 		},
 		streamFn: runtime.streamFn,

@@ -27,6 +27,7 @@ const {
 	JC_TARGET = "https://openrostrum.com",
 	JC_MODEL,
 	JC_BASE_URL,
+	JC_THINKING,
 	// Reserved, non-routable by RFC 6761: the harness signs up on a live product
 	// and must never cause mail to be delivered to a stranger.
 	JC_EMAIL_DOMAIN = "journey-critic.invalid",
@@ -84,6 +85,7 @@ async function main() {
 		key: ANTHROPIC_API_KEY,
 		model: JC_MODEL,
 		baseUrl: JC_BASE_URL,
+		thinkingLevel: JC_THINKING,
 	});
 	const browser = await chromium.launch({ headless: !JC_HEADED });
 	const ownedSlugs = new Set();
