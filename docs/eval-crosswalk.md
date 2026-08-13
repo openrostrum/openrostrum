@@ -131,9 +131,11 @@ doesn't — never hide a feature, and never gate one behind an emailed link.
 
 ## 07 Speaker CRM — OPTIONAL (extra credit only; excluded from overall)
 
-Stays OUT per swyx + kit both marking it optional. Revisit only if everything
-above is green before Aug 11 EOD (CRM-01/05/10 reuse roster + import + contact
-record work from P1 #17).
+IN as of 2026-08-12 (owner: "I told you WE WANT 100%"). The kit marks this area
+`optional: true`, so it is EXTRA CREDIT — excluded from the overall score, which
+aggregates the six required areas only. It is still 19 weight of rubric we are
+failing at 23.7%, the worst area we have, so it gets built; it just never moves
+the headline number. Do the required six first when they compete.
 
 ## Not scored by the kit (kept on their own merits)
 

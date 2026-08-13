@@ -12,7 +12,7 @@ One row per topic below, pointing to where the depth lives; an agent reads only 
 
 | Topic | Read when | Where |
 |---|---|---|
-| What to build — tiers, north star, OUT table | starting any feature | `SCOPE.md` |
+| What to build — tiers, north star, everything-in-scope rule | starting any feature | `SCOPE.md` |
 | Definition of done — scenarios + binding decisions (GAP-REGISTER) | before AND after building | `docs/scenarios/` |
 | Judges' rubric → owning feature | your feature owns rubric IDs | `docs/eval-crosswalk.md` |
 | Platform rules (mandatory: D1, imports, R2, email, routing) | writing any code | `docs/rules/tech-stack.md` |
