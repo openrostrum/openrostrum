@@ -27,7 +27,7 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Portals admin | `admin.portals.tsx` (list + "View portal as" preview) · `admin.portal-forms.tsx` (portal-form builder) | `/admin/portals` · `/admin/portal-forms` | 3 | done — `admin.file-requests.tsx` proposed dropped: file requests already ship as `isFileRequest` task definitions (owner ratifies by merging the portal-admin PR that carries this row) |
 | Public CFP | `submit.$eventSlug.$formId.tsx` (+ `.step.*`) | `/submit/:eventSlug/:formId` | 2 | done |
 | Speaker portal | `portals.$eventSlug.$portalId.tsx` (+ `_index/home/submissions/submissions_.$submissionId/profile/tasks/tasks_.$assignmentId/files/files_.$fileId/headshot/logo` children) | `/portals/:eventSlug/:portalId/*` | 2 | done |
-| Portal resolver (speaker login landing) | `portal.tsx` | `/portal` (resolves the user's portal, else designed empty state) | 2 | done |
+| Portal resolver (speaker login landing) | `portal.tsx` | `/portal` (one portal → that event; several → chooser; none → designed empty state) | 2 | done |
 | Create event | `admin.events.new.tsx` | `/admin/events/new` | 1 | done |
 | Event switcher (action) | `admin.events.switch.tsx` | `/admin/events/switch` (POST → sets `users.activeEventId`; membership-guarded) | 0/1 | done |
 | Reviewer management | `admin.reviewers.tsx` | `/admin/reviewers` (add reviewer + track assignment + invite) | 1 | done |

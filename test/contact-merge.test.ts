@@ -40,6 +40,7 @@ import {
 	loader as mergeLoader,
 } from "../app/routes/admin.crm.merge";
 import { loader as portalLoader } from "../app/routes/portal";
+import { unwrap } from "./route-data";
 
 const CONTEXT = { cloudflare: { env, ctx: {} } };
 
@@ -952,8 +953,9 @@ describe("contact merge", () => {
 			(await listPortalTasks(env, ctx)).map((row) => row.id).sort(),
 		).toEqual(["assignment-source-only", "assignment-target-conflict"]);
 
-		let thrown: unknown;
-		try {
+		const resolved = unwrap<{
+			choices: Array<{ eventName: string; href: string }>;
+		}>(
 			await portalLoader({
 				context: CONTEXT,
 				request: await authenticatedRequest(
@@ -961,14 +963,18 @@ describe("contact merge", () => {
 					"http://localhost/portal",
 				),
 				params: {},
-			} as unknown as Parameters<typeof portalLoader>[0]);
-		} catch (error) {
-			thrown = error;
-		}
-		expect(thrown).toBeInstanceOf(Response);
-		expect((thrown as Response).headers.get("Location")).toBe(
-			"/portals/event-a2/portal-public-a2/home",
+			} as unknown as Parameters<typeof portalLoader>[0]),
 		);
+		expect(resolved.choices).toEqual([
+			{
+				eventName: "Event A1",
+				href: "/portals/event-a1/portal-public-a1/home",
+			},
+			{
+				eventName: "Event A2",
+				href: "/portals/event-a2/portal-public-a2/home",
+			},
+		]);
 	});
 
 	it("returns the recorded result when the same merge POST is replayed", async () => {

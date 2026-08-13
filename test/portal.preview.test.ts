@@ -241,11 +241,13 @@ type TasksData = { tasks: Array<{ id: string; name: string }> };
 describe("admin portal preview (View portal as)", () => {
 	it("shows the speaker's portal to an org admin with the preview banner data", async () => {
 		await seedPreviewWorld();
-		const shell = (await shellLoader({
-			context: CONTEXT,
-			request: await requestWithPreview("u_admin", BASE),
-			params: PORTAL_PARAMS,
-		} as unknown as Parameters<typeof shellLoader>[0])) as ShellData;
+		const shell = unwrap<ShellData>(
+			await shellLoader({
+				context: CONTEXT,
+				request: await requestWithPreview("u_admin", BASE),
+				params: PORTAL_PARAMS,
+			} as unknown as Parameters<typeof shellLoader>[0]),
+		);
 		expect(shell.preview).toEqual({ contactName: "Priya R" });
 
 		const tasksData = unwrap<TasksData>(
@@ -513,11 +515,13 @@ describe("admin portal preview (View portal as)", () => {
 
 	it("ignores the preview cookie for non-admins — no impersonation, no lockout", async () => {
 		const db = await seedPreviewWorld();
-		const shell = (await shellLoader({
-			context: CONTEXT,
-			request: await requestWithPreview("u_mallory", BASE),
-			params: PORTAL_PARAMS,
-		} as unknown as Parameters<typeof shellLoader>[0])) as ShellData;
+		const shell = unwrap<ShellData>(
+			await shellLoader({
+				context: CONTEXT,
+				request: await requestWithPreview("u_mallory", BASE),
+				params: PORTAL_PARAMS,
+			} as unknown as Parameters<typeof shellLoader>[0]),
+		);
 		expect(shell.preview).toBeNull();
 
 		const tasksData = unwrap<TasksData>(
@@ -552,26 +556,30 @@ describe("admin portal preview (View portal as)", () => {
 
 	it("refuses preview across tenants — another org's admin gets no impersonation", async () => {
 		await seedPreviewWorld();
-		const shell = (await shellLoader({
-			context: CONTEXT,
-			request: await requestWithPreview("u_badmin", BASE),
-			params: PORTAL_PARAMS,
-		} as unknown as Parameters<typeof shellLoader>[0])) as ShellData;
+		const shell = unwrap<ShellData>(
+			await shellLoader({
+				context: CONTEXT,
+				request: await requestWithPreview("u_badmin", BASE),
+				params: PORTAL_PARAMS,
+			} as unknown as Parameters<typeof shellLoader>[0]),
+		);
 		expect(shell.preview).toBeNull();
 	});
 
 	it("ignores a preview cookie naming a contact from another event", async () => {
 		await seedPreviewWorld();
-		const shell = (await shellLoader({
-			context: CONTEXT,
-			request: await requestWithPreview(
-				"u_admin",
-				BASE,
-				undefined,
-				"__portal_preview=c_out",
-			),
-			params: PORTAL_PARAMS,
-		} as unknown as Parameters<typeof shellLoader>[0])) as ShellData;
+		const shell = unwrap<ShellData>(
+			await shellLoader({
+				context: CONTEXT,
+				request: await requestWithPreview(
+					"u_admin",
+					BASE,
+					undefined,
+					"__portal_preview=c_out",
+				),
+				params: PORTAL_PARAMS,
+			} as unknown as Parameters<typeof shellLoader>[0]),
+		);
 		expect(shell.preview).toBeNull();
 	});
 

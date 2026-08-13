@@ -1,15 +1,21 @@
 // @public — the invite / password-reset landing; it must work logged out.
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, ne } from "drizzle-orm";
 import { Form, data, redirect } from "react-router";
 import { z } from "zod";
 import { AuthNote, AuthPage } from "~/marketing/auth";
 import { getDb } from "~/db";
 import {
 	authSessions,
+	evaluationPlans,
+	evaluationRounds,
+	evaluations,
 	events,
 	organizationMembers,
 	organizations,
 	passwordResets,
+	reviewerTracks,
+	roundEvaluators,
+	tracks,
 	users,
 } from "~/db/schema";
 import {
@@ -18,6 +24,7 @@ import {
 	homePathForRole,
 	isSecureRequest,
 } from "~/lib/auth";
+import { formatDay } from "~/lib/evaluation";
 import { errorMessage } from "~/lib/errors";
 import { createTimings, track } from "~/lib/track";
 import { useBusy } from "~/lib/use-busy";
@@ -55,6 +62,116 @@ async function lookupToken(env: Env, token: string) {
 	return row;
 }
 
+type ReviewerInviteEvent = {
+	name: string;
+	pendingCount: number;
+	pendingCopy: string;
+	due: string;
+};
+
+async function loadReviewerInvite(
+	env: Env,
+	userId: string,
+	role: (typeof users.$inferSelect)["role"],
+): Promise<{ events: ReviewerInviteEvent[] } | undefined> {
+	const db = getDb(env);
+	const [trackEvents, poolEvents] = await Promise.all([
+		db
+			.selectDistinct({
+				id: events.id,
+				name: events.name,
+			})
+			.from(reviewerTracks)
+			.innerJoin(tracks, eq(tracks.id, reviewerTracks.trackId))
+			.innerJoin(events, eq(events.id, tracks.eventId))
+			.where(eq(reviewerTracks.userId, userId)),
+		db
+			.selectDistinct({
+				id: events.id,
+				name: events.name,
+			})
+			.from(roundEvaluators)
+			.innerJoin(
+				evaluationRounds,
+				eq(evaluationRounds.id, roundEvaluators.roundId),
+			)
+			.innerJoin(
+				evaluationPlans,
+				eq(evaluationPlans.id, evaluationRounds.planId),
+			)
+			.innerJoin(events, eq(events.id, evaluationPlans.eventId))
+			.where(eq(roundEvaluators.userId, userId)),
+	]);
+	const byId = new Map<string, { id: string; name: string }>();
+	for (const ev of [...trackEvents, ...poolEvents]) byId.set(ev.id, ev);
+	if (byId.size === 0) {
+		if (role !== "reviewer") return undefined;
+		return { events: [] };
+	}
+	const eventIds = [...byId.keys()];
+	const [pendingRows, dueRows] = await Promise.all([
+		db
+			.select({
+				eventId: evaluationPlans.eventId,
+				n: count(),
+			})
+			.from(evaluations)
+			.innerJoin(evaluationRounds, eq(evaluationRounds.id, evaluations.roundId))
+			.innerJoin(
+				evaluationPlans,
+				eq(evaluationPlans.id, evaluationRounds.planId),
+			)
+			.where(
+				and(
+					eq(evaluations.evaluatorId, userId),
+					eq(evaluations.status, "pending"),
+					inArray(evaluationPlans.eventId, eventIds),
+				),
+			)
+			.groupBy(evaluationPlans.eventId),
+		db
+			.select({
+				eventId: evaluationPlans.eventId,
+				closesAt: evaluationRounds.closesAt,
+			})
+			.from(evaluationRounds)
+			.innerJoin(
+				evaluationPlans,
+				eq(evaluationPlans.id, evaluationRounds.planId),
+			)
+			.where(inArray(evaluationPlans.eventId, eventIds)),
+	]);
+	const pendingByEvent = new Map(pendingRows.map((r) => [r.eventId, r.n]));
+	const dueByEvent = new Map<string, Date | null>();
+	for (const row of dueRows) {
+		const prev = dueByEvent.get(row.eventId);
+		if (prev === undefined) {
+			dueByEvent.set(row.eventId, row.closesAt);
+			continue;
+		}
+		if (row.closesAt && (!prev || row.closesAt.getTime() < prev.getTime())) {
+			dueByEvent.set(row.eventId, row.closesAt);
+		}
+	}
+	return {
+		events: [...byId.values()]
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.map((ev) => {
+				const pendingCount = pendingByEvent.get(ev.id) ?? 0;
+				const due = dueByEvent.get(ev.id);
+				return {
+					name: ev.name,
+					pendingCount,
+					pendingCopy:
+						pendingCount === 0
+							? "no talks assigned yet"
+							: `${pendingCount} talk${pendingCount === 1 ? "" : "s"} assigned`,
+					due: due ? formatDay(due) : "no deadline set",
+				};
+			}),
+	};
+}
+
 export function meta(_: Route.MetaArgs) {
 	return [{ title: "Set your password — OpenRostrum" }];
 }
@@ -65,16 +182,21 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 
 export async function loader({ context, params }: Route.LoaderArgs) {
 	const timings = createTimings();
-	const row = await timings.time("db", () =>
-		lookupToken(context.cloudflare.env, params.token),
-	);
+	const env = context.cloudflare.env;
+	const row = await timings.time("db", () => lookupToken(env, params.token));
 	const headers = { "Server-Timing": timings.header() };
 	if (!row) return data({ state: "invalid" as const }, { headers });
+	const invite = row.reset.organizationId
+		? undefined
+		: await timings.time("invite", () =>
+				loadReviewerInvite(env, row.user.id, row.user.role),
+			);
 	return data(
 		{
 			state: "valid" as const,
 			email: row.user.email,
 			orgName: row.orgName,
+			invite,
 		},
 		{ headers },
 	);
@@ -228,15 +350,28 @@ export default function SetPassword({
 		);
 	}
 
+	const invite = loaderData.invite;
+	const inviteSubtitle = invite
+		? invite.events.length === 0
+			? "You've been invited to review. No talks assigned yet — no deadline set."
+			: invite.events
+					.map((ev) => `${ev.name} — ${ev.pendingCopy}. Due ${ev.due}.`)
+					.join(" ")
+		: null;
+
 	return (
 		<AuthPage
 			title={
-				loaderData.orgName ? `Join ${loaderData.orgName}` : "Set your password"
+				loaderData.orgName
+					? `Join ${loaderData.orgName}`
+					: invite
+						? "You're invited to review"
+						: "Set your password"
 			}
 			subtitle={
 				loaderData.orgName
 					? `You've been invited to ${loaderData.orgName}. Set a password to finish creating your account.`
-					: "Choose a new password for your account."
+					: (inviteSubtitle ?? "Choose a new password for your account.")
 			}
 			nav={{
 				prompt: "Already have an account?",

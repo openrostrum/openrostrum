@@ -69,7 +69,7 @@ This is the literal sequence judges will replay from the walkthrough. Each step 
 - Acceptance: create form → copy public URL → it works in incognito.
 
 **2. Public CFP submission flow (the star of the demo).**
-- Stepper: Welcome → Account → Submission → Participant → Review; top banner shows close date + submission limit.
+- Stepper: Welcome → Submission → Participant → Account → Review; top banner shows close date + submission limit.
 - Submission step: Title (char counter), Description (rich text), Format/Tags/Track/Level/Language dropdowns — all driven by the form config, required-field validation.
 - Participant step: role count enforcement ("2–4 speakers, 2 added"), per-speaker First/Last/Email (live validation)/Phone/Bio; Add Secondary Contact can be P1.
 - Review step → Submit → success page with the admin-configured message → "Continue to portal" (+ auto-redirect).
@@ -240,7 +240,7 @@ Every page, field, and control observed in the video (~100 frames) and the brief
 
 ## D. Public CFP flow
 - URL shape: `/submit/<event-slug>/<form-uuid>` (+ `/step/auth`, `/step/session…`, `/step/participant`, `/step/confirm…`).
-- Stepper: ①Welcome → ②Account → ③Submission → ④Participant → ⑤Review (checkmarks as completed).
+- Stepper: ①Welcome → ②Submission → ③Participant → ④Account → ⑤Review (checkmarks as completed).
 - Persistent banner: "Form submissions will be accepted until September 15 at 11:59 PM PDT." + "Submission Limit: 3 submissions per user".
 - Welcome: rich-text content (Call for Speakers copy, tracks list, helpful links — Speaker Agreement / FAQs / Speaker Tips, Dates and Deadlines), Get Started.
 - Account: "Log in with your existing account" — Email*, Existing password*, **Forgot your password?**, Log In →, Back; (signup variant for new emails).

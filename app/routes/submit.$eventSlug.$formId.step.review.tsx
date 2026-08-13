@@ -1,8 +1,9 @@
-// @public route family — loader gates with getUser; the submit action
-// requires a signed-in speaker and re-validates everything server-side.
+// @public route family — the review step is reachable before an account
+// exists; the submit action still requires a signed-in speaker.
 import {
 	data,
 	redirect,
+	useNavigate,
 	useOutletContext,
 	useRouteLoaderData,
 	useSubmit,
@@ -59,14 +60,11 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 
 export async function loader({ context, request, params }: Route.LoaderArgs) {
 	const env = context.cloudflare.env;
-	const base = submitPath(params.eventSlug, params.formId);
-	const url = new URL(request.url);
 	const user = await getUser(env, request);
-	if (!user) throw redirect(`${base}/step/account${url.search}`);
 	const bundle = await loadPublicForm(env, params.eventSlug, params.formId);
 	if (!bundle) throw data("Form not found", { status: 404 });
 	const definition = await resolveFormDefinition(getDb(env), bundle.form);
-	return { definition };
+	return { definition, signedIn: Boolean(user) };
 }
 
 const SubmitPayload = z.object({
@@ -321,6 +319,7 @@ export default function ReviewStep({
 	);
 	const ctx = useOutletContext<WizardCtx>();
 	const submit = useSubmit();
+	const navigate = useNavigate();
 	// Also true while a draft-save fetcher from an earlier step is still in
 	// flight — submitting then would race the save's sid echo and fork state.
 	const busy = useBusy();
@@ -337,10 +336,13 @@ export default function ReviewStep({
 			</InfoNotice>
 		);
 	}
-
 	const editingSubmitted = isEditingSubmitted(state);
 
 	const doSubmit = () => {
+		if (!loaderData.signedIn) {
+			navigate(stepPath(base, "account", state.sid));
+			return;
+		}
 		submit(wizardPayload("submit", state), {
 			method: "post",
 			encType: "application/json",
@@ -415,7 +417,13 @@ export default function ReviewStep({
 					← Back
 				</ButtonLink>
 				<Button type="button" disabled={busy} onClick={doSubmit}>
-					{busy ? "Submitting…" : editingSubmitted ? "Save changes" : "Submit"}
+					{busy
+						? "Submitting…"
+						: !loaderData.signedIn
+							? "Set a password to submit"
+							: editingSubmitted
+								? "Save changes"
+								: "Submit"}
 				</Button>
 			</div>
 		</div>

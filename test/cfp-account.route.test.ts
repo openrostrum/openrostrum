@@ -67,7 +67,7 @@ describe("account step — signup", () => {
 		const response = (await call(SIGNUP)) as Response;
 		expect(response.status).toBe(302);
 		expect(response.headers.get("Location")).toBe(
-			`/submit/${FIX.eventSlug}/${FIX.formPublicId}/step/session`,
+			`/submit/${FIX.eventSlug}/${FIX.formPublicId}/step/review`,
 		);
 		expect(response.headers.get("Set-Cookie")).toContain("__session=");
 

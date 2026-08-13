@@ -12,7 +12,7 @@ export default function WelcomeStep() {
 	);
 	if (!layout) return null;
 	const base = submitPath(layout.event.slug, layout.form.publicId);
-	const next = stepPath(base, layout.user ? "session" : "account");
+	const next = stepPath(base, "session");
 	return (
 		<Panel>
 			<div className="flex flex-col gap-4">

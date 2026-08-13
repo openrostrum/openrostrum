@@ -35,8 +35,8 @@ import { createTimings, track } from "~/lib/track";
 import {
 	Button,
 	Chip,
+	EmptyLine,
 	EmptyRow,
-	EmptyState,
 	ErrorText,
 	Field,
 	Input,
@@ -57,7 +57,7 @@ import type { Route } from "./+types/admin.reviewers";
 const AddReviewer = z.object({
 	name: z.string().min(1, "Name is required"),
 	email: z.string().email("Enter a valid email address"),
-	trackIds: z.array(z.string().min(1)).min(1, "Assign at least one track"),
+	trackIds: z.array(z.string().min(1)),
 });
 
 const STALE_FORM_ERROR =
@@ -237,15 +237,23 @@ export async function action({
 				return { intent, formError: "Pick tracks from this event only." };
 			}
 			const { user: reviewer } = await ensureReviewerUser(db, parsed.data);
-			await db
-				.insert(reviewerTracks)
-				.values(
-					parsed.data.trackIds.map((trackId) => ({
-						userId: reviewer.id,
-						trackId,
-					})),
-				)
-				.onConflictDoNothing();
+			if (parsed.data.trackIds.length > 0) {
+				await db
+					.insert(reviewerTracks)
+					.values(
+						parsed.data.trackIds.map((trackId) => ({
+							userId: reviewer.id,
+							trackId,
+						})),
+					)
+					.onConflictDoNothing();
+			} else {
+				const roundId = await ensureQuickRound(db, event.id);
+				await db
+					.insert(roundEvaluators)
+					.values({ roundId, userId: reviewer.id })
+					.onConflictDoNothing();
+			}
 			const invited = !hasUsablePassword(reviewer.passwordHash);
 			const sender = getEmailSender(env);
 			if (invited) {
@@ -610,38 +618,32 @@ export default function Reviewers({
 			{result?.formError && <ErrorText>{result.formError}</ErrorText>}
 
 			<Panel>
-				{eventTracks.length === 0 ? (
-					<EmptyState
-						icon="sliders"
-						title="No tracks yet"
-						body="Reviewers route by track. Create tracks in Settings → Library first, then add reviewers here."
-					/>
-				) : (
-					<Form method="post" className="flex flex-wrap items-end gap-3">
-						<Input type="hidden" name="intent" value="add" />
-						<Input type="hidden" name="sendKey" value={sendKey} readOnly />
+				<Form method="post" className="flex flex-wrap items-end gap-3">
+					<Input type="hidden" name="intent" value="add" />
+					<Input type="hidden" name="sendKey" value={sendKey} readOnly />
+					<Field
+						label="Name"
+						error={
+							result?.intent === "add"
+								? result.fieldErrors?.name?.[0]
+								: undefined
+						}
+					>
+						<Input name="name" placeholder="Rosa Delgado" />
+					</Field>
+					<Field
+						label="Email"
+						error={
+							result?.intent === "add"
+								? result.fieldErrors?.email?.[0]
+								: undefined
+						}
+					>
+						<Input name="email" placeholder="rosa@example.com" />
+					</Field>
+					{eventTracks.length > 0 && (
 						<Field
-							label="Name"
-							error={
-								result?.intent === "add"
-									? result.fieldErrors?.name?.[0]
-									: undefined
-							}
-						>
-							<Input name="name" placeholder="Rosa Delgado" />
-						</Field>
-						<Field
-							label="Email"
-							error={
-								result?.intent === "add"
-									? result.fieldErrors?.email?.[0]
-									: undefined
-							}
-						>
-							<Input name="email" placeholder="rosa@example.com" />
-						</Field>
-						<Field
-							label="Tracks (hold Ctrl/Cmd to pick several)"
+							label="Tracks (optional — hold Ctrl/Cmd to pick several)"
 							error={
 								result?.intent === "add"
 									? result.fieldErrors?.trackIds?.[0]
@@ -660,11 +662,11 @@ export default function Reviewers({
 								))}
 							</Select>
 						</Field>
-						<Button type="submit" icon="plus" disabled={busy}>
-							Add reviewer
-						</Button>
-					</Form>
-				)}
+					)}
+					<Button type="submit" icon="plus" disabled={busy}>
+						Add reviewer
+					</Button>
+				</Form>
 			</Panel>
 
 			<Table>
@@ -683,13 +685,19 @@ export default function Reviewers({
 							<Td kind="strong">{r.name ?? "—"}</Td>
 							<Td kind="mono">{r.email}</Td>
 							<Td>
-								<div className="flex flex-wrap gap-3">
-									{r.tracks.map((t) => (
-										<Chip key={t.id} color={t.color}>
-											{t.name}
-										</Chip>
-									))}
-								</div>
+								{r.tracks.length === 0 ? (
+									<EmptyLine>
+										No tracks — they only see talks you assign.
+									</EmptyLine>
+								) : (
+									<div className="flex flex-wrap gap-3">
+										{r.tracks.map((t) => (
+											<Chip key={t.id} color={t.color}>
+												{t.name}
+											</Chip>
+										))}
+									</div>
+								)}
 							</Td>
 							<Td kind="mono">
 								{r.completed}/{r.assigned}
