@@ -1,6 +1,7 @@
 area: abstract-management
 title: Abstract Management (Review Depth & Disposition)
 prefix: ABS
+area_weight: 20
 overview: >
   Abstract management is the review-and-disposition engine that sits behind the call for
   papers. Organizers configure evaluation plans with multiple independent review rounds,
@@ -204,6 +205,7 @@ rubric:
   - id: ABS-01
     criterion: Organizer can configure an evaluation plan with two or more independent review rounds, each with its own name, open/close dates, and its own scorecard, and the configuration persists.
     weight: 3
+    type: crud
     testability: auto
     scenarios: [ABS-S2]
     pass_criteria: "After saving and reloading, both rounds ('Initial Review' 2026-08-01..2026-10-15 and 'Final Review' 2026-10-16..2026-11-30) are listed with visibly distinct names, date ranges, and scorecards; a single global review setup with no round concept fails."
@@ -211,6 +213,7 @@ rubric:
   - id: ABS-02
     criterion: Review rounds can each have their own reviewer pool, so a reviewer scoped to round 1 is not automatically a reviewer for round 2.
     weight: 2
+    type: scoping
     testability: auto
     scenarios: [ABS-S2]
     pass_criteria: The UI attaches reviewers (or a pool/committee) to a specific round rather than only globally, and Sam Whitfield could be added to the Round 1 pool while Round 2 shows a different (possibly empty) pool.
@@ -218,6 +221,7 @@ rubric:
   - id: ABS-03
     criterion: The scorecard editor supports numeric rating, dropdown, and free-text criteria, and all three field types render on the reviewer side and store submitted values.
     weight: 3
+    type: crud
     testability: auto
     scenarios: [ABS-S2, ABS-S3]
     pass_criteria: "Organizer could build the round-1 scorecard with numeric Originality/Relevance, a Recommendation dropdown (Accept/Maybe/Reject), and a Comments text area; the reviewer view rendered all three types; the submitted evaluation (values 4, 2, Accept, sample comment) is stored and visible after submission."
@@ -225,6 +229,7 @@ rubric:
   - id: ABS-04
     criterion: "Scoring criteria can carry weights and the per-submission aggregate reflects the weighting (inferred — SessionBoard marketing references weighted criteria only for AI personas; aggregation method unspecified)."
     weight: 1
+    type: depth
     testability: auto
     scenarios: [ABS-S2, ABS-S3]
     pass_criteria: "Weight configuration exists in the scorecard editor and persists (Originality weight 2, Relevance weight 1); full credit if the displayed aggregate for 'Taming 40-Minute CI' matches the weighted math (approximately 3.33 rather than the plain 3.0 average) or is explicitly labeled as weighted; no weight concept anywhere fails. If an earlier-area review (CFP-S3's all-4s scorecard) is folded into the displayed aggregate, judge the arithmetic including it per the agent's recorded observation rather than failing the item."
@@ -232,6 +237,7 @@ rubric:
   - id: ABS-05
     criterion: Organizer can assign specific submissions to a specific reviewer, and the reviewer's queue contains exactly the assigned submissions and nothing else.
     weight: 3
+    type: scoping
     testability: auto
     scenarios: [ABS-S2, ABS-S3]
     pass_criteria: "Sam Whitfield's queue lists 'Taming 40-Minute CI' and 'Your AI Pair Programmer' and does NOT list the unassigned 'Docs That Answer Back'; a portal that exposes all submissions to every reviewer fails."
@@ -239,6 +245,7 @@ rubric:
   - id: ABS-06
     criterion: Assignment tooling works at scale — at least one of per-reviewer caps/limits, auto-distribution of submissions across reviewers, or track-filtered bulk assignment is present and functional.
     weight: 2
+    type: bulk
     testability: auto
     scenarios: [ABS-S2]
     pass_criteria: The assignment UI offers a per-reviewer limit, an auto-assign/distribute action, or track/bulk filtering, and the agent exercised it without error; assignment strictly one-submission-at-a-time with no caps, filters, or auto-distribution fails.
@@ -246,6 +253,7 @@ rubric:
   - id: ABS-07
     criterion: With anonymization enabled on a round, the reviewer's view hides author and co-author identity while the organizer's view of the same submission shows it.
     weight: 2
+    type: scoping
     testability: auto-partial
     scenarios: [ABS-S2, ABS-S3]
     pass_criteria: "A per-round anonymization/blind setting exists (ABS-S2 step 4) and the blinded reviewer view of 'Taming 40-Minute CI' contains none of 'Priya Raman', 'Marcus Okafor', or 'Latticework Systems', while the organizer view (ABS-S3 step 10) shows them; author names leaking anywhere in the reviewer view fails."
@@ -254,13 +262,15 @@ rubric:
   - id: ABS-08
     criterion: A review progress dashboard shows per-reviewer completion counts or percentages that match the actual review state in real time.
     weight: 2
+    type: roundtrip
     testability: auto
     scenarios: [ABS-S2, ABS-S3]
     pass_criteria: "The dashboard showed Sam Whitfield at 2 assigned / 0 complete before any reviews (ABS-S2 step 8) and 2 of 2 complete (or 100%) after both evaluations were submitted (ABS-S3 step 11); stale or absent counts fail."
     evidence: Before/after progress-dashboard screenshots from the two scenarios with matching reviewer name and counts.
   - id: ABS-09
     criterion: Organizer can select reviewers with outstanding reviews and send them a bulk reminder from the progress or reviewer view.
-    weight: 2
+    weight: 1
+    type: bulk
     testability: auto-partial
     scenarios: [ABS-S2]
     pass_criteria: A reminder/nudge action is available against the lagging reviewer (Sam at 0 of 2 complete), and triggering it reports success (confirmation toast, sent status, or log entry).
@@ -269,6 +279,7 @@ rubric:
   - id: ABS-10
     criterion: Organizer sees an aggregate score per submission in a results table and can sort submissions by that score.
     weight: 3
+    type: roundtrip
     testability: auto
     scenarios: [ABS-S3]
     pass_criteria: "Both reviewed submissions display aggregates consistent with the entered scores ('Your AI Pair Programmer' at 5.0 outranking 'Taming 40-Minute CI' at ~3.0-3.33), and toggling the sort visibly reorders rows correctly in both directions; a list with raw per-review data but no aggregate or no working sort fails. If an earlier-area review is folded into the aggregate (per the agent's recorded arithmetic in step 8), judge consistency including that review rather than requiring the exact 3.0/3.33 values."
@@ -276,6 +287,7 @@ rubric:
   - id: ABS-11
     criterion: Co-authors/co-presenters added at submission time persist with their role labels and are visible on the submission in organizer-side review and results views.
     weight: 2
+    type: crud
     testability: auto
     scenarios: [ABS-S1, ABS-S3]
     pass_criteria: "Marcus Okafor appears alongside Priya Raman on 'Taming 40-Minute CI' with a role label in the speaker-side detail (ABS-S1) and in the organizer's review/results context (ABS-S3 step 10); no co-author support at all fails; partial credit if co-authors persist but without role labels."
@@ -283,6 +295,7 @@ rubric:
   - id: ABS-12
     criterion: "Reviewer can declare a conflict of interest / recuse themselves on an assigned submission (inferred — not documented in SessionBoard marketing; category norm from peer review tools)."
     weight: 1
+    type: depth
     testability: auto
     scenarios: [ABS-S3]
     pass_criteria: A conflict-of-interest or recusal control is present in the reviewer's scoring view (screenshot with wording recorded); full credit if exercising it flags the submission or removes it from the reviewer's actionable queue.
@@ -290,6 +303,7 @@ rubric:
   - id: ABS-13
     criterion: Review scores and statuses can be exported to a downloadable file (CSV/XLSX) from the results or reports area.
     weight: 2
+    type: side-effect
     testability: auto-partial
     scenarios: [ABS-S3]
     pass_criteria: An export/download control exists for review results and triggering it initiates a download or reports success without error.
@@ -298,6 +312,7 @@ rubric:
   - id: ABS-14
     criterion: If the clone claims AI-assisted triage, an AI evaluator produces a first-pass numeric score with written reasoning on a submission, and a human override persists distinguishably.
     weight: 1
+    type: depth
     testability: auto-partial
     scenarios: [ABS-S2, ABS-S3]
     pass_criteria: "An AI evaluation feature exists and yields a numeric score plus rationale text attributed to the AI on 'Taming 40-Minute CI'; the results view distinguishes AI from human scores; an admin override to a different value persists after reload. Judge this item only if the clone claims AI review anywhere in its UI or marketing; otherwise score as not applicable per the agent's recorded observation of absence."

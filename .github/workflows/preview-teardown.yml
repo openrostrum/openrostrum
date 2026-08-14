@@ -1,0 +1,47 @@
+name: Preview teardown
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: preview-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  teardown:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - name: Guard — teardown only when Cloudflare is configured
+        id: guard
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ]; then
+            echo "::warning::Preview teardown skipped — set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.go == 'true'
+      - uses: pnpm/action-setup@v4
+        if: steps.guard.outputs.go == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.go == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.guard.outputs.go == 'true'
+      - name: Delete preview Worker, D1, and R2
+        if: steps.guard.outputs.go == 'true'
+        run: pnpm preview:teardown

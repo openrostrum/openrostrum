@@ -213,3 +213,55 @@ jobs:
             exit 0
           fi
           printf '%s' "$DEEPSEEK_API_KEY" | pnpm exec wrangler secret put DEEPSEEK_API_KEY
+
+  # Same-repo PRs get a clickable preview after quality is green. Isolation is
+  # a separate Worker + D1 + R2 named openrostrum-pr-<n> — never the production
+  # worker, D1, R2, custom domain, crons, or Resend key. Fork PRs skip. This
+  # job is advisory: do not add it to required status checks. A Cloudflare
+  # outage or token-scope miss must not block merge.
+  preview:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - name: Guard — preview only when Cloudflare is configured
+        id: guard
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ]; then
+            echo "::warning::PR preview skipped — set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.go == 'true'
+      - uses: pnpm/action-setup@v4
+        if: steps.guard.outputs.go == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.go == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.guard.outputs.go == 'true'
+      - name: Build
+        if: steps.guard.outputs.go == 'true'
+        run: pnpm build
+      - name: Deploy isolated preview
+        if: steps.guard.outputs.go == 'true'
+        run: pnpm preview:deploy

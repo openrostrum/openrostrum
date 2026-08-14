@@ -1,6 +1,7 @@
 area: content-management
 title: Content Management & Speaker Deliverables
 prefix: CNT
+area_weight: 15
 overview: >
   Owns the post-acceptance content lifecycle: organizers request session
   deliverables (slides, headshots) from speakers via file-request tasks with
@@ -191,6 +192,7 @@ rubric:
   - id: CNT-01
     criterion: Organizer can create a file-request task with instructions and a due date, assigned to speakers.
     weight: 3
+    type: crud
     testability: auto
     scenarios: [CNT-S1]
     pass_criteria: Both fixture tasks ("Upload Session Presentation" due 2027-05-01, "Upload Final Headshot (print quality)" due 2027-04-14) exist after creation with correct names, due dates, and speaker assignment, shown as incomplete/pending.
@@ -198,20 +200,23 @@ rubric:
   - id: CNT-02
     criterion: Speaker portal lists the speaker's assigned tasks with deadlines and accepts a file upload recorded against the task/session.
     weight: 3
+    type: crud
     testability: auto
     scenarios: [CNT-S2]
     pass_criteria: Priya's portal shows both assigned tasks with due dates and status; uploading slides.pdf succeeds and the file appears attached to the presentation task/session with the task status updating to uploaded/complete.
     evidence: Before/after screenshots of the portal task list and the post-upload state showing the slides.pdf filename against the task.
   - id: CNT-03
     criterion: Speaker access is scoped to their own sessions and tasks, and organizer/admin views are blocked for speaker accounts.
-    weight: 2
+    weight: 3
+    type: scoping
     testability: auto
     scenarios: [CNT-S2]
     pass_criteria: Priya's portal shows no sessions or tasks belonging to Marcus Okafor, and direct navigation to admin/organizer routes is denied, redirected, or shows no admin capability while signed in as the speaker.
     evidence: Screenshot of the portal scope (only Priya's session/tasks visible) and of the blocked/redirected admin route.
   - id: CNT-04
     criterion: Re-uploading a deliverable creates a new file version, with the latest clearly marked and previous versions still accessible.
-    weight: 3
+    weight: 2
+    type: rule
     testability: auto
     scenarios: [CNT-S2, CNT-S3]
     pass_criteria: After the second slides.pdf upload, a version list shows two entries with timestamps, the latest is flagged as current, and the older version remains individually viewable/downloadable (a control exists) rather than being overwritten.
@@ -219,6 +224,7 @@ rubric:
   - id: CNT-05
     criterion: Comments can be attached to an uploaded file, are logged with author name and timestamp, and are visible across roles.
     weight: 2
+    type: roundtrip
     testability: auto
     scenarios: [CNT-S2, CNT-S3]
     pass_criteria: The speaker's comment ("Draft deck - final version coming Friday.") appears with Priya's name and a timestamp, the organizer sees the same thread on the same file, and the organizer's reply is added to it. Do not require email notification of comments (SessionBoard itself sends none).
@@ -226,6 +232,7 @@ rubric:
   - id: CNT-06
     criterion: The upload UI communicates file constraints (accepted types and/or a maximum file size) to the speaker at the point of upload.
     weight: 1
+    type: depth
     testability: auto
     scenarios: [CNT-S2]
     pass_criteria: Some explicit constraint statement is visible in or around the upload control - e.g. accepted file types, a max size such as SessionBoard's 1.95 GB per-file limit, or a file-picker type filter the agent observed. Fail if no constraint is communicated anywhere in the upload flow.
@@ -233,6 +240,7 @@ rubric:
   - id: CNT-07
     criterion: A deliverables dashboard tracks per-speaker per-task status with due dates, supports filtering, and reflects uploads.
     weight: 3
+    type: roundtrip
     testability: auto
     scenarios: [CNT-S1, CNT-S3]
     pass_criteria: "The dashboard shows all speaker-task pairs as incomplete in S1, and in S3 accurately reflects the S2 state: Priya's presentation task complete/uploaded (either label passes - clones without an explicit mark-complete action must not be penalized), her headshot task incomplete, Marcus's tasks incomplete; applying a filter visibly changes the displayed set."
@@ -240,6 +248,7 @@ rubric:
   - id: CNT-08
     criterion: Organizer can trigger bulk reminder emails to speakers with outstanding tasks and receives a send confirmation.
     weight: 2
+    type: bulk
     testability: auto-partial
     scenarios: [CNT-S3]
     pass_criteria: A bulk reminder action is available from the dashboard for incomplete/outstanding tasks (with or without a template picker) and the UI confirms the send (toast, dialog, or sent count). Actual delivery is verified manually.
@@ -247,7 +256,8 @@ rubric:
     manual_instructions: Check the inboxes for the fixture speaker addresses (Priya Raman and Marcus Okafor at sbek-test.example.com) or, if those are not real mailboxes, the clone's outbound-mail log / mail-catcher. Confirm each speaker with outstanding tasks received a reminder naming the outstanding task ("Upload Final Headshot (print quality)" and, for Marcus, "Upload Session Presentation") and its due date.
   - id: CNT-09
     criterion: Organizer can edit a session's title and abstract from a central admin view and the changes persist.
-    weight: 3
+    weight: 2
+    type: crud
     testability: auto
     scenarios: [CNT-S3]
     pass_criteria: "After saving, navigating away, and reopening, the session shows the \"UPDATED: \" title prefix and the appended live-demo sentence in the abstract, and the session list reflects the new title. (The prefix is reverted in the scenario's final cleanup step — judge from the mid-scenario screenshots.)"
@@ -255,6 +265,7 @@ rubric:
   - id: CNT-10
     criterion: Organizer can edit speaker profile content (bio text and headshot photo) from the admin area and the changes persist.
     weight: 2
+    type: crud
     testability: auto
     scenarios: [CNT-S3]
     pass_criteria: Priya's bio shows the appended sentence and her record displays the newly uploaded headshot.png image after save and reload.
@@ -262,6 +273,7 @@ rubric:
   - id: CNT-11
     criterion: Content edits are recorded in a version/change history with editor attribution and timestamps, and a prior version can be restored.
     weight: 2
+    type: depth
     testability: auto
     scenarios: [CNT-S3]
     pass_criteria: The history panel lists at least two distinct timestamped entries attributed to Jordan Alvarez, and restoring the earlier version removes the second edit's sentence while keeping the first edit.
@@ -269,20 +281,23 @@ rubric:
   - id: CNT-12
     criterion: Sessions carry a content approval/review status the organizer can set, and unapproved content is excluded from the public agenda output. (This item grades the approval GATE, not the public widget rendering itself — that is graded by public-widgets EMB-06.)
     weight: 3
+    type: rule
     testability: auto
     scenarios: [CNT-S3]
     pass_criteria: A status control exists and persists (exact state names may vary - draft/in-review/approved is the inferred norm); the public agenda page shows the approved session (with its updated title) and omits the unapproved one. If no public agenda exists yet at area-04 time (it is built and published in a later area), the gate may be verified on any public sessions/preview surface, or judged from the agent's recorded observation together with the area-06 public-widget evidence.
     evidence: Screenshots of the status controls on both sessions and of the public agenda (or the closest public sessions/preview surface) listing only the approved session; if no public surface exists yet, the agent's explicit deferral observation.
   - id: CNT-13
     criterion: A central files library aggregates uploads across sessions with metadata (session/speaker, date, versions), optionally mirrored by a per-session files tab.
-    weight: 2
+    weight: 1
+    type: exists
     testability: auto
     scenarios: [CNT-S3]
     pass_criteria: A files view lists the slides.pdf upload with its session and speaker association, upload date, and a version count of 2, consistent with actual uploads; a per-session Files tab, if present, shows the same file (its absence alone does not fail the item if the aggregate library exists).
     evidence: Screenshot of the files library row for slides.pdf and, if present, the per-session Files tab.
   - id: CNT-14
     criterion: Organizer can multi-select sessions/files and generate a bulk download (ZIP) of latest file versions, with grouping options if offered.
-    weight: 3
+    weight: 2
+    type: bulk
     testability: auto-partial
     scenarios: [CNT-S3]
     pass_criteria: The UI supports selecting multiple sessions/files and starting an export, and confirms generation (queued/generating/ready state or download start). Grouping options and file deselection are positive evidence but optional. ZIP contents are verified manually.
