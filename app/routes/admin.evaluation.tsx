@@ -923,6 +923,9 @@ function PlansTab({
 							Delete “{deletingPlan.name}” and all {deletingPlan.totalEvals}{" "}
 							evaluations recorded in it? This cannot be undone.
 						</ErrorText>
+						{/* No onClick here: clearing `deleting` unmounts this form before the
+						    browser can submit it. The re-render closes the panel once the
+						    deleted plan leaves the list. */}
 						<Button type="submit" disabled={busy}>
 							Delete plan
 						</Button>
