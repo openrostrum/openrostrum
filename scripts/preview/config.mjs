@@ -28,6 +28,22 @@ const FORBIDDEN_KEYS = [
 	"ratelimits",
 ];
 
+function hasBoundResource(value) {
+	if (value == null) return false;
+	if (Array.isArray(value)) return value.some(hasBoundResource);
+	if (typeof value !== "object") return Boolean(value);
+	const named = [
+		"queue",
+		"name",
+		"class_name",
+		"service",
+		"namespace_id",
+		"id",
+	];
+	if (named.some((key) => Boolean(value[key]))) return true;
+	return Object.values(value).some(hasBoundResource);
+}
+
 export function applyPreviewConfig(input, { pr, databaseId }) {
 	if (!databaseId) {
 		throw new Error("preview config needs a D1 database id");
@@ -35,13 +51,9 @@ export function applyPreviewConfig(input, { pr, databaseId }) {
 	const names = previewNames(pr);
 	assertPreviewIsolation(names);
 
-	const forbidden = FORBIDDEN_KEYS.filter((key) => {
-		const value = input[key];
-		if (value == null) return false;
-		if (Array.isArray(value)) return value.length > 0;
-		if (typeof value === "object") return Object.keys(value).length > 0;
-		return true;
-	});
+	const forbidden = FORBIDDEN_KEYS.filter((key) =>
+		hasBoundResource(input[key]),
+	);
 	if (forbidden.length) {
 		throw new Error(
 			`preview refuses wrangler keys that could bind production resources: ${forbidden.join(", ")}`,

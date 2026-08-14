@@ -132,7 +132,8 @@ test("preview config ignores empty generated wrangler metadata keys", () => {
 	const built = structuredClone(committed);
 	built.configPath = "/tmp/wrangler.json";
 	built.kv_namespaces = [];
-	built.queues = {};
+	built.queues = { producers: [], consumers: [] };
+	built.durable_objects = { bindings: [] };
 	const config = applyPreviewConfig(built, {
 		pr: 12,
 		databaseId: "11111111-1111-4111-8111-111111111111",
