@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
-import type { Spec, RubricItem, Scenario } from "./types.js";
+import { RUBRIC_TYPES, type Spec, type RubricItem, type Scenario } from "./types.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const SPECS_DIR = path.resolve(here, "..", "specs");
@@ -33,6 +33,15 @@ export function loadSpecs(specsDir = SPECS_DIR): Spec[] {
       if (scenarioIds.has(sc.id)) throw new Error(`Duplicate scenario id across specs: ${sc.id}`);
       scenarioIds.add(sc.id);
     }
+  }
+  // Area weights define each area's share of the overall score, so the required
+  // set must be a whole: a drifting sum would silently rescale every submission.
+  const requiredWeight = specs.filter((s) => !s.optional).reduce((n, s) => n + s.area_weight, 0);
+  if (specs.some((s) => !s.optional) && requiredWeight !== 100) {
+    throw new Error(
+      `area_weight across required specs must sum to 100, got ${requiredWeight} ` +
+        `(${specs.filter((s) => !s.optional).map((s) => `${s.area}=${s.area_weight}`).join(", ")})`,
+    );
   }
   return specs;
 }
@@ -71,6 +80,9 @@ function validateSpec(raw: any, file: string): Spec {
   req("prefix");
   req("overview");
   req("rubric");
+  if (typeof raw?.area_weight !== "number" || raw.area_weight <= 0) {
+    problems.push(`"area_weight" must be a positive number (this area's share of the overall score)`);
+  }
 
   const scenarios: Scenario[] = (raw.scenarios ?? []).map((s: any, i: number) => {
     if (!s.id || !s.steps) problems.push(`scenario[${i}] missing id or steps`);
@@ -83,6 +95,11 @@ function validateSpec(raw: any, file: string): Spec {
       problems.push(`rubric[${i}] missing id, criterion, or pass_criteria`);
     }
     if (![1, 2, 3].includes(r.weight)) problems.push(`rubric[${i}] (${r.id}) weight must be 1|2|3`);
+    if (!RUBRIC_TYPES.includes(r.type)) {
+      problems.push(
+        `rubric[${i}] (${r.id}) invalid type "${r.type}" — expected one of ${RUBRIC_TYPES.join(", ")}`,
+      );
+    }
     if (!["auto", "auto-partial", "manual"].includes(r.testability)) {
       problems.push(`rubric[${i}] (${r.id}) invalid testability "${r.testability}"`);
     }

@@ -7,10 +7,12 @@
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "pnpm@10.33.1",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "sbek": "tsx src/cli.ts",
     "smoke": "tsx scripts/browser-smoke.mts",
+    "setup:sessionboard": "tsx scripts/setup-sessionboard.mts",
     "list": "tsx src/cli.ts list",
     "eval": "tsx src/cli.ts run",
     "finalize": "tsx src/cli.ts finalize",

@@ -1,0 +1,16 @@
+{
+  "url": "https://openrostrum.com",
+  "areas": [],
+  "includeOptional": true,
+  "personaEmails": {
+    "organizer": "organizer@example.com",
+    "speaker": "speaker@example.com",
+    "speaker2": "speaker2@example.com",
+    "reviewer": "reviewer@example.com"
+  },
+  "agentModel": "grok-4.6",
+  "judgeModel": "grok-4.6",
+  "maxTurnsPerScenario": 200,
+  "headless": true,
+  "submissionNotes": "Multi-tenant deployment. Organizer accounts: open signup at /signup (creates an organization; organizers can create events). Admin app lives at /admin. Speakers create password accounts inside the public CFP submission wizard; the speaker portal is linked from speaker emails and also reachable by logging in with the speaker account. A pre-seeded demo event exists for marketing purposes \u2014 create your own event instead of using it."
+}

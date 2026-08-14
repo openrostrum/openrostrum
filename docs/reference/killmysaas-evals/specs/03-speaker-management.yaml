@@ -1,6 +1,7 @@
 area: speaker-management
 title: Speaker Management
 prefix: SPK
+area_weight: 15
 overview: >
   Speaker management is the post-acceptance hub between the CFP and the published agenda.
   This single area satisfies both of the buyer's phrasings — "speaker management" and
@@ -166,6 +167,7 @@ rubric:
   - id: SPK-01
     criterion: Organizer speaker roster lists all speakers with identity info and supports search or filtering
     weight: 3
+    type: exists
     testability: auto
     scenarios: [SPK-S1]
     pass_criteria: >-
@@ -179,11 +181,15 @@ rubric:
   - id: SPK-02
     criterion: Organizer can add a speaker with profile fields and organizer edits persist
     weight: 3
+    type: crud
     testability: auto
     scenarios: [SPK-S1]
     pass_criteria: >-
-      Manual add-speaker flow accepts name, email, title, company, and bio; the saved record
-      displays them; and an organizer bio edit (sentinel SBEK-ORG-EDIT-01) survives a page
+      Manual add-speaker flow accepts at least name, email and bio, and the saved record
+      displays them; job title and company are accepted either on the same form OR on the
+      speaker's profile/detail view afterwards (SessionBoard itself only captures them on the
+      full profile, so requiring them on the quick-create form would penalise a faithful
+      implementation); and an organizer bio edit (sentinel SBEK-ORG-EDIT-01) survives a page
       reload.
     evidence: >-
       Screenshot of the filled add form, the saved record, and the record after reload showing
@@ -191,6 +197,7 @@ rubric:
   - id: SPK-03
     criterion: Speakers can be bulk-imported from a CSV file
     weight: 2
+    type: bulk
     testability: auto
     scenarios: [SPK-S1]
     pass_criteria: >-
@@ -206,6 +213,7 @@ rubric:
   - id: SPK-04
     criterion: "Speakers carry a workflow status that can be changed, persists, and is filterable"
     weight: 2
+    type: crud
     testability: auto
     scenarios: [SPK-S1]
     pass_criteria: >-
@@ -218,6 +226,7 @@ rubric:
   - id: SPK-05
     criterion: Organizer can create general/action tasks with due dates and assign them to multiple speakers (file-request tasks, uploads, and the deliverables pipeline are owned by content-management's CNT-01/02/07)
     weight: 2
+    type: crud
     testability: auto
     scenarios: [SPK-S1]
     pass_criteria: >-
@@ -231,6 +240,7 @@ rubric:
   - id: SPK-06
     criterion: Organizer can send a speaker a portal invitation or onboarding email
     weight: 2
+    type: side-effect
     testability: auto-partial
     scenarios: [SPK-S1]
     pass_criteria: >-
@@ -247,6 +257,7 @@ rubric:
   - id: SPK-07
     criterion: Each speaker gets a personalized portal scoped to only their own content
     weight: 3
+    type: scoping
     testability: auto-partial
     scenarios: [SPK-S2]
     pass_criteria: >-
@@ -269,6 +280,7 @@ rubric:
   - id: SPK-08
     criterion: "Speaker can update bio, social links, and headshot from the portal, and the changes appear on the organizer's record"
     weight: 3
+    type: roundtrip
     testability: auto
     scenarios: [SPK-S2, SPK-S3]
     pass_criteria: >-
@@ -281,6 +293,7 @@ rubric:
   - id: SPK-09
     criterion: Assigned general tasks appear in the speaker portal with due dates and can be marked complete with persistent status (the file-request upload flow is graded by content-management's CNT-02)
     weight: 2
+    type: crud
     testability: auto
     scenarios: [SPK-S2]
     pass_criteria: >-
@@ -294,6 +307,7 @@ rubric:
   - id: SPK-10
     criterion: Organizer can see and download a speaker-uploaded deliverable with metadata
     weight: 2
+    type: roundtrip
     testability: auto-partial
     scenarios: [SPK-S3]
     pass_criteria: >-
@@ -310,6 +324,7 @@ rubric:
   - id: SPK-11
     criterion: Session assignments are visible on the organizer's speaker record and in the speaker's portal
     weight: 2
+    type: roundtrip
     testability: auto
     scenarios: [SPK-S1, SPK-S2]
     pass_criteria: >-
@@ -323,6 +338,7 @@ rubric:
   - id: SPK-12
     criterion: A progress view shows per-speaker completion of general tasks at list level and reflects portal completions (the deliverables dashboard tracking uploads with filtering depth is graded by content-management's CNT-07)
     weight: 2
+    type: roundtrip
     testability: auto
     scenarios: [SPK-S3]
     pass_criteria: >-
@@ -337,7 +353,8 @@ rubric:
       plus each filtered state if filters exist.
   - id: SPK-13
     criterion: Organizer can send a general bulk email (e.g. a welcome/announcement to all speakers) to a selected or filtered speaker group and the send is logged (deliverables-reminder emails to speakers with outstanding tasks are owned by content-management's CNT-08)
-    weight: 3
+    weight: 2
+    type: bulk
     testability: auto-partial
     scenarios: [SPK-S3]
     pass_criteria: >-
@@ -355,7 +372,8 @@ rubric:
       speakers") and body.
   - id: SPK-14
     criterion: Email templates with merge fields personalize content per recipient
-    weight: 2
+    weight: 1
+    type: depth
     testability: auto
     scenarios: [SPK-S3]
     pass_criteria: >-
@@ -368,6 +386,7 @@ rubric:
   - id: SPK-15
     criterion: Speaker records can store travel-preference or custom logistics fields that persist
     weight: 1
+    type: depth
     testability: auto
     scenarios: [SPK-S3]
     pass_criteria: >-
@@ -380,7 +399,8 @@ rubric:
       the agent's observation that no such field or custom-field settings exist (fail).
   - id: SPK-16
     criterion: Automated reminder emails go to speakers with incomplete tasks based on due dates
-    weight: 2
+    weight: 1
+    type: side-effect
     testability: manual
     pass_criteria: >-
       Without any organizer manually sending a message, a speaker with an incomplete task due
