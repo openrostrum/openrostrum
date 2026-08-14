@@ -1,5 +1,8 @@
 import { data } from "react-router";
+import { CalendarDownloadSurface } from "~/components/add-to-calendar";
+import { CopyButton } from "~/components/copy-button";
 import { getDb } from "~/db";
+import { getUser, userCanAccessEvent } from "~/lib/auth";
 import {
 	buildAgendaData,
 	getEventBySlug,
@@ -7,8 +10,8 @@ import {
 	sessionCalendarHref,
 	toProgramEvent,
 } from "~/lib/program";
-import { CalendarDownloadSurface } from "~/components/add-to-calendar";
 import { createTimings } from "~/lib/track";
+import { ButtonLink } from "~/ui";
 import {
 	AgendaSurface,
 	AgendaUnpublished,
@@ -32,15 +35,26 @@ export function meta({ data: loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ context, params, request }: Route.LoaderArgs) {
-	const db = getDb(context.cloudflare.env);
+	const env = context.cloudflare.env;
+	const db = getDb(env);
 	const timings = createTimings();
 	const event = await timings.time("event", () =>
 		getEventBySlug(db, params.eventSlug),
 	);
 	if (!event) throw data("Event not found", { status: 404 });
+	const viewer = await getUser(env, request);
+	const canManage = viewer
+		? await userCanAccessEvent(env, viewer.id, event.id)
+		: false;
 	if (!event.agendaPublishedAt) {
 		return data(
-			{ event: toProgramEvent(event), surface: null, calendarHref: null },
+			{
+				event: toProgramEvent(event),
+				surface: null,
+				calendarHref: null,
+				canManage,
+				publicUrl: request.url,
+			},
 			{ headers: { "Server-Timing": timings.header() } },
 		);
 	}
@@ -50,15 +64,29 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
 	const surface = buildAgendaData(sessions, event, new URL(request.url));
 	const calendarHref = sessionCalendarHref(event, surface.detail);
 	return data(
-		{ event: toProgramEvent(event), surface, calendarHref },
+		{
+			event: toProgramEvent(event),
+			surface,
+			calendarHref,
+			canManage,
+			publicUrl: request.url,
+		},
 		{ headers: { "Server-Timing": timings.header() } },
 	);
 }
 
 export default function PublicSchedule({ loaderData }: Route.ComponentProps) {
-	const { event, surface, calendarHref } = loaderData;
+	const { event, surface, calendarHref, canManage, publicUrl } = loaderData;
 	return (
 		<ProgramShell event={event} active="schedule">
+			{canManage && (
+				<div className="mb-5 flex flex-wrap items-center gap-3">
+					<CopyButton value={publicUrl} label="Copy link" />
+					<ButtonLink to="/admin" variant="ghost">
+						Go to admin
+					</ButtonLink>
+				</div>
+			)}
 			{surface ? (
 				<CalendarDownloadSurface href={calendarHref}>
 					<AgendaSurface

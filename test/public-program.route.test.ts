@@ -5,11 +5,14 @@ import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import {
+	authSessions,
 	CONTENT_STATUS,
 	events,
+	organizationMembers,
 	rooms,
 	SUBMISSION_STATUS,
 	submissions,
+	users,
 } from "../app/db/schema";
 import { isPubliclyVisible, loadPublicSessions } from "../app/lib/program";
 import type {
@@ -21,7 +24,9 @@ import type {
 } from "../app/lib/program-types";
 import { loader as galleryLoader } from "../app/routes/gallery.$eventSlug";
 import { loader as itineraryLoader } from "../app/routes/itinerary.$eventSlug";
-import { loader as scheduleLoader } from "../app/routes/schedule.$eventSlug";
+import PublicSchedule, {
+	loader as scheduleLoader,
+} from "../app/routes/schedule.$eventSlug";
 import { loader as sessionsLoader } from "../app/routes/sessions.$eventSlug";
 import { loader as speakersLoader } from "../app/routes/speakers.$eventSlug";
 import { AgendaSurface, ProgramShell, SessionsSurface } from "../app/widgets";
@@ -34,7 +39,11 @@ import { CONTEXT, seedProgram, thrownStatus, unwrap } from "./program.fixtures";
 
 type SessionsData = { event: ProgramEvent; surface: SessionsSurfaceData };
 type SpeakersData = { event: ProgramEvent; surface: SpeakerDirectoryData };
-type AgendaData = { event: ProgramEvent; surface: AgendaSurfaceData | null };
+type AgendaData = {
+	event: ProgramEvent;
+	surface: AgendaSurfaceData | null;
+	canManage?: boolean;
+};
 type ItineraryData = {
 	event: ProgramEvent;
 	surface: ItinerarySurfaceData | null;
@@ -50,6 +59,50 @@ function call<T>(
 		request: new Request(url),
 		params: { eventSlug: slug },
 	} as never);
+}
+
+function renderSchedule(data: AgendaData) {
+	const RoutesStub = createRoutesStub([
+		{
+			id: "root",
+			path: "/",
+			Component: () =>
+				createElement(PublicSchedule, {
+					loaderData: {
+						event: data.event,
+						surface: data.surface,
+						calendarHref: null,
+						canManage: Boolean(data.canManage),
+						publicUrl: "http://localhost/schedule/devflow",
+					},
+				} as unknown as Parameters<typeof PublicSchedule>[0]),
+		},
+	]);
+	return renderToString(createElement(RoutesStub, { initialEntries: ["/"] }));
+}
+
+async function seedSignedIn(
+	email: string,
+	role: "admin" | "reviewer",
+	organizationId?: string,
+) {
+	const db = getDb(env);
+	const userId = `u_${email.replace(/[^a-z0-9]/g, "")}`;
+	await db.insert(users).values({
+		id: userId,
+		email,
+		passwordHash: "sentinel",
+		role,
+	});
+	await db.insert(authSessions).values({
+		id: `sess_${userId}`,
+		userId,
+		expiresAt: new Date(Date.now() + 60_000),
+	});
+	if (organizationId) {
+		await db.insert(organizationMembers).values({ organizationId, userId });
+	}
+	return `__session=sess_${userId}`;
 }
 
 describe("public sessions surface", () => {
@@ -513,6 +566,77 @@ describe("public agenda + itinerary surfaces", () => {
 			await call(itineraryLoader, "http://localhost/itinerary/devflow"),
 		);
 		expect(itinerary.data.surface).toBeNull();
+	});
+
+	it("logged-out unpublished HTML names the conference and hides admin chrome", async () => {
+		await seedProgram({ agendaPublished: false });
+		const agenda = unwrap<AgendaData>(
+			await call(scheduleLoader, "http://localhost/schedule/devflow"),
+		);
+		const html = renderSchedule(agenda.data);
+		expect(html).toContain("DevFlow Conf 2027");
+		expect(html).toContain("The agenda isn&#x27;t published yet");
+		expect(html).toContain(
+			"The organizers of DevFlow Conf 2027 haven&#x27;t published the schedule. Check back soon.",
+		);
+		expect(html).not.toContain("Go to admin");
+		expect(html).not.toContain("Copy link");
+		expect(html).not.toContain("Getting started");
+		expect(html).not.toContain("founder@example.com");
+	});
+
+	it("an org admin sees copy-link and go-to-admin on their unpublished site", async () => {
+		await seedProgram({ agendaPublished: false });
+		const cookie = await seedSignedIn("founder@example.com", "admin", "org1");
+		const agenda = unwrap<AgendaData>(
+			await scheduleLoader({
+				context: CONTEXT,
+				request: new Request("http://localhost/schedule/devflow", {
+					headers: { Cookie: cookie },
+				}),
+				params: { eventSlug: "devflow" },
+			} as never),
+		);
+		expect(agenda.data.canManage).toBe(true);
+		const html = renderSchedule(agenda.data);
+		expect(html).toContain("Copy link");
+		expect(html).toContain("Go to admin");
+		expect(html).toContain('href="/admin"');
+		expect(html).not.toContain("Getting started");
+		expect(html).not.toContain("founder@example.com");
+	});
+
+	it("a signed-in reviewer does not see the organizer strip", async () => {
+		await seedProgram({ agendaPublished: false });
+		const cookie = await seedSignedIn("rev@example.com", "reviewer");
+		const agenda = unwrap<AgendaData>(
+			await scheduleLoader({
+				context: CONTEXT,
+				request: new Request("http://localhost/schedule/devflow", {
+					headers: { Cookie: cookie },
+				}),
+				params: { eventSlug: "devflow" },
+			} as never),
+		);
+		expect(agenda.data.canManage).toBe(false);
+		expect(renderSchedule(agenda.data)).not.toContain("Go to admin");
+	});
+
+	it("an unknown slug stays Event not found with no login wall", async () => {
+		const thrown = await scheduleLoader({
+			context: CONTEXT,
+			request: new Request("http://localhost/schedule/no-such-event"),
+			params: { eventSlug: "no-such-event" },
+		} as never).then(
+			() => {
+				throw new Error("expected a 404 throw");
+			},
+			(error: unknown) => error,
+		);
+		expect(thrownStatus(thrown)).toBe(404);
+		expect(
+			thrown instanceof Response ? thrown.headers.get("Location") : null,
+		).toBeNull();
 	});
 
 	it("itinerary groups chronologically per day; the mine view carries the unfiltered program", async () => {
