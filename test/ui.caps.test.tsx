@@ -59,9 +59,6 @@ describe("Caps", () => {
 				),
 			)
 			.map(([path]) => path.replace("../", ""));
-		// Marketing's `Eyebrow` is deliberately a different voice (font-mono,
-		// font-medium, +0.16em) and is not caught by this — see the file comment
-		// in app/marketing/primitives.tsx.
 		expect(handRolled).toEqual([]);
 	});
 });

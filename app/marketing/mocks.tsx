@@ -53,62 +53,34 @@ const TABS = [
 	{ label: "Declined", count: "23" },
 ];
 
-const TRACKS = {
-	infra: { label: "Infrastructure", dot: "#5B7A9D" },
-	quality: { label: "Evals & Quality", dot: "#B08840" },
-	design: { label: "Design", dot: "#8A6E9E" },
-	community: { label: "Community", dot: "#5E8C6A" },
-} as const;
-
 const ROWS: {
 	title: string;
-	who: string;
-	initials: string;
-	track: keyof typeof TRACKS;
 	status: keyof typeof STATUS;
 	selected?: boolean;
 }[] = [
 	{
 		title: "Scaling retrieval beyond the context window",
-		who: "Dana Ruiz",
-		initials: "DR",
-		track: "infra",
 		status: "accepted",
 		selected: true,
 	},
 	{
 		title: "Ship evals before you ship agents",
-		who: "Marco Silva",
-		initials: "MS",
-		track: "quality",
 		status: "pending",
 	},
 	{
 		title: "The unhappy path is the product",
-		who: "Lena Fischer",
-		initials: "LF",
-		track: "design",
 		status: "accepted",
 	},
 	{
 		title: "Local-first sync for conference apps",
-		who: "Priya Nair",
-		initials: "PN",
-		track: "infra",
 		status: "pending",
 	},
 	{
 		title: "What 400 CFP reviews taught us about bios",
-		who: "Sam Okafor",
-		initials: "SO",
-		track: "community",
 		status: "declined",
 	},
 	{
 		title: "Live-patching a schedule at 8:55 AM",
-		who: "June Park",
-		initials: "JP",
-		track: "quality",
 		status: "pending",
 	},
 ];
@@ -150,7 +122,7 @@ export function AdminShellMock() {
 					</div>
 					<div className="mt-4 flex h-[32px] items-center gap-2 rounded-control bg-surface px-2.5 text-[12px] font-medium text-fg shadow-control">
 						<span className="h-2 w-2 rounded-[3px] bg-petrol" />
-						<span className="truncate">AI Engineer Summit</span>
+						<span className="truncate">Northbound AI Summit</span>
 						<span className="ml-auto text-fg-faint">
 							<Icon name="chevron-down" size={12} />
 						</span>
@@ -217,7 +189,7 @@ export function AdminShellMock() {
 								{tab.label}
 								<span
 									className={cn(
-										"rounded-full px-1.5 font-mono text-[10px] tabular-nums",
+										"hidden rounded-full px-1.5 font-mono text-[10px] tabular-nums sm:inline",
 										tab.on ? "bg-petrol-wash text-petrol" : "text-fg-faint",
 									)}
 								>
@@ -250,12 +222,6 @@ export function AdminShellMock() {
 							<span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
 								Title
 							</span>
-							<span className="hidden w-[130px] text-[10px] font-semibold uppercase tracking-[0.06em] text-fg-muted lg:block">
-								Speaker
-							</span>
-							<span className="hidden w-[110px] text-[10px] font-semibold uppercase tracking-[0.06em] text-fg-muted md:block">
-								Track
-							</span>
 							<span className="w-[86px] text-[10px] font-semibold uppercase tracking-[0.06em] text-fg-muted">
 								Status
 							</span>
@@ -273,21 +239,6 @@ export function AdminShellMock() {
 									<Checkbox checked={row.selected} />
 									<span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-fg">
 										{row.title}
-									</span>
-									<span className="hidden w-[130px] items-center gap-2 lg:flex">
-										<Initials value={row.initials} />
-										<span className="truncate text-[11.5px] text-fg-muted">
-											{row.who}
-										</span>
-									</span>
-									<span className="hidden w-[110px] items-center gap-[7px] md:flex">
-										<span
-											className="h-[7px] w-[7px] rounded-[2.5px]"
-											style={{ background: TRACKS[row.track].dot }}
-										/>
-										<span className="truncate text-[11.5px] font-medium text-fg-muted">
-											{TRACKS[row.track].label}
-										</span>
 									</span>
 									<span className="w-[86px]">
 										<Pill status={row.status} />
@@ -315,7 +266,27 @@ export function AdminShellMock() {
 }
 
 const ROOMS = ["Room A", "Room B", "Room C"];
-const HOURS = ["9:00", "10:00", "11:00"];
+const HOURS = ["9:00", "10:00", "11:00", "12:00"] as const;
+
+const GRID: Record<
+	(typeof HOURS)[number],
+	Partial<Record<(typeof ROOMS)[number], { title: string; conflict?: boolean }>>
+> = {
+	"9:00": {
+		"Room A": { title: "Opening keynote" },
+		"Room C": { title: "The unhappy path" },
+	},
+	"10:00": {
+		"Room A": { title: "Scaling retrieval" },
+		"Room B": { title: "Scaling retrieval", conflict: true },
+	},
+	"11:00": {
+		"Room C": { title: "Opening keynote" },
+	},
+	"12:00": {
+		"Room A": { title: "The unhappy path" },
+	},
+};
 
 function Block({
 	title,
@@ -329,8 +300,8 @@ function Block({
 	return (
 		<div
 			className={cn(
-				"flex h-full flex-col justify-center gap-0.5 rounded-[6px] border-l-2 border-petrol bg-petrol-wash px-2 py-1.5",
-				conflict && "border-danger",
+				"flex h-full flex-col justify-center gap-0.5 rounded-[6px] border-l-2 bg-chip px-2 py-1.5",
+				conflict ? "border-danger" : "border-hair-strong",
 			)}
 		>
 			<span className="flex min-w-0 items-center gap-1 text-[11px] font-medium leading-tight text-fg">
@@ -342,7 +313,7 @@ function Block({
 			</span>
 			{conflict && (
 				<span className="font-mono text-[10px] font-medium text-danger">
-					room conflict
+					speaker conflict
 				</span>
 			)}
 		</div>
@@ -355,6 +326,14 @@ export function AgendaMock() {
 			aria-hidden="true"
 			className="w-full select-none overflow-hidden rounded-card border border-hair bg-surface shadow-card"
 		>
+			<div className="flex items-center justify-between border-b border-hair px-3 py-2">
+				<span className="font-display text-[13px] font-semibold tracking-[-0.01em] text-fg">
+					Agenda
+				</span>
+				<span className="font-mono text-[10.5px] tabular-nums text-fg-muted">
+					Oct 12 · 3 rooms
+				</span>
+			</div>
 			<div className="grid grid-cols-[44px_repeat(3,minmax(0,1fr))] border-b border-hair">
 				<span />
 				{ROOMS.map((room) => (
@@ -367,27 +346,28 @@ export function AgendaMock() {
 				))}
 			</div>
 			<div className="grid grid-cols-[44px_repeat(3,minmax(0,1fr))]">
-				{HOURS.map((hour, hourIndex) => (
+				{HOURS.map((hour) => (
 					<div key={hour} className="contents">
 						<span className="border-t border-hair px-2 py-3 text-right font-mono text-[10px] tabular-nums text-fg-faint">
 							{hour}
 						</span>
-						{ROOMS.map((room) => (
-							<div
-								key={room}
-								className="min-h-[52px] border-l border-t border-hair p-1"
-							>
-								{hourIndex === 0 && room === "Room A" && (
-									<Block title="Opening keynote" room="Room A" />
-								)}
-								{hourIndex === 1 && room === "Room B" && (
-									<Block title="Agents workshop" room="Room B" conflict />
-								)}
-								{hourIndex === 2 && room === "Room C" && (
-									<Block title="Local-first panel" room="Room C" />
-								)}
-							</div>
-						))}
+						{ROOMS.map((room) => {
+							const slot = GRID[hour][room];
+							return (
+								<div
+									key={room}
+									className="min-h-[52px] border-l border-t border-hair p-1"
+								>
+									{slot && (
+										<Block
+											title={slot.title}
+											room={room}
+											conflict={slot.conflict}
+										/>
+									)}
+								</div>
+							);
+						})}
 					</div>
 				))}
 			</div>
@@ -399,15 +379,15 @@ export function InviteMock() {
 	return (
 		<div
 			aria-hidden="true"
-			className="w-full max-w-[400px] select-none overflow-hidden rounded-card border border-hair bg-surface shadow-card"
+			className="w-full select-none overflow-hidden rounded-card border border-hair bg-surface shadow-card"
 		>
 			<div className="flex items-center gap-3 border-b border-hair px-4 py-3">
 				<span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-petrol-wash text-[12px] font-semibold text-petrol">
-					AI
+					NB
 				</span>
 				<div className="min-w-0">
 					<div className="truncate text-[13px] font-medium text-fg">
-						AI Engineer Summit
+						Northbound AI Summit
 					</div>
 					<div className="truncate text-[11.5px] text-fg-faint">to you</div>
 				</div>

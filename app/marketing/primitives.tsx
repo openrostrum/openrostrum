@@ -15,15 +15,6 @@ export const FOCUS_RING =
 /** The brand mark's petrol platform at page scale — call sites own the inset. */
 export const PLATFORM_BAR = "h-[5px] rounded-[2px] bg-petrol";
 
-export function Eyebrow({ children }: { children: ReactNode }) {
-	return (
-		<span className="inline-flex items-center gap-2.5 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-fg-muted">
-			<span className="h-[3px] w-6 rounded-full bg-petrol" aria-hidden="true" />
-			{children}
-		</span>
-	);
-}
-
 const CTA_BASE = cn(
 	"inline-flex items-center justify-center gap-2 rounded-control font-medium",
 	`transition-[background-color,transform,box-shadow] ${MOTION_FEEDBACK}`,
