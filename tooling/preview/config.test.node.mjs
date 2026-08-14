@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { applyPreviewConfig } from "../../scripts/preview/config.mjs";
+
+const repoRoot = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"..",
+);
 
 const committed = {
 	name: "openrostrum",
@@ -47,7 +55,10 @@ test("preview config is a separate worker bound to that PR's D1 and R2", () => {
 	assert.equal(config.r2_buckets[0].bucket_name, "openrostrum-pr-12-files");
 	assert.equal(config.d1_databases[0].binding, "DB");
 	assert.equal(config.r2_buckets[0].binding, "BLOBS");
-	assert.equal(config.d1_databases[0].migrations_dir, "drizzle/migrations");
+	assert.equal(
+		config.d1_databases[0].migrations_dir,
+		path.join(repoRoot, "drizzle", "migrations"),
+	);
 });
 
 test("preview config drops the production domain and cron triggers", () => {

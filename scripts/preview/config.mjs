@@ -1,4 +1,13 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { PRODUCTION, assertPreviewIsolation, previewNames } from "./names.mjs";
+
+const repoRoot = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"..",
+);
+const MIGRATIONS_DIR = path.join(repoRoot, "drizzle", "migrations");
 
 const STRIP_VARS = [
 	"APP_ORIGIN",
@@ -78,7 +87,7 @@ export function applyPreviewConfig(input, { pr, databaseId }) {
 	const [bucket] = buckets;
 	db.database_name = names.database;
 	db.database_id = databaseId;
-	db.migrations_dir = "drizzle/migrations";
+	db.migrations_dir = MIGRATIONS_DIR;
 	bucket.bucket_name = names.bucket;
 
 	config.vars = { ...(config.vars ?? {}), APP_ENV: "preview" };
