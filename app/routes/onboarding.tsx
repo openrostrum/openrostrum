@@ -1,13 +1,11 @@
 import { Outlet } from "react-router";
-import { OnboardingSteps } from "~/components/onboarding-steps";
 import { requireAdmin } from "~/lib/auth";
 import { PageHeader, Wordmark } from "~/ui";
 import type { Route } from "./+types/onboarding";
 
 /**
- * First-run shell: wordmark, step rail, one step. Every step is its own URL so
- * refresh, the back button, and a re-opened tab all land where the server says
- * the organizer is, without a wizard state machine in the client.
+ * First-run shell: wordmark and the one naming screen. Dates and place are
+ * leftover URLs; their loaders send the organizer away.
  */
 export async function loader({ context, request }: Route.LoaderArgs) {
 	await requireAdmin(context.cloudflare.env, request);
@@ -15,14 +13,10 @@ export async function loader({ context, request }: Route.LoaderArgs) {
 }
 
 export default function OnboardingLayout() {
-	// Top-anchored, not vertically centred: the three steps differ in height, and
-	// centring slid the wordmark and rail up the moment a taller step loaded —
-	// the chrome that tracks progress must not move as progress is made.
 	return (
 		<main className="mx-auto flex min-h-screen w-full max-w-[560px] flex-col gap-7 px-6 py-16">
 			<div className="flex flex-col items-center gap-4">
 				<Wordmark size={21} />
-				<OnboardingSteps />
 			</div>
 			<Outlet />
 		</main>

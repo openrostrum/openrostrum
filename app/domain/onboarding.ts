@@ -6,11 +6,11 @@ import { events, organizationMembers, organizations } from "~/db/schema";
 import { getActiveEvent } from "~/lib/auth";
 
 export type FirstRunState =
-	| { hasEvent: true; eventId: string; organizationId: string }
+	| { hasEvent: true; eventId: string; organizationId: string; slug: string }
 	| { hasEvent: false; organizationId: string | null };
 
 /**
- * An organizer is done with step 1 once an event exists under one of their
+ * An organizer is done with first-run once an event exists under one of their
  * organizations. A membership with no event is a half-finished setup — it
  * resumes against that same organization instead of minting a second one.
  */
@@ -23,6 +23,7 @@ export async function getFirstRunState(
 		.select({
 			eventId: events.id,
 			organizationId: organizationMembers.organizationId,
+			slug: events.slug,
 		})
 		.from(organizationMembers)
 		.innerJoin(
@@ -46,9 +47,9 @@ export async function getFirstRunState(
 }
 
 /**
- * Step 1 creates things, so only a user with nothing may run it. Anyone who
- * already has an event lands on the dashboard, where the getting-started card
- * is the resume path for whatever they skipped.
+ * First-run creates things, so only a user with nothing may open it. Anyone
+ * who already has an event lands on the dashboard; a replayed create still
+ * opens the public page they just minted.
  */
 export async function requireFirstRunStart(
 	env: Env,
@@ -59,13 +60,12 @@ export async function requireFirstRunStart(
 	return { organizationId: state.organizationId };
 }
 
-/** Steps 2 and 3 only edit the event step 1 created — without one there is
- * nothing to fill in, so the wizard restarts at its first screen. */
+/** Dates and place are leftover URLs, not first-run. An existing event goes
+ * to the dashboard; without one, naming restarts. */
 export async function requireOnboardingEvent(
 	env: Env,
 	user: typeof users.$inferSelect,
-): Promise<typeof events.$inferSelect> {
+): Promise<never> {
 	const event = await getActiveEvent(env, user);
-	if (!event) throw redirect("/onboarding");
-	return event;
+	throw redirect(event ? "/admin" : "/onboarding");
 }
