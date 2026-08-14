@@ -50,6 +50,8 @@ The exact seeded speaker home is `/portals/northbound-ai-summit-2026/portal-demo
 
 Production email uses `RESEND_API_KEY`; announcement sends also require `UNSUBSCRIBE_SECRET` (`pnpm exec wrangler secret put UNSUBSCRIBE_SECRET` with any long random value). It signs unsubscribe-footer tokens, and a production send fails before the recipient loop when the secret is missing rather than using the public development fallback. `EMAIL_FROM` is a normal Wrangler variable, and scheduled task/draft reminders require `APP_ORIGIN=https://openrostrum.com` because no request URL exists when cron builds portal links. AI and Airtable credentials are optional and surface explicit unavailable/not-configured states when absent.
 
+Same-repo PRs that pass `quality` get a public `*.workers.dev` preview (Worker `openrostrum-pr-<n>`, its own D1 and R2). Signup and admin writes on that URL never touch production data. Email stays in `/admin/emails/history`; Turnstile is keyless. Fork PRs are not previewed. Closing the PR deletes the preview Worker, D1, and R2. Required secrets and token permissions are listed in `.deploy.env.example`.
+
 ## Reset / seed
 
 Locally, `pnpm db:reset` rebuilds the whole demo baseline in one command: wipe, migrate, seed D1, then load featured speaker headshots and three slide decks into local R2. The authored assets and byte-pinning manifests live under `scripts/seed-assets/`; `scripts/seed-demo-blobs.mjs` performs the upload.
