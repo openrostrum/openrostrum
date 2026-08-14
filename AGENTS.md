@@ -31,6 +31,7 @@ One row per topic below, pointing to where the depth lives; an agent reads only 
 | Multi-tenancy — orgs, sign-up, membership authz | tenancy, auth, signup, invites | `docs/multi-tenancy-design.md` |
 | Grader-facing deploy notes | deploy time | `docs/JUDGING.md` |
 | Journey critic — personas walking the live deploy for experience defects | acting on its findings, changing its charter | `tooling/journey-critic/README.md` |
+| PR previews — isolated Worker/D1/R2 per same-repo PR | wiring or tearing down a preview | `docs/rules/process.md` |
 
 ## Commands
 
