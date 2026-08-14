@@ -5,14 +5,7 @@ export function previewCommands(names) {
 	return {
 		d1List: ["d1", "list", "--json"],
 		d1Create: ["d1", "create", names.database],
-		d1Migrate: [
-			"d1",
-			"migrations",
-			"apply",
-			names.database,
-			"--remote",
-			"--yes",
-		],
+		d1Migrate: ["d1", "migrations", "apply", names.database, "--remote"],
 		d1Seed: [
 			"d1",
 			"execute",
