@@ -142,7 +142,7 @@ export default function Signup({
 	return (
 		<AuthPage
 			title="Create your account"
-			subtitle="Then three short steps to open your first conference."
+			subtitle="Then name the conference. You’ll have a public page in one more step."
 			nav={{
 				prompt: "Already have an account?",
 				label: "Sign in",
