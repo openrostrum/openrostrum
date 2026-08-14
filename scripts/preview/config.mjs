@@ -78,6 +78,7 @@ export function applyPreviewConfig(input, { pr, databaseId }) {
 	const [bucket] = buckets;
 	db.database_name = names.database;
 	db.database_id = databaseId;
+	db.migrations_dir = "drizzle/migrations";
 	bucket.bucket_name = names.bucket;
 
 	config.vars = { ...(config.vars ?? {}), APP_ENV: "preview" };

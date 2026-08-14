@@ -47,6 +47,7 @@ test("preview config is a separate worker bound to that PR's D1 and R2", () => {
 	assert.equal(config.r2_buckets[0].bucket_name, "openrostrum-pr-12-files");
 	assert.equal(config.d1_databases[0].binding, "DB");
 	assert.equal(config.r2_buckets[0].binding, "BLOBS");
+	assert.equal(config.d1_databases[0].migrations_dir, "drizzle/migrations");
 });
 
 test("preview config drops the production domain and cron triggers", () => {
