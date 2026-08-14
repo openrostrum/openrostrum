@@ -36,6 +36,8 @@
 		"deploy": "bash scripts/deploy.sh",
 		"dev": "react-router dev",
 		"preview": "pnpm build && vite preview",
+		"preview:deploy": "node scripts/preview/run.mjs deploy",
+		"preview:teardown": "node scripts/preview/run.mjs teardown",
 		"typecheck": "pnpm typegen && tsc -b"
 	},
 	"dependencies": {
