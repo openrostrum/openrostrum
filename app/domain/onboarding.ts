@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { redirect } from "react-router";
 import { getDb } from "~/db";
 import type { users } from "~/db/schema";
@@ -31,6 +31,7 @@ export async function getFirstRunState(
 			eq(events.organizationId, organizationMembers.organizationId),
 		)
 		.where(eq(organizationMembers.userId, userId))
+		.orderBy(asc(events.createdAt), asc(events.id))
 		.limit(1);
 	if (event) return { hasEvent: true, ...event };
 

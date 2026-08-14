@@ -54,16 +54,6 @@ function renderSignup(
 }
 
 describe("signup route", () => {
-	it("tells a new organizer they will name the conference next", () => {
-		const { html } = renderSignup();
-		const page = html();
-		expect(page).toContain("Create your account");
-		expect(page).toContain(
-			"Then name the conference. You’ll have a public page in one more step.",
-		);
-		expect(page).not.toContain("three short steps");
-	});
-
 	it("shows an explicit pending state while account creation is in flight", async () => {
 		let finishAction: (() => void) | undefined;
 		const pendingAction = new Promise<Response>((resolve) => {

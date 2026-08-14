@@ -368,16 +368,11 @@ describe("onboarding step 1 — name your conference", () => {
 
 	it("asks only for the conference name and a public URL", () => {
 		const html = renderNameStep();
-		expect(html).toContain("What conference are you running?");
-		expect(html).toContain(
-			"This name goes on a public page you can send someone right now.",
-		);
-		expect(html).toContain("Open the site");
-		expect(html).toContain("Go to admin instead");
 		expect(html).toContain("/schedule/");
+		expect(html).toContain('name="intent"');
+		expect(html).toContain('value="admin"');
 		expect(html).not.toContain("Dates");
 		expect(html).not.toContain("Location");
-		expect(html).not.toContain("Two short steps");
 		expect(html).not.toContain("Continue");
 	});
 

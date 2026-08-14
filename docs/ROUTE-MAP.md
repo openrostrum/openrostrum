@@ -52,10 +52,9 @@ your sidebar entry as `app/nav/<feature>.nav.ts` (never a shared nav file).
 | Team admins (org members) | `admin.settings.team.tsx` | `/admin/settings/team` (org-member invite + remove w/ last-member guard, P1 #21/#22 Wave D) | 1 | done |
 | API tokens (org) | `admin.settings.api.tsx` | `/admin/settings/api` (list/create/revoke org API tokens; show-once mint, per-token event restriction; flows/09 rule p) | 3 | done |
 | Organizer sign-up | `signup.tsx` | `/signup` (`// @public`; existing-email → decided sign-in message; P1 #22 Wave C) | 2 | done |
-| First-run wizard (shell) | `onboarding.tsx` | `/onboarding/*` (auth gate + step rail; auth'd users without an event only) | 2 | done |
-| First run — step 1 | `onboarding._index.tsx` | `/onboarding` (conference name + live slug preview; creates org + membership + first event; taken slug is a field error) | 2 | done |
-| First run — step 2 | `onboarding.dates.tsx` | `/onboarding/dates` (dates + timezone; skippable) | 2 | done |
-| First run — step 3 | `onboarding.place.tsx` | `/onboarding/place` (location; skippable; finishes into `/admin`) | 2 | done |
+| First-run shell | `onboarding.tsx` | `/onboarding/*` (auth gate; auth'd users without an event only) | 2 | done |
+| First run — name the conference | `onboarding._index.tsx` | `/onboarding` (conference name + live `/schedule/{slug}` preview; creates org + membership + first event; taken slug is a field error; Open the site → `/schedule/{slug}`, Go to admin instead → `/admin`) | 2 | done |
+| Leftover first-run URLs | `onboarding.dates.tsx` · `onboarding.place.tsx` | `/onboarding/dates` · `/onboarding/place` (not first-run; event exists → `/admin`, else `/onboarding`) | 2 | done |
 | Public sessions list | `sessions.$eventSlug.tsx` | `/sessions/:eventSlug` (P1 #16a) | 2 | done |
 | Public speakers directory | `speakers.$eventSlug.tsx` | `/speakers/:eventSlug` (P1 #16b — promoted from P2) | 2 | done |
 | Public agenda grid | `schedule.$eventSlug.tsx` | `/schedule/:eventSlug` (P1 #16c — promoted from P2) | 2 | done |
