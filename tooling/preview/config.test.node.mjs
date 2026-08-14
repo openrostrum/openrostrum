@@ -124,6 +124,18 @@ test("preview config refuses unknown wrangler keys that could bind production", 
 				pr: 12,
 				databaseId: "11111111-1111-4111-8111-111111111111",
 			}),
-		/unknown wrangler keys/,
+		/could bind production resources/,
 	);
+});
+
+test("preview config ignores empty generated wrangler metadata keys", () => {
+	const built = structuredClone(committed);
+	built.configPath = "/tmp/wrangler.json";
+	built.kv_namespaces = [];
+	built.queues = {};
+	const config = applyPreviewConfig(built, {
+		pr: 12,
+		databaseId: "11111111-1111-4111-8111-111111111111",
+	});
+	assert.equal(config.name, "openrostrum-pr-12");
 });

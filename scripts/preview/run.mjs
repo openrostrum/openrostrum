@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { previewCommentBody, selectPreviewComment } from "./comment.mjs";
@@ -135,6 +135,7 @@ async function gh(method, pathname, body) {
 			"user-agent": "openrostrum-pr-preview",
 		},
 		body: body ? JSON.stringify(body) : undefined,
+		signal: AbortSignal.timeout(15_000),
 	});
 	if (!response.ok) {
 		throw new Error(
@@ -182,6 +183,7 @@ async function emptyBucket(names) {
 		if (cursor) url.searchParams.set("cursor", cursor);
 		const response = await fetch(url, {
 			headers: { authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(15_000),
 		});
 		if (!response.ok) {
 			if (response.status === 404) return;

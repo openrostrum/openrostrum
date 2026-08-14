@@ -9,23 +9,24 @@ const STRIP_VARS = [
 	"DEEPSEEK_API_KEY",
 ];
 
-const ALLOWED_KEYS = new Set([
-	"$schema",
-	"name",
-	"main",
-	"compatibility_date",
-	"compatibility_flags",
-	"observability",
-	"upload_source_maps",
-	"workers_dev",
-	"preview_urls",
-	"routes",
-	"d1_databases",
-	"r2_buckets",
-	"ai",
-	"triggers",
-	"vars",
-]);
+const FORBIDDEN_KEYS = [
+	"kv_namespaces",
+	"queues",
+	"services",
+	"durable_objects",
+	"workflows",
+	"hyperdrive",
+	"dispatch_namespaces",
+	"mtls_certificates",
+	"pipelines",
+	"secrets_store_secrets",
+	"analytics_engine_datasets",
+	"vectorize",
+	"send_email",
+	"vpc_services",
+	"vpc_networks",
+	"ratelimits",
+];
 
 export function applyPreviewConfig(input, { pr, databaseId }) {
 	if (!databaseId) {
@@ -34,10 +35,16 @@ export function applyPreviewConfig(input, { pr, databaseId }) {
 	const names = previewNames(pr);
 	assertPreviewIsolation(names);
 
-	const unknown = Object.keys(input).filter((key) => !ALLOWED_KEYS.has(key));
-	if (unknown.length) {
+	const forbidden = FORBIDDEN_KEYS.filter((key) => {
+		const value = input[key];
+		if (value == null) return false;
+		if (Array.isArray(value)) return value.length > 0;
+		if (typeof value === "object") return Object.keys(value).length > 0;
+		return true;
+	});
+	if (forbidden.length) {
 		throw new Error(
-			`preview refuses unknown wrangler keys that could bind production resources: ${unknown.join(", ")}`,
+			`preview refuses wrangler keys that could bind production resources: ${forbidden.join(", ")}`,
 		);
 	}
 
