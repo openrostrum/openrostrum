@@ -3,7 +3,7 @@ import { getDb } from "~/db";
 import { submitPath } from "~/domain/forms";
 import { oldestOpenForm } from "~/lib/forms.server";
 import { getDefaultEvent } from "~/lib/program";
-import type { Route } from "./+types/cfp";
+import type { Route } from "./+types/cfp._index";
 
 // @public — bare /cfp lands on the default event's oldest OPEN submission
 // form. The homepage's "Call for speakers" link needs a stable URL: the real

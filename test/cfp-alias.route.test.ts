@@ -5,7 +5,7 @@ import { createRoutesStub } from "react-router";
 import { describe, expect, it } from "vitest";
 import { getDb } from "../app/db";
 import { events, forms, organizations } from "../app/db/schema";
-import { loader } from "../app/routes/cfp";
+import { loader } from "../app/routes/cfp._index";
 import EventCfp, {
 	loader as eventCfpLoader,
 } from "../app/routes/cfp.$eventSlug";
