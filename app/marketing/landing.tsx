@@ -69,19 +69,14 @@ function TopNav() {
 
 function Hero() {
 	return (
-		<section className={cn(SHELL, "pt-16 md:pt-24")}>
-			<div className="flex max-w-[46rem] flex-col items-start gap-6">
-				<Eyebrow>
-					Conference speaker, submission &amp; program management
-				</Eyebrow>
+		<section className={cn(SHELL, "pt-8 md:pt-10")}>
+			<div className="flex max-w-[46rem] flex-col items-start gap-5">
 				<h1 className="font-display text-[clamp(2.1rem,4.6vw,3.4rem)] font-semibold leading-[1.06] tracking-[-0.018em] text-balance text-fg">
 					The open-source Sessionboard alternative.
 				</h1>
 				<p className="text-[16.5px] leading-relaxed text-fg-muted">
 					Manage speaker relationships, collect and review proposals, coordinate
-					every presenter, and publish the program everywhere — all in one
-					place. Free and open source: create your organization here, or run it
-					on your own infrastructure.
+					every presenter, and publish the program everywhere, all in one place.
 				</p>
 				<div className="flex flex-wrap items-center gap-3">
 					<Cta to="/signup">Create your event</Cta>
@@ -92,7 +87,7 @@ function Hero() {
 			</div>
 			{/* The product is the hero shot — and it stands on a petrol platform,
 			    the brand mark drawn at page scale. */}
-			<div className="mt-12 md:mt-16">
+			<div className="mt-8 md:mt-10">
 				<AdminShellMock />
 				<div aria-hidden="true" className={cn(PLATFORM_BAR, "mx-8 sm:mx-14")} />
 			</div>
