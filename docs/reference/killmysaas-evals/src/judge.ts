@@ -68,7 +68,38 @@ function renderEvidence(evidence: ScenarioEvidence[], attached: Set<string>): st
 }
 
 /** Judge sees at most this many screenshots per area. */
-const MAX_JUDGE_IMAGES = 18;
+const MAX_JUDGE_IMAGES = 40;
+
+/**
+ * The Messages API rejects any image over 2000px on a side in a many-image
+ * request, and one oversized image fails the WHOLE call — losing an entire
+ * area's judgement. Captures are clamped at write time, but evidence from
+ * older runs may not be, so screen it here too.
+ */
+const MAX_IMAGE_EDGE = 2000;
+
+/** Width/height straight from the JPEG SOF header; null if unparseable. */
+function jpegSize(file: string): { w: number; h: number } | null {
+  try {
+    const b = fs.readFileSync(file);
+    let i = 2;
+    while (i < b.length) {
+      if (b[i] !== 0xff) {
+        i++;
+        continue;
+      }
+      const marker = b[i + 1];
+      // SOF0-SOF15, excluding DHT(c4)/JPG(c8)/DAC(cc)
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+      }
+      i += 2 + b.readUInt16BE(i + 2);
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
 
 /**
  * Allocate the image budget fairly across scenarios (round-robin from each
@@ -76,12 +107,26 @@ const MAX_JUDGE_IMAGES = 18;
  * from earlier ones. Missing files are dropped before the cap applies.
  */
 function pickScreenshots(evidence: ScenarioEvidence[], runDir: string) {
+  let oversized = 0;
   const perScenario = evidence.map((ev) =>
     ev.screenshots
       .map((s) => ({ label: `${ev.scenarioId}/${s.path}`, abs: path.join(runDir, ev.scenarioId, ...s.path.split("/")) }))
-      .filter((s) => fs.existsSync(s.abs))
+      .filter((s) => {
+        if (!fs.existsSync(s.abs)) return false;
+        const dim = jpegSize(s.abs);
+        if (dim && (dim.w > MAX_IMAGE_EDGE || dim.h > MAX_IMAGE_EDGE)) {
+          oversized++;
+          return false; // one of these would 400 the entire judge call
+        }
+        return true;
+      })
       .reverse(), // tail first: later shots usually show completed states
   );
+  if (oversized > 0) {
+    console.warn(
+      `  note: ${oversized} screenshot(s) exceed ${MAX_IMAGE_EDGE}px and were withheld from the judge (older evidence; captures are clamped now)`,
+    );
+  }
   const picked: { label: string; abs: string }[] = [];
   for (let round = 0; picked.length < MAX_JUDGE_IMAGES; round++) {
     let took = false;
@@ -149,14 +194,36 @@ export async function judgeArea(opts: {
     ]),
   ];
 
-  const response = await client.messages.parse({
+  // A 17-item rubric with cited reasoning plus a defect list overruns 16k and
+  // truncates mid-JSON, failing the whole area's parse — so budget 32k. The SDK
+  // requires streaming at that size, so stream and parse the final message.
+  const stream = client.messages.stream({
     model: config.judgeModel!,
-    max_tokens: 16000,
+    max_tokens: 32000,
     system: JUDGE_SYSTEM,
     messages: [{ role: "user", content }],
     output_config: { format: zodOutputFormat(JudgementSchema) },
   });
+  const message = await stream.finalMessage();
+  // Scratch-copy instrumentation only (judge A/B token accounting).
+  console.log(`  [usage] ${config.judgeModel} ${JSON.stringify(message.usage)}`);
 
+  let parsedOutput: z.infer<typeof JudgementSchema> | null = null;
+  if (message.stop_reason !== "refusal") {
+    const text = message.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text ?? "";
+    try {
+      parsedOutput = JudgementSchema.parse(JSON.parse(text));
+    } catch (err: any) {
+      console.warn(`  judge output did not parse for ${spec.area}: ${err?.message?.slice(0, 160)}`);
+    }
+  }
+  const response = { stop_reason: message.stop_reason, parsed_output: parsedOutput };
+
+  if (response.stop_reason === "max_tokens") {
+    console.warn(
+      `  judge output hit max_tokens for ${spec.area} — verdicts may be truncated; re-judge with a higher cap`,
+    );
+  }
   if (response.stop_reason === "refusal" || !response.parsed_output) {
     return {
       area: spec.area,

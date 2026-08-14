@@ -1,6 +1,7 @@
 area: ai-agenda
 title: AI Agenda & Schedule Builder
 prefix: AIA
+area_weight: 10
 overview: >
   Organizer-facing agenda/schedule builder for multi-track, multi-day programs.
   Organizers configure the agenda structure (event days, time slots, rooms, tracks),
@@ -131,6 +132,7 @@ rubric:
   - id: AIA-01
     criterion: An agenda/schedule builder view exists for a multi-day event, showing a time dimension plus rooms and/or tracks (grid, timeline, or per-day slot list) with day navigation.
     weight: 3
+    type: exists
     testability: auto
     scenarios: [AIA-S1]
     pass_criteria: The builder renders time slots and room/track structure and lets the organizer navigate between the three event days; sessions are represented as cards/entries positioned by day, time, and room or track.
@@ -138,6 +140,7 @@ rubric:
   - id: AIA-02
     criterion: Rooms and tracks are configurable by the organizer, and a newly added room and track immediately become usable in the agenda builder.
     weight: 2
+    type: crud
     testability: auto
     scenarios: [AIA-S1]
     pass_criteria: Rooms and tracks can be created through the organizer UI -- the four fixture rooms (fresh in this area on a chained run) plus, where the fixture tracks already exist from an earlier area's setup or from pre-seeding, the extra track (and room, if rooms were pre-seeded too) added in step 4 -- and a newly added room appears as a schedulable location while a track can be assigned to or shown on a session. On a chained run, room-creation evidence plus confirmed availability of the pre-existing tracks satisfies this item; do not require re-creating tracks that already exist.
@@ -145,6 +148,7 @@ rubric:
   - id: AIA-03
     criterion: An unscheduled session can be placed into a specific day/time/room slot, and the placement persists across a page reload.
     weight: 3
+    type: crud
     testability: auto
     scenarios: [AIA-S1]
     pass_criteria: The "Taming 40-Minute CI" session is placed at Day 1 10:00 in Room 2A via drag-and-drop or click-to-assign, its card renders in that slot with its title, and it is still there after the builder page is reloaded in step 11.
@@ -152,6 +156,7 @@ rubric:
   - id: AIA-04
     criterion: Scheduling the same speaker into two time-overlapping sessions produces a visible speaker double-booking warning.
     weight: 3
+    type: rule
     testability: auto
     scenarios: [AIA-S1]
     pass_criteria: When the two Priya Raman sessions overlap at Day 1 10:00 (different rooms), a conflict indicator appears without requiring a manual page refresh (or at latest on save) and identifies the double-booked speaker or the clashing sessions; agent observations record its wording.
@@ -159,6 +164,7 @@ rubric:
   - id: AIA-05
     criterion: Placing two sessions in the same room at overlapping times is blocked or visibly flagged as a room conflict.
     weight: 2
+    type: rule
     testability: auto
     scenarios: [AIA-S1]
     pass_criteria: The step-9 attempt to put a second session at Day 1 10:00 in Room 2A is either prevented at placement time (drop rejected, slot shown occupied) or accepted with a clearly visible room-overlap warning.
@@ -166,6 +172,7 @@ rubric:
   - id: AIA-06
     criterion: A scheduled session can be moved to a different slot/room, the change takes effect, and previously flagged conflicts clear once the overlap is removed.
     weight: 2
+    type: rule
     testability: auto
     scenarios: [AIA-S1]
     pass_criteria: The step-10 moves succeed (sessions render in their new slots), the speaker and room conflict indicators from steps 8-9 are gone afterward, and the new positions survive the step-11 reload. Live (no-reload) clearing is ideal but clearing after save/refresh still passes this item.
@@ -173,6 +180,7 @@ rubric:
   - id: AIA-07
     criterion: "The agenda can be published: a publish/go-live action exists, reports success, and the scheduled session data becomes available to the public/attendee-facing surface as a handoff. (The public schedule rendering itself — layout and correctness of the day/time/room display — is graded by public-widgets EMB-06, not here.)"
     weight: 2
+    type: handoff
     testability: auto
     scenarios: [AIA-S2]
     pass_criteria: A publish/go-live action exists and reports success (confirmation message, published status, or share link), and after publishing the sessions scheduled in AIA-S1/S2 are observable on some public/attendee-facing surface as a handoff check. Viewing while still logged in as organizer is acceptable if the page is the attendee-facing view. Do not grade the public rendering's quality or field-level correctness here — that is owned by EMB-06.
@@ -180,6 +188,7 @@ rubric:
   - id: AIA-08
     criterion: Some assisted or automatic scheduling capability exists that places unscheduled sessions into slots in one action ("AI" auto-scheduling judged generously as any auto-place assist).
     weight: 1
+    type: depth
     testability: auto
     scenarios: [AIA-S2]
     pass_criteria: An auto-schedule/AI-assist control is present in the builder and, when triggered, places at least one previously unscheduled session into a slot/room. Judge generously -- any one-action assisted placement counts, and whether the result shows conflict flags is recorded but not gating. Fail if no such capability exists anywhere in the builder (the agent's explicit absence observation from step 3 counts as evidence) or if the control exists but performs no placement when triggered.

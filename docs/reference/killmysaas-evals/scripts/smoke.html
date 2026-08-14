@@ -40,4 +40,406 @@
     slot.addEventListener('mouseup', () => { if (dragging) { dragging = false; place(); } });
     document.addEventListener('mouseup', () => { dragging = false; });
   </script>
+
+  <h2>Rich text editors</h2>
+  <!-- Inline editor (Quill/ProseMirror shape): labelled wrapper, editable child -->
+  <div id="abstract-wrapper" style="border:1px solid #888;padding:4px;width:420px">
+    <div class="ql-editor" contenteditable="true" style="min-height:40px">placeholder abstract</div>
+  </div>
+  <p id="inline-out"></p>
+  <!-- Classic TinyMCE shape: editable body inside an iframe -->
+  <div id="tiny-wrapper" style="border:1px solid #888;padding:4px;width:420px;margin-top:8px">
+    <iframe id="tiny" style="width:400px;height:60px;border:0"></iframe>
+  </div>
+  <p id="iframe-out"></p>
+  <script>
+    const inline = document.querySelector('#abstract-wrapper .ql-editor');
+    inline.addEventListener('input', () => {
+      document.getElementById('inline-out').textContent = 'INLINE:' + inline.textContent.trim();
+    });
+    const f = document.getElementById('tiny');
+    const d = f.contentDocument;
+    d.open(); d.write('<body contenteditable="true"></body>'); d.close();
+    d.body.addEventListener('input', () => {
+      document.getElementById('iframe-out').textContent = 'IFRAME:' + d.body.textContent.trim();
+    });
+  </script>
+
+  <!-- ==================================================================
+       Custom combobox (react-select / headlessui / radix shape).
+       The trigger is a plain div; the option list does not exist in the
+       DOM until the trigger is clicked, and is portalled to <body> so it
+       is nowhere near the trigger in document order. A native
+       selectOption() cannot touch this.
+       ================================================================== -->
+  <h2>Track picker (custom combobox)</h2>
+  <div id="rs-control" role="combobox" aria-expanded="false" aria-haspopup="listbox" tabindex="0"
+       style="cursor:pointer;border:1px solid #888;width:260px;padding:6px">Select a track…</div>
+  <p id="rs-out"></p>
+  <script>
+    var rsControl = document.getElementById('rs-control');
+    var rsMenu = null;
+    rsControl.addEventListener('click', function () {
+      if (rsMenu) { rsMenu.remove(); rsMenu = null; rsControl.setAttribute('aria-expanded', 'false'); return; }
+      rsMenu = document.createElement('div');
+      rsMenu.id = 'rs-menu';
+      rsMenu.setAttribute('role', 'listbox');
+      rsMenu.style.cssText = 'border:1px solid #333;width:260px;background:#fff';
+      ['AI Engineering', 'Platform & Infra', 'Developer Experience'].forEach(function (name) {
+        var opt = document.createElement('div');
+        opt.setAttribute('role', 'option');
+        opt.style.cssText = 'cursor:pointer;padding:4px';
+        opt.textContent = name;
+        opt.addEventListener('click', function () {
+          rsControl.textContent = name;
+          document.getElementById('rs-out').textContent = 'TRACK:' + name;
+          rsMenu.remove(); rsMenu = null;
+          rsControl.setAttribute('aria-expanded', 'false');
+        });
+        rsMenu.appendChild(opt);
+      });
+      document.body.appendChild(rsMenu); // portalled, not a child of the trigger
+      rsControl.setAttribute('aria-expanded', 'true');
+    });
+  </script>
+
+  <!-- ==================================================================
+       Date / time inputs, plus a read-only field that opens a picker.
+       ================================================================== -->
+  <h2>Scheduling</h2>
+  <label>Session date <input type="date" id="sess-date"></label>
+  <label>Start time <input type="time" id="sess-time"></label>
+  <p id="dt-out"></p>
+  <label>CFP deadline <input id="deadline" readonly placeholder="Select deadline"></label>
+  <div id="cal" style="display:none;border:1px solid #888;width:200px">
+    <button type="button" class="day">2026-04-01</button>
+    <button type="button" class="day">2026-04-02</button>
+  </div>
+  <p id="deadline-out"></p>
+  <script>
+    var sd = document.getElementById('sess-date');
+    var st = document.getElementById('sess-time');
+    var dtSync = function () {
+      document.getElementById('dt-out').textContent = 'DT:' + sd.value + ' ' + st.value;
+    };
+    sd.addEventListener('change', dtSync);
+    st.addEventListener('change', dtSync);
+    var deadline = document.getElementById('deadline');
+    deadline.addEventListener('click', function () {
+      document.getElementById('cal').style.display = 'block';
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#cal .day'), function (b) {
+      b.addEventListener('click', function () {
+        deadline.value = b.textContent;
+        document.getElementById('cal').style.display = 'none';
+        document.getElementById('deadline-out').textContent = 'DEADLINE:' + b.textContent;
+      });
+    });
+  </script>
+
+  <!-- ==================================================================
+       Modal dialog + full-screen overlay. Background controls stay in the
+       DOM and look clickable, but the overlay eats every pointer event.
+       ================================================================== -->
+  <h2>Session editor (modal)</h2>
+  <button type="button" id="open-modal">Edit session details</button>
+  <div id="overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10"></div>
+  <div id="modal" role="dialog" aria-modal="true" aria-label="Edit session"
+       style="display:none;position:fixed;top:40px;left:40px;z-index:20;background:#fff;border:1px solid #333;padding:16px">
+    <label>Room <input id="modal-room" placeholder="Room name"></label>
+    <button type="button" id="modal-save">Save session details</button>
+    <button type="button" id="modal-close">Close editor</button>
+  </div>
+  <p id="modal-out"></p>
+  <script>
+    var mOverlay = document.getElementById('overlay');
+    var mModal = document.getElementById('modal');
+    document.getElementById('open-modal').addEventListener('click', function () {
+      mOverlay.style.display = 'block';
+      mModal.style.display = 'block';
+    });
+    document.getElementById('modal-close').addEventListener('click', function () {
+      mOverlay.style.display = 'none';
+      mModal.style.display = 'none';
+    });
+    document.getElementById('modal-save').addEventListener('click', function () {
+      document.getElementById('modal-out').textContent = 'MODAL:' + document.getElementById('modal-room').value;
+      mOverlay.style.display = 'none';
+      mModal.style.display = 'none';
+    });
+  </script>
+
+  <!-- ==================================================================
+       A blocking veil with NO dialog role — cookie wall / toast / spinner
+       shape. Nothing tells the agent why its clicks stopped working.
+       ================================================================== -->
+  <h2>Blocking veil</h2>
+  <button type="button" id="show-veil">Show consent veil</button>
+  <button type="button" id="veiled-target">Publish agenda</button>
+  <p id="veil-out"></p>
+  <div id="consent-veil" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50"></div>
+  <script>
+    var veil = document.getElementById('consent-veil');
+    document.getElementById('show-veil').addEventListener('click', function () { veil.style.display = 'block'; });
+    document.getElementById('veiled-target').addEventListener('click', function () {
+      document.getElementById('veil-out').textContent = 'PUBLISHED';
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') veil.style.display = 'none';
+    });
+  </script>
+
+  <!-- ==================================================================
+       Same-origin iframe embed (the "public widgets" feature area ships
+       as exactly this). Its controls are invisible to a top-level query.
+       ================================================================== -->
+  <h2>Public agenda widget (embed)</h2>
+  <iframe id="embed" style="width:440px;height:150px;border:1px solid #888"></iframe>
+  <script>
+    document.getElementById('embed').srcdoc =
+      "<h3>Agenda widget</h3><p>10:00 Keynote - Taming CI</p>" +
+      "<button type='button' id='fav'>Add to my schedule</button> " +
+      "<input id='q' placeholder='Search sessions'>" +
+      "<scr" + "ipt>document.getElementById('fav').addEventListener('click'," +
+      "function(){this.textContent='Added to schedule';});</scr" + "ipt>";
+  </script>
+
+  <!-- ==================================================================
+       Web component with an open shadow root. querySelectorAll does not
+       pierce shadow roots, so the whole card reads as empty.
+       ================================================================== -->
+  <h2>Speaker card (web component)</h2>
+  <speaker-card id="sc"></speaker-card>
+  <p id="sd-out"></p>
+  <script>
+    var scHost = document.getElementById('sc');
+    var scRoot = scHost.attachShadow({ mode: 'open' });
+    scRoot.innerHTML =
+      "<div><b>Ada Lovelace</b> <input id='note' placeholder='Reviewer note'>" +
+      " <button type='button' id='approve'>Approve speaker</button></div>";
+    scRoot.getElementById('approve').addEventListener('click', function () {
+      document.getElementById('sd-out').textContent = 'SHADOW:approved ' + scRoot.getElementById('note').value;
+    });
+  </script>
+
+  <!-- ==================================================================
+       WRONG-ELEMENT CLICKS. A cursor:pointer LIST CONTAINER wrapping
+       cursor:pointer cards. The container is first in document order, so it
+       used to get a ref labelled by its first card's text — and clicking
+       that ref hit the container's CENTRE, i.e. a different row entirely.
+       ================================================================== -->
+  <h2>Review groups (clickable list container)</h2>
+  <div id="group-list" style="cursor:pointer;width:340px;border:1px solid #888">
+    <div class="grp" data-name="Engineering" style="cursor:pointer;padding:10px">Engineering Review Group Closed v20</div>
+    <div class="grp" data-name="Marketing" style="cursor:pointer;padding:10px">Marketing Review Group Open v4</div>
+    <div class="grp" data-name="Finance" style="cursor:pointer;padding:10px">Finance Review Group Closed v3</div>
+  </div>
+  <p id="grp-out"></p>
+  <script>
+    Array.prototype.forEach.call(document.querySelectorAll('#group-list .grp'), function (g) {
+      g.addEventListener('click', function () {
+        document.getElementById('grp-out').textContent = 'GROUP:' + g.getAttribute('data-name');
+      });
+    });
+  </script>
+
+  <!-- ==================================================================
+       RADIX SHEET / DIALOG. role="dialog" + class="fixed z-50", NO
+       aria-modal, no [inert], no aria-hidden, body pointer-events:auto.
+       The only modality signal is the full-viewport fixed overlay behind
+       it. Plus a NON-MODAL <dialog> opened with show(), which must NOT
+       scope the snapshot.
+       ================================================================== -->
+  <h2>Evaluator sheet (Radix-style portal dialog)</h2>
+  <button type="button" id="open-radix">Manage evaluators</button>
+  <button type="button" id="open-plain-dialog">Open tips (non-modal)</button>
+  <dialog id="plain-dialog"><p>Inline tips</p><button type="button" id="plain-close">Close tips</button></dialog>
+  <div id="radix-portal"></div>
+  <p id="radix-out"></p>
+  <script>
+    document.getElementById('open-radix').addEventListener('click', function () {
+      var portal = document.getElementById('radix-portal');
+      portal.innerHTML =
+        '<div class="fixed inset-0 z-50" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50"></div>' +
+        '<div role="dialog" class="fixed z-50" style="position:fixed;top:40px;right:40px;z-index:50;' +
+        'background:#fff;border:1px solid #333;padding:16px;width:320px">' +
+        ' <h3>Evaluator settings</h3> ' +
+        ' <input id="radix-name" placeholder="Evaluator name"> ' +
+        ' <button type="button" id="radix-save">Save evaluators</button> ' +
+        ' <button type="button" id="radix-close">Close sheet</button> ' +
+        '</div>';
+      document.getElementById('radix-save').addEventListener('click', function () {
+        document.getElementById('radix-out').textContent =
+          'RADIX:' + document.getElementById('radix-name').value;
+        portal.innerHTML = '';
+      });
+      document.getElementById('radix-close').addEventListener('click', function () {
+        portal.innerHTML = '';
+      });
+    });
+    var plainDlg = document.getElementById('plain-dialog');
+    document.getElementById('open-plain-dialog').addEventListener('click', function () { plainDlg.show(); });
+    document.getElementById('plain-close').addEventListener('click', function () { plainDlg.close(); });
+  </script>
+
+  <!-- ==================================================================
+       NAMELESS CONTROLS.
+       (a) A form-builder question row: [drag handle][switch][kebab], all
+           <button> with only an SVG inside -> empty labels, while the thing
+           they act on ("Track") carries no ref at all.
+       (b) Radix switches whose label is a SIBLING TEXT NODE.
+       (c) A table of identical "Edit" / "Actions" buttons.
+       ================================================================== -->
+  <h2>CFP form builder (icon-only rows)</h2>
+  <table id="qtable">
+    <tbody>
+      <tr>
+        <td>Track</td>
+        <td><button type="button" style="width:28px;height:20px"><svg class="lucide lucide-grip-vertical" width="14" height="14"></svg></button></td>
+        <td><button type="button" role="switch" aria-checked="true" style="width:32px;height:20px"></button></td>
+        <td><button type="button" aria-haspopup="menu" style="width:28px;height:20px"><svg width="14" height="14"></svg></button></td>
+      </tr>
+      <tr>
+        <td>Level</td>
+        <td><button type="button" style="width:28px;height:20px"><svg class="lucide lucide-grip-vertical" width="14" height="14"></svg></button></td>
+        <td><button type="button" role="switch" aria-checked="false" style="width:32px;height:20px"></button></td>
+        <td><button type="button" aria-haspopup="menu" style="width:28px;height:20px"><svg width="14" height="14"></svg></button></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="swrow">Publish immediately <button type="button" role="switch" aria-checked="false" style="width:32px;height:20px"></button></div>
+  <div class="swrow">Notify evaluators <button type="button" role="switch" aria-checked="true" style="width:32px;height:20px"></button></div>
+  <div aria-label="Session actions"><button type="button" id="radix-:r7:" aria-haspopup="menu" style="width:28px;height:20px"></button></div>
+
+  <h2>Evaluators (table rows)</h2>
+  <table id="evaltable">
+    <tbody>
+      <tr>
+        <td><input type="checkbox" aria-label="Select Ada Testerman"></td>
+        <td>Ada Testerman</td>
+        <td><button type="submit">Edit</button> <button type="button">Actions</button></td>
+      </tr>
+      <tr>
+        <td><input type="checkbox" aria-label="Select Grace Hopper"></td>
+        <td>Grace Hopper</td>
+        <td><button type="submit">Edit</button> <button type="button">Actions</button></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ==================================================================
+       NESTED UPLOAD PICKER (Filestack shape). "Upload Files" opens a
+       second modal that mounts its own 0x0 / opacity:0 / multiple file
+       input and never fires a native filechooser event. An unrelated file
+       input already exists higher up the page, so grabbing "the first file
+       input" would silently upload to the wrong control.
+       ================================================================== -->
+  <h2>File requests (nested upload picker)</h2>
+  <button type="button" id="open-fsp">Upload Files</button>
+  <div id="fsp-portal"></div>
+  <p id="fsp-out"></p>
+  <script>
+    document.getElementById('open-fsp').addEventListener('click', function () {
+      var p = document.getElementById('fsp-portal');
+      p.innerHTML =
+        '<div class="fsp-picker" style="border:1px solid #333;padding:8px;width:300px">' +
+        '<div class="fsp-local-source">Drop files here</div>' +
+        '<input type="file" multiple class="fsp-local-source__fileinput" ' +
+        'style="position:absolute;width:0;height:0;opacity:0">' +
+        '</div>';
+      p.querySelector('input[type=file]').addEventListener('change', function (e) {
+        document.getElementById('fsp-out').textContent =
+          'FSP:' + (e.target.files[0] ? e.target.files[0].name : '');
+      });
+    });
+  </script>
+
+  <!-- ==================================================================
+       REF BUDGET. Sidebar chrome where every destination triples up as
+       link + duplicate <span> + a repeated per-item "Pin to top" action.
+       ================================================================== -->
+  <h2>App sidebar (nav chrome)</h2>
+  <nav id="sidebar" style="cursor:pointer;width:280px;border:1px solid #ccc">
+    <div class="navitem"><a href="#nav-crm"><span>Speaker CRM</span></a>
+      <button type="button">Pin to top</button>
+      <a href="#nav-crm"><span>Speaker CRM</span></a></div>
+    <div class="navitem"><a href="#nav-builder"><span>Agenda builder</span></a>
+      <button type="button">Pin to top</button>
+      <a href="#nav-builder"><span>Agenda builder</span></a></div>
+    <div class="navitem"><a href="#nav-sponsors"><span>Sponsor portal</span></a>
+      <button type="button">Pin to top</button>
+      <a href="#nav-sponsors"><span>Sponsor portal</span></a></div>
+  </nav>
+
+  <!-- ==================================================================
+       DATE PICKER TRIGGER: aria-haspopup="dialog" (not listbox/menu), and
+       day cells whose visible text DUPLICATES across months.
+       ================================================================== -->
+  <h2>Deadline (date picker popover)</h2>
+  <button type="button" id="dp-trigger" aria-haspopup="dialog">August 9th, 2026 at 8:00 PM</button>
+  <div id="dp-pop" style="display:none;border:1px solid #888;width:280px">
+    <button type="button" class="rdp-day" aria-label="July 31st, 2026">31</button>
+    <button type="button" class="rdp-day" aria-label="August 1st, 2026">1</button>
+    <button type="button" class="rdp-day" aria-label="August 31st, 2026">31</button>
+  </div>
+  <p id="dp-out"></p>
+  <script>
+    document.getElementById('dp-trigger').addEventListener('click', function () {
+      document.getElementById('dp-pop').style.display = 'block';
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#dp-pop .rdp-day'), function (d) {
+      d.addEventListener('click', function () {
+        document.getElementById('dp-out').textContent = 'DPDAY:' + d.getAttribute('aria-label');
+        document.getElementById('dp-pop').style.display = 'none';
+      });
+    });
+  </script>
+
+  <!-- ==================================================================
+       CLICK-TO-EDIT: a CRM field renders its value as a <button>; the real
+       <input> only exists once the button is clicked.
+       ================================================================== -->
+  <h2>Contact record (click to edit)</h2>
+  <div id="c2e-host"><button type="button" id="c2e">Chief AI Officer</button></div>
+  <p id="c2e-out"></p>
+  <script>
+    document.getElementById('c2e').addEventListener('click', function () {
+      var host = document.getElementById('c2e-host');
+      var inp = document.createElement('input');
+      inp.placeholder = 'Add title...';
+      inp.addEventListener('input', function () {
+        document.getElementById('c2e-out').textContent = 'TITLE:' + inp.value;
+      });
+      host.innerHTML = '';
+      host.appendChild(inp);
+      inp.focus();
+    });
+  </script>
+
+  <!-- ==================================================================
+       Scroll container: a long session list that only lives inside its own
+       overflow:auto box. Scrolling the window does nothing for it.
+       ================================================================== -->
+  <h2>Session list (inner scroll container)</h2>
+  <div id="sess-list" style="height:120px;overflow:auto;border:1px solid #888;width:320px"></div>
+  <script>
+    var listEl = document.getElementById('sess-list');
+    var loaded = 0;
+    var loadMore = function () {
+      var stop = loaded + 12;
+      for (var n = loaded + 1; n <= stop; n++) {
+        var row = document.createElement('div');
+        row.style.cssText = 'cursor:pointer;padding:6px';
+        row.textContent = 'SESSION-' + n + ' in the list';
+        listEl.appendChild(row);
+      }
+      loaded = stop;
+    };
+    loadMore();
+    // Infinite scroll: later sessions do not exist in the DOM until the
+    // *container* (not the window) is scrolled towards its end.
+    listEl.addEventListener('scroll', function () {
+      if (listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 40 && loaded < 48) loadMore();
+    });
+  </script>
 </body></html>

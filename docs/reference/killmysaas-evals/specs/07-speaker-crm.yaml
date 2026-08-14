@@ -1,6 +1,7 @@
 area: speaker-crm
 title: Speaker CRM (Cross-Event Speaker Database)
 prefix: CRM
+area_weight: 10
 optional: true
 overview: >
   Speaker CRM is an organization-level, cross-event speaker database that sits above
@@ -160,6 +161,7 @@ rubric:
   - id: CRM-01
     criterion: An organization-level speaker directory exists outside any single event, listing contacts across events in a searchable table.
     weight: 3
+    type: exists
     testability: auto
     scenarios: [CRM-S1]
     pass_criteria: >-
@@ -175,6 +177,7 @@ rubric:
   - id: CRM-02
     criterion: A multi-criteria filter narrows the directory by attribute values such as company, job title, or tags, and filters are clearable.
     weight: 2
+    type: rule
     testability: auto
     scenarios: [CRM-S1]
     pass_criteria: >-
@@ -190,6 +193,7 @@ rubric:
   - id: CRM-03
     criterion: Contact profiles show identity fields plus persistent internal notes and some form of cross-event history (linked events/sessions and/or an activity log).
     weight: 2
+    type: roundtrip
     testability: auto
     scenarios: [CRM-S1]
     pass_criteria: >-
@@ -205,6 +209,7 @@ rubric:
   - id: CRM-04
     criterion: Contacts can be enriched with organizer-defined metadata — custom fields (e.g. a dropdown) or tags — that persist on the profile.
     weight: 1
+    type: depth
     testability: auto
     scenarios: [CRM-S1]
     pass_criteria: >-
@@ -219,6 +224,7 @@ rubric:
   - id: CRM-05
     criterion: Contacts can be bulk-imported from a CSV file, with the imported rows appearing in the directory afterward.
     weight: 2
+    type: bulk
     testability: auto
     scenarios: [CRM-S1]
     pass_criteria: >-
@@ -234,6 +240,7 @@ rubric:
   - id: CRM-06
     criterion: Near-duplicate contacts (same name, different email) are surfaced and can be merged into a single chosen primary record.
     weight: 1
+    type: depth
     testability: auto
     scenarios: [CRM-S1]
     pass_criteria: >-
@@ -248,6 +255,7 @@ rubric:
   - id: CRM-07
     criterion: A kanban sourcing pipeline with staged columns covering an open-to-won/lost lifecycle lets contacts be enrolled and moved between stages, with moves persisting across reload.
     weight: 2
+    type: crud
     testability: auto
     scenarios: [CRM-S2]
     pass_criteria: >-
@@ -262,6 +270,7 @@ rubric:
   - id: CRM-08
     criterion: Pipeline cards open to a detail view with internal notes and a timestamped record of stage transitions.
     weight: 1
+    type: depth
     testability: auto
     scenarios: [CRM-S2]
     pass_criteria: >-
@@ -276,6 +285,7 @@ rubric:
   - id: CRM-09
     criterion: A filtered directory view can be saved as a named, reusable segment or list that reopens with its members.
     weight: 1
+    type: depth
     testability: auto
     scenarios: [CRM-S1]
     pass_criteria: >-
@@ -289,6 +299,7 @@ rubric:
   - id: CRM-10
     criterion: A contact can be pushed from the org-level database into a specific event, appearing in that event's speakers/contacts module with profile data intact.
     weight: 2
+    type: handoff
     testability: auto
     scenarios: [CRM-S2]
     pass_criteria: >-
@@ -303,6 +314,7 @@ rubric:
   - id: CRM-11
     criterion: Bulk email can be composed to multiple selected contacts from the directory, ideally with template/merge-tag personalization and a preview, and the send is confirmed or logged in-app.
     weight: 1
+    type: bulk
     testability: auto-partial
     scenarios: [CRM-S2]
     pass_criteria: >-
@@ -324,6 +336,7 @@ rubric:
   - id: CRM-12
     criterion: A CRM dashboard or overview page shows org-wide speaker-database metrics and at least one populated analytics widget.
     weight: 1
+    type: depth
     testability: auto
     scenarios: [CRM-S2]
     pass_criteria: >-

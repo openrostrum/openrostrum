@@ -1,29 +1,40 @@
 area: public-widgets
 title: Public & Embeddable Widgets
 prefix: EMB
+area_weight: 20
 overview: >
-  SessionBoard lets organizers publish live, self-updating event content to any
-  website through five embeddable public widgets: a searchable/filterable List of
-  Sessions, a List of Speakers pairing each person with their sessions, a
-  room-by-time Agenda grid, a day-tabbed Schedule Itinerary for chronological
-  day-by-day browsing (personal-schedule building is an inferred extension), and
-  a visual Speaker Gallery photo grid. All five render
-  approved event content to anonymous visitors without login, offer keyword
-  search and drill-down detail views, and stay consistent with the organizer's
-  source data without republishing. Organizers generate each widget from an
-  admin embeds area as a copy-paste snippet (styled HTML script tag, plus basic
-  HTML / JSON / XML / iCal formats) with branding, field selection, and content
-  filters. This area evaluates each of the five widgets as a distinct feature,
-  plus the shared requirements of public accessibility, embed/share generation,
-  and cross-surface data consistency.
+  SessionBoard lets organizers export live, self-updating event content as five
+  embeddable widgets that can be placed on any website or app: a
+  searchable/filterable List of Sessions, a List of Speakers pairing each person
+  with their sessions, a room-by-time Agenda grid, a day-tabbed Schedule
+  Itinerary for chronological day-by-day browsing (personal-schedule building is
+  an inferred extension), and a visual Speaker Gallery photo grid. Organizers
+  generate each widget from an admin embeds area (in SessionBoard, CMS > Embeds —
+  "Export a feed of your agenda, sessions, or speakers to place in your app or
+  website") as a named, enable/disable-able embed with a copy-paste snippet
+  ("Get Code"), in styled HTML plus basic HTML / JSON / XML / iCal formats, with
+  branding, field selection, and content filters. Each widget renders approved
+  event content to ordinary visitors, offers keyword search and drill-down detail
+  views, and stays consistent with the organizer's source data without
+  republishing. IMPORTANT SCOPING NOTE: these are judged as *embeddable
+  components*, not as anonymously-reachable public pages. The requirement is that
+  a widget renders outside the organizer admin UI to a viewer holding no
+  organizer/admin rights — via an anonymous public page, an
+  attendee-authenticated event site/portal, or a generated embed. Login-free
+  anonymous access is a bonus, NOT a requirement: SessionBoard's own event sites
+  require at least one login method to be enabled and cannot be made fully
+  public, so a clone must not be penalised for gating its event site behind an
+  attendee login. This area evaluates each of the five widgets as a distinct
+  feature, plus the shared requirements of non-admin distribution, embed
+  generation, and cross-surface data consistency.
 personas: [organizer, attendee]
 scenarios:
   - id: EMB-S1
-    name: Anonymous tour of the four browse widgets
+    name: Non-admin tour of the four browse widgets
     persona: attendee
     steps: |
-      1. Navigate to the clone's base URL in a logged-out state. Do NOT sign in at any point in this scenario (sole exception: the approval precondition in step 2); if a page demands login, note it as an observation and try alternate routes.
-      2. Locate the public-facing event content for "DevFlow Conf 2027" (or whatever event the clone exposes). Try obvious nav links (Sessions, Program, Schedule, Agenda, Speakers, Gallery, Explore) and obvious paths (/sessions, /speakers, /agenda, /schedule, /gallery, /embeds, /widgets, /public, /event/...). The five widgets may be separate pages, tabs on one page, or an embed-demo page — record how the clone organizes them. PRECONDITION on a chained run: area 04 approves only ONE session's content, so a clone that correctly gates public output on approval may show a single session everywhere. If the public widgets appear empty or near-empty because of that content-approval gate, sign in as organizer Jordan Alvarez, set EVERY scheduled session's content status to Approved, sign out fully, record that you did so, and restart this logged-out tour from step 1.
+      1. Navigate to the clone's base URL in a logged-out state. Your goal is to see what an ORDINARY VISITOR sees — never use organizer/admin credentials anywhere in this scenario (sole exception: the approval precondition in step 2, after which you must return to a non-admin state).
+      2. Locate the attendee-facing surface that renders event content for "DevFlow Conf 2027" (or whatever event the clone exposes) — an event website, public program page, attendee portal, or a rendered embed. Try obvious nav links (Sessions, Program, Schedule, Agenda, Speakers, Gallery, Explore, Event Site, View Site) and obvious paths (/sessions, /speakers, /agenda, /schedule, /gallery, /embeds, /widgets, /public, /site, /event/...). First record whether the content is readable with NO login at all — that is a bonus worth noting, not a requirement. If a surface demands a login, sign in (or sign up if the clone allows open registration) as attendee "Alex Attendee", email alex.attendee@sbek-test.example.com, password SbekTest!2027-att, or use the fixture attendee credentials if provided; then record exactly which surfaces required a login. The five widgets may be separate pages, tabs on one page, or an embed-demo page — record how the clone organizes them. PRECONDITION on a chained run: area 04 approves only ONE session's content, so a clone that correctly gates public output on approval may show a single session everywhere. If the widgets appear empty or near-empty because of that content-approval gate, sign in as organizer Jordan Alvarez, set EVERY scheduled session's content status to Approved, return to the non-admin state (sign out, or switch back to the attendee/visitor view), record that you did so, and restart this tour from step 1.
       3. SESSIONS LIST — open the session catalog view. Screenshot the full list. Record the result count if one is shown (e.g. "1 - 22 of 22"). For at least 3 session cards, record which of these fields are present: title, truncated description, date + time, room/location, speaker name with job title and company, Format tag, Track tag. Click a "Show more" / expand control on one card; screenshot the card before and after expansion.
       4. SESSIONS SEARCH — type a distinctive word from a visible session title (e.g. "Taming" if the fixture session "Taming 40-Minute CI" is present) into the search box. Screenshot the narrowed list and any updated count. Clear it, then search a visible speaker's surname (e.g. "Raman"). Record whether sessions featuring that speaker remain. Clear the search.
       5. SESSIONS FILTERS — open the Filters control. Screenshot the facet panel and record which facet groups exist (Format, Track, Location, etc.). Apply one Track value (e.g. "Platform & Infra" or any visible track); verify every remaining card carries that track; screenshot. Clear the filter.
@@ -32,18 +43,19 @@ scenarios:
       8. AGENDA DETAIL — click one agenda session block. Record which fields the detail view shows: title, full "start - end" time range, room, description (with Show more if truncated), Format, Track, and any Subsessions section. Screenshot the detail. Use the Back/close control and screenshot the restored agenda.
       9. SPEAKER GALLERY — open the visual speaker gallery (photo grid). Screenshot the grid. For 3 cards record: headshot photo, name, job title, company; note any speaker rendered with a missing photo/title and whether the layout degrades gracefully. Use the name search box, if present, to narrow to one speaker; screenshot. Click one speaker card; record the detail view fields (photo, name, title, bio with Show more, company, and a "Sessions (N)"-style list showing each session's title, date/time, and room); screenshot the open detail. Close/Back and screenshot the restored grid.
       10. CONSISTENCY SAMPLING — pick one session that appears in at least two of the widgets you visited (sessions list, agenda, itinerary if seen). Record its title, date, time, room, and track as displayed in EACH widget. Pick one speaker visible in both the speakers list and the gallery; record their name, job title, and company in each. Note any mismatches.
-      11. Record a final observation summarizing which of the five widget surfaces were reachable entirely without authentication.
+      11. Record a final observation listing, for EACH of the five widget surfaces, (a) whether you found it, (b) where it rendered — anonymous public page, attendee-authenticated event site/portal, or an embed — and (c) whether reading it ever required organizer/admin privileges. Be explicit about which surfaces were anonymous versus login-gated.
     success_signals:
-      - Screenshots of each widget surface found (sessions list, speakers list, agenda, speaker gallery), captured while logged out
+      - Screenshots of each widget surface found (sessions list, speakers list, agenda, speaker gallery), captured as a non-admin viewer
       - Before/after screenshots of a Show more expansion, a search narrowing, and a track filter
       - Agenda screenshots of two different days and of a session detail view
       - Speaker gallery grid, filtered search result, and open speaker detail screenshots
       - Recorded field-by-field observations for 3 session cards, 1 speaker entry, and the consistency sample
+      - An explicit per-surface record of anonymous vs attendee-login vs admin-only access
   - id: EMB-S2
     name: Schedule Itinerary browsing and personal-schedule building
     persona: attendee
     steps: |
-      1. Navigate to the clone's base URL logged out. Find the schedule-itinerary widget — it may be called Itinerary, My Schedule, Schedule, Planner, or Schedule Builder, and may be a tab of the agenda page. Prefer using it anonymously; if adding sessions to a personal schedule demands an account, sign up as a new attendee (name "Alex Attendee", email alex.attendee@sbek-test.example.com, password SbekTest!2027-att) and record that login was required.
+      1. Navigate to the clone's base URL logged out. Find the schedule-itinerary widget — it may be called Itinerary, My Schedule, Schedule, Planner, or Schedule Builder, and may be a tab of the agenda page. Try it anonymously first and record whether that works. If the surface (or personal-schedule saving) requires an account, sign in or sign up as attendee "Alex Attendee", email alex.attendee@sbek-test.example.com, password SbekTest!2027-att, and record that a login was required — this is expected behaviour and not a defect. Never use organizer/admin credentials in this scenario.
       2. Verify the chronological structure: day tabs or day sections (the fixture event runs 2027-05-12 to 2027-05-14) and sessions grouped in ascending time order, ideally under time headers. Screenshot day 1.
       3. Pick one session card and record its anatomy: track chip/label, title, truncated description (expand it via Show more if offered), full date/time line, room, the complete speaker list with job titles and companies, and Format/Track rows. Screenshot the card. If the card offers an inline "View Details" expansion (e.g. for sub-sessions), click it, screenshot the expanded state, then collapse it.
       4. Switch to a different day tab/section; screenshot and confirm the listed sessions changed.
@@ -58,26 +70,31 @@ scenarios:
       - Screenshots of two sessions in added/selected state and of the personal schedule view containing exactly those two
       - Post-reload screenshot demonstrating persistence (or an explicit observation that selections were lost)
       - Screenshot or explicit absence note for the export/add-to-calendar affordance
+      - A record of whether itinerary browsing was anonymous or required an attendee login
   - id: EMB-S3
-    name: Organizer embed generation and data consistency
+    name: Organizer embed generation, snippet retrieval and data consistency
     persona: organizer
     steps: |
       1. Navigate to the clone's base URL. Find the organizer/admin entry point — try nav links (Sign in, Log in, Organizer, Admin, Dashboard) and paths (/admin, /dashboard, /organizer, /login). If the clone offers open signup, sign up as organizer Jordan Alvarez (jordan.organizer@sbek-test.example.com) with the fixture password; otherwise sign in with the fixture organizer credentials.
       2. Open the event workspace for "DevFlow Conf 2027" if it exists. If the account is empty, note that and continue — the embed area's chrome can still be evaluated; only create a minimal event from the fixture data if the clone requires one to reach the embeds area and creation takes under a minute.
-      3. Find the embed/share/publish area — it may be called Embeds, Widgets, Share, Publish, Website, Integrations, or live under a Deliver-style module. Screenshot the area's landing/list screen.
-      4. Start creating a new embed (Add Embed / New Widget / similar). Record which widget types are offered (looking for equivalents of the five: sessions list, speakers list, agenda, schedule itinerary, speaker gallery) and which output formats (styled HTML/script tag, basic HTML, JSON, XML, iCal). Screenshot the type/format pickers.
+      3. Find the embed/widget area. It may be called Embeds, Widgets, Share, Publish, Website, Feeds, or Integrations, and may sit under a CMS / Website / Marketing / Deliver-style module (SessionBoard puts it at CMS > Embeds). Screenshot the area's landing/list screen. Record whether existing embeds are listed with a name, an output format grouping, and an enabled/disabled state, and whether search/filter controls exist.
+      4. Start creating a new embed (Add Embed / New Widget / similar). Record which widget types are offered, looking for equivalents of the five: sessions list, speakers list, agenda, schedule itinerary, speaker gallery. Record which output formats are offered (styled HTML script tag, basic HTML, JSON, XML, iCal). Screenshot the type and format pickers.
       5. Configure a Sessions List (or any available) embed. Record which configuration options exist: colors/branding, custom CSS, content filters (by track/status), and field selection checkboxes. Screenshot the builder with options visible.
-      6. Save/generate the embed and capture the output: screenshot the generated snippet or shareable URL, and record the snippet text as an observation. If a "preview" affordance exists, open it and screenshot the previewed widget.
-      7. CONSISTENCY — in the organizer-side session management (sessions/agenda admin), record one session's exact title, date, time, room, and track. Screenshot it.
-      8. Open the public widget surface (log out or open the public URL directly) and locate that same session in the sessions list and/or agenda widget. Record its displayed title, date, time, room, and track and screenshot it next to your notes. Note any field that differs from the organizer-side record.
+      6. Save/generate the embed. Then use the per-embed "Get Code" / copy-snippet / share affordance and capture the output: screenshot the generated snippet or shareable URL, and record the snippet text VERBATIM as an observation. If the snippet contains a URL (script src, iframe src, or feed endpoint), record that URL explicitly as its own observation.
+      7. RENDERED CHECK — if the embed area offers a Preview/View affordance, open it and screenshot the widget as it renders. Otherwise, if the URL you recorded in step 6 is on the same site or a sibling subdomain, navigate to it directly and screenshot whatever renders (a rendered widget, a JSON/XML feed body, or an error — record which). If the URL is on an unrelated origin you cannot reach, record that the rendered check is deferred to manual verification, and say so explicitly rather than guessing.
+      8. If the embed list exposes an enable/disable toggle, record its current state and how it is presented. Do NOT delete, archive, or remove any embed, and do not disable one you did not create.
+      9. CONSISTENCY — in the organizer-side session management (sessions/agenda admin), record one session's exact title, date, time, room, and track. Screenshot it.
+      10. Open the same session on the attendee-facing widget surface (the event site/portal or the embed URL; sign out or use a non-admin view if the clone requires it). Record its displayed title, date, time, room, and track and screenshot it. Note any field that differs from the organizer-side record.
     success_signals:
       - Screenshot of the embeds/share area listing and of the widget-type and format pickers
-      - Screenshot of the generated embed snippet or share URL (text recorded as an observation)
-      - Screenshot pair proving one session's organizer-side record matches its public widget rendering
+      - Screenshot of the generated embed snippet or share URL, with the snippet text recorded verbatim as an observation
+      - A rendered-embed screenshot (preview, reachable embed URL, or feed body) OR an explicit note that the render check was deferred to manual
+      - Screenshot pair proving one session's organizer-side record matches its attendee-facing widget rendering
 rubric:
   - id: EMB-01
-    criterion: The public Sessions List widget renders a card per session showing title, truncated description with a Show more expansion, date/time, room, speaker names with job title and company, and Format/Track tags
+    criterion: The Sessions List widget renders a card per session showing title, truncated description with a Show more expansion, date/time, room, speaker names with job title and company, and Format/Track tags
     weight: 3
+    type: exists
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: At least 3 session cards each display title, description snippet, a date+time string, a room/location, at least one speaker with job title and company, and Format and Track values; clicking Show more (or equivalent) expands the description in place
@@ -85,6 +102,7 @@ rubric:
   - id: EMB-02
     criterion: Sessions List keyword search matches both session titles and speaker names, narrowing the visible cards and updating any result count
     weight: 2
+    type: rule
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: A title-word query leaves only matching session(s) and a speaker-surname query leaves only that speaker's session(s); any visible result count updates to match; partial credit if only title search works
@@ -92,13 +110,15 @@ rubric:
   - id: EMB-03
     criterion: Sessions List offers a faceted Filters control (at minimum Track, ideally also Format and Location) whose selections narrow the list to matching sessions
     weight: 2
+    type: rule
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: A filter panel/control exists with at least a Track facet; selecting one track leaves only cards carrying that track; full credit requires Format and Location/room facets too
     evidence: Screenshot of the open filter panel showing facet groups and of the filtered list where every card matches the chosen track
   - id: EMB-04
-    criterion: The public Speakers List widget shows a directory of speakers (ordered alphabetically by surname) with headshot, name, job title, and company per entry
+    criterion: The Speakers List widget shows a directory of speakers (ordered alphabetically by surname) with headshot, name, job title, and company per entry
     weight: 3
+    type: exists
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: A speaker directory distinct from raw session data exists; entries show photo, name, job title, and company; ordering across the first several entries is alphabetical by surname (ordering alone, if violated, costs partial credit rather than a fail)
@@ -106,13 +126,15 @@ rubric:
   - id: EMB-05
     criterion: Each Speakers List entry drills into a detail view with the speaker's bio and their sessions (title, date/time, room), and the directory supports search by speaker name
     weight: 2
+    type: roundtrip
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: Opening a speaker shows a bio and a per-speaker session sublist where each session has title, date/time, and room; typing an exact speaker name in the directory search narrows to that speaker
     evidence: Screenshot of one speaker's detail with their sessions, and of the search-narrowed directory
   - id: EMB-06
-    criterion: The public Agenda widget renders a per-day schedule organized by time — a grid with room/location columns and a time gutter, or an equivalent day/track/time-structured layout — with session blocks placed at their correct room and time showing at least title and track/format
+    criterion: The Agenda widget renders a per-day schedule organized by time — a grid with room/location columns and a time gutter, or an equivalent day/track/time-structured layout — with session blocks placed at their correct room and time showing at least title and track/format
     weight: 3
+    type: exists
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: An agenda view structured by day and time exists (grid with location columns preferred; a clearly time-slotted list is acceptable); one sampled session appears at the correct room/time position with title and a track or format label
@@ -120,6 +142,7 @@ rubric:
   - id: EMB-07
     criterion: Agenda day navigation (chevrons, tabs, or date picker) switches between event days and re-renders that day's sessions
     weight: 2
+    type: rule
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: Activating day navigation changes the visible day label AND the rendered sessions (at least one session differs between the two captured days)
@@ -127,13 +150,15 @@ rubric:
   - id: EMB-08
     criterion: Clicking an agenda session block opens a detail view with the full start-end time range, room, description, Format, and Track, and a Back/close control restores the agenda
     weight: 2
+    type: exists
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: "Detail view shows title, full time range, room, description, and Format/Track values (a Subsessions section is bonus, per SessionBoard, not required); Back/close returns to the intact agenda"
     evidence: Screenshot of the open detail view and of the restored agenda afterwards
   - id: EMB-09
-    criterion: The public Schedule Itinerary widget lists sessions chronologically within day tabs/sections, with cards showing track label, title, description, full date/time, room, and the complete speaker list with titles and companies
-    weight: 3
+    criterion: The Schedule Itinerary widget lists sessions chronologically within day tabs/sections, with cards showing track label, title, description, full date/time, room, and the complete speaker list with titles and companies
+    weight: 2
+    type: exists
     testability: auto
     scenarios: [EMB-S2]
     pass_criteria: Day tabs or day sections exist for the multi-day event; sessions within a day appear in ascending time order (time-group headers are ideal); one sampled card shows track, title, description, date/time, room, and every listed speaker with job title and company
@@ -141,52 +166,61 @@ rubric:
   - id: EMB-10
     criterion: "Personal schedule building (inferred from category norms; not visible in SessionBoard's live itinerary example): the attendee can add/star sessions from the itinerary and view a personal schedule containing exactly the chosen sessions"
     weight: 1
+    type: depth
     testability: auto
     scenarios: [EMB-S2]
-    pass_criteria: An add/star/bookmark control exists on itinerary cards; after adding two sessions, a personal-schedule view (My Schedule or equivalent filter) shows exactly those two sessions in time order; removing one updates the view
+    pass_criteria: An add/star/bookmark control exists on itinerary cards; after adding two sessions, a personal-schedule view (My Schedule or equivalent filter) shows exactly those two sessions in time order; removing one updates the view. Requiring an attendee account to save a personal schedule is expected and must not cost credit
     evidence: Screenshots of two cards in selected state, the personal view with exactly those two sessions, and the view after one removal
   - id: EMB-11
     criterion: The personal schedule persists across a full page reload, and an export/add-to-calendar affordance is offered for the selection
     weight: 1
+    type: depth
     testability: auto-partial
     scenarios: [EMB-S2]
     pass_criteria: After a browser reload the previously added sessions are still marked/present in the personal view (via localStorage or an account); an export/iCal/add-to-calendar control exists and reports success when activated — the downloaded file's correctness is the manual half
     evidence: Post-reload screenshot of the intact personal schedule plus a screenshot of the export control or its confirmation
     manual_instructions: "In a normal browser, add 2 sessions to the personal schedule, trigger the export/add-to-calendar action, and download the .ics (or open the calendar link). Import it into a calendar app and confirm both sessions appear with the correct titles, dates (event days 2027-05-12..14), start/end times, and rooms/locations. Also revisit the widget the next day (or in a new tab of the same profile) to confirm longer-term persistence."
   - id: EMB-12
-    criterion: The public Speaker Gallery widget renders a visual photo grid of speaker cards (headshot, name, job title, company), alphabetized by surname, with a search-by-name box, degrading gracefully for speakers missing a photo or title
-    weight: 3
+    criterion: The Speaker Gallery widget renders a visual photo grid of speaker cards (headshot, name, job title, company), alphabetized by surname, with a search-by-name box, degrading gracefully for speakers missing a photo or title
+    weight: 2
+    type: exists
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: A grid layout visually distinct from the speakers list exists; cards show headshot, name, job title, company; name search narrows the grid to the matching speaker; a photo-less speaker (if any exists in the data) renders with a fallback rather than breaking the grid; surname ordering is partial credit
     evidence: Grid screenshot, search-narrowed screenshot, and the agent's card-field and fallback observations
   - id: EMB-13
     criterion: "Clicking a gallery card opens a speaker detail (modal or panel) with photo, name, job title, bio with Show more, company, and a sessions list giving each session's title, date/time, and room; closing it returns to the intact grid"
-    weight: 2
+    weight: 1
+    type: exists
     testability: auto
     scenarios: [EMB-S1]
     pass_criteria: "The detail shows photo, name, title, bio, company, and the speaker's sessions each with title, date/time, and room (a 'Sessions (N)' count is a plus); Back/Close restores the grid in its prior state"
     evidence: Screenshot of the open detail showing the sessions sublist and of the restored grid
   - id: EMB-14
-    criterion: All five widget surfaces (sessions list, speakers list, agenda, schedule itinerary, speaker gallery) are publicly reachable and fully readable without any login or account
+    criterion: The five widget surfaces (sessions list, speakers list, agenda, schedule itinerary, speaker gallery) are distributable to non-admin viewers — each renders populated event content outside the organizer admin UI, on an attendee-facing site/portal or via a generated embed
     weight: 3
+    type: scoping
     testability: auto
-    scenarios: [EMB-S1, EMB-S2]
-    pass_criteria: Every widget surface the clone implements loads with populated content in a logged-out browser, with no auth wall, forced redirect to login, or blurred/gated content; itinerary BROWSING must be anonymous (personal-schedule saving may require an account without failing this item, if the agent noted that)
-    evidence: Logged-out screenshots of each widget surface from EMB-S1/EMB-S2 and the agent's observation that no sign-in was performed (or where one was demanded)
+    scenarios: [EMB-S1, EMB-S2, EMB-S3]
+    pass_criteria: >
+      Every widget the clone implements renders populated content to a viewer holding NO organizer/admin rights, on a surface separate from the admin UI — an anonymous public page, an attendee-authenticated event site/portal, or a rendered/generated embed. Requiring an attendee login is fully acceptable and costs NO credit: the reference product requires at least one login method on its event site and offers no fully-public option, so do not penalise a login-gated event site. Anonymous login-free access is a bonus the judge may note but must not require. Deduct only where a widget is reachable ONLY inside the organizer admin UI, requires organizer/admin privileges to read, or renders empty/broken for a non-admin viewer despite content existing. Partial credit if some widgets are non-admin-visible and others are admin-only.
+    evidence: The non-admin screenshots of each widget surface from EMB-S1/EMB-S2, the agent's explicit per-surface record of anonymous vs attendee-login vs admin-only access, and any rendered embed from EMB-S3
   - id: EMB-15
-    criterion: An organizer-side embed/share area lets the organizer generate an embeddable snippet or shareable URL per widget type, with configuration such as output format, branding/colors, content filters, and field selection
-    weight: 2
+    criterion: An organizer-side embed area lets the organizer generate a per-widget embeddable snippet or feed URL, with configuration such as output format, branding/colors, content filters, and field selection, and lists saved embeds with a retrievable code snippet
+    weight: 3
+    type: handoff
     testability: auto-partial
     scenarios: [EMB-S3]
-    pass_criteria: The agent finds an embeds/share/publish area, sees widget-type choices covering most of the five, configures and saves an embed, and captures a generated snippet or URL; full credit needs multiple output formats (styled HTML script, basic HTML, JSON/XML, iCal) and filter/field/branding options per SessionBoard — the snippet actually rendering inside a third-party page is the manual half
-    evidence: Screenshots of the embed area, type/format pickers, builder options, and the generated snippet text recorded as an observation
-    manual_instructions: "Copy the generated styled-HTML snippet into a blank .html file on a different origin (e.g. a local file or codepen), open it, and confirm the widget renders with live event data, reflects any configured colors/filters/hidden fields, and remains interactive (search/detail). If JSON/XML/iCal formats are offered, fetch each endpoint and confirm the JSON/XML contains session/speaker data and the iCal imports the approved sessions into a calendar app."
+    pass_criteria: >
+      The agent finds an embeds/widgets/share area, sees widget-type choices covering most of the five, configures and saves an embed, and retrieves a generated snippet or feed URL via a Get Code / copy / share affordance — the snippet text must be captured, not merely asserted to exist. Full credit needs multiple output formats (styled HTML script, basic HTML, JSON/XML, iCal) plus filter/field/branding options, and a saved-embed list with per-embed management (naming, enable/disable). Partial credit if an embed area exists but yields only a plain share URL with no configuration, or offers configuration but no retrievable snippet. This item is the primary evidence that the widgets are genuinely embeddable; the snippet actually rendering inside a third-party page is the manual half.
+    evidence: Screenshots of the embed area listing, type/format pickers, and builder options, plus the generated snippet text recorded verbatim as an observation and any preview/rendered-embed screenshot
+    manual_instructions: "Copy the generated styled-HTML snippet into a blank .html file on a different origin (e.g. a local file or codepen), open it, and confirm the widget renders with live event data, reflects any configured colors/filters/hidden fields, and remains interactive (search/detail). If JSON/XML/iCal formats are offered, fetch each endpoint and confirm the JSON/XML contains session/speaker data and the iCal imports the approved sessions into a calendar app. Also confirm the embed renders for a visitor who is NOT signed in to the organizer account."
   - id: EMB-16
     criterion: Widget data is consistent across surfaces and with the organizer-side source — the same session shows identical title, date/time, room, and track everywhere it appears, and matches the organizer's record without republishing
-    weight: 2
+    weight: 3
+    type: roundtrip
     testability: auto-partial
     scenarios: [EMB-S1, EMB-S3]
-    pass_criteria: "The consistency samples show no mismatches: one session's title/date/time/room/track identical across at least two public widgets (EMB-S1), one speaker's name/title/company identical between speakers list and gallery (EMB-S1), and one session's public rendering matching its organizer-side record (EMB-S3). Tolerance: a leftover 'UPDATED: ' title prefix from area 04's edit test (whose final revert step may have failed) is NOT a mismatch, provided the prefixed title is identical across surfaces. This point-in-time consistency is the auto half; propagation of organizer edits to the already-embedded widget without republishing is the manual half"
-    evidence: The agent's recorded field values from each surface plus the paired screenshots from EMB-S1 step 10 and EMB-S3 steps 7-8
-    manual_instructions: "As the organizer, edit one session's title (or room) in the admin, then reload the public sessions list/agenda widget — using any manual cache-refresh control the clone offers — and confirm the edit appears without regenerating, re-saving, or re-embedding the widget. If the clone documents an auto-refresh interval (SessionBoard's is ~60 min), optionally re-check after that interval to confirm the change also propagates with no manual refresh."
+    pass_criteria: "The consistency samples show no mismatches: one session's title/date/time/room/track identical across at least two widgets (EMB-S1), one speaker's name/title/company identical between speakers list and gallery (EMB-S1), and one session's attendee-facing rendering matching its organizer-side record (EMB-S3). Tolerance: a leftover 'UPDATED: ' title prefix from area 04's edit test (whose final revert step may have failed) is NOT a mismatch, provided the prefixed title is identical across surfaces. This point-in-time consistency is the auto half; propagation of organizer edits to an already-placed embed without republishing is the manual half"
+    evidence: The agent's recorded field values from each surface plus the paired screenshots from EMB-S1 step 10 and EMB-S3 steps 9-10
+    manual_instructions: "As the organizer, edit one session's title (or room) in the admin, then reload the attendee-facing widget or the placed embed — using any manual cache-refresh control the clone offers — and confirm the edit appears without regenerating, re-saving, or re-embedding the widget. If the clone documents an auto-refresh interval (SessionBoard's is ~60 min), optionally re-check after that interval to confirm the change also propagates with no manual refresh."
