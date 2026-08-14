@@ -1,0 +1,79 @@
+{
+  "_source": "Real sessions and speakers drawn from https://www.ai.engineer/europe/schedule (AI Engineer Europe, April 10). Used as realistic dummy content when populating a SessionBoard sandbox event.",
+  "event": {
+    "name": "AI.Engineer Sandbox Event - NYC",
+    "agenda_day": "one day, 09:00-17:00"
+  },
+  "preferred_tracks": [
+    "Any tracks that already exist in the event — use those first"
+  ],
+  "fallback_tracks": ["Finance Track", "Engineering Track", "Leadership Track"],
+  "review_groups": [
+    { "name": "Finance Review Group", "track": "Finance Track" },
+    { "name": "Engineering Review Group", "track": "Engineering Track" },
+    { "name": "Leadership Review Group", "track": "Leadership Track" }
+  ],
+  "sessions": [
+    {
+      "title": "Replacing 12K LoC with a 200 LoC Skill",
+      "track": "Engineering Track",
+      "format": "Talk (25 min)",
+      "speaker": { "name": "David Gomes", "company": "Cursor", "title": "Engineering Lead", "email": "david.gomes@sbek-demo.example.com" },
+      "abstract": "How a 12,000-line hand-rolled subsystem was replaced by a 200-line agent skill, what broke along the way, and the decision framework for when this trade is worth making."
+    },
+    {
+      "title": "Every API Is a Tool for Agents",
+      "track": "Engineering Track",
+      "format": "Talk (25 min)",
+      "speaker": { "name": "Matt Carey", "company": "Cloudflare", "title": "Staff Engineer", "email": "matt.carey@sbek-demo.example.com" },
+      "abstract": "Treating every existing API surface as an agent tool: the adapter patterns, the auth problems, and what breaks at scale when agents call APIs designed for humans."
+    },
+    {
+      "title": "Beyond Code Coverage: Functionality Testing with Playwright",
+      "track": "Engineering Track",
+      "format": "Talk (20 min)",
+      "speaker": { "name": "Marlene Mhangami", "company": "Microsoft", "title": "Developer Advocate", "email": "marlene.mhangami@sbek-demo.example.com" },
+      "abstract": "Coverage numbers say a line ran, not that a feature works. A practical tour of functionality-level browser testing and what it catches that unit tests never will."
+    },
+    {
+      "title": "Agents Don't Do Standups: Building the Post-Engineer Engineering Org",
+      "track": "Leadership Track",
+      "format": "Talk (25 min)",
+      "speaker": { "name": "Mike Spitz", "company": "PFF", "title": "VP Engineering", "email": "mike.spitz@sbek-demo.example.com" },
+      "abstract": "What team structure, rituals, and career ladders look like when a meaningful share of the work is done by agents rather than people."
+    },
+    {
+      "title": "How Building with AI Can Double the Throughput of Your Engineering Team",
+      "track": "Leadership Track",
+      "format": "Talk (25 min)",
+      "speaker": { "name": "Brian Scanlan", "company": "Intercom", "title": "Principal Systems Engineer", "email": "brian.scanlan@sbek-demo.example.com" },
+      "abstract": "Measured throughput changes across a large engineering org after AI tooling rollout — what moved, what didn't, and which measurements were misleading."
+    },
+    {
+      "title": "Most Enterprise Agentic Projects Are Doomed — Here's Why",
+      "track": "Finance Track",
+      "format": "Talk (25 min)",
+      "speaker": { "name": "Jess Grogan-Avignon", "company": "Accenture", "title": "Managing Director", "email": "jess.grogan@sbek-demo.example.com" },
+      "abstract": "A post-mortem across enterprise agent deployments: the budgeting, governance, and ROI-modelling mistakes that sink them before the technology ever gets a chance."
+    },
+    {
+      "title": "Scaling Reinforcement Learning: Lessons from Trillion-Token Deployments at Fortune 500s",
+      "track": "Finance Track",
+      "format": "Talk (25 min)",
+      "speaker": { "name": "Alessandro Cappelli", "company": "Adaptive ML", "title": "Research Engineer", "email": "alessandro.cappelli@sbek-demo.example.com" },
+      "abstract": "Cost structure, procurement realities, and measured returns of trillion-token RL deployments inside large regulated enterprises."
+    }
+  ],
+  "agenda": {
+    "day_label": "Day 1",
+    "slots": [
+      { "time": "09:00-09:25", "title": "Replacing 12K LoC with a 200 LoC Skill" },
+      { "time": "09:30-09:55", "title": "Every API Is a Tool for Agents" },
+      { "time": "10:00-10:20", "title": "Beyond Code Coverage: Functionality Testing with Playwright" },
+      { "time": "11:00-11:25", "title": "Agents Don't Do Standups: Building the Post-Engineer Engineering Org" },
+      { "time": "11:30-11:55", "title": "How Building with AI Can Double the Throughput of Your Engineering Team" },
+      { "time": "13:30-13:55", "title": "Most Enterprise Agentic Projects Are Doomed — Here's Why" },
+      { "time": "14:00-14:25", "title": "Scaling Reinforcement Learning: Lessons from Trillion-Token Deployments at Fortune 500s" }
+    ]
+  }
+}
